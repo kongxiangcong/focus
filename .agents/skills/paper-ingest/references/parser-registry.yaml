@@ -1,0 +1,49 @@
+schema_version: 1
+default_backend: docling-standard-formula@1
+backends:
+  docling-standard-formula@1:
+    status: qualified-locally-after-flexsa-pass-with-warnings
+    execution: local
+    credentials_required: false
+    remote_services: disabled
+    external_plugins: disabled
+    dependency_manifest: requirements-docling.txt
+    canonical_raw_output: raw/docling.json
+    required_options:
+      do_formula_enrichment: true
+      generate_page_images: true
+      generate_picture_images: true
+      image_mode: referenced
+      windows_model_loading: ordinary-local-directories-no-symlinks
+      rapidocr_backend: onnxruntime
+    qualification:
+      date: 2026-08-01
+      source_filename: A04_FlexSA.pdf
+      source_sha256: fbf6be55d74985716c65f4132abf745d80b69db32212cd211aa3692d079ec93e
+      result: pass_with_explicit_warnings
+      input_pages: 13
+      parsed_pages: 13
+      source_anchors: 259
+      normalized_markdown_characters: 66309
+      picture_labels: 13
+      table_labels: 2
+      formula_labels: 0
+      portable_image_references: 13
+      blocking_errors: 0
+      warnings:
+        - algorithm_table_reading_order
+        - no_display_formula_objects
+        - native_word_boundary_artifacts
+    fallback_on_blocking_damage: mineru-pipeline@1
+  mineru-pipeline@1:
+    status: candidate-not-yet-qualified
+    execution: local-isolated
+    credentials_required: false
+  paddleocr-vl-local@1:
+    status: experimental
+    execution: local-isolated
+    credentials_required: false
+  mathpix-pdf@1:
+    status: disabled-until-explicit-upload-consent
+    execution: hosted
+    credentials_required: true

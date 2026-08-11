@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cognitive Profile"
+  short_description: "Inspect and deterministically fold learning evidence"
+  default_prompt: "Use $cognitive-profile only through $ask-paper to inspect valid evidence or rebuild its deterministic learner profile."

@@ -1,0 +1,7 @@
+.scratch/
+tmp/
+knowledge-base/
+*.pdf
+__pycache__/
+*.py[cod]
+.pytest_cache/

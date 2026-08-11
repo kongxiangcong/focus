@@ -1,0 +1,4 @@
+interface:
+  display_name: "Paper Guide"
+  short_description: "Build an evidence-anchored reading route"
+  default_prompt: "Use $paper-guide only with an issued $ask-paper route to build, repair, or confirm one paper reading plan."
