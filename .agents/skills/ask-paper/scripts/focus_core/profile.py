@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import FocusError
-from .storage import EVIDENCE_SCHEMA, atomic_write_yaml, read_jsonl, require_within, validate_identifier
+from .storage import EVIDENCE_SCHEMA, atomic_write_text, atomic_write_yaml, new_id, read_jsonl, require_within, validate_identifier
 
 
 POSITIVE_VERDICTS = {"sufficient", "transfer"}
@@ -158,3 +158,30 @@ def rebuild_profile(workspace: Path, evidence_path: Path, profile_path: Path) ->
     profile = build_profile(workspace, deepcopy(events))
     atomic_write_yaml(profile_path, profile, sort_keys=True)
     return profile
+
+
+def ensure_profile_projection(workspace: Path, evidence_path: Path, profile_path: Path, history_dir: Path) -> dict[str, Any]:
+    """Recover the disposable profile from read-only evidence without user approval."""
+    events = read_jsonl(evidence_path)
+    expected = build_profile(workspace, deepcopy(events))
+    current: dict[str, Any] | None = None
+    invalid = False
+    if profile_path.exists():
+        try:
+            import yaml
+
+            value = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+            current = value if isinstance(value, dict) else None
+            invalid = current is None
+        except (OSError, UnicodeError, yaml.YAMLError):
+            invalid = True
+    else:
+        invalid = True
+    if current == expected:
+        return {"profile": current, "recovered": False}
+    if profile_path.exists():
+        history_dir.mkdir(parents=True, exist_ok=True)
+        backup = history_dir / f"projection-{new_id('backup')}.yaml"
+        atomic_write_text(backup, profile_path.read_text(encoding="utf-8", errors="replace"))
+    atomic_write_yaml(profile_path, expected, sort_keys=True)
+    return {"profile": expected, "recovered": True, "reason": "invalid" if invalid else "stale"}

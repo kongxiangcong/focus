@@ -100,7 +100,8 @@ def migrate_paper(workspace: Path, selector: str) -> dict[str, Any]:
                     "validated_at": timestamp if ingest_valid else None,
                     "warnings": ["Additively migrated from paper.yaml v1"],
                 },
-                "learning_goal": old.get("learning_goal", {"mode": "deep_understanding", "statement": None}),
+                "reading_mode": "mastery",
+                "learning_goal": old.get("learning_goal", {"mode": "mastery", "statement": None}),
                 "reading": {
                     "phase": "guide" if ingest_valid else "ingest",
                     "status": "ready" if ingest_valid else "blocked",
@@ -217,6 +218,9 @@ STATUS_PRESENTATION = {
 
 
 GOAL_FALLBACKS = {
+    "scout": "判断这篇论文是否值得进一步投入，并定位其与当前研究问题的关系。",
+    "study": "形成可用于研究比较、批判和综合的机制理解。",
+    "mastery": "独立重构、迁移并在延迟复测中保持这篇核心论文的模型。",
     "overview": "建立这篇论文的问题、方法、证据与限制的整体认识。",
     "deep_understanding": "理解这篇论文的核心机制、证据与适用边界。",
     "reproduction": "掌握复现这篇论文所需的方法、条件与验证步骤。",

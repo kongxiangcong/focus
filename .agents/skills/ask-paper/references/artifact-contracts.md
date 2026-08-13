@@ -1,5 +1,13 @@
 # Paper Companion artifact contracts
 
+> v0.2 normative overlay (2026-08-13): source files, source maps, raw learner answers, evidence, and `paper.yaml` remain authoritative. `profile.yaml`, indexes, and views are disposable projections. The route, transaction, response/interview split, and migration records documented below are private v0.1 kernel details, not contracts between `ask-paper` and the three semantic modules.
+
+For new workflow behavior, treat all paper interactions as one logical append-only ledger distinguished by `event_type`. The current kernel may continue to store events, checkpoint responses, and interview responses in separate files until a real data migration is justified; callers must not depend on that physical split.
+
+Every paper persists `reading_mode: scout | study | mastery`. Scout must not create cognitive evidence. Study evidence may establish `provisional` or `verified-now`. Mastery adds frozen assessment and delayed-retention evidence. A retention row must include the prior `verified-now` reference, distinct persisted session IDs, and an elapsed interval of at least seven days.
+
+Profile rebuild is automatic and fail-soft: validate evidence, preserve an invalid prior projection, atomically replace only the projection, and fall back to an evidence summary on failure. No user authorization is required because evidence is not mutated.
+
 Use this reference when creating, validating, migrating, or committing Paper Companion artifacts. Paths are relative to the selected `knowledge-base/` unless stated otherwise. Generated control files are state-service owned; learner notes and immutable source inputs are user-owned.
 
 ## Contents

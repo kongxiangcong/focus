@@ -1,10 +1,10 @@
 # FOCUS 研究知识系统：文件目录协议、记忆、索引与知识编译机制
 
-> 调研日期：2026-08-12
+> 调研日期：2026-08-12；v0.2 收敛：2026-08-13
 > 目标领域：芯片架构、3D 堆叠架构、数据流编译器，以及三者的软硬件协同研究
 > 目标：在长期、大规模论文积累下，持续形成可追溯的跨论文理解、研究问题、idea 碰撞和可证伪实验
 > 证据边界：外部项目结论来自官方 GitHub 仓库、README、release、license 或第一方文档；GitHub star 只表示关注度，不作为正确性或成熟度证据
-> 决策状态：架构方案已收敛，可进入小规模 tracer-bullet 试点；尚未授权实施
+> 决策状态：长期蓝图保留；Atlas v0 进一步缩减，尚未实施
 > 本文只做调研与方案设计；没有创建知识目录、脚本、索引、插件、数据库或自动化
 
 ## 1. 结论先行
@@ -13,13 +13,13 @@
 
 推荐方案可概括为：
 
-> **一个工作区，四类持久层，五类记忆，七类研究对象，一条受控知识编译循环。**
+> **一个工作区，清晰权威边界，四种 Atlas canonical 对象，一条先手工验证价值的综合循环。**
 
 - **一个工作区**：继续以现有 `knowledge-base/` 为根，不再建立平行论文库或第二套学习状态。
-- **四类持久层**：不可变来源与证据、可审查的权威知识对象、追加式事件与认知证据、可删除重建的索引/视图。
-- **五类记忆**：来源记忆、科学语义记忆、学习者认知记忆、操作记忆、派生检索记忆；它们的权威性和失效条件不同。
-- **七类研究对象**：Paper、Claim、Concept、Synthesis、Question、Idea、Project/Experiment；不能都写成无类型“笔记”。
-- **一条编译循环**：`capture → validate → propose → review/promote → commit → invalidate → reindex → evaluate`。
+- **首版只实现两类持久事实**：FOCUS 来源/学习证据与 Atlas 普通文件；索引和视图全部可重建，事件/迁移平台延后。
+- **四类 canonical 对象**：Concept、Synthesis、Question、Idea。
+- **Paper 是 FOCUS 只读 projection**；Claim 默认留在 paper-local claim map；Project/Experiment 是知识消费者与实验记录，不进入 Atlas canonical ontology。
+- **一条轻量循环**：`map sources → draft synthesis/question/idea → human review → save canonical file`。只有 Atlas promotion 和 Mastery 使用完整审查。
 
 核心数据流是：
 
@@ -39,7 +39,7 @@ flowchart LR
 最重要的架构判断是：
 
 1. **普通文件是规范数据，数据库是派生加速器。** Markdown/YAML/JSONL/PDF 脱离任何产品仍可读、可审计、可恢复；SQLite、FTS、向量和图缓存可以整目录删除后重建。
-2. **FOCUS 继续掌管来源、学习状态和掌握证据。** Atlas 不重新解释 `mastered`，也不把导读、模型记忆或检索命中升级成论文事实。
+2. **FOCUS 继续掌管来源、学习状态和掌握证据。** Atlas 不重新解释 `verified-now`/`retained`，也不把导读、模型记忆或检索命中升级成论文事实。
 3. **LLM 负责知识维护劳动，不拥有科学真相的无门槛写权限。** 它可以生成 proposal、影响集、差异和 lint 建议；跨论文综合、概念合并、矛盾处理、idea 晋升必须留下明确审查记录。
 4. **检索不是记忆本体。** exact/BM25/vector/rerank 只负责发现候选；能够被搜索到不等于证据成立、用户掌握或 idea 新颖。
 5. **高层思维结构要保存为可审计的 argument trace，而非不可核验的自由式思维链。** 每一步都回到 source claim、researcher inference、假设或实验结果。
@@ -86,9 +86,9 @@ flowchart LR
 - 来源 SHA、稳定 paper/node/claim 身份与精确 source anchor；
 - `paper.yaml` 作为单篇论文唯一可变的路由/状态快照；
 - claim map、knowledge DAG/tree projection 和 reading plan；
-- 锁、revision 检查、原子事务、追加式事件/回答/答辩/证据账本；
+- 隐藏在单一状态接口后的锁、revision 检查、幂等和原子写入；
 - 可从证据重建的 cognitive profile；
-- `provisional` 与 `mastered` 的证据门，不用“感觉懂了”代替可观察/迁移证据。
+- `provisional`、`verified-now` 与 `retained` 的证据门，不用“感觉懂了”代替可观察、迁移和延迟保持证据。
 
 因此，新增知识系统不能复制 `paper.yaml`、claim map 或 mastery state。它只能消费这些已提交 revision，并把跨论文产物写到新的、受控的 Atlas 层。
 
@@ -102,10 +102,10 @@ FOCUS 的单论文证据和学习闭环已经较强，缺口主要在：
 
 - 主题级 paper landscape 与筛选 frontier；
 - 跨论文 canonical concepts、mechanisms 和 syntheses；
-- 关系的时效、矛盾、反证和影响传播；
+- 跨论文支持、反证、依赖和测试关系；
 - question → idea → experiment → project 的可审计链；
-- 大规模 exact/full-text/typed/hybrid 检索；
-- Atlas 的 review queue、schema migration、doctor 和 retrieval regression。
+- 在真实语料规模出现后的 exact/BM25 检索；
+- promotion 的人工审查；完整 migration、stale propagation、vector/rerank、doctor 和 retrieval regression 延后。
 
 ## 4. GitHub LLM Wiki 与成熟知识/记忆项目调研
 
@@ -228,33 +228,19 @@ knowledge-base/
 ├── reading-registry.yaml                  # 现有论文 registry
 ├── research-corpus/                       # 现有来源、paper-local claims/DAG/plan/evidence
 ├── cognitive-profile/                     # 现有可重建认知投影与证据入口
-├── atlas/                                 # 新增：前端无关的跨论文 canonical knowledge
+├── atlas/                                 # v0：前端无关的跨论文 canonical knowledge
 │   ├── 00-system/
 │   │   ├── schema.yaml                    # object/field/relation/lifecycle contract
-│   │   ├── aliases.yaml                   # 受控缩写和中英文别名；解决歧义
-│   │   ├── redirects.yaml                 # merge/rename tombstone，不静默删 ID
-│   │   ├── policies.md                    # promotion、merge、stale、archive 规则
-│   │   └── migrations/                    # versioned migration declarations
-│   ├── 10-maps/                           # 人维护的 landscape/problem/evidence/frontier maps
-│   ├── 20-objects/
-│   │   ├── papers/                        # FOCUS paper projection，不复制全文
-│   │   ├── claims/                        # 只提升高复用 paper-local claims
+│   │   ├── aliases.yaml                   # 仅在真实歧义出现时添加
+│   │   └── policies.md                    # promotion 与 source/inference 边界
+│   ├── papers/                            # 由 FOCUS 生成的只读 projection
+│   ├── objects/
 │   │   ├── concepts/                      # canonical terminology/mechanism
 │   │   ├── syntheses/                     # 跨来源综合、争议和边界
 │   │   └── questions/                     # evidence gap 与关闭条件
-│   ├── 30-ideas/                          # hypothesis、falsifier、novelty/evidence state
-│   ├── 40-projects/                       # StackRoom 等消费视图，只链接 canonical IDs
-│   └── 90-archive/                        # retired/superseded 的可读归档，不删除历史
+│   └── ideas/                              # hypothesis、falsifier、novelty/evidence state
 └── .paper-companion/                      # 继续作为统一控制与机器产物边界
-    ├── routes/ locks/ transactions/ runs/ migrations/   # 现有
-    ├── review/atlas/                      # 未来：promotion/merge proposals
-    └── indexes/atlas/                     # 未来：可删除重建
-        ├── manifest.json                  # corpus/schema/parser/model fingerprints
-        ├── registry.json                  # ID/path/title/alias 投影
-        ├── search.sqlite                  # metadata + FTS5/BM25
-        ├── graph.json                     # typed adjacency projection
-        ├── vectors/                       # 可选，不是第一阶段必需
-        └── eval/                          # retrieval fixtures 与结果
+    └── indexes/atlas/                     # 有真实查询集后再实现；可删除重建
 ```
 
 设计理由：
@@ -267,17 +253,16 @@ knowledge-base/
 
 ## 8. 对象、身份和关系协议
 
-### 8.1 七类对象
+### 8.1 Atlas v0 的四类 canonical 对象
 
 | 类型 | 作用 | 进入条件 |
 |---|---|---|
-| Paper | 来源身份、版本、FOCUS 状态和 artifact 入口 | FOCUS 已认领并通过 ingest validation |
-| Claim | 论文在一个 source revision 下的主张、证据、假设、限制或 open question | 跨论文会被复用；有 paper-local claim ID 和 source anchor |
 | Concept | 稳定术语、机制或设计轴 | 搜索既有 alias 后仍需要独立 canonical identity |
 | Synthesis | 多来源比较、因果机制、权衡、争议或 `as_of` 结论 | 至少有来源集、支持/反驳/未覆盖和适用边界 |
 | Question | 尚未关闭的研究问题和 evidence gap | 写明重要性、缺失证据和关闭/改写条件 |
 | Idea | 新机制假设和预测 | provenance、transfer risk、falsifier、最小实验完整 |
-| Project/Experiment | 实施、实验和论文输出视图 | 引用 canonical IDs；不复制知识真相 |
+
+Paper 由 FOCUS 自动生成只读 projection，不建立第二身份。Claim 留在 paper-local claim map，只有真实跨论文高频复用后才作为 source reference 被引用，而不成为 v0 对象类型。Project/Experiment 引用 canonical IDs，但其状态属于项目和实验记录。
 
 ### 8.2 稳定身份
 
@@ -319,12 +304,11 @@ revision: 3
 
 ### 8.4 边的分级
 
-- **结构边**：`paper_has_claim`、`idea_tests_question`、`experiment_tests_idea`，可由确定性规则生成。
-- **来源边**：`derived_from`、`reported_by`，必须回到 source anchor/revision。
-- **语义边**：`supports`、`contradicts`、`extends`、`requires`、`trades_off_with`、`limited_by`、`applies_to`，必须有 origin 和证据。
+- **v0 关系只保留**：`supports`、`contradicts`、`requires`、`tests`；每条边回到 source anchor 或明确的 researcher inference。
+- `as_of`、`supersedes` 和时间有效性只用于真实发生版本演进的对象，不是所有关系的强制字段。
 - **探索边**：LLM/向量发现的潜在关系，只能是 `proposed`，不能进入 verified graph。
 
-长期不使用含义不明的 `related` 作为主要边。自动图只能发现候选，不能解锁 `mastered`、覆盖 author claim 或决定研究结论。
+长期不使用含义不明的 `related` 作为主要边。自动图只能发现候选，不能解锁 `retained`、覆盖 author claim 或决定研究结论。
 
 ## 9. 索引和检索协议
 
@@ -600,43 +584,39 @@ pending/running → paused → resumed
 
 主题选择“3D 堆叠 × 数据流/编译协同”，规模限制为：
 
-- 1 个 Theme Map 和四种高层视图；
+- 1 个 Theme Map；
 - 5–10 篇经 FOCUS 认领的论文；
-- 10–30 个 canonical concepts/mechanisms/syntheses；
-- 只提升真实跨论文复用的 claims；
+- 10–30 个 Concept/Synthesis/Question/Idea 文件；
 - 3–5 个 research questions；
 - 1 个完整 idea collision；
 - 至少 1 个被 `refuted/retired` 的反例；
-- 1 组 exact/BM25/typed retrieval fixtures。
+- 先记录真实查询日志；不预建 retrieval regression。
 
 试点通过标准：
 
 1. 任一 synthesis/idea 可回溯到多篇 paper claims 和 source anchors；
-2. 替换一个 source/解析 revision，只标记正确的依赖对象和 mastery contracts；
-3. 删除 `indexes/atlas/` 后能完整重建 registry、FTS、graph view 和 health report；
-4. benchmark 能解释检索失败属于未收录、未提升、alias、relation、BM25 还是 vector 问题；
-5. concept rename/merge 后历史 ID、project link 和查询仍可解析；
-6. broken link、duplicate alias、stale source、fingerprint drift 和中断事务均能被 doctor 检出；
-7. idea 同时包含 negative evidence、transfer boundary、falsifier 和最小实验；
-8. StackRoom 引用稳定 research IDs，而不是复制无法追踪的摘要。
+2. 每个对象通过短 ID、source refs 和四种 typed relation 可被人工审查；
+3. 随机抽查的 synthesis/claim-to-span 引用确实受到来源支持；
+4. idea 同时包含 negative evidence、transfer boundary、falsifier 和最小实验；
+5. StackRoom 引用稳定 research IDs，而不是复制无法追踪的摘要。
 
 ## 16. 分阶段实施建议（本次未实施）
 
 ### 阶段 0：冻结协议
 
-只确定 object types、ID、schema、relation vocabulary、memory scopes、promotion/merge/stale contract 和 path budget。不装产品，不批量迁移。
+只确定四种 object type、短 ID、四种 relation、source/inference 边界、promotion gate 和 path budget。不装产品，不批量迁移。
 
 ### 阶段 1：单主题 tracer bullet
 
-手工可审查地打通 `FOCUS claim → Atlas synthesis → Question → Idea → Experiment/Project`，优先验证矛盾、失效、merge、refuted idea 和恢复路径。
+手工可审查地打通 `FOCUS claim → Synthesis → Question → Idea → Experiment/Project`，先证明会形成真实可复用综合。
 
-### 阶段 2：确定性维护内核
+### 阶段 2：规模触发的维护能力
 
-实现 registry、proposal/review、event、impact set、stale propagation、doctor、migration 和 generated MOC。复用 FOCUS 锁、revision、事务与事件语义，不另造平行 runtime。
+只有出现真实 schema 变化、20–50 篇以上复用或维护痛点后，才实现 registry、redirect、局部 stale、doctor 或 migration；不一次性建设平台。
 
 ### 阶段 3：本地全文索引
 
-实现或接入可删除的 SQLite FTS5/BM25，建立 query fixtures 和 regression。只有数据证明需要时，再试验 QMD 或等价 hybrid backend。
+有真实查询集且文件搜索不足时，才实现可删除的 SQLite FTS5/BM25。只有 benchmark 证明 BM25 不足时，再试验 vector/rerank。
 
 ### 阶段 4：可选客户端
 
@@ -649,12 +629,12 @@ pending/running → paused → resumed
 1. **文件目录和操作协议是系统本体，Obsidian/产品/数据库都是可替换客户端。**
 2. **FOCUS 是来源、学习路由和掌握证据的唯一权威。**
 3. **Atlas 是跨论文编译知识，不是第二份 paper truth。**
-4. **Source、Claim、Synthesis、Question、Idea、Mastery 和 Project 分型。**
+4. **Atlas v0 只有 Concept、Synthesis、Question、Idea；Paper/Claim 属于 FOCUS，Project/Experiment 属于消费者。**
 5. **Stable ID 决定身份；路径只负责寻址；typed relation 负责语义。**
-6. **Semantic relation 必须有 origin、evidence、review state 和时间有效性。**
+6. **v0 只使用 supports、contradicts、requires、tests；关系有 origin 与 evidence，时间字段按需。**
 7. **查询结果先成为 evidence packet/proposal，不直接写回 canonical knowledge。**
 8. **旧事实失效而不消失；source revision 变化精确传播 stale。**
-9. **索引、embedding、图和视图均可删除重建，并有 manifest、doctor 和 regression。**
+9. **索引、embedding、图和视图均可删除重建；doctor 和 regression 由真实规模与查询集触发。**
 10. **操作记忆、Agent memory、科学证据和 learner cognition 不能相互替代。**
 11. **idea 必须包含反证、边界、可证伪预测和最小实验；novelty 默认 unknown。**
 12. **先证明单主题维护性和恢复性，再扩大规模或引入复杂产品。**

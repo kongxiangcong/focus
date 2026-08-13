@@ -47,6 +47,7 @@ def initialize_workspace(workspace: Path, *, adopt: bool = False) -> dict[str, A
         "defaults": {
             "explanation_language": "zh-CN",
             "quote_language": "original",
+            "reading_mode": "scout",
         },
         "paths": {
             "registry": "reading-registry.yaml",
@@ -170,9 +171,23 @@ def paper_directory(workspace: Path, paper_id: str, registry: dict[str, Any] | N
 
 def load_paper(workspace: Path, paper_id: str, *, allow_v1: bool = False) -> tuple[Path, dict[str, Any]]:
     directory = paper_directory(workspace, paper_id)
-    manifest = load_yaml(directory / "paper.yaml", code="INVALID_PAPER")
+    manifest_path = directory / "paper.yaml"
+    manifest = load_yaml(manifest_path, code="INVALID_PAPER")
     if manifest.get("schema_version") == 1 and allow_v1:
         return directory, manifest
+    if manifest.get("schema_version") == 2 and "reading_mode" not in manifest:
+        legacy_mode = str(manifest.get("learning_goal", {}).get("mode", "deep_understanding"))
+        manifest["reading_mode"] = {
+            "overview": "scout",
+            "critique": "study",
+            "research_extension": "study",
+            "deep_understanding": "mastery",
+            "reproduction": "mastery",
+        }.get(legacy_mode, "mastery")
+        backup = directory / "paper.v0.1.yaml"
+        if not backup.exists():
+            atomic_write_yaml(backup, load_yaml(manifest_path, code="INVALID_PAPER"))
+        atomic_write_yaml(manifest_path, manifest)
     validate_manifest(manifest)
     if manifest.get("paper_id") != paper_id:
         raise FocusError("PAPER_ID_MISMATCH", "Registry and paper.yaml disagree", registry_id=paper_id, manifest_id=manifest.get("paper_id"))
@@ -260,4 +275,3 @@ def list_papers(workspace: Path) -> list[dict[str, Any]]:
             item.update({"phase": "unknown", "status": "blocked", "problem": exc.code})
         result.append(item)
     return result
-

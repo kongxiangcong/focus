@@ -7,10 +7,10 @@ Use this protocol for normal units, resumed checkpoints, and remediation targets
 Use only these node states:
 
 ```text
-planned | learning | provisional | mastered | needs-remediation | skipped | stale
+planned | learning | provisional | verified-now | retained | needs-remediation | skipped | stale
 ```
 
-Move a routed node from `planned` to `learning` when instruction begins. A sufficient immediate checkpoint earns `provisional`; it may unlock downstream learning but cannot satisfy final paper completion. Award `mastered` only from unprompted transfer evidence or a frozen closed-book assessment. Use `needs-remediation` for a material misconception, `skipped` for an explicit learner choice, and `stale` when a source or rubric revision invalidates prior evidence.
+Move a routed node from `planned` to `learning` when instruction begins. A sufficient immediate checkpoint earns `provisional`. Award `verified-now` only from unprompted transfer or a frozen closed-book assessment. Teaching never awards `retained`; that requires a different session at least seven days later.
 
 ## Establish the unit boundary
 
@@ -65,7 +65,7 @@ Record the answer verbatim before judging it. Evaluate every required exit crite
 | `misconception` | The answer contradicts a critical mechanism, assumption, or boundary | Mark the node `needs-remediation` |
 | `partial` | Some required points are present and at least one is missing | Ask the smallest neutral follow-up |
 | `sufficient` | Every required point is supported and no critical error remains | Mark the node `provisional` |
-| `transfer` | The sufficient model is applied unprompted to a new situation | Mark the node `mastered` and emit mastery evidence |
+| `transfer` | The sufficient model is applied unprompted to a new situation | Mark the node `verified-now` and emit verification evidence |
 
 An explanation given by the agent is not learner evidence. The profile rubric still determines the durable capability level represented by a node event.
 
@@ -85,5 +85,5 @@ An explanation given by the agent is not learner evidence. The profile rubric st
 - Work only on a routed node in `needs-remediation`; move it to `learning` while reteaching the smallest diagnosed gap.
 - Teach the smallest diagnosed gap and trace it to the original answer and concept or claim.
 - Ask a focused checkpoint that tests the missing mechanism or boundary without disclosing a future re-grill answer.
-- Move the node to `provisional` after sufficient immediate evidence. Move it directly to `mastered` only after a genuine unprompted transfer demonstration; otherwise leave final closure to `$paper-grill`.
+- Move the node to `provisional` after sufficient immediate evidence. Move it directly to `verified-now` only after genuine unprompted transfer; otherwise leave immediate closure to `paper-assess`.
 - Preserve explicit skips as `skipped` and unmastered.

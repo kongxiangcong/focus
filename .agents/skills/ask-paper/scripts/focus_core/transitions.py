@@ -264,9 +264,17 @@ def _guide_installed(workspace: Path, route: dict[str, Any], event: dict[str, An
     )
     if event.get("learning_goal"):
         goal = event["learning_goal"]
-        if not isinstance(goal, dict) or goal.get("mode") not in {"overview", "deep_understanding", "reproduction", "critique", "research_extension"}:
+        if not isinstance(goal, dict) or goal.get("mode") not in {"scout", "study", "mastery", "overview", "deep_understanding", "reproduction", "critique", "research_extension"}:
             raise FocusError("INVALID_LEARNING_GOAL", "Unsupported learning goal")
         manifest["learning_goal"] = goal
+        mode = str(goal.get("mode"))
+        manifest["reading_mode"] = {
+            "overview": "scout",
+            "critique": "study",
+            "deep_understanding": "mastery",
+            "reproduction": "mastery",
+            "research_extension": "study",
+        }.get(mode, mode)
     row = {**_event_header(event, "guide-installed", manifest), "plan_revision": next_plan_revision, "node_count": len(nodes), "unit_count": len(units)}
     return prepare_transaction(workspace, route, event, paper_dir, manifest, event_rows=[row])
 

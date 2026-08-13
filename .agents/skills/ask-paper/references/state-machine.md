@@ -1,5 +1,31 @@
 # Paper Companion state machine
 
+> v0.2 normative overlay (2026-08-13): this workflow is risk-tiered. `ask-paper` delegates to `paper-map`, `paper-study`, or `paper-assess`; the route-oriented names and lifecycle below describe the current v0.1 kernel implementation only. They are not interfaces that a learner or semantic module must operate.
+
+## v0.2 mode and evidence rules
+
+| Mode | Required result | Explicitly omitted |
+|---|---|---|
+| `scout` (default) | source/hash, parse-quality report, overview, key claims, limitations, research relevance, frontier decision | knowledge DAG, checkpoints, profile, defense |
+| `study` | Scout result plus key mechanism map, a few integrative checkpoints, critique, visible gaps | exhaustive supporting-node defense, retention claim |
+| `mastery` | dependency plan, frozen defense, remediation, delayed retrieval, cognitive evidence | none of the epistemic gates |
+
+Modes upgrade monotonically: Scout artifacts feed Study, and Study artifacts feed Mastery. A mode upgrade preserves source, notes, answers, assessment history, and evidence.
+
+Use new node states:
+
+```text
+planned | learning | provisional | verified-now | retained | needs-remediation | skipped | stale
+```
+
+- `provisional` follows a rubric-complete immediate checkpoint.
+- `verified-now` follows an unprompted transfer or frozen closed-book reconstruction without a critical error.
+- `retained` requires a new closed-book reconstruction in another persisted session at least seven full days after `verified-now`.
+- Legacy `mastered` migrates to `verified-now`, never to `retained`.
+- Profile level 0-4 is a UI projection only. Routing uses evidence kind, demonstrated dimensions, source/contract revision, and node state.
+
+Scout completes after mapping. Study completes when selected key nodes and critique are complete, even if supporting nodes remain untested. Mastery may report `verified-now complete`; retained completion is a later evidence state and is never inferred from same-session performance.
+
 Use this reference when resolving a workspace, selecting a paper, issuing a route, evaluating a transition, recovering an interrupted interaction, or determining completion.
 
 ## Contents
@@ -59,7 +85,7 @@ Execution status:
 ready | running | awaiting-user | blocked | complete
 ```
 
-Use these learning-node states only:
+The v0.1 kernel currently stores these legacy learning-node states:
 
 ```text
 planned | learning | provisional | mastered | needs-remediation | skipped | stale
@@ -70,7 +96,7 @@ planned | learning | provisional | mastered | needs-remediation | skipped | stal
 | `planned` | Not yet taught or diagnosed | No | No |
 | `learning` | Instruction or checkpoint is active | No | No |
 | `provisional` | Immediate rubric passed without a critical error | Yes | No |
-| `mastered` | Transfer or frozen closed-book gate passed | Yes | Yes |
+| `mastered` | Legacy spelling of v0.2 `verified-now` | Yes | Yes for legacy completion only |
 | `needs-remediation` | A material gap or misconception is diagnosed | No | No |
 | `skipped` | Learner explicitly declined verification | Only when the plan permits | No |
 | `stale` | Its source, dependency, or mastery contract changed | No | No |
@@ -133,9 +159,9 @@ Select ready nodes whose hard dependencies are `provisional` or `mastered`, plus
 | Eligible terminal state | Final diagnosis computes completion | `grill-diagnosed` | `complete/complete` |
 | Any `blocked` | Exact repair is authorized | Owning Skill in repair mode | Revalidate before normal routing |
 
-## Routes, locks, and revisions
+## Private kernel routes, locks, and revisions
 
-Treat a route as a stale-work guard, not as a security credential. Require it to bind:
+The following is a compatibility implementation, not the v0.2 semantic interface. `ask-paper` hides it behind `inspect → next action → commit`. Treat a route as a stale-work guard, not as a security credential. Require it to bind:
 
 - one workspace and, when known, one paper or input hash;
 - one target Skill and one route mode from `normal`, `confirmation`, `resume`, `remediation`, `targeted`, `diagnostic`, or `repair`;
@@ -156,7 +182,7 @@ Require event IDs to be unique and commits to be payload-idempotent. Commit lear
 
 When a source hash changes, let the router block the paper and preserve the prior immutable source version. When a plan or mastery contract changes, increment its revision and mark affected evidence and nodes `stale`; preserve unaffected node evidence by stable ID and contract hash. Never rewrite historical answers or assessments.
 
-## Completion
+## Legacy-kernel completion
 
 Use state outcome `complete` only when every required node is `mastered`, the frozen paper-level pass rule succeeds, no critical misconception remains, and all evidence references validate. Present it to the learner as mastered completion.
 

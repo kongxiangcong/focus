@@ -21,7 +21,7 @@ from .contracts import (
     validate_source_map,
 )
 from .errors import FocusError
-from .profile import build_profile, rebuild_profile, validate_evidence_events
+from .profile import build_profile, ensure_profile_projection, rebuild_profile, validate_evidence_events
 from .storage import (
     PAPER_SCHEMA,
     ROUTE_SCHEMA,
@@ -393,6 +393,17 @@ def inspect_workspace(workspace: Path, selector: str | None = None) -> dict[str,
         "workspace_id": marker["workspace_id"],
         "papers": list_papers(workspace),
     }
+    paths = workspace_paths(workspace)
+    try:
+        projection = ensure_profile_projection(workspace, paths["profile_evidence"], paths["profile"], paths["profile_history"])
+        result["profile_projection"] = {"available": True, "recovered": projection["recovered"]}
+    except FocusError as exc:
+        result["profile_projection"] = {
+            "available": False,
+            "recovered": False,
+            "warning": exc.as_dict(),
+            "fallback": "read evidence ledger directly",
+        }
     if selector:
         paper_id, paper_dir, manifest = resolve_paper(workspace, selector, include_complete=True)
         result["paper"] = {

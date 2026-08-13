@@ -1,5 +1,7 @@
 # Paper Companion Skill Suite：设计评审与实施方案
 
+> **v0.2 superseding note (2026-08-13):** 本文保留为 v0.1 详细内核契约与历史依据。当前规范以 [FOCUS v0.2 Risk-Tiered Architecture](research/focus-v0.2-risk-tiered-architecture.md)、README 和 `ask-paper`/`paper-map`/`paper-study`/`paper-assess` 四个 Skill 为准。v0.2 默认 Scout，按需升级 Study/Mastery；使用 `provisional → verified-now → retained`；profile 自动恢复；旧 route、helper 和分账本只属于私有兼容内核，不再是语义模块接口。任何冲突均以 v0.2 为准。
+
 > 状态：设计冻结稿（已完成 grilling 决策）  
 > 适用范围：以本地 `knowledge-base/` 为 workspace 的长期论文精读  
 > 目标入口：`$ask-paper`  

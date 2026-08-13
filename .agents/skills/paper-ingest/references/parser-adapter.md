@@ -95,6 +95,7 @@ Write machine-readable `ingest/validation.json` and a concise `ingest/extraction
 - source-map paths resolve and anchor IDs are unique;
 - `blocking_errors` is empty;
 - non-blocking defects appear in `warnings` and in the extraction report.
+- every backend-declared `manual_spot_checks_required` item has a recorded `passed` review before promotion; this includes section/page coverage, reading order, central formulas/tables/figures, and sampled source-anchor span accuracy.
 
 Classify as blocking when damage would make later claims untraceable, including missing pages, unreadable core sections, broken essential figures, or severely corrupted central formulas or tables with no preserved source image. Classify cosmetic layout loss, unavailable page numbers, native word-boundary joins, or a degraded generated table with a legible source crop as warnings when source fidelity remains adequate.
 

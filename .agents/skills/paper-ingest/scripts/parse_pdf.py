@@ -688,10 +688,12 @@ def parse(args: argparse.Namespace) -> dict[str, Any]:
             ),
         },
         "manual_spot_checks_required": [
+            "section and page coverage",
             "two-column reading order",
             "key formula semantics and numbering",
             "vector figure crops and captions",
             "algorithm blocks and table structure",
+            "sampled source-anchor span accuracy",
         ],
     }
     atomic_json(output / "metadata.json", metadata)

@@ -7,10 +7,10 @@ Use a frozen rubric to separate measurement from teaching. Generate questions fr
 Use only these node states:
 
 ```text
-planned | learning | provisional | mastered | needs-remediation | skipped | stale
+planned | learning | provisional | verified-now | retained | needs-remediation | skipped | stale
 ```
 
-Assess every required `provisional` node before final completion. Provisional evidence may unlock downstream learning, but only unprompted transfer or a frozen closed-book demonstration can move a node to `mastered`. Keep `skipped` and `stale` nodes visible as unmastered gaps.
+In Mastery mode, assess every required `provisional` node before immediate verification. A passing frozen response moves it to `verified-now`. Only a later-session assessment at least seven days afterward may move it to `retained`.
 
 ## Freeze the round
 
@@ -65,8 +65,8 @@ Judge each question against its frozen expected points:
 | `no-evidence` | The answer does not address the required concept | `needs-remediation` |
 | `misconception` | A critical mechanism, assumption, or boundary is wrong | `needs-remediation` |
 | `partial` | Some expected points are demonstrated and others are absent | `needs-remediation` |
-| `sufficient` | Required points are demonstrated closed-book with no critical error | `mastered` |
-| `transfer` | A sufficient model is applied correctly beyond the rehearsed case | `mastered` |
+| `sufficient` | Required points are demonstrated closed-book with no critical error | `verified-now` |
+| `transfer` | A sufficient model is applied correctly beyond the rehearsed case | `verified-now` |
 
 Apply the frozen pass rule per concept and claim, not only as a total score. A core-mechanism misconception prevents paper completion regardless of aggregate performance.
 
@@ -88,6 +88,6 @@ Identify each remediation target by its stable node ID, concept or claim referen
 - Include only nodes selected by the route after remediation; require current `provisional` evidence or an explicitly authorized reassessment.
 - Test the diagnosed gap directly, preferably with a fresh example or boundary case.
 - Freeze and preserve the targeted question set exactly like a full round.
-- Mark a node `mastered` only on `sufficient` closed-book or `transfer` evidence.
+- Mark a node `verified-now` only on `sufficient` closed-book or `transfer` evidence. Mark `retained` only when the delayed gate also passes.
 - Return a failed node to `needs-remediation`; route it back to `$paper-reader` for another remediation cycle.
-- Complete the paper only when the frozen pass rule succeeds and every required node is `mastered`. Provisional, skipped, and stale nodes cannot satisfy clean final completion.
+- Report immediate Mastery completion only when every required node is `verified-now` or `retained`. Report retained mastery only when every required node is `retained`.

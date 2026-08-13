@@ -7,10 +7,10 @@ Use this rubric to review evidence metadata embedded in `answer-recorded` or `gr
 Use only these node states:
 
 ```text
-planned | learning | provisional | mastered | needs-remediation | skipped | stale
+planned | learning | provisional | verified-now | retained | needs-remediation | skipped | stale
 ```
 
-Treat a sufficient immediate checkpoint as `provisional`. It may unlock downstream learning but cannot satisfy final completion or durable mastery. Move a node to `mastered` only when a frozen closed-book response or an unprompted transfer demonstrates the precommitted rubric. Self-report changes no node state.
+Treat a sufficient immediate checkpoint as `provisional`. Move a node to `verified-now` only when a frozen closed-book response or an unprompted transfer demonstrates the precommitted rubric. Move it to `retained` only after an independent closed-book reconstruction in a different persisted session at least seven full days later. Self-report changes no node state. Legacy `mastered` evidence projects as `verified-now`.
 
 ## Evidence candidate contract
 
@@ -36,7 +36,7 @@ Apply these gates:
 
 - Treat self-report as evidence of confidence or intent, never as a level or node-state upgrade.
 - Treat one answer as a `level_candidate`; durable node mastery remains a separate state-machine judgment.
-- Require at least one mastered mechanism answer before materializing Level 3 as durable capability.
+- Require at least one verified mechanism answer before materializing Level 3 as a UI summary; do not call it durable capability.
 - Require transfer or cross-context evidence with the mechanism dimension before proposing Level 4. The same response may demonstrate the Level 3 foundation; a separate earlier Level 3 event is not required.
 - Use `misconception`, `partial`, `sufficient`, and `transfer` consistently with the persisted reader or grill rubric.
 - Lower confidence or propose `contested` when newer observed evidence conflicts with the current materialized view.
@@ -52,4 +52,4 @@ Apply these gates:
 - Produce the same profile for the same valid ledger.
 - Keep the previous valid profile when validation or rebuild fails.
 
-Materialize each concept with its level, profile status, confidence, evidence references, paper references, and last observed time. Use only `verified`, `contested`, `stale`, `skipped`, `self-reported`, or `unverified` as profile status. A profile backed only by self-report or skipped evidence must remain visibly unverified; consult `paper.yaml.reading.node_states` separately for `provisional` versus `mastered`.
+Materialize each concept with its level, profile status, confidence, evidence references, paper references, and last observed time. Level is a UI projection and must not drive routing. A profile backed only by self-report or skipped evidence remains unverified; consult evidence and node state separately for `provisional`, `verified-now`, and `retained`.

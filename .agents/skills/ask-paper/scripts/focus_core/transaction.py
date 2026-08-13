@@ -138,6 +138,15 @@ def validate_staged_ingest(workspace: Path, route: dict[str, Any], event: dict[s
     else:
         warnings = []
         validation = {"schema_version": 1, "blocking_errors": [], "warnings": []}
+    required_reviews = validation.get("manual_spot_checks_required", [])
+    if required_reviews:
+        reviews = event.get("quality_review")
+        if not isinstance(reviews, dict):
+            blocking_errors.append({"code": "SEMANTIC_SPOT_CHECK_REQUIRED", "checks": required_reviews})
+        else:
+            failed = [name for name in required_reviews if reviews.get(name) != "passed"]
+            if failed:
+                blocking_errors.append({"code": "SEMANTIC_SPOT_CHECK_FAILED", "checks": failed})
     validation = {**validation, "schema_version": 1, "blocking_errors": blocking_errors, "warnings": warnings}
     if blocking_errors:
         raise FocusError("INGEST_QUALITY_BLOCKED", "Extraction failed the structure quality gate", errors=blocking_errors)
@@ -587,7 +596,8 @@ def register_ingest(workspace: Path, route: dict[str, Any], event: dict[str, Any
             "validated_at": timestamp,
             "warnings": parsed["warnings"],
         },
-        "learning_goal": {"mode": event.get("learning_goal", "deep_understanding"), "statement": event.get("goal_statement")},
+        "reading_mode": event.get("reading_mode", "scout"),
+        "learning_goal": {"mode": event.get("reading_mode", "scout"), "statement": event.get("goal_statement")},
         "reading": {
             "phase": "guide",
             "status": "ready",

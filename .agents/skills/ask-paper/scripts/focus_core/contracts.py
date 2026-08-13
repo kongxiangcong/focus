@@ -270,6 +270,8 @@ def validate_manifest(value: dict[str, Any]) -> None:
         raise FocusError("MIGRATION_REQUIRED", "paper.yaml must use schema_version 2", actual=value.get("schema_version"))
     validate_identifier(value.get("paper_id"), "paper_id")
     ensure_nonempty_text(value.get("title"), "title")
+    if value.get("reading_mode") not in {"scout", "study", "mastery"}:
+        raise FocusError("INVALID_READING_MODE", "reading_mode must be scout, study, or mastery")
     provenance = value.get("provenance")
     if not isinstance(provenance, dict) or not isinstance(provenance.get("source_sha256"), str):
         raise FocusError("INVALID_PAPER", "Paper provenance must contain source_sha256")
