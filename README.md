@@ -4,7 +4,7 @@ FOCUS Paper Companion 是一套项目内学习工作流。它不把“读完论�
 
 当前 v0.2 先服务论文学习，核心变化是按投入强度分级，而不是让所有论文默认进入完整答辩。
 
-仓库发布的是工作流主体：1 个入口 Skill、3 个内部语义模块、隐藏的确定性状态内核、回归测试以及设计文档。论文原文、解析产物和个人学习记录均保留在本地，不进入版本控制。
+仓库发布的是工作流主体：1 个入口 Skill、3 个内部学习模块、2 个论文处理 Skill、隐藏的确定性状态内核、回归测试以及设计文档。论文原文、解析产物和个人学习记录均保留在本地，不进入版本控制。
 
 ## 快速开始
 
@@ -38,7 +38,7 @@ cd focus
 
 ## 它怎样工作
 
-1. **解析论文**：先检查 PDF 是否已有可靠文本层；默认在本地解析版面、正文、表格、公式与图示，只有失效区域才进入 OCR。
+1. **解析论文**：经用户授权后，由 `paper-parser` 调用 MinerU 网页端精准解析 API，提取版面、正文、表格、公式、图示与结构化 JSON；扫描件才显式开启 OCR。
 2. **建立知识树**：从论文主张反推先修概念、机制、证据和边界，建立“树状浏览 + DAG 依赖”学习地图。
 3. **一次掌握一个节点**：每轮只推进一个可验证动作，不用聊天长度代表学习进度。
 4. **用证据关节点**：即时检查只记为 `provisional`；同日闭卷或迁移记为 `verified-now`；至少 7 天后、跨会话的独立闭卷重构才记为 `retained`。
@@ -60,12 +60,14 @@ cd focus
 
 旧库中的 `mastered` 在迁移时按 `verified-now` 解释，绝不自动升级为 `retained`。
 
-## 一个入口、三个语义模块
+## 一个入口、三个学习模块、两个处理工具
 
 - `ask-paper`：唯一普通用户入口；选择模式、恢复状态并给出一个下一动作。
 - `paper-map`：来源认领、解析真实性检查、Scout 筛选，以及 Study/Mastery 所需的最小论文模型。
 - `paper-study`：关键机制教学、综合检查点、critique 和定向补缺。
 - `paper-assess`：即时闭卷、延迟保持、诊断、证据检查和 profile 投影。
+- `paper-parser`：使用 MinerU 精准解析 API，把 PDF 变成稳定、可追溯的 Markdown、图片、元数据和原始结构化证据。
+- `paper2blog`：从解析证据建立 Evidence Map，并写成有方法、公式、图表、实验和边界分析的中文技术博客。
 
 这些 Skill 共享一个确定性状态内核。模型负责解释、提问和可审计的语义判断；脚本只负责来源、状态、revision、幂等、原子写入和恢复。route、helper、锁和事务是当前内核的私有兼容细节，不属于 v0.2 Skill 接口。
 
@@ -73,7 +75,7 @@ cd focus
 
 ```text
 .
-├── .agents/skills/                 # ask-paper + 3 个 v0.2 语义模块
+├── .agents/skills/                 # 4 个学习 Skill + paper-parser + paper2blog
 │   └── ask-paper/scripts/
 │       ├── focus_state.py          # 状态维护入口
 │       └── focus_core/             # 确定性状态内核
@@ -85,9 +87,9 @@ cd focus
 
 ## PDF 解析原则
 
-默认路径是本地 Docling：保留无损结构化 JSON、规范化 Markdown、来源映射、提取图片和质量报告。结构成功不等于真实可读；质量门还检查章节/页面覆盖、figure/table/equation inventory、双栏阅读顺序和抽样 claim-to-span 支持性。像 FlexSA 这样已有文本层的双栏论文不会做整页 OCR。MinerU 是首选质量回退；任何云端解析都必须先获得用户对上传该 PDF 的明确同意。
+唯一解析后端是 MinerU 网页端精准解析 API，默认使用官方推荐的 `vlm` 模型并开启公式和表格识别；不安装本地 MinerU、Docling 或模型权重，也不静默回退到轻量 Agent API。Token 只从 `MINERU_API_TOKEN` 环境变量读取，不进入命令行、仓库、日志或解析产物。
 
-当前默认路径不需要注册 API。Mathpix 等托管方案仅在本地质量门失败、且用户明确授权上传时才考虑。
+上传 PDF 前必须有用户对该论文的明确授权。API 完成后保留原始 ZIP 内容、规范化 `paper.md`、图片、来源哈希和无凭据 provenance。结构成功不等于真实可读；`paper-map` 仍须检查章节/页面覆盖、figure/table/equation inventory、双栏阅读顺序和抽样 claim-to-span 支持性。
 
 ## 持久化边界
 
@@ -134,8 +136,8 @@ python -B -X utf8 .agents\skills\ask-paper\scripts\focus_state.py validate --wor
 
 ## 当前边界
 
-- 当前仅支持论文学习；博客、教程和一般知识文档尚未接入。
-- 默认本地解析路径使用 Docling；MinerU 等后端仍需按环境单独资格化。
-- 云端解析必须由用户明确授权，工作流不会默认上传论文。
+- 学习状态机当前只支持论文；`paper2blog` 是独立的论文解释导出工具，不把博客或一般网页纳入学习状态。
+- PDF 解析依赖 MinerU 精准解析 API、有效的 `MINERU_API_TOKEN` 和网络；缺少任一条件时明确阻塞，不降级到别的解析器。
+- 云端解析必须由用户明确授权，工作流不会因为发现 PDF 就自动上传。
 - `verified-now` 不等于长期保持；只有满足跨会话和 7 天延迟门的 `retained` 才表示保持证据。
 - 当前状态内核仍保留 v0.1 route/分账本实现作为兼容层；v0.2 的公开工作流不暴露这些概念，后续只在真实维护收益成立时替换内部实现。

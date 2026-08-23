@@ -7,7 +7,7 @@ description: Teach, checkpoint, critique, or remediate one source-anchored paper
 
 Advance exactly one observable learning action using the persisted paper map and source anchors. Accept work only from `ask-paper`; do not make users manage internal routes or helper permissions.
 
-Read `../paper-reader/references/teaching-protocol.md` for the existing teaching rubric. It is an implementation reference, not another Skill entrypoint.
+Read [references/teaching-protocol.md](references/teaching-protocol.md) for the teaching and checkpoint rubric.
 
 - In `study`, teach only key mechanisms and use a small number of integrative checkpoints. Supporting nodes may remain mapped but untested. Finish with a paper-level critique and explicit open gaps.
 - In `mastery`, follow the dependency plan, teach one node or one remediation target, and preserve the frozen observable contract for later assessment.

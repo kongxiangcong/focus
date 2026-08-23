@@ -129,13 +129,13 @@ After resolution, validation, and lock acquisition, choose the first applicable 
 
 1. Resume a persisted pending interaction with its owner Skill and operation.
 2. Stop on a blocker that has no authorized repair.
-3. Route absent, stale, or invalid extraction to `paper-ingest`.
-4. Route absent, stale, or invalid guide artifacts to `paper-guide`.
-5. Route an unconfirmed plan to `paper-guide` confirmation.
-6. Route a remediation node in `needs-remediation` or `learning` to `paper-reader` remediation.
-7. Route a remediated `provisional` node selected for reassessment to `paper-grill` targeted mode.
-8. Route the next ready required or selected optional node to `paper-reader`.
-9. Route all taught-but-unmastered required coverage to `paper-grill` full mode.
+3. Route absent, stale, or invalid extraction to `paper-map` (which invokes `paper-parser` when extraction must run).
+4. Route absent, stale, or invalid map artifacts to `paper-map`.
+5. Route an unconfirmed plan to `paper-map` confirmation.
+6. Route a remediation node in `needs-remediation` or `learning` to `paper-study` remediation.
+7. Route a remediated `provisional` node selected for reassessment to `paper-assess` targeted mode.
+8. Route the next ready required or selected optional node to `paper-study`.
+9. Route all taught-but-unverified required coverage to `paper-assess` full mode.
 10. For an explicit profile request, inspect the current deterministic projection; run authorized recovery only when validation reports that the projection is missing or invalid.
 11. Return the completion outcome computed by the final grill diagnosis.
 
@@ -145,17 +145,17 @@ Select ready nodes whose hard dependencies are `provisional` or `mastered`, plus
 
 | Current state | Guard | Route or event | Result |
 |---|---|---|---|
-| No paper | Readable new input | `paper-ingest` | `guide/ready` after validated ingest |
-| `ingest/ready` or invalid extraction | Input identity is valid | `paper-ingest` | `guide/ready` or `ingest/blocked` |
-| `guide/ready` | Ingest gate passes | `paper-guide` generation | `guide/awaiting-user` |
-| `guide/awaiting-user` | Plan decision persisted | `paper-guide` confirmation | `read/ready` or revised `guide/awaiting-user` |
-| `read/ready` | A ready node exists | `paper-reader` | `read/awaiting-user` or `read/ready` |
-| `read/awaiting-user` | Pending checkpoint exists | `paper-reader` resume | Node verdict and recomputed frontier |
-| `read/ready` | All selected nodes are taught | `paper-grill` full | `grill/awaiting-user` |
-| `grill/awaiting-user` | Frozen questions remain | `paper-grill` resume | Next question or whole-round diagnosis |
+| No paper | Readable new input | `paper-map` + `paper-parser` | `guide/ready` after validated ingest |
+| `ingest/ready` or invalid extraction | Input identity is valid | `paper-map` + `paper-parser` | `guide/ready` or `ingest/blocked` |
+| `guide/ready` | Ingest gate passes | `paper-map` generation | `guide/awaiting-user` |
+| `guide/awaiting-user` | Plan decision persisted | `paper-map` confirmation | `read/ready` or revised `guide/awaiting-user` |
+| `read/ready` | A ready node exists | `paper-study` | `read/awaiting-user` or `read/ready` |
+| `read/awaiting-user` | Pending checkpoint exists | `paper-study` resume | Node verdict and recomputed frontier |
+| `read/ready` | All selected nodes are taught | `paper-assess` full | `grill/awaiting-user` |
+| `grill/awaiting-user` | Frozen questions remain | `paper-assess` resume | Next question or whole-round diagnosis |
 | Completed grill | Material gaps exist | `grill-diagnosed` | `remediate/ready` |
-| `remediate/ready` | A node needs teaching | `paper-reader` remediation | `provisional` or still `needs-remediation` |
-| `remediate/ready` | A remediated node is provisional | `paper-grill` targeted | `mastered` or `needs-remediation` |
+| `remediate/ready` | A node needs teaching | `paper-study` remediation | `provisional` or still `needs-remediation` |
+| `remediate/ready` | A remediated node is provisional | `paper-assess` targeted | `verified-now` or `needs-remediation` |
 | Eligible terminal state | Final diagnosis computes completion | `grill-diagnosed` | `complete/complete` |
 | Any `blocked` | Exact repair is authorized | Owning Skill in repair mode | Revalidate before normal routing |
 

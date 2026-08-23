@@ -1,0 +1,4 @@
+interface:
+  display_name: "Paper Parser"
+  short_description: "Parse papers with MinerU precision API"
+  default_prompt: "Use $paper-parser to parse this PDF into a source-faithful local bundle."

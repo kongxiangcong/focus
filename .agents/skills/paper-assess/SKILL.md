@@ -7,7 +7,7 @@ description: Run immediate or delayed closed-book paper assessment, diagnose gap
 
 Own frozen assessment, delayed retrieval, diagnosis, and the disposable cognitive projection. Accept work only from `ask-paper`.
 
-Read `../paper-grill/references/assessment-rubric.md` and `../cognitive-profile/references/level-rubric.md` as implementation references. Their former Skill directories are no longer user-facing modules.
+Read [references/assessment-rubric.md](references/assessment-rubric.md) for frozen assessment and [references/cognitive-levels.md](references/cognitive-levels.md) for evidence projection.
 
 ## Immediate verification
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Paper to Blog"
+  short_description: "Write evidence-grounded paper explainers"
+  default_prompt: "Use $paper2blog to turn this parsed paper into a rigorous Chinese technical blog."

@@ -1,7 +1,0 @@
-# Qualified on CPython 3.12.13. Use Python >=3.12,<3.13 for the reproduced environment.
-# ONNX Runtime is explicit: without it Docling AutoOCR falls through to the
-# Torch backend, whose model paths differ from the symlink-free ONNX bundle.
-docling==2.70.0
-onnxruntime==1.23.2
-pypdfium2==5.12.1
-PyYAML==6.0.3

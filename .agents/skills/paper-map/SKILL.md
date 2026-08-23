@@ -7,7 +7,7 @@ description: Build or repair a source-faithful paper map for Scout, Study, or Ma
 
 Own source fidelity and the smallest paper model required by the selected reading mode. Accept work only from `ask-paper`; treat the state kernel's route-shaped fields as private compatibility data.
 
-For parser execution read `../paper-ingest/references/parser-adapter.md` and use `../paper-ingest/scripts/parse_pdf.py`. For paper-type modeling read `../paper-guide/references/paper-types.md`. These are retained implementation references, not separate Skill entrypoints.
+For parser execution invoke `paper-parser`, which uses MinerU's hosted precision API and returns the stable extraction bundle. Read [references/paper-types.md](references/paper-types.md) when adapting the map to a paper type.
 
 ## Mode outputs
 
@@ -17,6 +17,6 @@ For parser execution read `../paper-ingest/references/parser-adapter.md` and use
 
 ## Source gate
 
-Require more than structural parse success. Record page/section coverage, figure/table/equation inventory, two-column reading-order review where applicable, and sampled claim-to-span support checks. Missing core sections, unreadable central figures/formulas/tables, wrong reading order, or unsupported sampled anchors block promotion. Preserve exact source, raw parser output, and warnings.
+Require more than structural parse success. Record page/section coverage, figure/table/equation inventory, two-column reading-order review where applicable, and sampled claim-to-span support checks. Missing core sections, unreadable central figures/formulas/tables, wrong reading order, or unsupported sampled anchors block promotion. Preserve exact source, raw parser output, and warnings. Cloud-upload authorization and credentials remain owned by `paper-parser`; never copy its token into FOCUS state.
 
 Commit generated artifacts through the shared state script. Never edit source identity, paper state, ledgers, locks, or projections directly. Preserve user notes and all prior answers during repair.
