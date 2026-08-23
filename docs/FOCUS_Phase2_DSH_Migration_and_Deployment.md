@@ -1,171 +1,283 @@
-# FOCUS 第二阶段：DeepSeek Harness 接入与部署方案
+# FOCUS 第二阶段：DeepSeek Harness 部署迁移方案
 
-> 状态：Proposed
+> 状态：Revised Proposed（已按 2026-08-23 讨论结论校正）
 >
 > 基线日期：2026-08-23
 >
-> 前置条件：[第一阶段 Skills 基线](FOCUS_Phase1_Skills_Quickstart_Architecture.md)通过真实论文验收
+> 前置条件：第一阶段 Skills 闭环已经通过真实论文验收
 >
-> DSH 本地参考检出：`D:\dsh-proj\deepseek-harness`
+> DSH 基线：`deepseek-ai/deepseek-harness@b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`
 >
-> DSH 基线：`deepseek-ai/deepseek-harness@b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`（`0.1.1-rc.2`）
+> DSH 版本：`0.1.1-rc.2`
 
 ## 1. 文档目的
 
-第二阶段把 DeepSeek Harness 作为 FOCUS 的会话、模型、工具和 Web 呈现宿主，同时保持 FOCUS v0.2 的学习语义与本地数据权威：
+第二阶段把已经通过验证的 FOCUS 领域核心和 Workspace 迁入 DeepSeek Harness，形成真正的论文阅读工作台：
 
-- `ask-paper` 仍是唯一普通用户学习入口；
-- Scout/Study/Mastery 仍决定阅读投入和验证强度；
-- `paper-map`、`paper-study` 和 `paper-assess` 仍是内部语义模块；
-- `paper.yaml`、原始回答和 evidence 仍是学习状态权威；
-- DSH Session Log 保存对话、模型输入、工具调用、分支和 UI 重放事实；
-- DSH Client 提供论文入口、状态投影、待回答交互、附件和会话切换。
+- 专题和论文导航；
+- 解析、粗读和精读入口；
+- 可渲染 Markdown 与论文图片的会话界面；
+- “理解并继续”按钮；
+- `Hold on` 按钮和独立解释分支会话；
+- 不污染主阅读上下文的会话切换；
+- DSH Session 日志、fork、attachment 和插件 UI 的原生集成。
 
-接入不是把 Skills 降级成若干 Prompt，也不以“分片阅读进度”替换学习证据。DSH 承担运行和呈现生命周期，FOCUS 状态服务承担领域状态转移。
+迁移的目标不是把 Skills 原样搬进 Web，而是把 Skills 降级为提示模板和兼容入口，由 DSH 插件承担会话、UI、按钮、fork 和部署生命周期。
 
-## 2. 已核对的 DSH 基线
+## 2. DSH 基线与约束
 
-本方案以本地 `D:\dsh-proj\deepseek-harness` 检出为事实源。该检出具有以下能力：
+截至本方案基线：
 
-- Cordis 驱动的插件体系，Profile 由有序 Bundle 组成；
-- out-of-tree Bundle 可安装到指定 Profile；
-- `web` Profile 由 `@deepseek-ai/dsh-base` 和 `@deepseek-ai/dsh-web-app` 组成；
-- Session 使用追加式事件日志，并从日志投影消息和状态；
-- Session 支持在稳定 seq 边界 fork；
-- Web Client 提供自定义 Conversation Node、typed Slot 和 finalized assistant-message action strip；
-- Workspace、Session、Remote API、附件和 Client plugin 均有现成扩展位置；
-- DSH 仍处于 developer preview，插件 API 和前端扩展点可能发生破坏性变化。
+- DSH 采用“Everything is a Plugin”架构，底层使用 Cordis；
+- Profile 由有序 Bundle 组成，插件可以作为 out-of-tree bundle 安装；
+- Session 是追加式 `SessionEvent` 日志，消息历史从日志派生；
+- 插件可以扩展 `SessionEventMap`；
+- `ctx.sessions.fork(source, boundary?, childSessionId?)` 支持在稳定事件边界创建子会话；
+- Web Client 支持自定义 Conversation Node 和 Slot；
+- 当前存在 finalized assistant message action slot，可用于挂载 `Hold on` 和“理解并继续”；
+- DSH 支持持久化图片 attachment 和历史图片渲染；
+- DSH 官方明确处于 developer preview，未来存在兼容性破坏。
 
-所有 DSH 类型和 imports 必须留在 DSH adapter 层。FOCUS 状态核心、artifact schema 和 JSON 协议不能依赖 Cordis、SessionEvent 或 Client Slot。
+因此所有 DSH 依赖必须集中在适配层，并固定版本或 commit，不允许领域核心直接依赖 Cordis、SessionEvent 或 Client Slot 类型。
 
-本地绝对路径只用于开发期核对和联调，不写入发布包、Session Event 或用户 Workspace。CI 和发布通过精确 package 版本与 commit 元数据复现依赖。
+## 3. 迁移原则
 
-## 3. 领域与宿主的权威边界
+> **迁移对象是第一阶段论文阅读工作台，而不是历史论文学习流程。** DSH 插件不得导入历史流程、状态词汇或用户评价模型；迁移前后的业务权威均以第一阶段 Workspace 契约为准。
 
-| 信息 | 权威 | 可重建投影 |
-|---|---|---|
-| 论文来源、解析正文、图片和 source map | FOCUS `knowledge-base/` | DSH attachment cache |
-| 阅读模式、当前节点、pending interaction、blocker 和 paper revision | FOCUS `paper.yaml` 与状态内核 | DSH 状态卡和 Conversation Node |
-| 用户原始回答、评估和学习证据 | FOCUS 追加式记录与 evidence ledger | `profile.yaml`、DSH 进度视图 |
-| 认知画像 | evidence 派生 | `profile.yaml`，可丢弃 |
-| 对话正文、模型输入、工具调用、会话历史和 fork lineage | DSH Session Log | Client conversation view |
-| 进入 DSH 会话的图片对象 | DSH Attachment Store | Client 图片组件 |
-| 插件配置与启用顺序 | DSH Profile / Bundle | dump-config 输出 |
+### 3.1 复用第一阶段 Workspace
 
-同一事实只能有一个可写权威。DSH Session Log 会保留用户消息的非权威 transcript 副本，因为它是对话事实；只有 FOCUS 的 verbatim response/interview row 和 evidence ledger 能作为学习判定输入与证据权威。FOCUS 自定义投影事件不再复制回答正文，只保存呈现和关联所需的稳定 ID、revision 和结果摘要。会话导出或删除 DSH transcript 不得改写 FOCUS evidence；删除 FOCUS 原始回答则必须使相应 evidence 引用失效。
+以下数据原样复用，不进行格式重写：
 
-## 4. 目标架构
+- `workspace.yaml`；
+- `topics/*/topic.yaml`；
+- `papers/*/paper.yaml`；
+- 唯一、已验证的 `parser-bundle/`：`source.pdf`、`paper.md`、顺序图片、`metadata.json`、`validation.json`；
+- `paper2blog` 产物：`evidence-map.md`、`blog.md`、`blog.html` 和本地 assets；
+- `reading/plan.yaml`；
+- `reading/chunks.jsonl`；
+- `reading/glossary.tsv`；
+- `reading/progress.yaml`；
+- `reading/events/*.jsonl`。
+
+DSH 只是新的交互和部署宿主，不成为论文目录和阅读游标的权威。
+
+### 3.2 保留 Python 核心，先做桥接
+
+第一阶段已经有 Python 应用服务、文件存储和 CLI。第二阶段首个可用版本不应立刻重写为 TypeScript。
+
+推荐路径：
+
+```text
+DSH Host Plugin
+→ FocusCoreGateway
+→ Python CLI / JSON-RPC worker
+→ 现有 FOCUS Application Services
+→ Workspace
+```
+
+首版可以每次操作启动短生命周期 Python CLI；若真实延迟不可接受，再替换为长驻 JSON-RPC stdio worker。两者使用相同 JSON 协议。
+
+只有在以下条件出现后，才考虑把核心原生移植到 TypeScript：
+
+- Python 部署成为主要安装障碍；
+- CLI 启动延迟明显影响交互；
+- Host 插件需要高频订阅或长事务；
+- 数据模型和产品行为已经稳定。
+
+### 3.3 DSH Session 不复制阅读权威
+
+权威边界：
+
+| 域 | 权威 |
+|---|---|
+| 专题、论文、解析包、博客、Reading Plan、阅读游标 | FOCUS Workspace |
+| 对话正文、模型调用、工具调用、会话历史、fork lineage | DSH Session Log |
+| DSH 中展示和发送的图片对象 | DSH Attachment Store |
+| FOCUS 论文原图 | FOCUS Workspace `parser-bundle/images/` |
+| 插件配置和启用关系 | DSH Profile / Bundle |
+
+DSH 自定义事件只保存用于会话重放和 UI 呈现的引用，不取代 `progress.yaml`。
+
+### 3.4 主阅读与解释会话使用能力隔离
+
+主阅读 Agent Preset 暴露：
+
+- 读取当前 chunk；
+- 记录 presented；
+- 确认 chunk；
+- 暂停；
+- 记录问题。
+
+解释 Agent Preset 只暴露：
+
+- 读取 explanation context；
+- 读取图片；
+- 可选记录问题。
+
+解释 Preset 不注册确认、推进、回退或重置阅读游标的工具。该限制由工具作用域保证，不依赖提示词纪律。
+
+## 4. 目标部署架构
 
 ```mermaid
 flowchart LR
-    User[用户]
+    Browser[DSH Web Client]
     Client[FOCUS Client Plugin]
     Host[FOCUS Host Plugin]
-    Agent[DSH Agent Presets]
-    Session[DSH Session Log]
+    Sessions[DSH Session Store]
     Attach[DSH Attachment Store]
-    Gateway[Focus State Gateway]
-    Core[FOCUS state service]
-    KB[knowledge-base]
-    MinerU[MinerU precision API]
+    Gateway[FocusCoreGateway]
+    Py[FOCUS Python Core]
+    WS[FOCUS Workspace]
+    Parser[paper-parser subprocess]
+    Bundle[validated parser-bundle]
+    Blog[paper2blog subprocess]
+    MinerU[MinerU API]
 
-    User <--> Client
+    Browser --> Client
     Client <--> Host
-    Host <--> Agent
-    Host <--> Session
+    Host <--> Sessions
     Host <--> Attach
-    Host --> Gateway --> Core --> KB
-    Core --> MinerU
+    Host --> Gateway --> Py --> WS
+    Host --> Parser --> MinerU
+    Parser --> Bundle
+    Bundle --> Py
+    Host --> Blog
+    Bundle --> Blog
 ```
 
-### 4.1 Focus State Gateway
+### 4.1 Host Plugin 职责
 
-Gateway 在 `.agents/skills/ask-paper/scripts/focus_state.py` 外提供版本化 JSON request/response，映射当前语义操作：
+- 暴露专题、论文、博客和阅读状态查询；
+- 调用 Python Core；
+- 在逐篇取得明确云端上传授权后启动 `paper-parser` 子进程，并用非敏感 `batch_id` 恢复异步任务而不重复上传；
+- 只接收一个通过校验的 `parser-bundle/`，不把上传或任务创建当成解析成功；
+- 从已验证 bundle 启动 `paper2blog` 的 prepare、Evidence Map、write、render 和 check 流程；
+- 注册主阅读和解释会话的 Agent Preset；
+- 为模型注入当前 chunk、相邻上下文、术语命中和图片；
+- 注册 FOCUS 会话事件；
+- 创建和管理 Hold-on fork；
+- 把论文图片导入或映射到 DSH attachment；
+- 对客户端提供受控 Remote API；
+- 保持 Workspace 写入的幂等与 revision 条件。
 
-```text
-resolve
-inspect
-next
-commit
-cancel-route
-validate
-rebuild-profile
-```
+### 4.2 Client Plugin 职责
 
-首版允许 Host 为每次短操作启动 Python 子进程。只有测量证明启动延迟影响交互时，才引入长驻 stdio JSON-RPC worker；两种 transport 使用同一协议。
+- 专题和论文导航；
+- 论文状态、精读进度和入口按钮；
+- 自定义阅读 Conversation Node；
+- 在翻译消息下方显示“理解并继续”“Hold on”“暂停”；
+- 展示论文图片；
+- 打开博客 HTML；
+- 在父、子会话间切换；
+- 展示错误和 `needs-reinit`，但不自行修改 Workspace。
 
-Gateway 必须：
+### 4.3 Python Core 职责
 
-- 将协议 JSON 与 stderr 诊断分离；
-- 使用明确的 schema/version；
-- 保留 event ID 幂等和 expected revision；
-- 接收 DSH 的 branded persisted-session reference 和 lineage 摘要，但只由 FOCUS 决定它能否作为 retention session；
-- 对未来 schema、来源变化、锁冲突、无效 artifact、超时和进程退出返回稳定错误；
-- 不把 Token、绝对论文路径或无关用户内容写入日志；
-- 不向 Host 暴露直接修改 manifest、ledger、lock 或 transaction 的操作。
+保持第一阶段职责不变：
 
-### 4.2 Host Plugin
+- 专题和论文目录；
+- parser bundle 注册；
+- 精读初始化；
+- current packet；
+- confirm/pause；
+- explanation context；
+- progress revision；
+- Workspace 文件读写。
 
-Host Plugin 负责：
+Python Core 不直接调用 MinerU，也不持有 MinerU Token。Parser 下载 ZIP 和 raw extraction tree 只存在于临时目录；规范化后只向 Core 注册唯一的 `parser-bundle/`。Blog 工作区只使用 bundle 中的 `paper.md`、顺序图片、metadata 和 validation evidence，不复制也不读取 `source.pdf`，并且不修改阅读进度。
 
-- 将用户请求交给 `ask-paper` 语义入口；
-- 根据 `next` 返回的动作选择 map、study 或 assess Preset；
-- 把有界 action packet 注入模型轮次；
-- 调用 Gateway 提交用户回答、模块结果和诊断；
-- 注册 FOCUS Session Event 和 Remote API；
-- 将 FOCUS 图片导入 durable attachment；
-- 从稳定事件 seq 创建解释或诊断分支；
-- 将 FOCUS 当前状态转换为不含敏感数据的 Client projection。
+## 5. DSH 插件仓库结构
 
-Host 不自行推断阅读模式、节点状态或证据等级，也不直接读写 YAML/JSONL 来“补救”Gateway 错误。
-
-### 4.3 Client Plugin
-
-Client Plugin 负责：
-
-- 论文列表和当前状态卡；
-- Scout 去向、继续学习、回答待处理检查点、开始答辩、补缺和查看进度的入口；
-- 知识树与证据层级的只读投影；
-- 自定义 FOCUS Conversation Node；
-- finalized assistant message 下的上下文动作；
-- PDF 图片和附件呈现；
-- 父子 Session 切换；
-- revision 冲突、来源变化和恢复警告的明确反馈。
-
-Client 不自行改变 paper state，不根据按钮文字授予证据，也不持久化第二份学习进度。
-
-## 5. 插件仓库结构
-
-FOCUS 继续作为独立仓库；DSH 只作为精确固定的开发与运行依赖。建议结构：
+建议在 FOCUS 仓库中增加独立 DSH 区域：
 
 ```text
 focus/
-├── .agents/skills/                   # 当前 Codex 入口和语义模块
-├── tests/                            # 当前 Python 状态回归
+├── src/focus/                         # 第一阶段 Python 核心
+├── schemas/
+├── .agents/skills/                    # 兼容与回退入口
+│
 ├── dsh/
 │   ├── package.json
 │   ├── pnpm-workspace.yaml
 │   ├── tsconfig.json
 │   ├── packages/
-│   │   ├── protocol/                 # 不依赖 DSH 的 JSON schema 和 branded ids
-│   │   ├── state-gateway-python/     # Python transport
-│   │   ├── host/                     # Cordis Host plugin
-│   │   ├── client/                   # Web Client plugin
-│   │   └── bundle/                   # out-of-tree Bundle
+│   │   ├── protocol/
+│   │   │   ├── package.json
+│   │   │   └── src/
+│   │   │       ├── ids.ts
+│   │   │       ├── api.ts
+│   │   │       └── events.ts
+│   │   ├── core-gateway-python/
+│   │   │   └── src/index.ts
+│   │   ├── host/
+│   │   │   └── src/
+│   │   │       ├── service.ts
+│   │   │       ├── sessions.ts
+│   │   │       ├── attachments.ts
+│   │   │       ├── presets.ts
+│   │   │       └── index.ts
+│   │   ├── client/
+│   │   │   └── src/client/
+│   │   │       ├── sidebar/
+│   │   │       ├── conversation/
+│   │   │       ├── actions/
+│   │   │       └── index.ts
+│   │   └── bundle/
+│   │       ├── package.json
+│   │       └── cordis.patch.yml
 │   └── tests/
-│       ├── gateway/
 │       ├── host/
 │       ├── client/
 │       ├── replay/
 │       └── packaging/
-└── knowledge-base/                   # gitignored；用户本地数据
 ```
 
-DSH imports 只允许出现在 `host`、`client` 和 `bundle`。`protocol` 与 Python 状态核心保持宿主无关。开发时可以使用 `D:\dsh-proj\deepseek-harness` 的 workspace packages 联调；发布包不得依赖该绝对路径。
+包边界：
 
-## 6. Bundle 与 Profile
+- `protocol`：Host/Client 共用的稳定 ID、Remote API 和事件类型；
+- `core-gateway-python`：唯一知道 Python 启动方式和 JSON 协议的包；
+- `host`：Cordis 服务、Session、Preset 和 Attachment；
+- `client`：浏览器 UI 和 Conversation Node；
+- `bundle`：安装到 DSH Profile 的配置层。
 
-FOCUS 作为 out-of-tree Bundle 安装，不直接修改 DSH 仓库。Bundle manifest 精确声明它的 patch：
+## 6. Core Gateway 协议
+
+Host 不直接解析 Workspace 文件。它通过 `FocusCoreGateway` 调用稳定业务操作：
+
+```ts
+interface FocusCoreGateway {
+  listTopics(): Promise<TopicSummary[]>
+  listPapers(topicId?: string): Promise<PaperSummary[]>
+  getPaper(paperId: string): Promise<PaperDetail>
+
+  initializeReading(input: InitializeReadingInput): Promise<ReadingPlanSummary>
+  getReadingStatus(paperId: string): Promise<ReadingStatus>
+  getCurrentReadingPacket(paperId: string): Promise<ReadingPacket>
+  markPresented(input: MarkPresentedInput): Promise<ReadingProgress>
+  confirmChunk(input: ConfirmChunkInput): Promise<ConfirmChunkResult>
+  pauseReading(input: PauseReadingInput): Promise<ReadingProgress>
+
+  getExplanationContext(input: ExplanationContextInput): Promise<ExplanationContext>
+  recordQuestion(input: RecordQuestionInput): Promise<void>
+}
+```
+
+每次写操作携带：
+
+```text
+operationId
+paperId
+chunkId（适用时）
+expectedRevision
+```
+
+Python CLI 返回单行或 framed JSON，不向 stdout 混入普通日志。stderr 只输出诊断。
+
+## 7. DSH Profile 与 Bundle
+
+### 7.1 Bundle
+
+`@focus/dsh-focus-bundle` 的 `package.json` 声明：
 
 ```json
 {
@@ -180,15 +292,27 @@ FOCUS 作为 out-of-tree Bundle 安装，不直接修改 DSH 仓库。Bundle man
 }
 ```
 
-首版安装到官方 `web` Profile，以复用完整 Web host 和 Client runtime：
+Bundle patch 挂载：
 
-```powershell
-dsh plugin --profile web add .\focus-dsh-focus-bundle-0.1.0.tgz
+- Python Core Gateway；
+- FOCUS Host Service；
+- 主阅读/解释 Preset；
+- FOCUS Client loader；
+- 必要的 attachment 和 static asset 配置。
+
+### 7.2 首版部署到官方 `web` Profile
+
+DSH 的 `web` 和 `headless` 是官方 Profile 模板；一个全新的自定义 Profile 通过 `dsh plugin` 初始化时，默认只有 `@deepseek-ai/dsh-base`。因此首版不直接创建只有 base 的 `focus` Profile，而是把 FOCUS Bundle 安装到已包含 Web UI 的官方 `web` Profile：
+
+```sh
+dsh plugin --profile web add ./focus-dsh-focus-bundle-0.1.0.tgz
 dsh --profile web --dump-config
 dsh --profile web
 ```
 
-在入口、打包和升级验证稳定前，不创建专用 `focus` Profile。若后续发布专用 Profile，其 Bundle 顺序必须显式包含：
+这条路径能直接复用 `@deepseek-ai/dsh-web-app` 提供的浏览器、Conversation、Sidebar、Attachment 和 Client Runtime。
+
+FOCUS 产品形态稳定后，再维护专用 `focus` Profile。该 Profile 必须显式按顺序包含：
 
 ```text
 @deepseek-ai/dsh-base
@@ -196,333 +320,486 @@ dsh --profile web
 @focus/dsh-focus-bundle
 ```
 
-## 7. Agent Preset 与工具权限
+不能假设新 Profile 自动拥有 Web Bundle。
 
-### 7.1 Router Preset
+安装优先使用预构建 tarball 或 npm 包。不推荐首版从 GitHub 源码直接安装，因为 git dependency 需要 `prepare` 构建和 pnpm `allowBuilds` 授权，增加部署不确定性。
 
-Router Preset 承载 `ask-paper` 的用户界面规则：识别意图、选择最低足够模式、恢复持久状态、呈现一个下一动作。它只能通过 Gateway 解析和提交状态。
+## 8. Client 工作台形态
 
-### 7.2 Map / Study / Assess Preset
+### 8.1 专题/论文导航
 
-Host 根据 `next` 的语义 action 选择一个 Preset：
+首版安装在 `web` Profile 时，先通过 additive sidebar footer action 或会话内 Paper Context Node 提供 FOCUS 入口，不立即替换默认 Workspace 浏览器。
 
-- Map：只处理来源、Scout 或最小论文模型动作；
-- Study：只处理一个教学、检查、critique 或 remediation 动作；
-- Assess：只处理即时闭卷、延迟保持、诊断或 projection 动作。
-
-每个 Preset 只收到一个有界 action packet。它们看不到 route 生命周期、lock、transaction 和其他模块的写工具。
-
-### 7.3 Parser / Blog Preset
-
-Parser Preset 只有在用户明确授权将指定 PDF 上传 MinerU 后才可调用；Token 通过 Host 子进程环境传递，不进入模型上下文或 Session Event。Blog Preset 只消费已验证 parser bundle，不写学习证据。
-
-### 7.4 能力隔离
-
-| 会话类型 | 允许操作 | 禁止操作 |
-|---|---|---|
-| 普通学习 | resolve、inspect、next、提交当前语义动作 | 直接写文件、任意设置证据等级 |
-| 闭卷评估 | 读取冻结提示、提交原始回答和 rubric 判定 | 获取答案提示、修改来源或计划 |
-| 解释分支 | 读取已呈现来源和图片、解释用户问题 | 提交 checkpoint、推进节点、授予证据 |
-| 诊断 | inspect、validate、只读 evidence summary | 自动破坏性修复 |
-
-权限由注册工具和 Remote API 限制，不依赖 Prompt 自律。
-
-## 8. Session 事件与模型可见性
-
-FOCUS 扩展 `SessionEventMap` 时只记录 UI 重放和跨会话关联需要的事实：
-
-| Event | Payload |
-|---|---|
-| `focus/action/opened` | `FocusInteractionId`、`FocusPaperRef`、`FocusOperation`、paper revision |
-| `focus/action/presented` | `FocusInteractionId`、DSH adapter 持有的 `MessageId`、paper revision |
-| `focus/action/committed` | `FocusInteractionId`、`FocusEventId`、resulting revision、`FocusActionOutcome` |
-| `focus/explanation/forked` | `FocusInteractionId`、DSH adapter 持有的 `SessionId`、boundary seq |
-
-`FocusInteractionId`、`FocusPaperRef` 和 `FocusEventId` 在 host-neutral protocol package 中用本包自己的 opaque brand 定义，不导入 DSH。Session Event declaration 属于 DSH adapter：它直接使用 DSH `SessionId`、`MessageId` 和 `Branded<B>`，并在 JSON wire 边界显式转换/校验 FOCUS opaque ID，不把它们退化成 adapter 内部的裸 `string`。实际 declaration merging 还必须为事件和 payload 写 DSH 要求的 JSDoc。
-
-四类事件都不参与解释普通 DSH transcript 或计算 FOCUS 学习状态，写入时统一在事件 envelope 标记 `ignorable: true`。这样移除 FOCUS 插件后，不认识它们的 DSH 构建仍可加载 Session。若持久日志保留事件，重新安装插件可恢复精确装饰；若这些可忽略事件在导出、裁剪或其他投影中丢失，`interactionId → MessageId` 和 explanation child/boundary 关联不能从 Workspace 确定性重建。Client 必须有损回退为普通 transcript 加 FOCUS 当前状态，并要求用户从当前 pending interaction 重新打开动作，而不是猜测历史关联。任何影响领域状态或无法接受该有损回退的事件必须另行设计迁移和 format 兼容策略，不能沿用 `ignorable: true`。
-
-任何发送给模型的来源片段、图片、rubric、先前回答摘要或工具结果，都必须进入可重放的 Session 事件或 durable attachment；不能只留在 Host 内存。包含个人学习内容的事件采用最小字段，并遵循本地存储和导出边界。
-
-## 9. 交互流程
-
-### 9.1 开始或继续
+专用 FOCUS Profile 稳定后，可以替换 `sidebar.workspaces` 区域，同时保留 DSH 外层 Sidebar、品牌、折叠和 Settings：
 
 ```text
-1. 用户选择论文或输入自然语言请求
-2. Host 调用 resolve / inspect
-3. Router 选择模式并调用 next
-4. Host 选择一个语义 Preset
-5. Preset 生成有来源引用的 unit、问题或其他待呈现 artifact
-6. Host 以 `unit-presented` 或对应 canonical event 提交 artifact；FOCUS 在同一提交中持久化 pending interaction、消费 route 并释放锁
-7. commit 成功后，Host 才把动作或问题写入 Session 并呈现给用户
-8. 用户回答后，Host 使用 eventId + expected revision 调用回答 commit
-9. Client 从新的 FOCUS 状态重建投影
+专题
+├── 可配置脉动阵列编译器设计
+│   ├── FlexSA                 18 / 126
+│   ├── SAGAR                  未初始化
+│   └── ...
+└── 3D-stacked 编译器设计
+    ├── ...
 ```
 
-`继续` 不能跳过已有 pending interaction。若 profile 投影损坏，Host 触发 fail-soft rebuild；重建失败则返回 evidence 派生进度和警告。
+论文项显示的状态全部由 Host 查询 FOCUS Workspace 后计算。
 
-### 9.2 回答检查点或答辩题
+### 8.2 论文入口卡片
 
-用户原始回答作为对话消息先进入 DSH Session Log，并作为 `commit` payload 的业务输入；该 transcript 副本不具有学习证据权威。FOCUS commit 将 verbatim answer 写入 response/interview row，再由 evidence 引用该记录。模型判定必须引用冻结 rubric、来源和问题版本。只有 commit 成功后 Client 才显示新的证据层级；按钮的乐观状态不能冒充领域提交成功。
+打开论文阅读 Session 时，在会话顶部生成 FOCUS Paper Context Node，展示：
 
-### 9.3 持久会话身份与 retention
+- 标题和专题标签；
+- parser 状态；
+- paper2blog 链接；
+- 精读状态和进度；
+- “初始化精读”或“继续阅读”按钮。
 
-Gateway 把 DSH `SessionId` 转换为不泄漏本地路径的 `FocusPersistedSessionRef`，并随证据候选提交以下 provenance：当前 session ref、可选 parent session ref、fork boundary、session 创建时间和 assessment interaction ID。FOCUS retention row 还必须引用先前的 `verified-now` evidence，并由状态服务核对至少七个完整日的间隔。
+不必建设独立路由页面即可先形成工作台闭环。
 
-解释 fork、从冻结答案上下文产生的 fork、临时或未持久化 Session，以及与前次闭卷共享答案提示的 lineage，均不具备独立延迟复测资格。它们可以承载解释或补缺，但不能仅因 `SessionId` 不同就满足 retained。资格判定属于 FOCUS schema 和状态服务，DSH 只提供可验证的 session/lineage 事实。
+### 8.3 阅读消息操作条
 
-### 9.4 分支解释
-
-解释分支用于追问术语、方法、图表或误解，不自动成为 checkpoint：
+DSH 当前提供 finalized assistant message action slot。FOCUS Client Plugin 在确认该消息属于一个 reading presentation 后，挂载：
 
 ```text
-1. 当前 assistant message 完成并出现稳定 turn/end seq
-2. Client 发送 interactionId、parentSessionId、boundarySeq 和问题
-3. Host 在明确 seq 处 fork
-4. 子会话选择 explanation Preset
-5. 子会话读取所需来源和 attachment
-6. 子会话不注册 commit-checkpoint 或 evidence 工具
-7. 用户返回父会话继续原 pending interaction
+[理解并继续] [Hold on] [暂停]
 ```
 
-模型流式输出期间禁用 fork action。不能使用“当前日志末尾”猜边界。若用户希望把解释后的理解用于验证，父会话必须重新提供符合证据契约的无提示问题。
+按钮调用 Host Remote API，不把控制命令伪装成普通自然语言消息。
 
-### 9.5 Scout 去向
+## 9. Session 事件设计
 
-Scout 卡片可以呈现 `advance / park / reject`，但选择仍通过 FOCUS commit 写入 paper state。`advance` 根据用户意图升级到 Study 或 Mastery；UI 不自行推导模式。
+FOCUS 扩展 DSH `SessionEventMap`，事件用于 UI 重放和会话关系，不作为阅读游标权威。
 
-## 10. 图片与论文资产
+建议事件族：
 
-FOCUS Workspace 保存论文原图和来源关系；DSH Attachment Store 保存进入会话的持久图片对象。Host 维护可重建映射：
+```ts
+interface FocusSessionEventMap {
+  'focus/reading/opened': {
+    paperId: string
+    planId: string
+    progressRevision: number
+  }
+
+  'focus/presentation/start': {
+    presentationId: string
+    paperId: string
+    chunkId: string
+    chunkIndex: number
+    totalChunks: number
+    progressRevision: number
+    turn: number
+    step: number
+    imageAttachmentIds: string[]
+  }
+
+  'focus/presentation/linked': {
+    presentationId: string
+    assistantMessageId: string
+  }
+
+  'focus/presentation/confirmed': {
+    presentationId: string
+    progressRevision: number
+  }
+
+  'focus/explanation/forked': {
+    presentationId: string
+    childSessionId: string
+    boundarySeq: number
+  }
+
+  'focus/reading/completed': {
+    paperId: string
+    planId: string
+  }
+}
+```
+
+每个 Conversation Node 使用稳定 `presentationId` 归并 start/update 事件。事件必须可从日志确定性重放，不读取“最近一个未完成对象”进行猜测。
+
+## 10. 主阅读会话流程
 
 ```text
-paper stable ref + relative image path + source sha256
-→ DSH attachment id
+1. 用户点击“开始/继续阅读”
+2. Host 读取 FOCUS progress
+3. 创建或打开 focus-guide Session
+4. Host 获取 current ReadingPacket
+5. 论文图片写入或命中 DSH attachment cache
+6. Host 向 Agent 注入来源片段、局部上下文、术语命中和图片
+7. Agent 输出翻译；有图片时输出图片解释
+8. Session 记录 assistant/message
+9. FOCUS 事件把该消息链接到 presentationId/chunkId
+10. Client 显示进度和操作按钮
 ```
 
-映射丢失时从 Workspace 重新导入。Session Event 不保存任意本地绝对路径，Client 不直接读取文件系统。
+模型可见的来源内容必须进入 DSH Session 日志或由可重放的持久事件重建，不能只存在于 Host 内存。
 
-涉及图片解释时，Host 必须检查当前模型是否声明 image input：
-
-- 支持视觉：把 durable image block 与来源 caption 一起提供；
-- 不支持视觉：仍可展示图片和翻译来源文字，但明确阻塞视觉解读；
-- 不能只根据文件名、caption 或 OCR 猜测图片内容。
-
-## 11. 一致性与故障恢复
-
-### 11.1 FOCUS 先提交，DSH 再确认投影
-
-跨系统无法形成单一原子事务。对改变学习状态的操作采用：
+## 11. “理解并继续”流程
 
 ```text
-FOCUS commit(eventId, expectedRevision)
-→ 读取已提交结果
-→ 追加 DSH focus/action/committed
-→ 刷新 Client projection
+1. Client 提交 presentationId、paperId、chunkId、expectedRevision、operationId
+2. Host 调用 FocusCoreGateway.confirmChunk()
+3. Python Core 条件写 progress.yaml
+4. 成功后 Host 追加 focus/presentation/confirmed
+5. Host 获取下一 ReadingPacket
+6. 注入下一片段并启动下一轮
 ```
 
-若 DSH 事件追加失败，Host 可按同一 event ID 查询 FOCUS 结果并补写投影事件。不得先显示或记录证据升级，再尝试修改 FOCUS。
+跨系统无法形成真正原子事务，因此采用以下顺序：
 
-### 11.2 幂等与并发
+> 先提交 FOCUS 领域状态，再追加 DSH 呈现事件。
 
-- 每个用户动作携带稳定 `eventId`；
-- 重试只接受相同 payload；
-- commit 检查 expected paper revision；
-- 冲突后重新 inspect，不自动覆盖另一个会话的结果；
-- 文件锁只覆盖短时 inspect/commit，不跨模型请求或用户等待。
+理由是阅读游标比 UI 标记更重要。若 DSH 事件追加失败，Client 可重新查询 Workspace 并修正投影；反方向会造成 UI 显示已确认但实际进度未推进。
 
-### 11.3 来源与 schema 变化
+所有写操作使用 `operationId` 幂等。重试不会二次推进。
 
-来源 hash 变化时保留旧来源，阻塞受影响动作并将关联证据标记为 stale。未来 schema 只读诊断，不自动降级。只运行状态服务声明的兼容 additive migration。
+## 12. Hold-on / Side 会话流程
 
-## 12. 迁移阶段
+### 12.1 触发条件
+
+`ctx.sessions.fork()` 要求选定前缀结束在开放 turn 之外。因此：
+
+- 只有当前 assistant message 已完成且对应 `turn/end` 已记录时，Hold-on 按钮才可用；
+- 模型仍在流式输出时按钮禁用；
+- fork boundary 使用该 presentation 对应的稳定 `turn/end` seq；
+- 不使用“当前日志末尾”进行隐式猜测。
+
+### 12.2 Fork 步骤
+
+```text
+1. 用户点击 Hold on，可同时输入问题
+2. Client 请求 Host forkExplanationSession
+3. Host 定位该 presentation 的稳定 boundary seq
+4. ctx.sessions.fork(parentSession, boundary)
+5. 子会话继承截至该片段的完整上下文
+6. Host 为子会话选择 focus-explain Preset
+7. 注入 paperId、chunkId、用户问题和 explanation context
+8. 记录 focus/explanation/forked
+9. Client 打开子会话
+```
+
+### 12.3 子会话约束
+
+子会话：
+
+- 可以持续多轮解释；
+- 可以按用户要求生成 Mermaid；
+- 可以展示论文原图；
+- 只读 FOCUS progress；
+- 不暴露 confirm/advance/reset 工具；
+- 不影响父会话的 pending chunk。
+
+用户可随时切回父会话，继续点击“理解并继续”。无需把解读进度写入 FOCUS Workspace；DSH Session Log 已经保存完整解释历史。
+
+## 13. 图片与视觉模型
+
+### 13.1 两层图片存储
+
+- FOCUS Workspace 保存论文原图，是论文资产权威；
+- DSH Attachment Store 保存进入某个会话的持久图片对象，保证历史、fork 和模型请求可恢复。
+
+Host 维护可重建 cache：
+
+```text
+paperId + relativeImagePath + sourceSha256
+→ DSH attachmentId
+```
+
+cache 不是权威，丢失后可以从 Workspace 重新导入。
+
+### 13.2 模型能力要求
+
+涉及图片的片段必须使用声明支持 image input 的模型路由。Host 在启动请求前检查能力：
+
+- 支持视觉：把图片作为 durable image block 提供给模型；
+- 不支持视觉：展示原图并翻译 caption/正文，但明确阻塞“图片解释”；
+- 不允许模型在没有读取图片时根据文件名或 caption 假装完成视觉解释。
+
+正式 FOCUS Profile 应配置至少一个视觉能力路由，才能满足产品完整要求。
+
+### 13.3 UI 渲染
+
+自定义 Reading Presentation Node 显示：
+
+- 章节位置；
+- 片段进度；
+- 论文图片；
+- assistant 翻译消息的关联；
+- 当前确认状态。
+
+图片应使用 DSH 历史 attachment 渲染能力，而不是浏览器直接打开任意本地路径。
+
+## 14. Agent Preset 与 Skills 迁移
+
+### 14.1 `focus-guide` Preset
+
+把第一阶段 Skill 的行为规则迁为 DSH Agent Preset：
+
+- 当前轮只处理 Host 注入的一个 chunk；
+- 纯翻译为主；
+- 仅解释绑定图片；
+- 不输出关键点、术语表、观点或主动 Mermaid；
+- 不自行调用 confirm；
+- 输出完成后等待 UI 操作。
+
+### 14.2 `focus-explain` Preset
+
+- 围绕用户问题逐步解释；
+- 每轮一个子问题；
+- 用户要求时才生成图；
+- 不评价用户能力或理解状态；
+- 工具层面没有阅读进度写权限。
+
+### 14.3 Skills 的保留方式
+
+第一阶段 Skills 暂时保留，用于：
+
+- DSH 不可用时的回退；
+- CLI 行为调试；
+- 对照测试 Prompt 行为。
+
+DSH 稳定后，它们不再是主入口，但继续调用同一 Python Core，不形成双重实现。
+
+## 15. 迁移阶段与验收门
 
 ### D0：兼容性 Spike
 
-- 从本地 `D:\dsh-proj\deepseek-harness` 构建并启动 `web` Profile；
-- 安装最小 out-of-tree FOCUS Bundle；
-- Host 调用一个只读 `inspect`；
-- Client 渲染一张只读论文状态卡；
-- 自定义事件在 Session 重载后可重放；
-- finalized message action 可以从稳定 seq fork 只读子会话。
+目标：证明当前 DSH 基线能够加载 out-of-tree Host/Client bundle。
 
-D0 不改变真实 `knowledge-base/`。
+验收：
+
+- `web` Profile 可加载 FOCUS Bundle；
+- Host 能调用一个 Python Core 只读命令；
+- Client 能渲染一个自定义节点；
+- 能在 finalized assistant message 下添加一个测试 action；
+- 能从稳定 boundary fork 一个子会话。
+
+未通过 D0，不进入完整迁移。
 
 ### D1：只读工作台
 
-- 列出论文和阅读模式；
-- 展示 paper state、pending interaction、blocker 和 evidence 派生进度；
-- 打开 parser/blog 产物；
-- profile 缺失时验证 fail-soft projection。
+- 专题和论文入口；
+- 显示 parser/blog/reading 状态；
+- 打开通过检查的 `blog.html`；
+- 查看精读进度；
+- 不允许写进度。
 
-### D2：Scout 主链路
+### D2：主阅读会话
 
-- 新论文认领与授权提示；
-- `paper-map` Scout 输出；
-- `advance / park / reject` 提交；
-- 新 Session 恢复结果。
+- 创建 focus-guide Session；
+- 注入 current chunk；
+- 渲染翻译和图片；
+- presentation 与 assistant message 正确关联；
+- Session 重载后可重放。
 
-### D3：Study 主链路
+### D3：进度写入
 
-- key mechanism action；
-- 来源锚定解释和综合检查点；
-- 原始回答、判定和 evidence 提交；
-- revision 冲突与 pending interaction 恢复。
+- “理解并继续”按钮；
+- revision 和 operationId；
+- 下一片段自动进入下一轮；
+- 多窗口冲突可恢复。
 
-### D4：Mastery 与分支
+### D4：Hold-on 分支
 
-- 先将 legacy `mastered` 显式迁移/投影为 `verified-now`，并实现包含 prior evidence ref、两个合格持久会话身份和时间间隔的 retention row；
-- 冻结闭卷题和 rubric；
-- remediation；
-- 稳定边界 explanation fork；
-- 子会话无证据写权限；
-- `verified-now` 与 `retained` 显示严格区分。
+- 稳定 boundary fork；
+- 子会话加载 focus-explain Preset；
+- 父会话保持 pending；
+- 父子会话可以切换；
+- 子会话无法调用进度写工具。
 
-当前 `focus_core` 只原生持久化 legacy `mastered`，所以 D4 的 schema/adapter 迁移是前置工作，不是现有 Gateway 能力。延迟七天的 retained 成功验收必须等待真实条件满足；迁移完成后可以先验证同日、同 Session、解释 fork、缺少 prior verified-now 引用等情况均被拒绝。
+### D5：精读初始化和解析入口
 
-### D5：Parser、Blog 与图片
+- 论文入口卡支持 parser、paper2blog 和精读初始化；
+- Parser 上传前显示逐篇 MinerU 授权，Token 只进入 Parser 子进程环境；
+- Parser 超时或中断后使用 `batch_id` 恢复，并且只保留一个包含 `source.pdf`、`paper.md`、顺序图片、`metadata.json` 和 `validation.json` 的 `parser-bundle/`；
+- Blog 要求 `validation.json.ok=true` 与 `metadata.json.parser=mineru-precision-api`，先完成 `evidence-map.md`，再生成并检查 `blog.md` 与 `blog.html`；
+- Blog 不复制或读取 `source.pdf`；
+- 长任务显示明确状态；
+- 输出仍写入同一 Workspace。
 
-- 云端解析授权和 Token 隔离；
-- async parse/resume 状态；
-- parser bundle 真实性检查；
-- blog 输出入口；
-- durable image attachment 和模型能力检查。
+### D6：切换主入口
 
-### D6：打包与默认入口
+- DSH Web 成为默认工作台；
+- Skills 保留为 fallback；
+- 实际专题完成一轮端到端试用；
+- 固化兼容版本和安装包。
 
-- tarball 安装到干净 `web` Profile；
-- `--dump-config` 验证 Bundle 顺序；
-- 固定 DSH 版本与 commit；
-- 一个真实专题完成 Scout、Study 或 Mastery 的相应闭环；
-- Codex Skills 保留为调用同一状态内核的 fallback，不形成双写实现。
+### D7：可选专用 Profile 与核心原生化
 
-## 13. 测试方案
+在入口和布局稳定后，可以发布显式包含 `dsh-base + dsh-web-app + focus-bundle` 的专用 `focus` Profile，并按需要替换 `sidebar.workspaces`。只有在部署和性能证据支持时，才把 Python Core 的部分或全部迁至 TypeScript。两项工作均必须保持相同 JSON Schema 和 Workspace 契约。
 
-### 13.1 Gateway
+## 16. 数据迁移
 
-- request/response schema 和协议版本；
-- UTF-8、Windows 路径和 stderr 隔离；
-- timeout、退出码和无效 JSON；
-- event ID 幂等、payload mismatch 和 revision conflict；
-- future schema、source changed 和 profile fail-soft；
-- legacy `mastered` 迁移、verified-now evidence reference 和 retention session/lineage 资格；
-- 日志中没有 Token、绝对论文路径和不必要的原始回答。
+### 16.1 第一阶段数据
 
-### 13.2 Host
+不做数据迁移。DSH 插件直接配置同一个 `FOCUS_WORKSPACE` 路径。
 
-- action 到 Preset 的唯一映射；
-- 工具权限隔离；
-- pending interaction 在等待前持久化；
-- 无锁跨用户等待；
-- FOCUS-first commit 顺序和补写；
-- stable boundary fork；
-- plugin projection events 带 `ignorable: true`，未知插件事件不阻塞无插件加载；
-- 缺失 message/fork correlation 时回退为普通 transcript 和当前 FOCUS 状态，不猜测历史关联；
-- attachment cache 重建。
+### 16.2 第一阶段会话
 
-### 13.3 Replay 与 Client
+Codex/Skills 的聊天记录不自动导入 DSH。阅读游标已在 Workspace 中，因此 DSH 首次打开时从 `progress.yaml` 继续即可。
 
-- full replay、分页补载和 live append 得到相同 FOCUS node；
-- paper revision 变化使旧 action 失效；
-- profile 重建不改变 evidence；
-- Scout/Study/Mastery 卡片不会混淆证据层级；
-- streaming 时禁用 fork；
-- explanation child 无提交证据入口；
-- explanation fork 和共享答案上下文的 Session 不具备 retention 资格；
-- 父子 Session 切换不改变 pending interaction。
+### 16.3 历史版本数据
 
-### 13.4 FOCUS 回归与真实验收
+历史版本数据不转换为新的 reading progress，也不被 DSH 工作台读取。它们可以按原目录保存在 `legacy/` 供人工查阅；新插件只识别第一阶段冻结的数据契约。
 
-现有 Python 单元测试持续运行。关键用户可见链路增加 DSH keyless snapshot。涉及真实 MinerU 或模型的测试在缺少凭据时明确跳过，但发布前必须保存一次经授权的真实验收结果；夹具不能证明云端解析、视觉理解或七天保持。
+## 17. 一致性与故障恢复
 
-### 13.5 DSH 仓库检查
+只实现必要机制：
 
-开发期对 `D:\dsh-proj\deepseek-harness` 的扩展点核对至少运行：
+### 17.1 条件写
 
-```powershell
-pnpm run typecheck
-pnpm run doc-sync
-pnpm run website:build
+`confirmChunk` 检查 pending chunk 和 revision，防止两个会话重复推进。
+
+### 17.2 幂等写
+
+`operationId` 保证按钮重试不产生第二次确认。
+
+### 17.3 投影重建
+
+DSH UI 状态可以从：
+
+```text
+FOCUS Workspace 当前状态
++ DSH Session Event Log
 ```
 
-实际 FOCUS 插件实现应优先运行自身 focused tests、typecheck、打包 smoke 和 DSH snapshot，而不是每轮执行 DSH 全仓库测试。
+重新构建。自定义事件丢失时不修改阅读游标；Client 重新查询 Host。
 
-## 14. 配置与安全
+### 17.4 无跨等待锁
+
+任何锁只覆盖短时文件提交，不跨模型请求和用户等待。
+
+### 17.5 不做复杂双写事务
+
+不引入分布式事务、事件总线或补偿工作流。使用“领域状态优先、UI 投影可重建”的明确顺序。
+
+## 18. 测试方案
+
+### 18.1 Gateway 测试
+
+- Python CLI 正常/异常 JSON；
+- 超时、进程退出、stderr；
+- 路径和编码；
+- operationId 幂等。
+
+### 18.2 Host 测试
+
+- Preset 工具作用域；
+- current packet 注入；
+- progress 条件写；
+- attachment cache；
+- custom Session Event；
+- fork boundary 选择。
+
+### 18.3 Replay 测试
+
+- 完整事件窗口重放得到相同 reading node；
+- 先加载尾部、再补前页仍能归并 presentation；
+- live append 与完整 replay 结果一致；
+- 子会话 lineage 保持。
+
+### 18.4 Client 测试
+
+- FOCUS 入口和论文上下文卡；
+- 进度显示；
+- finalized assistant action；
+- streaming 时 Hold-on 禁用；
+- confirm 成功/冲突/失败；
+- 父子会话切换；
+- 图片历史加载；
+- 专用 Profile 阶段的专题/论文导航。
+
+### 18.5 打包测试
+
+- tarball 安装到 `web` Profile；
+- `dsh --profile web --dump-config` 包含预期层；
+- 干净机器启动；
+- DSH 固定版本兼容；
+- Python 依赖缺失时给出明确错误；
+- 后续专用 `focus` Profile 确实包含 `dsh-web-app`。
+
+## 19. 配置与安全
 
 建议配置：
 
 ```text
-FOCUS_WORKSPACE=<用户选择的 knowledge-base 路径>
-FOCUS_PYTHON=<Python 3.11+ 可执行文件>
-MINERU_API_TOKEN=<仅 parser 子进程可见>
-DSH_HOME=<DSH 自身配置目录>
+FOCUS_WORKSPACE=/path/to/focus-workspace
+FOCUS_PYTHON=/path/to/python
+MINERU_API_TOKEN=...
+DSH_HOME=...
 ```
 
 约束：
 
-- Bundle 配置保存 Workspace 句柄或受控路径，不写入 Session Event；
-- Client 只通过 Host Remote API 访问论文资产；
-- Host 对所有文件访问做 Workspace 根约束和相对路径解析；
-- MinerU Token 不进入 chat、Session、命令行参数、日志或解析产物；
-- 本地论文、解析结果和个人学习记录不进入 Git 或公开发布包；
-- DSH 导出会话时明确提示其中可能包含论文摘录和个人回答。
+- PDF 上传 MinerU 前必须取得用户对该论文的明确授权；
+- MinerU Token 只从 `MINERU_API_TOKEN` 环境变量或 Parser 进程工作目录下被 Git 忽略的 `.env` 读取，只进入 Python Parser 子进程环境，不进入聊天、命令行、Session Event、日志或产物；
+- 签名 URL 不持久化，也不放入进程参数；
+- Session Event 不保存本地绝对论文路径；
+- Client 只通过 Host 获取授权论文资产；
+- 不允许浏览器直接读取任意文件系统路径；
+- attachment 引用和 Workspace 资产映射留在 Host；
+- Profile 安装包固定版本和校验来源。
 
-## 15. 版本、升级与回滚
+## 20. 版本与兼容策略
 
-1. `package.json` 固定精确 DSH 版本，不使用范围版本；
-2. 发布元数据保存 DSH commit SHA；
-3. DSH imports 只存在于 adapter packages；
-4. 每次升级先重跑 D0 和 replay/packaging tests；
-5. 重点核对 Bundle/Profile、Session event、fork、Remote API、Client Slot 和 attachment；
-6. 升级失败时继续使用上一固定版本，不同时修改 FOCUS artifact schema。
+由于 DSH 处于 developer preview：
 
-插件回滚：
+1. `package.json` 固定精确 DSH 版本，不使用 `^`；
+2. 发布记录同时保存 DSH commit SHA；
+3. 所有 DSH imports 只出现在 `dsh/packages/host`、`client` 和 `bundle`；
+4. `protocol` 与 Python Core 不引用 DSH 类型；
+5. 每次升级 DSH 先运行 D0 兼容性测试；
+6. 重点监控：Profile/Bundle、Session Event、fork、Remote API、Client Slot、Attachment；
+7. 升级失败时继续使用上一固定版本，不同时修改领域模型。
 
-```powershell
+## 21. 回滚方案
+
+### 21.1 插件回滚
+
+```sh
 dsh plugin --profile web remove @focus/dsh-focus-bundle
 ```
 
-移除插件不修改 `knowledge-base/`。Codex 仍可通过现有 Skills 调用同一状态内核继续学习；不需要反向迁移数据。
+或恢复上一版本 tarball。Workspace 不受影响。
 
-## 16. 第二阶段完成标准
+### 21.2 产品回滚
 
-1. FOCUS Bundle 可安装到基线 DSH `web` Profile 并启动；
-2. 普通用户仍从一个 FOCUS 入口开始或继续；
-3. Scout/Study/Mastery 与当前 Skills 的路由语义一致；
-4. 三个内部模块一次只获得一个有界 action packet；
-5. DSH 不直接写 `paper.yaml`、原始回答、evidence 或 profile；
-6. 待回答交互可在新 Session 恢复；
-7. 用户回答通过 event ID 和 expected revision 幂等提交；
-8. UI 只在 FOCUS commit 成功后显示状态变化；
-9. 解释 fork 使用稳定 seq，且没有证据写权限；
-10. Session replay 后论文卡、交互和附件关系一致；
-11. parser 授权、Token 和真实性检查边界不变；
-12. `paper2blog` 不改变学习状态；
-13. profile 损坏时 fail-soft，不阻塞学习；
-14. `retained` 仍要求真实跨会话七天证据；
-15. 插件移除或 DSH 回滚不需要迁移 Workspace；
-16. 发布包不依赖 `D:\dsh-proj\deepseek-harness` 绝对路径。
+Skills 仍调用同一 Python Core，因此 DSH 不可用时可以直接回到：
 
-## 17. 基线来源
+```text
+focus-map
+focus-guide
+focus-explain
+```
 
-FOCUS：
+阅读进度不会丢失，也不需要逆向迁移。
 
-- [README](../README.md)；
-- [ask-paper Skill](../.agents/skills/ask-paper/SKILL.md)；
-- [artifact contracts](../.agents/skills/ask-paper/references/artifact-contracts.md)；
-- [state machine](../.agents/skills/ask-paper/references/state-machine.md)；
-- [paper-parser Skill](../.agents/skills/paper-parser/SKILL.md)；
-- [paper2blog Skill](../.agents/skills/paper2blog/SKILL.md)。
+## 22. 第二阶段完成标准
 
-DSH 本地参考检出 `D:\dsh-proj\deepseek-harness`：
+1. FOCUS Bundle 可从预构建包安装到 DSH `web` Profile 并启动；
+2. 专题和论文具有可发现的工作台入口；
+3. parser、paper2blog 和精读初始化都有可见入口；Parser 保持逐篇授权、Token 隔离、异步恢复和唯一 `parser-bundle/`，Blog 保持 Evidence Map、`blog.md`、`blog.html` 及不读取 `source.pdf` 的边界；
+4. 主阅读会话能逐片段翻译并展示论文图片；
+5. “理解并继续”按钮通过 FOCUS Core 推进游标；
+6. 新开或恢复 Session 时从同一 Workspace 继续；
+7. Hold-on 从稳定 `turn/end` fork 子会话；
+8. 子会话继承当前上下文但没有进度写权限；
+9. 父会话游标不受子会话影响；
+10. Session replay 后阅读节点、图片和按钮状态一致；
+11. DSH 升级影响被限制在适配层；
+12. 删除插件或切回 Skills 不需要迁移 Workspace；
+13. 如发布专用 `focus` Profile，其 Bundle 顺序显式包含 `dsh-base`、`dsh-web-app` 和 FOCUS Bundle。
 
-- `AGENTS.md`；
-- `docs/architecture.md`；
-- `docs/subsystems/session.md`；
-- `docs/cookbook/adding-a-conversation-node.md`；
-- `docs/user/develop/basic/publish.md`；
-- `packages/bundle/base/README.md`；
-- `packages/bundle/web-app/README.md`；
-- `packages/client/ui-conversation/src/client/contract/slots.ts`；
-- `packages/client/runtime/src/client/contract/sessions.ts`。
+## 23. 基线来源
+
+本方案固定参考：
+
+- DeepSeek Harness `0.1.1-rc.2`，commit `b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`；
+- `README.md`：developer preview 与启动方式；
+- `docs/architecture.md`：插件树、Profile/Bundle、Session、fork 和扩展点；
+- `docs/subsystems/session.md`：追加式 SessionEvent 日志和 fork 边界；
+- `docs/cookbook/adding-a-conversation-node.md`：稳定业务 ID、事件重放和 Conversation Node；
+- `docs/user/develop/basic/publish.md`：out-of-tree bundle 安装和 Profile 层次；
+- `packages/boot/app-boot/README.md`：`web/headless` 模板以及自定义 Profile 初始化行为；
+- `packages/client/ui-layout` 与 `ui-sidebar` Slot 契约：工作台入口和后续专题导航区域；
+- DSH durable attachment 实现：会话历史、fork 和图片重放。
