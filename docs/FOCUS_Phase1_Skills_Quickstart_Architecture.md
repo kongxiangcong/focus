@@ -88,8 +88,8 @@ DSH 可以提供按钮、卡片和会话入口，但不能绕过 `ask-paper` 的
 
 | 能力 | 输入 | 输出 | 安全边界 |
 |---|---|---|---|
-| `paper-parser` | 用户明确授权上传的 PDF | `source.pdf`、`paper.md`、`images/`、`metadata.json`、`raw/mineru/`、`validation.json` | 只使用 MinerU 托管精准解析 API；Token 仅来自环境变量；结构通过不等于语义真实 |
-| `paper2blog` | 已验证的 parser bundle | Evidence Map、`blog.md` 和本地 assets | 必须区分作者主张、论文证据和解释者推断；不写回学习证据 |
+| `paper-parser` | 用户明确授权上传的 PDF | 唯一 `parser-bundle/`：`source.pdf`、`paper.md`、顺序编号的 `images/`、`metadata.json`、`validation.json` | 只使用 MinerU 托管精准解析 API；ZIP/raw 仅临时存在；结构通过不等于语义真实 |
+| `paper2blog` | 已验证的 `parser-bundle/` 中的 Markdown、顺序图片、元数据和校验结果；不依赖 `source.pdf` | Evidence Map、`blog.md`、静态 `blog.html` 和本地 assets | 必须区分作者主张、论文证据和解释者推断；不写回学习证据 |
 
 ## 4. 当前实现边界
 

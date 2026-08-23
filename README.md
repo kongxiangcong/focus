@@ -66,8 +66,8 @@ cd focus
 - `paper-map`：来源认领、解析真实性检查、Scout 筛选，以及 Study/Mastery 所需的最小论文模型。
 - `paper-study`：关键机制教学、综合检查点、critique 和定向补缺。
 - `paper-assess`：即时闭卷、延迟保持、诊断、证据检查和 profile 投影。
-- `paper-parser`：使用 MinerU 精准解析 API，把 PDF 变成稳定、可追溯的 Markdown、图片、元数据和原始结构化证据。
-- `paper2blog`：从解析证据建立 Evidence Map，并写成有方法、公式、图表、实验和边界分析的中文技术博客。
+- `paper-parser`：使用 MinerU 精准解析 API，把 PDF 变成唯一 `parser-bundle/`，包含可追溯 Markdown、按正文顺序编号并同步链接的图片、元数据和校验结果。
+- `paper2blog`：从已验证的 `parser-bundle/` 建立 Evidence Map，并生成有方法、公式、图表、实验和边界分析的中文 `blog.md` 与静态 `blog.html`。
 
 这些 Skill 共享一个确定性状态内核。模型负责解释、提问和可审计的语义判断；脚本只负责来源、状态、revision、幂等、原子写入和恢复。route、helper、锁和事务是当前内核的私有兼容细节，不属于 v0.2 Skill 接口。
 
@@ -87,9 +87,9 @@ cd focus
 
 ## PDF 解析原则
 
-唯一解析后端是 MinerU 网页端精准解析 API，默认使用官方推荐的 `vlm` 模型并开启公式和表格识别；不安装本地 MinerU、Docling 或模型权重，也不静默回退到轻量 Agent API。Token 只从 `MINERU_API_TOKEN` 环境变量读取，不进入命令行、仓库、日志或解析产物。
+唯一解析后端是 MinerU 网页端精准解析 API，默认使用官方推荐的 `vlm` 模型并开启公式和表格识别；不安装本地 MinerU、Docling 或模型权重，也不静默回退到轻量 Agent API。Token 优先从 `MINERU_API_TOKEN` 环境变量读取，缺失时读取当前工作目录下被 Git 忽略的 `.env`；不进入命令行、版本库、日志或解析产物。API 控制请求使用 Python 标准库，签名对象存储的上传和下载使用系统 `curl`，签名 URL 仅通过标准输入传递。
 
-上传 PDF 前必须有用户对该论文的明确授权。API 完成后保留原始 ZIP 内容、规范化 `paper.md`、图片、来源哈希和无凭据 provenance。结构成功不等于真实可读；`paper-map` 仍须检查章节/页面覆盖、figure/table/equation inventory、双栏阅读顺序和抽样 claim-to-span 支持性。
+上传 PDF 前必须有用户对该论文的明确授权。API 完成后只保留规范化 `parser-bundle/`；MinerU ZIP 和 raw extraction 仅存在于临时目录。`paper.md` 的本地图片按首次引用顺序命名为 `image-001.*` 等并同步改写链接。结构成功不等于真实可读；`paper-map` 仍须检查章节/页面覆盖、figure/table/equation inventory、双栏阅读顺序和抽样 claim-to-span 支持性。
 
 ## 持久化边界
 

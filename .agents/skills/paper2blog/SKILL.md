@@ -9,7 +9,7 @@ Create a publishable Chinese technical explanation from parsed paper evidence. R
 
 ## Establish the evidence workspace
 
-Input must be a validated `paper-parser` bundle containing `paper.md`, `metadata.json`, and `images/`. If the user supplies only a PDF, invoke `paper-parser` first and honor its MinerU upload-consent and token boundary.
+Input must be the validated `paper-parser` bundle containing `paper.md`, `metadata.json`, `validation.json`, and `images/`. Require `validation.json.ok=true` and `metadata.json.parser=mineru-precision-api`. If the user supplies only a PDF, invoke `paper-parser` first and honor its MinerU upload-consent and token boundary.
 
 Resolve `scripts/paper2blog.py` relative to this skill directory and prepare an empty workspace:
 
@@ -17,7 +17,7 @@ Resolve `scripts/paper2blog.py` relative to this skill directory and prepare an 
 python -B -X utf8 scripts/paper2blog.py prepare <parser-bundle> --output <blog-workspace>
 ```
 
-The workspace contains `paper.md`, `metadata.json`, `assets/`, and `evidence-map.md`. Treat the parsed paper as the primary fact source, but cross-check OCR-sensitive formulas, numbers, captions, and reading order against the source PDF or raw extraction. Never invent author, venue, URL, code repository, metric, or result.
+The workspace contains `paper.md`, `metadata.json`, `assets/`, and `evidence-map.md`; it does not copy or read `source.pdf`. The validated parser bundle is the complete paper2blog input contract: use `paper.md`, its sequential images, metadata, and validation evidence. Never invent author, venue, URL, code repository, metric, or result.
 
 Read [references/writing-method.md](references/writing-method.md) before writing. Inspect the actual architecture, pipeline, and decisive experiment images; filenames and captions alone are insufficient.
 
@@ -36,7 +36,7 @@ If a required evidence class genuinely does not exist, say so and use the docume
 
 ## Write the blog
 
-Write the final article as `blog.md`. Organize each core design through:
+Write the article as `blog.md`. Organize each core design through:
 
 ```text
 problem -> constraint -> why the natural alternative fails -> design choice
@@ -45,7 +45,13 @@ problem -> constraint -> why the natural alternative fails -> design choice
 
 Use a paper-specific Mermaid overview, not a generic problem-to-result flow. Explain variables before formulas. For each central figure, explain modules/arrows/axes and the claim it supports. For each key table, explain metric direction, strongest baseline, largest differences, likely causes, fairness, and confounders. Separate author claims, reported evidence, and your own inference.
 
-End with concrete limitations, executable open questions, a copyable citation/BibTeX block when metadata supports it, and numbered clickable references. Mark missing bibliographic facts for verification instead of guessing.
+End with concrete limitations, executable open questions, a copyable citation/BibTeX block when metadata supports it, and numbered clickable references. Mark missing bibliographic facts for verification instead of guessing. Then render the final static artifact:
+
+```powershell
+python -B -X utf8 scripts/paper2blog.py render <blog-workspace>
+```
+
+Rendering requires local Node.js and `marked`; the script discovers the Codex bundled runtime or accepts `MARKED_CLI`. The final required files are `evidence-map.md`, `blog.md`, and `blog.html`. External publishing remains a separate user-authorized task.
 
 ## Validate
 
@@ -55,4 +61,4 @@ Run:
 python -B -X utf8 scripts/paper2blog.py check <blog-workspace>
 ```
 
-Treat failed source links, placeholders, a missing evidence map, an empty final article, no causal method detail, or no limitations as blocking. Warnings about length or absent images require judgment based on the paper, not mechanical padding. HTML rendering and external publishing are separate user-authorized tasks.
+Treat failed parser-bundle links, placeholders, a missing evidence map, an empty final article, no causal method detail, no limitations, a missing/stale `blog.html`, or a copied `source.pdf` as blocking. Warnings about length or absent images require judgment based on the paper, not mechanical padding.
