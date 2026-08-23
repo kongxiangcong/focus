@@ -52,7 +52,7 @@
 | 进入 DSH 会话的图片对象 | DSH Attachment Store | Client 图片组件 |
 | 插件配置与启用顺序 | DSH Profile / Bundle | dump-config 输出 |
 
-同一事实只能有一个可写权威。DSH 事件只保存呈现和关联所需的稳定 ID、revision 和结果摘要；它们不复制完整 `paper.yaml`、用户回答或 evidence。
+同一事实只能有一个可写权威。DSH Session Log 会保留用户消息的非权威 transcript 副本，因为它是对话事实；只有 FOCUS 的 verbatim response/interview row 和 evidence ledger 能作为学习判定输入与证据权威。FOCUS 自定义投影事件不再复制回答正文，只保存呈现和关联所需的稳定 ID、revision 和结果摘要。会话导出或删除 DSH transcript 不得改写 FOCUS evidence；删除 FOCUS 原始回答则必须使相应 evidence 引用失效。
 
 ## 4. 目标架构
 
@@ -99,6 +99,7 @@ Gateway 必须：
 - 将协议 JSON 与 stderr 诊断分离；
 - 使用明确的 schema/version；
 - 保留 event ID 幂等和 expected revision；
+- 接收 DSH 的 branded persisted-session reference 和 lineage 摘要，但只由 FOCUS 决定它能否作为 retention session；
 - 对未来 schema、来源变化、锁冲突、无效 artifact、超时和进程退出返回稳定错误；
 - 不把 Token、绝对论文路径或无关用户内容写入日志；
 - 不向 Host 暴露直接修改 manifest、ledger、lock 或 transaction 的操作。
@@ -228,39 +229,18 @@ Parser Preset 只有在用户明确授权将指定 PDF 上传 MinerU 后才可�
 
 ## 8. Session 事件与模型可见性
 
-FOCUS 扩展 `SessionEventMap` 时只记录 UI 重放和跨会话关联需要的事实。建议事件族：
+FOCUS 扩展 `SessionEventMap` 时只记录 UI 重放和跨会话关联需要的事实：
 
-```ts
-interface FocusSessionEventMap {
-  'focus/action/opened': {
-    interactionId: string
-    paperRef: string
-    operation: 'map' | 'study' | 'assess' | 'diagnostic'
-    paperRevision: number
-  }
+| Event | Payload |
+|---|---|
+| `focus/action/opened` | `FocusInteractionId`、`FocusPaperRef`、`FocusOperation`、paper revision |
+| `focus/action/presented` | `FocusInteractionId`、DSH adapter 持有的 `MessageId`、paper revision |
+| `focus/action/committed` | `FocusInteractionId`、`FocusEventId`、resulting revision、`FocusActionOutcome` |
+| `focus/explanation/forked` | `FocusInteractionId`、DSH adapter 持有的 `SessionId`、boundary seq |
 
-  'focus/action/presented': {
-    interactionId: string
-    assistantMessageId: string
-    paperRevision: number
-  }
+`FocusInteractionId`、`FocusPaperRef` 和 `FocusEventId` 在 host-neutral protocol package 中用本包自己的 opaque brand 定义，不导入 DSH。Session Event declaration 属于 DSH adapter：它直接使用 DSH `SessionId`、`MessageId` 和 `Branded<B>`，并在 JSON wire 边界显式转换/校验 FOCUS opaque ID，不把它们退化成 adapter 内部的裸 `string`。实际 declaration merging 还必须为事件和 payload 写 DSH 要求的 JSDoc。
 
-  'focus/action/committed': {
-    interactionId: string
-    eventId: string
-    resultingPaperRevision: number
-    outcome: string
-  }
-
-  'focus/explanation/forked': {
-    interactionId: string
-    childSessionId: string
-    boundarySeq: number
-  }
-}
-```
-
-实际实现前必须从当前 DSH 类型生成或核对 declaration merging，不允许文档中的示意声明成为复制粘贴的接口权威。
+四类事件都不参与解释普通 DSH transcript 或计算 FOCUS 学习状态，写入时统一在事件 envelope 标记 `ignorable: true`。这样移除 FOCUS 插件后，不认识它们的 DSH 构建仍可加载 Session。若持久日志保留事件，重新安装插件可恢复精确装饰；若这些可忽略事件在导出、裁剪或其他投影中丢失，`interactionId → MessageId` 和 explanation child/boundary 关联不能从 Workspace 确定性重建。Client 必须有损回退为普通 transcript 加 FOCUS 当前状态，并要求用户从当前 pending interaction 重新打开动作，而不是猜测历史关联。任何影响领域状态或无法接受该有损回退的事件必须另行设计迁移和 format 兼容策略，不能沿用 `ignorable: true`。
 
 任何发送给模型的来源片段、图片、rubric、先前回答摘要或工具结果，都必须进入可重放的 Session 事件或 durable attachment；不能只留在 Host 内存。包含个人学习内容的事件采用最小字段，并遵循本地存储和导出边界。
 
@@ -272,20 +252,27 @@ interface FocusSessionEventMap {
 1. 用户选择论文或输入自然语言请求
 2. Host 调用 resolve / inspect
 3. Router 选择模式并调用 next
-4. Host 持久化 pending interaction 后释放 route 和锁
-5. Host 选择一个语义 Preset
-6. Preset 执行并呈现一个动作或问题
-7. 用户回答后，Host 使用 eventId + expected revision 调用 commit
-8. Client 从新的 FOCUS 状态重建投影
+4. Host 选择一个语义 Preset
+5. Preset 生成有来源引用的 unit、问题或其他待呈现 artifact
+6. Host 以 `unit-presented` 或对应 canonical event 提交 artifact；FOCUS 在同一提交中持久化 pending interaction、消费 route 并释放锁
+7. commit 成功后，Host 才把动作或问题写入 Session 并呈现给用户
+8. 用户回答后，Host 使用 eventId + expected revision 调用回答 commit
+9. Client 从新的 FOCUS 状态重建投影
 ```
 
 `继续` 不能跳过已有 pending interaction。若 profile 投影损坏，Host 触发 fail-soft rebuild；重建失败则返回 evidence 派生进度和警告。
 
 ### 9.2 回答检查点或答辩题
 
-用户原始回答先进入 DSH Session Log，并作为 `commit` payload 的业务输入。模型判定必须引用冻结 rubric、来源和问题版本。只有 commit 成功后 Client 才显示新的证据层级；按钮的乐观状态不能冒充领域提交成功。
+用户原始回答作为对话消息先进入 DSH Session Log，并作为 `commit` payload 的业务输入；该 transcript 副本不具有学习证据权威。FOCUS commit 将 verbatim answer 写入 response/interview row，再由 evidence 引用该记录。模型判定必须引用冻结 rubric、来源和问题版本。只有 commit 成功后 Client 才显示新的证据层级；按钮的乐观状态不能冒充领域提交成功。
 
-### 9.3 分支解释
+### 9.3 持久会话身份与 retention
+
+Gateway 把 DSH `SessionId` 转换为不泄漏本地路径的 `FocusPersistedSessionRef`，并随证据候选提交以下 provenance：当前 session ref、可选 parent session ref、fork boundary、session 创建时间和 assessment interaction ID。FOCUS retention row 还必须引用先前的 `verified-now` evidence，并由状态服务核对至少七个完整日的间隔。
+
+解释 fork、从冻结答案上下文产生的 fork、临时或未持久化 Session，以及与前次闭卷共享答案提示的 lineage，均不具备独立延迟复测资格。它们可以承载解释或补缺，但不能仅因 `SessionId` 不同就满足 retained。资格判定属于 FOCUS schema 和状态服务，DSH 只提供可验证的 session/lineage 事实。
+
+### 9.4 分支解释
 
 解释分支用于追问术语、方法、图表或误解，不自动成为 checkpoint：
 
@@ -301,7 +288,7 @@ interface FocusSessionEventMap {
 
 模型流式输出期间禁用 fork action。不能使用“当前日志末尾”猜边界。若用户希望把解释后的理解用于验证，父会话必须重新提供符合证据契约的无提示问题。
 
-### 9.4 Scout 去向
+### 9.5 Scout 去向
 
 Scout 卡片可以呈现 `advance / park / reject`，但选择仍通过 FOCUS commit 写入 paper state。`advance` 根据用户意图升级到 Study 或 Mastery；UI 不自行推导模式。
 
@@ -385,13 +372,14 @@ D0 不改变真实 `knowledge-base/`。
 
 ### D4：Mastery 与分支
 
+- 先将 legacy `mastered` 显式迁移/投影为 `verified-now`，并实现包含 prior evidence ref、两个合格持久会话身份和时间间隔的 retention row；
 - 冻结闭卷题和 rubric；
 - remediation；
 - 稳定边界 explanation fork；
 - 子会话无证据写权限；
 - `verified-now` 与 `retained` 显示严格区分。
 
-延迟七天的 retained 验收必须等待真实条件满足；D4 可先验证它在条件不足时被拒绝。
+当前 `focus_core` 只原生持久化 legacy `mastered`，所以 D4 的 schema/adapter 迁移是前置工作，不是现有 Gateway 能力。延迟七天的 retained 成功验收必须等待真实条件满足；迁移完成后可以先验证同日、同 Session、解释 fork、缺少 prior verified-now 引用等情况均被拒绝。
 
 ### D5：Parser、Blog 与图片
 
@@ -418,6 +406,7 @@ D0 不改变真实 `knowledge-base/`。
 - timeout、退出码和无效 JSON；
 - event ID 幂等、payload mismatch 和 revision conflict；
 - future schema、source changed 和 profile fail-soft；
+- legacy `mastered` 迁移、verified-now evidence reference 和 retention session/lineage 资格；
 - 日志中没有 Token、绝对论文路径和不必要的原始回答。
 
 ### 13.2 Host
@@ -428,6 +417,8 @@ D0 不改变真实 `knowledge-base/`。
 - 无锁跨用户等待；
 - FOCUS-first commit 顺序和补写；
 - stable boundary fork；
+- plugin projection events 带 `ignorable: true`，未知插件事件不阻塞无插件加载；
+- 缺失 message/fork correlation 时回退为普通 transcript 和当前 FOCUS 状态，不猜测历史关联；
 - attachment cache 重建。
 
 ### 13.3 Replay 与 Client
@@ -438,6 +429,7 @@ D0 不改变真实 `knowledge-base/`。
 - Scout/Study/Mastery 卡片不会混淆证据层级；
 - streaming 时禁用 fork；
 - explanation child 无提交证据入口；
+- explanation fork 和共享答案上下文的 Session 不具备 retention 资格；
 - 父子 Session 切换不改变 pending interaction。
 
 ### 13.4 FOCUS 回归与真实验收

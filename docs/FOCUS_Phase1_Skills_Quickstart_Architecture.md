@@ -1,6 +1,6 @@
 # FOCUS 第一阶段：Skills 基线与 DSH 接入准备
 
-> 状态：Current baseline
+> 状态：Current workflow baseline；状态内核仍有 v0.1 持久化限制
 >
 > 基线日期：2026-08-23
 >
@@ -50,6 +50,8 @@ FOCUS 把阅读投入和证明强度分开：
 - `needs-remediation`、`skipped` 和 `stale`：分别保留误解、显式跳过和失效证据，不得被完成视图隐藏。
 
 用户说“懂了”“继续”或点击界面按钮只构成自我报告或交互意图。只有符合评估契约的原始回答和判定才能改变证据层级。
+
+这三层是 v0.2 的规范语义，不等于当前内核已经原生持久化全部状态。当前 `focus_core` 的节点枚举仍使用 v0.1 的 `mastered`：迁移和用户界面只能把它解释为 `verified-now`，不能据此生成 `retained`。当前内核也没有持久化“前一次 verified-now 引用 + 两个不同会话身份 + 至少七天间隔”的 retention row，因此 `retained` 尚不能通过现有命令真实提交。DSH 接入若要支持延迟保持，必须先完成显式 schema/adapter 迁移和拒绝条件测试。
 
 ### 2.3 Atlas 不属于本阶段运行链路
 
@@ -115,6 +117,8 @@ focus/
 ```
 
 当前仓库没有 `src/focus/` 应用包、`pyproject.toml`、专题目录、分片阅读计划或独立的 `paper-read`/`paper-explain` Skill。后续方案不得把这些尚未实现的对象描述成第一阶段既有能力。
+
+当前内核同样没有原生的 `verified-now`/`retained` 节点状态或 retention row。v0.2 Skill 和文档是规范 overlay；`mastered` 是兼容内核中的 legacy spelling。
 
 ### 4.2 状态服务接口
 
@@ -196,6 +200,7 @@ knowledge-base/
 - stdout 只输出协议数据，诊断写入 stderr；
 - 定义超时、进程退出、无效 JSON、revision 冲突和恢复错误；
 - 对输入/输出中的绝对路径、Token 和用户回答制定最小披露规则。
+- 明确区分规范证据状态与 legacy `mastered` 持久化；在 retention 功能进入验收前，为 verified-now 引用、持久会话身份和七天间隔增加版本化 schema 与迁移。
 
 ### P2：形成无 DSH 的真实验收样本
 
@@ -255,7 +260,7 @@ DSH 接入准备新增的 adapter 测试必须覆盖：协议版本、UTF-8、�
 
 第一阶段可作为 DSH 迁移基线，当且仅当：
 
-1. 文档、Skills 和状态内核对 Scout/Study/Mastery 的定义一致；
+1. 文档和 Skills 对 Scout/Study/Mastery 的规范定义一致，且明确记录状态内核的 legacy `mastered` 限制；
 2. `ask-paper` 仍是唯一普通用户学习入口；
 3. 三个语义模块一次只处理一个由状态服务导出的动作；
 4. `paper.yaml`、原始回答、evidence 和 profile 的权威关系明确；
@@ -264,7 +269,8 @@ DSH 接入准备新增的 adapter 测试必须覆盖：协议版本、UTF-8、�
 7. parser 的云端授权、Token 和真实性检查边界保持；
 8. `paper2blog` 与学习状态相互独立；
 9. 现有回归测试通过；
-10. DSH adapter 只调用状态服务，不直接写本地学习文件。
+10. DSH adapter 只调用状态服务，不直接写本地学习文件；
+11. 在 schema 迁移落地前，系统拒绝提交或宣称 `retained`，而不是从 legacy `mastered` 推断。
 
 ## 11. 基线来源
 
