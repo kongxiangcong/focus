@@ -23,6 +23,16 @@ def _read_content(path: Path, *, error_id: str, label: str) -> str:
     return content
 
 
+def _read_external_evidence(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise WorkspaceError("external_evidence_invalid", "External evidence file is invalid") from exc
+    if not isinstance(value, dict):
+        raise WorkspaceError("external_evidence_invalid", "External evidence file is invalid")
+    return value
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -43,6 +53,15 @@ def _build_parser() -> argparse.ArgumentParser:
     selecting.add_argument("--explanation-id", required=True)
     resume = subparsers.add_parser("resume")
     resume.add_argument("--workspace", type=Path, required=True)
+    research = subparsers.add_parser("research")
+    research.add_argument("--workspace", type=Path, required=True)
+    research.add_argument("--query-file", type=Path, required=True)
+    refusal = subparsers.add_parser("refuse")
+    refusal.add_argument("--workspace", type=Path, required=True)
+    refusal.add_argument("--reason-file", type=Path, required=True)
+    external = subparsers.add_parser("external-research")
+    external.add_argument("--workspace", type=Path, required=True)
+    external.add_argument("--evidence-file", type=Path, required=True)
     return parser
 
 
@@ -77,8 +96,26 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "select":
             result = core.select_explanation(args.explanation_id)
-        else:
+        elif args.command == "resume":
             result = core.resume_explanation()
+        elif args.command == "research":
+            result = core.research_paper(
+                query=_read_content(
+                    args.query_file,
+                    error_id="explanation_query_invalid",
+                    label="Explanation research query",
+                )
+            )
+        elif args.command == "refuse":
+            result = core.refuse_explanation(
+                reason=_read_content(
+                    args.reason_file,
+                    error_id="explanation_refusal_invalid",
+                    label="Explanation refusal reason",
+                )
+            )
+        else:
+            result = core.assess_external_evidence(_read_external_evidence(args.evidence_file))
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (WorkspaceError, OSError) as exc:

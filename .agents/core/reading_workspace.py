@@ -1119,6 +1119,13 @@ class ExplanationWorkspaceCore:
         result = self._append_current_row(role="assistant", content=answer)
         return {**result, "answer": answer}
 
+    def refuse_explanation(self, *, reason: str) -> dict[str, Any]:
+        if not isinstance(reason, str) or not reason.strip():
+            raise WorkspaceError("explanation_refusal_invalid", "Explanation refusal reason is empty or invalid")
+        refusal = f"无法提供可靠解释：{reason}"
+        result = self._append_current_row(role="assistant", content=refusal)
+        return {**result, "status": "refused", "answer": refusal}
+
     def _append_current_row(self, *, role: str, content: str) -> dict[str, Any]:
         paper_id, explanation_id, session_path, rows = self._current_session()
         expected_previous = "assistant" if role == "user" else "user"
@@ -1174,4 +1181,107 @@ class ExplanationWorkspaceCore:
             "paper_id": paper_id,
             "explanation_id": explanation_id,
             "history": history,
+        }
+
+    def research_paper(self, *, query: str) -> dict[str, Any]:
+        if not isinstance(query, str) or not query.strip():
+            raise WorkspaceError("explanation_query_invalid", "Explanation research query is empty or invalid")
+        _, _, _, paper_id, paper_root = self._current_paper()
+        bundle = paper_root / "parser-bundle"
+        if not bundle.is_dir():
+            raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {paper_id}")
+        _validate_parser_bundle(bundle)
+        try:
+            lines = (bundle / "paper.md").read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError) as exc:
+            raise WorkspaceError("parser_bundle_invalid", "Parser Bundle Markdown is invalid") from exc
+
+        terms = [term.casefold() for term in re.findall(r"[\w]+", query) if len(term) > 1]
+        if not terms:
+            terms = [query.strip().casefold()]
+        headings = [index for index, line in enumerate(lines) if re.match(r"^#{1,6}\s+\S", line)]
+        starts = ([0] if headings and headings[0] > 0 else []) + (headings or [0])
+        matches = []
+        heading_stack: list[str] = []
+        for position, start in enumerate(starts):
+            end = starts[position + 1] - 1 if position + 1 < len(starts) else len(lines) - 1
+            selected = lines[start : end + 1]
+            section_text = "\n".join(selected)
+            heading = re.match(r"^(#{1,6})\s+(.+?)\s*$", lines[start]) if headings else None
+            if heading:
+                level = len(heading.group(1))
+                heading_stack = heading_stack[: level - 1]
+                heading_stack.append(heading.group(2))
+            searchable = section_text.casefold()
+            if not any(term in searchable for term in terms):
+                continue
+            image_paths = [
+                _split_image_target(image.group(2))
+                for image in MARKDOWN_IMAGE_DETAIL_RE.finditer(section_text)
+            ]
+            matches.append(
+                {
+                    "section_path": list(heading_stack),
+                    "source_lines": [start + 1, end + 1],
+                    "content": section_text,
+                    "images": _bound_image_presentations(bundle, selected, image_paths),
+                }
+            )
+        return {
+            "ok": True,
+            "status": "paper_evidence_found" if matches else "external_research_required",
+            "paper_id": paper_id,
+            "query": query,
+            "matches": matches,
+        }
+
+    def assess_external_evidence(self, evidence: dict[str, Any]) -> dict[str, Any]:
+        _, _, _, paper_id, _ = self._current_paper()
+        if not isinstance(evidence, dict) or not set(evidence).issubset(
+            {"sources", "insufficient_reason"}
+        ):
+            raise WorkspaceError("external_evidence_invalid", "External evidence is invalid")
+        sources = evidence.get("sources")
+        if not isinstance(sources, list):
+            raise WorkspaceError("external_evidence_invalid", "External evidence is invalid")
+        allowed_source_types = {
+            "research_paper",
+            "official_specification",
+            "first_party_documentation",
+            "authoritative_source_code",
+        }
+        for source in sources:
+            if not isinstance(source, dict) or set(source) != {
+                "source_type",
+                "title",
+                "url",
+                "content",
+            }:
+                raise WorkspaceError("external_evidence_invalid", "External evidence is invalid")
+            source_url = source.get("url")
+            parsed_url = urllib.parse.urlparse(source_url) if isinstance(source_url, str) else None
+            if (
+                source.get("source_type") not in allowed_source_types
+                or not isinstance(source.get("title"), str)
+                or not source["title"].strip()
+                or parsed_url is None
+                or parsed_url.scheme not in {"http", "https"}
+                or not parsed_url.netloc
+                or not isinstance(source.get("content"), str)
+                or not source["content"].strip()
+            ):
+                raise WorkspaceError("external_evidence_invalid", "External evidence is invalid")
+        insufficient_reason = evidence.get("insufficient_reason")
+        if not sources and (
+            not isinstance(insufficient_reason, str) or not insufficient_reason.strip()
+        ):
+            raise WorkspaceError("external_evidence_invalid", "Insufficient external evidence needs a reason")
+        if sources and insufficient_reason is not None:
+            raise WorkspaceError("external_evidence_invalid", "External evidence is ambiguous")
+        return {
+            "ok": True,
+            "status": "external_evidence_found" if sources else "external_evidence_insufficient",
+            "paper_id": paper_id,
+            "sources": sources,
+            **({"insufficient_reason": insufficient_reason} if not sources else {}),
         }

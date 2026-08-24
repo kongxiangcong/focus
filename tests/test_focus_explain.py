@@ -46,12 +46,27 @@ class FocusExplainTests(unittest.TestCase):
     def _workspace(self):
         workspace = self.root / "workspace"
         paper_root = workspace / "papers" / "fixture-paper"
+        bundle = paper_root / "parser-bundle"
         plan = paper_root / "reading" / "plans" / "plan-001"
+        (bundle / "images").mkdir(parents=True)
         plan.mkdir(parents=True)
         (paper_root / "paper.yaml").write_text(
             json.dumps({"paper_id": "fixture-paper", "title": "Fixture Paper", "topics": ["systems"]}),
             encoding="utf-8",
         )
+        (bundle / "source.pdf").write_bytes(b"%PDF fixture")
+        (bundle / "paper.md").write_text(
+            "Preface-only permutation note.\n"
+            "# Current\nUnrelated opening text.\n"
+            "## Results\nThe remote ACT layout uses $Z = XW$.\n"
+            "| layout | cost |\n| ACT | low |\n"
+            "![ACT flow](images/image-001.png)\nFigure 2: ACT dataflow.\n"
+            "## Appendix\nThe rare permutation appears only in this appendix.\n",
+            encoding="utf-8",
+        )
+        (bundle / "metadata.json").write_text('{"parser":"mineru-precision-api"}\n', encoding="utf-8")
+        (bundle / "validation.json").write_text('{"ok":true}\n', encoding="utf-8")
+        (bundle / "images" / "image-001.png").write_bytes(b"image")
         records = [
             {
                 "chunk_id": "chunk-001",
@@ -116,6 +131,15 @@ class FocusExplainTests(unittest.TestCase):
         )
         self.assertEqual("chunk-001", pointers["papers"]["fixture-paper"]["current_chunk_id"])
         self.assertEqual(chunks_before, (plan / "chunks.jsonl").read_bytes())
+
+        preface_query = self.root / "preface-query.txt"
+        preface_query.write_text("Preface-only", encoding="utf-8")
+        result, preface = self._invoke(
+            ["research", "--workspace", str(workspace), "--query-file", str(preface_query)]
+        )
+        self.assertEqual(0, result)
+        self.assertEqual("paper_evidence_found", preface["status"])
+        self.assertIn("Preface-only permutation note.", preface["matches"][0]["content"])
 
     def test_answers_follow_ups_continue_and_explicit_new_session_append_without_overwrite(self):
         workspace, paper_root, plan = self._workspace()
@@ -358,6 +382,154 @@ class FocusExplainTests(unittest.TestCase):
         self.assertEqual(0, result)
         self.assertEqual("explanation-1001", response["explanation_id"])
         self.assertEqual(thousand_before, (explanations / "explanation-1000.jsonl").read_bytes())
+
+    def test_research_searches_full_paper_and_returns_scientific_structures_outside_current_chunk(self):
+        workspace, _, plan = self._workspace()
+        pointers_before = (workspace / "pointers.yaml").read_bytes()
+        chunks_before = (plan / "chunks.jsonl").read_bytes()
+        query = self.root / "query.txt"
+        query.write_text("ACT layout", encoding="utf-8")
+
+        result, response = self._invoke(
+            ["research", "--workspace", str(workspace), "--query-file", str(query)]
+        )
+
+        self.assertEqual(0, result)
+        self.assertEqual("paper_evidence_found", response["status"])
+        self.assertTrue(any(match["source_lines"][0] > 2 for match in response["matches"]))
+        evidence = "\n".join(match["content"] for match in response["matches"])
+        self.assertIn("$Z = XW$", evidence)
+        self.assertIn("| layout | cost |", evidence)
+        self.assertIn("Figure 2: ACT dataflow.", evidence)
+        images = [image for match in response["matches"] for image in match["images"]]
+        self.assertEqual("Figure 2: ACT dataflow.", images[0]["caption"])
+        self.assertTrue(Path(images[0]["path"]).is_file())
+        self.assertEqual(pointers_before, (workspace / "pointers.yaml").read_bytes())
+        self.assertEqual(chunks_before, (plan / "chunks.jsonl").read_bytes())
+
+    def test_insufficient_evidence_requests_external_research_and_clear_refusal_is_persisted(self):
+        workspace, paper_root, plan = self._workspace()
+        question = self.root / "question.txt"
+        question.write_text("解释量子香蕉效应。", encoding="utf-8")
+        self.assertEqual(
+            0,
+            self._invoke(["new", "--workspace", str(workspace), "--question-file", str(question)])[0],
+        )
+        pointers_after_new = (workspace / "pointers.yaml").read_bytes()
+        chunks_before = (plan / "chunks.jsonl").read_bytes()
+
+        result, research = self._invoke(
+            ["research", "--workspace", str(workspace), "--query-file", str(question)]
+        )
+        self.assertEqual(0, result)
+        self.assertEqual("external_research_required", research["status"])
+        self.assertEqual([], research["matches"])
+        self.assertEqual(pointers_after_new, (workspace / "pointers.yaml").read_bytes())
+
+        external = self.root / "external-insufficient.json"
+        external.write_text(
+            json.dumps(
+                {
+                    "sources": [],
+                    "insufficient_reason": "No primary source defines the claimed effect.",
+                }
+            ),
+            encoding="utf-8",
+        )
+        result, external_result = self._invoke(
+            [
+                "external-research",
+                "--workspace",
+                str(workspace),
+                "--evidence-file",
+                str(external),
+            ]
+        )
+        self.assertEqual(0, result)
+        self.assertEqual("external_evidence_insufficient", external_result["status"])
+
+        reason = self.root / "reason.txt"
+        reason.write_text("论文与可取得的一手资料均未定义该效应。", encoding="utf-8")
+        result, refused = self._invoke(
+            ["refuse", "--workspace", str(workspace), "--reason-file", str(reason)]
+        )
+        self.assertEqual(0, result)
+        self.assertEqual("refused", refused["status"])
+        rows = [
+            json.loads(line)
+            for line in (paper_root / "reading" / "explanations" / "explanation-001.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+        self.assertTrue(rows[-1]["content"].startswith("无法提供可靠解释："))
+        self.assertEqual({"role", "content"}, set(rows[-1]))
+        self.assertEqual(chunks_before, (plan / "chunks.jsonl").read_bytes())
+        self.assertEqual(pointers_after_new, (workspace / "pointers.yaml").read_bytes())
+        self.assertEqual(
+            ["explanation-001.jsonl"],
+            sorted(path.name for path in (paper_root / "reading" / "explanations").iterdir()),
+        )
+
+    def test_direct_answer_and_requested_sources_remain_visible_content_without_source_ledger(self):
+        workspace, paper_root, plan = self._workspace()
+        question = self.root / "question.txt"
+        answer = self.root / "answer.txt"
+        question.write_text("解释 ACT layout，并给出来源。", encoding="utf-8")
+        self.assertEqual(
+            0,
+            self._invoke(["new", "--workspace", str(workspace), "--question-file", str(question)])[0],
+        )
+        pointers_after_new = (workspace / "pointers.yaml").read_bytes()
+        chunks_before = (plan / "chunks.jsonl").read_bytes()
+        external = self.root / "external-primary.json"
+        external.write_text(
+            json.dumps(
+                {
+                    "sources": [
+                        {
+                            "source_type": "official_specification",
+                            "title": "ACT Layout Specification",
+                            "url": "https://example.test/act-spec",
+                            "content": "The ACT layout aligns tensor dimensions before execution.",
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        result, external_result = self._invoke(
+            [
+                "external-research",
+                "--workspace",
+                str(workspace),
+                "--evidence-file",
+                str(external),
+            ]
+        )
+        self.assertEqual(0, result)
+        self.assertEqual("external_evidence_found", external_result["status"])
+        self.assertEqual("official_specification", external_result["sources"][0]["source_type"])
+        answer.write_text(
+            "ACT layout 通过匹配张量布局减少转换。来源：[ACT Layout Specification](https://example.test/act-spec)。",
+            encoding="utf-8",
+        )
+
+        result, response = self._invoke(
+            ["answer", "--workspace", str(workspace), "--answer-file", str(answer)]
+        )
+
+        self.assertEqual(0, result)
+        self.assertEqual("answered", response["status"])
+        session_root = paper_root / "reading" / "explanations"
+        rows = [
+            json.loads(line)
+            for line in (session_root / "explanation-001.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertIn("来源：", rows[-1]["content"])
+        self.assertEqual({"role", "content"}, set(rows[-1]))
+        self.assertEqual(["explanation-001.jsonl"], sorted(path.name for path in session_root.iterdir()))
+        self.assertEqual(pointers_after_new, (workspace / "pointers.yaml").read_bytes())
+        self.assertEqual(chunks_before, (plan / "chunks.jsonl").read_bytes())
 
 
 if __name__ == "__main__":
