@@ -574,6 +574,98 @@ class PaperToBlogTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.root)
 
+    def _registered_paper(self, *, valid_bundle: bool = True):
+        workspace = self.root / "workspace"
+        paper_root = workspace / "papers" / "fixture-paper"
+        bundle = paper_root / "parser-bundle"
+        (bundle / "images").mkdir(parents=True)
+        (paper_root / "paper.yaml").write_text(
+            json.dumps({"paper_id": "fixture-paper", "title": "Fixture Paper", "topics": ["systems"]}),
+            encoding="utf-8",
+        )
+        (bundle / "source.pdf").write_bytes(b"%PDF fixture")
+        (bundle / "paper.md").write_text(
+            "# Fixture Paper\n\n## Method\nEvidence.\n\n![Figure](images/image-001.png)\n",
+            encoding="utf-8",
+        )
+        (bundle / "metadata.json").write_text(
+            '{"title": "Fixture Paper", "parser": "mineru-precision-api"}\n',
+            encoding="utf-8",
+        )
+        (bundle / "validation.json").write_text(
+            json.dumps({"ok": valid_bundle}) + "\n",
+            encoding="utf-8",
+        )
+        (bundle / "images" / "image-001.png").write_bytes(b"fixture")
+        (workspace / "pointers.yaml").write_bytes(b"not blog input\n")
+        reading = paper_root / "reading"
+        (reading / "plans" / "plan-001").mkdir(parents=True)
+        (reading / "plans" / "plan-001" / "chunks.jsonl").write_bytes(b"private chunks\n")
+        (reading / "plans" / "plan-001" / "glossary.tsv").write_bytes(b"private glossary\n")
+        (reading / "explanations").mkdir()
+        (reading / "explanations" / "explanation-001.jsonl").write_bytes(b"private explanation\n")
+        return workspace, paper_root, bundle
+
+    @staticmethod
+    def _snapshot(paths):
+        return {path: path.read_bytes() for root in paths for path in root.rglob("*") if path.is_file()}
+
+    def test_registered_paper_blog_is_generated_beside_bundle_without_reading_access(self):
+        workspace, paper_root, bundle = self._registered_paper()
+        protected_before = self._snapshot((bundle, paper_root / "reading"))
+        pointers_before = (workspace / "pointers.yaml").read_bytes()
+
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            prepared = BLOG.main(
+                ["prepare", "--workspace", str(workspace), "--paper-id", "fixture-paper"]
+            )
+
+        self.assertEqual(0, prepared)
+        response = json.loads(stdout.getvalue())
+        blog = paper_root / "blog"
+        self.assertEqual(str(blog.resolve()), response["output"])
+        self.assertTrue((blog / "evidence-map.md").is_file())
+        self.assertTrue((blog / "paper.md").is_file())
+        self.assertTrue((blog / "metadata.json").is_file())
+        self.assertTrue((blog / "assets" / "image-001.png").is_file())
+
+        (blog / "evidence-map.md").write_text("# Evidence Map\n\nComplete evidence.\n", encoding="utf-8")
+        (blog / "blog.md").write_text(
+            "# 技术博客\n\n## 方法与设计\n\n## 实验与证据\n\n## 局限与边界\n\n"
+            "![Figure](assets/image-001.png)\n\n## 参考文献\n\n" + "正文证据。" * 500,
+            encoding="utf-8",
+        )
+        with mock.patch.object(
+            BLOG,
+            "_render_markdown",
+            return_value='<h1>技术博客</h1><img src="assets/image-001.png"><p>正文</p>',
+        ):
+            with contextlib.redirect_stdout(io.StringIO()):
+                rendered = BLOG.main(["render", str(blog)])
+
+        self.assertEqual(0, rendered)
+        self.assertTrue((blog / "blog.html").is_file())
+        self.assertEqual(protected_before, self._snapshot((bundle, paper_root / "reading")))
+        self.assertEqual(pointers_before, (workspace / "pointers.yaml").read_bytes())
+
+    def test_failed_registered_paper_blog_returns_structured_error_without_mutating_private_data(self):
+        workspace, paper_root, bundle = self._registered_paper(valid_bundle=False)
+        protected_before = self._snapshot((bundle, paper_root / "reading"))
+        pointers_before = (workspace / "pointers.yaml").read_bytes()
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr):
+            result = BLOG.main(
+                ["prepare", "--workspace", str(workspace), "--paper-id", "fixture-paper"]
+            )
+
+        self.assertEqual(1, result)
+        self.assertEqual("parser_bundle_invalid", json.loads(stderr.getvalue())["error_id"])
+        self.assertFalse((paper_root / "blog").exists())
+        self.assertEqual(protected_before, self._snapshot((bundle, paper_root / "reading")))
+        self.assertEqual(pointers_before, (workspace / "pointers.yaml").read_bytes())
+
     def test_prepare_and_check_workspace(self):
         bundle = self.root / "bundle"
         (bundle / "images").mkdir(parents=True)
@@ -620,6 +712,12 @@ class PaperToBlogTests(unittest.TestCase):
         self.assertTrue((workspace / "blog.html").is_file())
         checked = BLOG._check(workspace)
         self.assertTrue(checked["ok"])
+
+        original_blog = (workspace / "blog.md").read_text(encoding="utf-8")
+        (workspace / "blog.md").write_text(original_blog.replace("正文", "证据"), encoding="utf-8")
+        stale = BLOG._check(workspace)
+        self.assertFalse(stale["ok"])
+        self.assertIn("blog.html is stale or not rendered from the current blog.md", stale["errors"])
 
 
 if __name__ == "__main__":

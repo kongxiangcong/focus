@@ -9,15 +9,15 @@ Create a publishable Chinese technical explanation from parsed paper evidence. R
 
 ## Establish the evidence workspace
 
-Input must be the validated `paper-parser` bundle containing `paper.md`, `metadata.json`, `validation.json`, and `images/`. Require `validation.json.ok=true` and `metadata.json.parser=mineru-precision-api`. If the user supplies only a PDF, invoke `paper-parser` first and honor its MinerU upload-consent and token boundary.
+Input must be a registered Paper whose canonical `parser-bundle/` contains `paper.md`, `metadata.json`, `validation.json`, and `images/`. Require `validation.json.ok=true` and `metadata.json.parser=mineru-precision-api`. If the user supplies only a PDF, invoke `paper-parser` first and honor its MinerU upload-consent and token boundary.
 
-Resolve `scripts/paper2blog.py` relative to this skill directory and prepare an empty workspace:
+Resolve `scripts/paper2blog.py` relative to this skill directory and prepare the Paper-local Blog Output:
 
 ```powershell
-python -B -X utf8 scripts/paper2blog.py prepare <parser-bundle> --output <blog-workspace>
+python -B -X utf8 scripts/paper2blog.py prepare --workspace <workspace> --paper-id <paper-id>
 ```
 
-The workspace contains `paper.md`, `metadata.json`, `assets/`, and `evidence-map.md`; it does not copy or read `source.pdf`. The validated parser bundle is the complete paper2blog input contract: use `paper.md`, its sequential images, metadata, and validation evidence. Never invent author, venue, URL, code repository, metric, or result.
+The command resolves only `papers/<paper-id>/paper.yaml` and that Paper's canonical `parser-bundle/`, then atomically creates `papers/<paper-id>/blog/`. It does not read Workspace pointers or anything under `reading/`. The Blog Output contains `paper.md`, `metadata.json`, `assets/`, and `evidence-map.md`; it does not copy or read `source.pdf`. Never invent author, venue, URL, code repository, metric, or result.
 
 Read [references/writing-method.md](references/writing-method.md) before writing. Inspect the actual architecture, pipeline, and decisive experiment images; filenames and captions alone are insufficient.
 
@@ -48,7 +48,7 @@ Use a paper-specific Mermaid overview, not a generic problem-to-result flow. Exp
 End with concrete limitations, executable open questions, a copyable citation/BibTeX block when metadata supports it, and numbered clickable references. Mark missing bibliographic facts for verification instead of guessing. Then render the final static artifact:
 
 ```powershell
-python -B -X utf8 scripts/paper2blog.py render <blog-workspace>
+python -B -X utf8 scripts/paper2blog.py render <workspace>/papers/<paper-id>/blog
 ```
 
 Rendering requires local Node.js and `marked`; the script discovers the Codex bundled runtime or accepts `MARKED_CLI`. The final required files are `evidence-map.md`, `blog.md`, and `blog.html`. External publishing remains a separate user-authorized task.
@@ -58,7 +58,9 @@ Rendering requires local Node.js and `marked`; the script discovers the Codex bu
 Run:
 
 ```powershell
-python -B -X utf8 scripts/paper2blog.py check <blog-workspace>
+python -B -X utf8 scripts/paper2blog.py check <workspace>/papers/<paper-id>/blog
 ```
 
 Treat failed parser-bundle links, placeholders, a missing evidence map, an empty final article, no causal method detail, no limitations, a missing/stale `blog.html`, or a copied `source.pdf` as blocking. Warnings about length or absent images require judgment based on the paper, not mechanical padding.
+
+Preparation and validation failures return one JSON error with a stable `error_id`. Do not fall back to a caller-selected output directory for registered Papers. Blog generation has no Reading write capability: never read or modify `pointers.yaml`, Reading Plans, Chunk Records, Plan Glossaries, translations, Notes, or Explanation Sessions.

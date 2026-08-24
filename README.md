@@ -12,7 +12,7 @@ FOCUS 记录“当前读到哪里”和“用户做了什么”，不判断用�
 - [Phase 2 DSH 迁移边界](docs/FOCUS_Phase2_DSH_Migration_and_Deployment.md)
 - [领域语言](CONTEXT.md)
 
-Paper Companion v0.2 已由 `paper-companion-v0.2` Git tag 保存；旧学习 Skills、状态内核和学习测试已退出活动主线。`paper-parser` 已接入 Reading Workspace：它在逐篇授权后生成无哈希 Parser Bundle，通过结构校验后才注册 Topic、Paper 和初始指针，并支持按非敏感 `batch_id` 恢复异步任务。该路径已通过受控解析 fixture 验证，尚未把一次真实 MinerU 调用声明为验收完成。
+Paper Companion v0.2 已由 `paper-companion-v0.2` Git tag 保存；旧学习 Skills、状态内核和学习测试已退出活动主线。`paper-parser` 已接入 Reading Workspace：它在逐篇授权后生成无哈希 Parser Bundle，通过结构校验后才注册 Topic、Paper 和初始指针，并支持按非敏感 `batch_id` 恢复异步任务。`paper2blog` 已按显式 Paper ID 从该 Paper 的规范 Parser Bundle 原子创建同级 `blog/`，其实现不读取 Workspace 指针或 `reading/`。这些路径已通过受控 fixture 验证，尚未把一次真实 MinerU 调用或真实论文 Blog 声明为验收完成。
 
 ## 目标体验
 
@@ -25,7 +25,7 @@ Phase 1 计划提供三个显式阅读 Skill：
 两个论文处理 Skill 继续保留：
 
 - `paper-parser`：经逐篇授权调用 MinerU 托管精准解析 API，直接在 Workspace Paper 目录生成无哈希 Parser Bundle，并在结构校验后完成注册；
-- `paper2blog`：当前从 Parser Bundle 生成独立 Blog；它与 Reading Workspace 的最终隔离接入由后续切片完成。
+- `paper2blog`：从已注册 Paper 的 Parser Bundle 生成同级独立 Blog，不读取或修改 Reading 与 Explanation 数据。
 
 不设置统一公共路由 Skill。`focus-guide` 中的“继续”表示继续阅读，`focus-explain` 中的“继续”表示继续解释；两者不能由隐藏路由混用。
 
@@ -73,11 +73,10 @@ workspace/
 
 ## 后续实施边界
 
-当前实现基线已完成历史保全、旧运行时退役和 Paper Parser 注册切片。后续实施任务将：
+当前实现基线已完成历史保全、旧运行时退役、Paper Parser 注册和隔离 Blog Output 切片。后续实施任务将：
 
-1. 隔离接入 `paper2blog`；
-2. 扩展最小确定性核心以支持 Reading 数据；
-3. 实现 `focus-map`、`focus-guide`、`focus-explain`；
-4. 使用真实论文完成 Phase 1 十一项验收。
+1. 扩展最小确定性核心以支持 Reading 数据；
+2. 实现 `focus-map`、`focus-guide`、`focus-explain`；
+3. 使用真实论文完成 Phase 1 十一项验收。
 
 当前 README 不声称这些后续运行时已经存在。

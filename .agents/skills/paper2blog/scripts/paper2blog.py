@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import html
 import json
 import os
@@ -12,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sys
+import uuid
 from pathlib import Path
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".jp2"}
@@ -19,7 +19,12 @@ PLACEHOLDERS = ("待补", "TODO", "TBD", "<your-", "问题 1：……", "贡献 
 
 
 class BlogError(RuntimeError):
-    pass
+    def __init__(self, error_id: str, message: str | None = None):
+        if message is None:
+            message = error_id
+            error_id = "blog_output_invalid"
+        super().__init__(message)
+        self.error_id = error_id
 
 
 def _read_json(path: Path) -> dict:
@@ -111,6 +116,52 @@ def _prepare(input_dir: Path, output: Path) -> dict:
     return {"ok": True, "output": str(output.resolve()), "headings": len(headings), "assets": len(image_names), "metadata_keys": sorted(metadata)}
 
 
+def _paper_id(value: str) -> str:
+    if not value or value != value.strip("-"):
+        raise BlogError("paper_invalid", "Paper ID is invalid")
+    if any(not (character.isalnum() or character == "-") for character in value):
+        raise BlogError("paper_invalid", "Paper ID is invalid")
+    return value
+
+
+def _prepare_registered(workspace: Path, paper_id: str) -> dict:
+    workspace = workspace.resolve()
+    if not workspace.is_dir():
+        raise BlogError("workspace_missing", "Workspace does not exist")
+    paper_id = _paper_id(paper_id)
+    paper_root = workspace / "papers" / paper_id
+    paper_path = paper_root / "paper.yaml"
+    if not paper_path.is_file():
+        raise BlogError("paper_missing", f"Paper does not exist: {paper_id}")
+    paper = _read_json(paper_path)
+    if paper.get("paper_id") != paper_id:
+        raise BlogError("paper_invalid", f"Paper is invalid: {paper_id}")
+    bundle = paper_root / "parser-bundle"
+    if not bundle.is_dir():
+        raise BlogError("parser_bundle_missing", f"Parser Bundle does not exist: {paper_id}")
+    try:
+        metadata = _read_json(bundle / "metadata.json")
+        validation = _read_json(bundle / "validation.json")
+    except BlogError as exc:
+        raise BlogError("parser_bundle_invalid", str(exc)) from exc
+    if metadata.get("parser") != "mineru-precision-api" or validation.get("ok") is not True:
+        raise BlogError("parser_bundle_invalid", f"Parser Bundle is invalid: {paper_id}")
+
+    output = paper_root / "blog"
+    if output.exists():
+        raise BlogError("blog_output_exists", f"Blog Output already exists: {paper_id}")
+    staging = paper_root / f".blog-{uuid.uuid4().hex}.staging"
+    try:
+        result = _prepare(bundle, staging)
+        staging.replace(output)
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    result["output"] = str(output.resolve())
+    result["paper_id"] = paper_id
+    return result
+
+
 def _find_marked() -> tuple[str, Path]:
     runtime_root = Path.home() / ".cache" / "codex-runtimes"
     node_candidates = [shutil.which("node.exe"), shutil.which("node")]
@@ -149,13 +200,13 @@ def _render_markdown(markdown_path: Path) -> str:
     return completed.stdout
 
 
-def _html_document(title: str, body: str, source_hash: str) -> str:
+def _html_document(title: str, body: str, source_characters: int) -> str:
     template = """<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="source-markdown-sha256" content="__SOURCE_HASH__">
+  <meta name="source-markdown-characters" content="__SOURCE_CHARACTERS__">
   <title>__TITLE__</title>
   <style>
     :root { color-scheme: light dark; --paper:#fff; --ink:#202124; --muted:#5f6368; --line:#dadce0; --accent:#2457a7; --code:#f6f8fa; }
@@ -185,7 +236,7 @@ __BODY__
 </html>
 """
     return (
-        template.replace("__SOURCE_HASH__", source_hash)
+        template.replace("__SOURCE_CHARACTERS__", str(source_characters))
         .replace("__TITLE__", html.escape(title))
         .replace("__BODY__", body)
     )
@@ -200,8 +251,7 @@ def _render(workspace: Path) -> dict:
     blog = blog_path.read_text(encoding="utf-8", errors="replace")
     heading = re.search(r"^#\s+(.+?)\s*$", blog, flags=re.MULTILINE)
     title = heading.group(1) if heading else "Paper Blog"
-    source_hash = hashlib.sha256(blog_path.read_bytes()).hexdigest()
-    document = _html_document(title, _render_markdown(blog_path), source_hash)
+    document = _html_document(title, _render_markdown(blog_path), len(blog))
     html_path = workspace / "blog.html"
     html_path.write_text(document, encoding="utf-8")
     result = _check(workspace, require_html=True)
@@ -259,9 +309,10 @@ def _check(workspace: Path, *, require_html: bool = True) -> dict:
         else:
             rendered = html_path.read_text(encoding="utf-8", errors="replace")
             html_chars = len(rendered)
-            expected_hash = hashlib.sha256(blog_path.read_bytes()).hexdigest() if blog_path.is_file() else ""
-            match = re.search(r'<meta name="source-markdown-sha256" content="([0-9a-f]{64})">', rendered)
-            if not match or match.group(1) != expected_hash:
+            expected_characters = len(blog)
+            match = re.search(r'<meta name="source-markdown-characters" content="(\d+)">', rendered)
+            source_is_newer = blog_path.stat().st_mtime_ns > html_path.stat().st_mtime_ns
+            if not match or int(match.group(1)) != expected_characters or source_is_newer:
                 errors.append("blog.html is stale or not rendered from the current blog.md")
             for link in re.findall(r'<img[^>]+src="([^"]+)"', rendered):
                 if "://" not in link and not (workspace / link).resolve().is_file():
@@ -285,8 +336,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     prepare = subparsers.add_parser("prepare")
-    prepare.add_argument("input_dir", type=Path)
-    prepare.add_argument("--output", type=Path, required=True)
+    prepare.add_argument("input_dir", type=Path, nargs="?")
+    prepare.add_argument("--output", type=Path)
+    prepare.add_argument("--workspace", type=Path)
+    prepare.add_argument("--paper-id")
     check = subparsers.add_parser("check")
     check.add_argument("workspace", type=Path)
     render = subparsers.add_parser("render")
@@ -294,11 +347,21 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     try:
-        args = _build_parser().parse_args()
+        args = _build_parser().parse_args(argv)
         if args.command == "prepare":
-            result = _prepare(args.input_dir, args.output)
+            if args.workspace is not None or args.paper_id is not None:
+                if args.workspace is None or args.paper_id is None or args.input_dir is not None or args.output is not None:
+                    raise BlogError(
+                        "blog_request_invalid",
+                        "Workspace Blog preparation requires --workspace and --paper-id only",
+                    )
+                result = _prepare_registered(args.workspace, args.paper_id)
+            else:
+                if args.input_dir is None or args.output is None:
+                    raise BlogError("blog_request_invalid", "Bundle preparation requires input_dir and --output")
+                result = _prepare(args.input_dir, args.output)
         elif args.command == "render":
             result = _render(args.workspace)
         else:
@@ -306,7 +369,8 @@ def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result.get("ok") else 1
     except (BlogError, OSError) as exc:
-        print(json.dumps({"ok": False, "error": type(exc).__name__, "message": str(exc)}, ensure_ascii=False), file=sys.stderr)
+        error_id = exc.error_id if isinstance(exc, BlogError) else "blog_output_write_failed"
+        print(json.dumps({"ok": False, "error_id": error_id, "message": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 1
 
 
