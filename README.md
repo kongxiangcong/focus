@@ -12,13 +12,13 @@ FOCUS 记录“当前读到哪里”和“用户做了什么”，不判断用�
 - [Phase 2 DSH 迁移边界](docs/FOCUS_Phase2_DSH_Migration_and_Deployment.md)
 - [领域语言](CONTEXT.md)
 
-Paper Companion v0.2 已由 `paper-companion-v0.2` Git tag 保存；旧学习 Skills、状态内核和学习测试已退出活动主线。`paper-parser` 已接入 Reading Workspace：它在逐篇授权后生成无哈希 Parser Bundle，通过结构校验后才注册 Topic、Paper 和初始指针，并支持按非敏感 `batch_id` 恢复异步任务。`paper2blog` 已按显式 Paper ID 创建隔离 Blog；`focus-map` 已能校验并原子安装首个 Reading Plan；`focus-guide` 已支持稳定 Chunk 展示、显式 Notes、术语修正、重译与单步推进；`focus-explain` 已支持独立解释会话的创建、追加、选择和跨进程恢复。这些路径已通过受控 fixture 验证，尚未把一次真实 MinerU 调用或真实论文全流程声明为验收完成。
+Paper Companion v0.2 已由 `paper-companion-v0.2` Git tag 保存；旧学习 Skills、状态内核和学习测试已退出活动主线。`paper-parser` 已接入 Reading Workspace：它在逐篇授权后生成无哈希 Parser Bundle，通过结构校验后才注册 Topic、Paper 和初始指针，并支持按非敏感 `batch_id` 恢复异步任务。`paper2blog` 已按显式 Paper ID 创建隔离 Blog；`focus-map` 已能原子安装、复用或显式重建 Reading Plan 并保全旧工作；`focus-guide` 已支持稳定 Chunk 展示、显式 Notes、术语修正、重译与单步推进；`focus-explain` 已支持独立解释会话的创建、追加、选择和跨进程恢复。这些路径已通过受控 fixture 验证，尚未把一次真实 MinerU 调用或真实论文全流程声明为验收完成。
 
 ## 目标体验
 
 Phase 1 的显式阅读 Skill：
 
-- `focus-map`：已实现，为已注册 Paper 创建或复用稳定 Reading Plan；
+- `focus-map`：已实现，为已注册 Paper 创建、复用或显式重建稳定 Reading Plan，并保全旧 Plan 工作；
 - `focus-guide`：已实现当前 Chunk 的稳定翻译、三类 Notes、行内讨论、术语修正、重译、Continue Reading、完成与跨进程恢复；
 - `focus-explain`：已实现独立解释问答的持久化与恢复、全文结构检索、必要外部一手资料研究纪律及可靠拒答。
 
@@ -75,7 +75,6 @@ workspace/
 
 当前实现基线已完成历史保全、旧运行时退役、Paper Parser 注册、隔离 Blog Output、首个 Reading Plan、完整 Guided Reading 操作，以及 Explanation Session 持久化与恢复切片。后续实施任务将：
 
-1. 实现 Reading Plan 重新初始化与旧工作保全；
-2. 使用真实论文完成 Phase 1 十一项验收。
+1. 使用真实论文完成 Phase 1 十一项验收。
 
 当前 README 不声称这些后续运行时已经存在。

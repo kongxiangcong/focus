@@ -719,6 +719,7 @@ class WorkspaceCore:
         *,
         draft: dict[str, Any] | None,
         scope: str | None = None,
+        reinitialize: bool = False,
     ) -> dict[str, Any]:
         paper_id = _identifier(paper_id, "paper_id")
         paper_root = self.workspace / "papers" / paper_id
@@ -747,7 +748,17 @@ class WorkspaceCore:
             _identifier(current_plan_id, "reading_plan")
             if not (paper_root / "reading" / "plans" / current_plan_id / "chunks.jsonl").is_file():
                 raise WorkspaceError("reading_plan_missing", f"Reading Plan does not exist: {current_plan_id}")
-            return {"ok": True, "paper_id": paper_id, "plan_id": current_plan_id, "chunk_id": current_chunk_id, "reused": True}
+            if not reinitialize:
+                return {
+                    "ok": True,
+                    "paper_id": paper_id,
+                    "plan_id": current_plan_id,
+                    "chunk_id": current_chunk_id,
+                    "reused": True,
+                    "reinitialized": False,
+                }
+        elif reinitialize:
+            raise WorkspaceError("reading_plan_missing", "No current Reading Plan exists to reinitialize")
         if draft is None:
             raise WorkspaceError("reading_plan_input_missing", "A Reading Plan draft is required")
         records, glossary = _reading_plan_records(bundle, draft)
@@ -755,7 +766,7 @@ class WorkspaceCore:
         plans_root = paper_root / "reading" / "plans"
         used_numbers = []
         for path in plans_root.glob("plan-*"):
-            match = re.fullmatch(r"plan-(\d{3})", path.name)
+            match = re.fullmatch(r"plan-(\d+)", path.name)
             if path.is_dir() and match:
                 used_numbers.append(int(match.group(1)))
         plan_id = f"plan-{(max(used_numbers, default=0) + 1):03d}"
@@ -788,6 +799,7 @@ class WorkspaceCore:
             "plan_id": plan_id,
             "chunk_id": records[0]["chunk_id"],
             "reused": False,
+            "reinitialized": reinitialize,
         }
 
     def present_current_chunk(self, *, translation: str | None = None) -> dict[str, Any]:

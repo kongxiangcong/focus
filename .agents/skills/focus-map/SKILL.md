@@ -1,6 +1,6 @@
 ---
 name: focus-map
-description: Create or reuse a source-anchored Reading Plan for one registered Paper in the private FOCUS Reading Workspace. Use for explicit reading-plan mapping, not parsing, translation, navigation, or explanation.
+description: Create, reuse, or explicitly reinitialize a source-anchored Reading Plan for one registered Paper in the private FOCUS Reading Workspace.
 ---
 
 # Focus Map
@@ -45,3 +45,15 @@ python -B -X utf8 scripts/focus_map.py map --workspace <workspace> --paper-id <p
 ```
 
 Treat every nonzero result as blocking for this invocation. The command emits one direct JSON error with a stable `error_id`; do not repair Workspace pointers or Plan files manually.
+
+## Explicit reinitialization
+
+Only an explicit reader request to replace the active Reading Plan may reinitialize it. Inspect the immutable Parser Bundle again and prepare a complete fresh draft under the same source-unit rules. Build the new chunks and Plan Glossary from source; perform no content matching, hash comparison, cursor migration, source-change inference, or merge with the active Plan.
+
+Install and select the next sequential Plan atomically:
+
+```powershell
+python -B -X utf8 scripts/focus_map.py map --workspace <workspace> --paper-id <paper-id> --reinitialize --scope "<optional scope>" --draft <draft.json>
+```
+
+A successful result has `reinitialized=true`, a new `plan_id`, and its fresh `chunk-001` selected. Existing Plan directories, cached translations, Notes, Explanation Sessions, the current Explanation Session reference, and other Paper pointers remain unchanged. A failure leaves the prior Plan and Reading Cursor selected; report the structured error without editing Workspace files manually.

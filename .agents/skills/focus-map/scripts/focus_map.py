@@ -33,6 +33,7 @@ def _build_parser() -> argparse.ArgumentParser:
     mapping.add_argument("--paper-id", required=True)
     mapping.add_argument("--scope")
     mapping.add_argument("--draft", type=Path)
+    mapping.add_argument("--reinitialize", action="store_true")
     return parser
 
 
@@ -44,6 +45,7 @@ def main(argv: list[str] | None = None) -> int:
             args.paper_id,
             draft=_read_draft(args.draft),
             scope=args.scope,
+            reinitialize=args.reinitialize,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
