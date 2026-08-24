@@ -112,6 +112,22 @@ def _prepare_membership(
     pointers["current_paper_id"] = paper_id
 
 
+def _current_paper_pointer(
+    workspace: Path,
+) -> tuple[Path, dict[str, Any], dict[str, Any], str, Path]:
+    pointers_path = workspace / "pointers.yaml"
+    pointers = _read_document(pointers_path)
+    paper_id = pointers.get("current_paper_id")
+    pointer_entries = pointers.get("papers")
+    if not isinstance(paper_id, str) or not isinstance(pointer_entries, dict):
+        raise WorkspaceError("paper_missing", "No current Paper is selected")
+    paper_id = _identifier(paper_id, "paper_id")
+    paper_pointer = pointer_entries.get(paper_id)
+    if not isinstance(paper_pointer, dict):
+        raise WorkspaceError("workspace_pointers_invalid", "Workspace pointers are invalid")
+    return pointers_path, pointers, paper_pointer, paper_id, workspace / "papers" / paper_id
+
+
 def _commit_documents(
     documents: dict[Path, dict[str, Any]],
     *,
@@ -374,6 +390,36 @@ def _serialize_chunk_records(records: list[dict[str, Any]]) -> str:
     return "".join(
         json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n" for value in records
     )
+
+
+def _serialize_explanation_rows(rows: list[dict[str, str]]) -> str:
+    return "".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n" for row in rows)
+
+
+def _read_explanation_rows(path: Path) -> list[dict[str, str]]:
+    if not path.is_file():
+        raise WorkspaceError("explanation_session_missing", f"Explanation Session does not exist: {path.stem}")
+    rows: list[dict[str, str]] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            row = json.loads(line)
+            if (
+                not isinstance(row, dict)
+                or set(row) != {"role", "content"}
+                or row.get("role") not in {"user", "assistant"}
+                or not isinstance(row.get("content"), str)
+                or not row["content"].strip()
+            ):
+                raise ValueError
+            expected_role = "user" if len(rows) % 2 == 0 else "assistant"
+            if row["role"] != expected_role:
+                raise ValueError
+            rows.append(row)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise WorkspaceError("explanation_session_invalid", f"Explanation Session is invalid: {path.stem}") from exc
+    if not rows:
+        raise WorkspaceError("explanation_session_invalid", f"Explanation Session is invalid: {path.stem}")
+    return rows
 
 
 def _read_glossary(path: Path) -> list[dict[str, str]]:
@@ -794,15 +840,7 @@ class WorkspaceCore:
     def _current_reading_selection(
         self, *, require_chunk: bool
     ) -> tuple[dict[str, Any], dict[str, Any], str, str, str | None]:
-        pointers = _read_document(self.workspace / "pointers.yaml")
-        paper_id = pointers.get("current_paper_id")
-        pointer_entries = pointers.get("papers")
-        if not isinstance(paper_id, str) or not isinstance(pointer_entries, dict):
-            raise WorkspaceError("paper_missing", "No current Paper is selected")
-        paper_id = _identifier(paper_id, "paper_id")
-        paper_pointer = pointer_entries.get(paper_id)
-        if not isinstance(paper_pointer, dict):
-            raise WorkspaceError("workspace_pointers_invalid", "Workspace pointers are invalid")
+        _, pointers, paper_pointer, paper_id, _ = _current_paper_pointer(self.workspace)
         plan_id = paper_pointer.get("current_plan_id")
         chunk_id = paper_pointer.get("current_chunk_id")
         if plan_id is None:
@@ -1005,4 +1043,135 @@ class WorkspaceCore:
             "plan_id": paper_pointer.get("current_plan_id"),
             "chunk_id": paper_pointer.get("current_chunk_id"),
             "explanation_id": paper_pointer.get("current_explanation_id"),
+        }
+
+
+class ExplanationWorkspaceCore:
+    """Capability-limited write seam for private Explanation Sessions."""
+
+    def __init__(self, workspace: Path):
+        self.workspace = workspace.resolve()
+
+    def _current_paper(
+        self,
+    ) -> tuple[Path, dict[str, Any], dict[str, Any], str, Path]:
+        pointers_path, pointers, paper_pointer, paper_id, paper_root = _current_paper_pointer(
+            self.workspace
+        )
+        if not (paper_root / "paper.yaml").is_file():
+            raise WorkspaceError("paper_missing", f"Paper does not exist: {paper_id}")
+        return pointers_path, pointers, paper_pointer, paper_id, paper_root
+
+    def new_explanation(self, *, question: str) -> dict[str, Any]:
+        if not isinstance(question, str) or not question.strip():
+            raise WorkspaceError("explanation_question_invalid", "Explanation question is empty or invalid")
+        pointers_path, pointers, paper_pointer, paper_id, paper_root = self._current_paper()
+        explanations_root = paper_root / "reading" / "explanations"
+        used_numbers = []
+        for path in explanations_root.glob("explanation-*.jsonl"):
+            match = re.fullmatch(r"explanation-(\d+)\.jsonl", path.name)
+            if path.is_file() and match:
+                used_numbers.append(int(match.group(1)))
+        explanation_id = f"explanation-{(max(used_numbers, default=0) + 1):03d}"
+        session_path = explanations_root / f"{explanation_id}.jsonl"
+        pointers_snapshot = pointers_path.read_bytes()
+        explanations_root.mkdir(parents=True, exist_ok=True)
+        try:
+            _replace_text(
+                session_path,
+                _serialize_explanation_rows([{"role": "user", "content": question}]),
+            )
+            paper_pointer["current_explanation_id"] = explanation_id
+            _write_document(pointers_path, pointers)
+        except OSError as exc:
+            _restore(pointers_path, pointers_snapshot)
+            session_path.unlink(missing_ok=True)
+            if explanations_root.is_dir() and not any(explanations_root.iterdir()):
+                explanations_root.rmdir()
+            raise WorkspaceError(
+                "explanation_write_failed", "Explanation Session could not be created"
+            ) from exc
+        return {
+            "ok": True,
+            "status": "response_required",
+            "paper_id": paper_id,
+            "explanation_id": explanation_id,
+            "history": [{"role": "user", "content": question}],
+        }
+
+    def _current_session(self) -> tuple[str, str, Path, list[dict[str, str]]]:
+        _, _, paper_pointer, paper_id, paper_root = self._current_paper()
+        explanation_id = paper_pointer.get("current_explanation_id")
+        if not isinstance(explanation_id, str):
+            raise WorkspaceError("explanation_session_missing", "No current Explanation Session is selected")
+        explanation_id = _identifier(explanation_id, "explanation_session")
+        session_path = paper_root / "reading" / "explanations" / f"{explanation_id}.jsonl"
+        return paper_id, explanation_id, session_path, _read_explanation_rows(session_path)
+
+    def append_question(self, *, question: str) -> dict[str, Any]:
+        if not isinstance(question, str) or not question.strip():
+            raise WorkspaceError("explanation_question_invalid", "Explanation question is empty or invalid")
+        return self._append_current_row(role="user", content=question)
+
+    def append_answer(self, *, answer: str) -> dict[str, Any]:
+        if not isinstance(answer, str) or not answer.strip():
+            raise WorkspaceError("explanation_answer_invalid", "Explanation answer is empty or invalid")
+        result = self._append_current_row(role="assistant", content=answer)
+        return {**result, "answer": answer}
+
+    def _append_current_row(self, *, role: str, content: str) -> dict[str, Any]:
+        paper_id, explanation_id, session_path, rows = self._current_session()
+        expected_previous = "assistant" if role == "user" else "user"
+        if rows[-1]["role"] != expected_previous:
+            if role == "user":
+                raise WorkspaceError(
+                    "explanation_response_pending", "The previous question still needs a response"
+                )
+            raise WorkspaceError(
+                "explanation_question_missing", "No Explanation question is waiting for a response"
+            )
+        rows.append({"role": role, "content": content})
+        try:
+            _replace_text(session_path, _serialize_explanation_rows(rows))
+        except OSError as exc:
+            label = "question" if role == "user" else "answer"
+            raise WorkspaceError(
+                "explanation_write_failed", f"Explanation {label} could not be saved"
+            ) from exc
+        return {
+            "ok": True,
+            "status": "response_required" if role == "user" else "answered",
+            "paper_id": paper_id,
+            "explanation_id": explanation_id,
+            "history": rows,
+        }
+
+    def select_explanation(self, explanation_id: str) -> dict[str, Any]:
+        explanation_id = _identifier(explanation_id, "explanation_session")
+        pointers_path, pointers, paper_pointer, paper_id, paper_root = self._current_paper()
+        session_path = paper_root / "reading" / "explanations" / f"{explanation_id}.jsonl"
+        history = _read_explanation_rows(session_path)
+        paper_pointer["current_explanation_id"] = explanation_id
+        try:
+            _write_document(pointers_path, pointers)
+        except OSError as exc:
+            raise WorkspaceError(
+                "explanation_selection_failed", "Explanation Session could not be selected"
+            ) from exc
+        return {
+            "ok": True,
+            "status": "explanation_selected",
+            "paper_id": paper_id,
+            "explanation_id": explanation_id,
+            "history": history,
+        }
+
+    def resume_explanation(self) -> dict[str, Any]:
+        paper_id, explanation_id, _, history = self._current_session()
+        return {
+            "ok": True,
+            "status": "response_pending" if history[-1]["role"] == "user" else "resumed",
+            "paper_id": paper_id,
+            "explanation_id": explanation_id,
+            "history": history,
         }
