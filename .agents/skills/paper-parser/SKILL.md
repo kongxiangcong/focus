@@ -20,7 +20,8 @@ Read the API token from the process environment variable `MINERU_API_TOKEN`; whe
 Resolve `scripts/mineru_precision.py` relative to this skill directory:
 
 ```powershell
-python -B -X utf8 scripts/mineru_precision.py parse <paper.pdf> --output <workspace>/parser-bundle
+python -B -X utf8 scripts/mineru_precision.py parse <paper.pdf> `
+  --workspace <workspace> --title "<paper title>" --topic "<topic title>" --authorize-upload
 ```
 
 Defaults are `model_version=vlm`, formula and table recognition enabled, OCR disabled, and language `en`. Enable OCR only for a scanned or broken-text PDF. Use `--language ch` only for predominantly Chinese material. The API accepts at most 200 MB and 200 pages; the script enforces the size limit and the service enforces page count.
@@ -28,8 +29,11 @@ Defaults are `model_version=vlm`, formula and table recognition enabled, OCR dis
 The operation is asynchronous. Preserve the returned non-secret `batch_id` when a timeout or interruption occurs, then resume without re-uploading:
 
 ```powershell
-python -B -X utf8 scripts/mineru_precision.py resume <batch-id> --source <paper.pdf> --output <workspace>/parser-bundle
+python -B -X utf8 scripts/mineru_precision.py resume <batch-id> `
+  --workspace <workspace>
 ```
+
+The deterministic core keeps a private task-local copy of the authorized PDF, so resume cannot accidentally pair the remote result with a different local file.
 
 Do not treat upload or task creation as parse success. Completion requires a `done` result, a transient downloaded ZIP, and one validated `parser-bundle/`. Do not create `parser-bundle-verified`, retain `result.zip`, or render PDF pages as parser outputs.
 
@@ -40,9 +44,16 @@ Require these outputs:
 - `source.pdf`: byte-identical input copy;
 - `paper.md`: non-empty MinerU `full.md` projection whose local image links point into `images/`;
 - `images/`: only images referenced by `paper.md`, renamed `image-001.*`, `image-002.*`, and so on by first-reference order;
-- `metadata.json`: source hash plus parser/API provenance, without credentials or signed URLs;
+- `metadata.json`: parser/API provenance and the non-secret batch reference, without credentials, signed URLs, or content hashes;
 - `validation.json`: machine-readable checks and warnings.
 
 The MinerU ZIP and extracted raw tree are transient and must be discarded after normalization. Never infer authors, venue, claims, or scientific correctness from file names. A structural pass is only permission for a semantic module to spot-check `source.pdf`; it is not proof that reading order, equations, tables, or figures are correct.
 
-For FOCUS, treat the single `parser-bundle/` as parser-only input for later Paper registration and Reading Plan mapping. Preserve a failed bundle for diagnosis. Parser operations own only Parser Bundle artifacts and leave Reading Plans, Notes, and Explanation Sessions unchanged.
+For FOCUS, install the single `parser-bundle/` directly inside a new Paper and register the Paper, Topic membership, and Workspace pointer only after structural validation succeeds. A repeated parse allocates the next readable Paper ID; reuse an existing Paper only with the explicit `reuse --paper-id ...` operation. Preserve the non-secret task reference for resume, but discard incomplete staging. Parser operations own only Parser Bundle and registration artifacts and leave Reading Plans, Notes, and Explanation Sessions unchanged.
+
+To add an already registered Paper to another Topic without uploading or parsing again:
+
+```powershell
+python -B -X utf8 scripts/mineru_precision.py reuse `
+  --workspace <workspace> --paper-id <paper-id> --topic "<topic title>"
+```

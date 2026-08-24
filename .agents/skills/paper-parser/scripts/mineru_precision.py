@@ -9,7 +9,7 @@ discarded after extraction.
 from __future__ import annotations
 
 import argparse
-import hashlib
+import filecmp
 import json
 import os
 import re
@@ -17,7 +17,6 @@ import shutil
 import ssl
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -27,6 +26,10 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from core import ParserTask, WorkspaceCore, WorkspaceError
 
 BASE_URL = "https://mineru.net"
 TOKEN_ENV = "MINERU_API_TOKEN"
@@ -43,15 +46,7 @@ PENDING_STATES = {"waiting-file", "pending", "running", "converting"}
 
 
 class ParserError(RuntimeError):
-    pass
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    error_id = "parser_failed"
 
 
 def _dotenv_token(path: Path) -> str:
@@ -111,8 +106,7 @@ def _request(
                 raise ParserError("MinerU response exceeded the safety limit")
             return payload
     except urllib.error.HTTPError as exc:
-        detail = exc.read(2048).decode("utf-8", errors="replace")
-        raise ParserError(f"MinerU HTTP {exc.code}: {detail}") from exc
+        raise ParserError(f"MinerU HTTP {exc.code}") from exc
     except urllib.error.URLError as exc:
         raise ParserError(f"MinerU network error: {exc.reason}") from exc
 
@@ -290,18 +284,19 @@ def _normalize(source: Path, archive: Path, output: Path, batch_id: str, model: 
     if output.exists() and any(output.iterdir()):
         raise ParserError(f"Output directory is not empty: {output}")
     output.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="focus-mineru-extract-") as temp_dir:
-        raw_root = Path(temp_dir)
+    raw_root = output.parent / f".focus-mineru-extract-{uuid.uuid4().hex}"
+    raw_root.mkdir()
+    try:
         _safe_extract(archive, raw_root)
         markdown = _select_full_markdown(raw_root)
         paper, images = _rewrite_and_copy_images(markdown, raw_root, output)
         (output / "paper.md").write_text(paper, encoding="utf-8")
+    finally:
+        shutil.rmtree(raw_root, ignore_errors=True)
     shutil.copy2(source, output / "source.pdf")
-    source_hash = _sha256(source)
     metadata = {
         "schema_version": 2,
         "source_file": source.name,
-        "source_sha256": source_hash,
         "parser": "mineru-precision-api",
         "api_version": "v4",
         "model_version": model,
@@ -318,7 +313,7 @@ def _normalize(source: Path, archive: Path, output: Path, batch_id: str, model: 
         "schema_version": 2,
         "ok": True,
         "checks": {
-            "source_copy_sha256_matches": _sha256(output / "source.pdf") == source_hash,
+            "source_copy_matches": filecmp.cmp(source, output / "source.pdf", shallow=False),
             "paper_markdown_nonempty": (output / "paper.md").stat().st_size > 0,
             "metadata_parseable": True,
             "image_links_resolve": image_links_resolve,
@@ -362,77 +357,165 @@ def _complete(source: Path, output: Path, batch_id: str, model: str, language: s
     result_url = entry.get("full_zip_url")
     if not isinstance(result_url, str) or not result_url:
         raise ParserError("Completed MinerU task has no full_zip_url")
-    with tempfile.TemporaryDirectory(prefix="focus-mineru-") as temp_dir:
-        archive = Path(temp_dir) / "result.zip"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    transfer_root = output.parent / f".focus-mineru-{uuid.uuid4().hex}"
+    transfer_root.mkdir()
+    try:
+        archive = transfer_root / "result.zip"
         _download(result_url, archive)
         if not zipfile.is_zipfile(archive):
             raise ParserError("MinerU result is not a ZIP archive")
         _normalize(source, archive, output, batch_id, model, language)
+    finally:
+        shutil.rmtree(transfer_root, ignore_errors=True)
 
 
-def _parse(args: argparse.Namespace) -> None:
+class MinerUHostedParser:
+    def start(self, source: Path, *, model: str, language: str, ocr: bool) -> str:
+        token = _token()
+        data_id = f"focus-{uuid.uuid4().hex}"
+        payload = {
+            "files": [{"name": source.name, "data_id": data_id, "is_ocr": ocr}],
+            "model_version": model,
+            "enable_formula": True,
+            "enable_table": True,
+            "language": language,
+        }
+        result = _json_request("POST", f"{BASE_URL}/api/v4/file-urls/batch", token=token, json_body=payload)
+        data = result.get("data", {})
+        batch_id = data.get("batch_id")
+        urls = data.get("file_urls")
+        if not isinstance(batch_id, str) or not isinstance(urls, list) or len(urls) != 1:
+            raise ParserError("MinerU upload-link response is incomplete")
+        _upload(urls[0], source)
+        return batch_id
+
+    def complete(
+        self,
+        source: Path,
+        output: Path,
+        *,
+        batch_id: str,
+        model: str,
+        language: str,
+        timeout: float,
+        interval: float,
+    ) -> None:
+        _complete(source, output, batch_id, model, language, timeout, interval)
+
+
+def _finish_task(
+    core: WorkspaceCore,
+    task: ParserTask,
+    hosted: Any,
+    *,
+    timeout: float,
+    interval: float,
+) -> None:
+    staging = core.prepare_parser_bundle(task)
+    try:
+        hosted.complete(
+            core.parser_task_source(task),
+            staging,
+            batch_id=task.batch_id,
+            model=task.model,
+            language=task.language,
+            timeout=timeout,
+            interval=interval,
+        )
+        core.install_parser_bundle(task, staging)
+    except Exception:
+        core.discard_parser_bundle(task)
+        raise
+
+
+def _parse(args: argparse.Namespace, hosted: Any) -> None:
     source = args.source.resolve()
     if not source.is_file() or source.suffix.lower() != ".pdf":
         raise ParserError("Source must be an existing PDF file")
     if source.stat().st_size > MAX_SOURCE_BYTES:
         raise ParserError("Source exceeds MinerU's 200 MB precision-API limit")
-    token = _token()
-    data_id = f"focus-{_sha256(source)[:16]}-{uuid.uuid4().hex[:8]}"
-    payload = {
-        "files": [{"name": source.name, "data_id": data_id, "is_ocr": args.ocr}],
-        "model_version": args.model,
-        "enable_formula": True,
-        "enable_table": True,
-        "language": args.language,
-    }
-    result = _json_request("POST", f"{BASE_URL}/api/v4/file-urls/batch", token=token, json_body=payload)
-    data = result.get("data", {})
-    batch_id = data.get("batch_id")
-    urls = data.get("file_urls")
-    if not isinstance(batch_id, str) or not isinstance(urls, list) or len(urls) != 1:
-        raise ParserError("MinerU upload-link response is incomplete")
-    print(json.dumps({"status": "created", "batch_id": batch_id}, ensure_ascii=False), flush=True)
-    _upload(urls[0], source)
-    print(json.dumps({"status": "uploaded", "batch_id": batch_id}, ensure_ascii=False), flush=True)
-    _complete(source, args.output.resolve(), batch_id, args.model, args.language, args.timeout, args.poll_interval)
-    print(json.dumps({"status": "done", "batch_id": batch_id, "output": str(args.output.resolve())}, ensure_ascii=False))
+    core = WorkspaceCore(args.workspace)
+    if not args.authorize_upload:
+        raise WorkspaceError("upload_authorization_required", "Explicit upload authorization is required for this Paper")
+    batch_id = hosted.start(source, model=args.model, language=args.language, ocr=args.ocr)
+    task = core.create_parser_task(
+        batch_id,
+        source,
+        title=args.title,
+        topic_title=args.topic,
+        topic_id=args.topic_id,
+        model=args.model,
+        language=args.language,
+    )
+    print(json.dumps({"status": "uploaded", "batch_id": batch_id, "paper_id": task.paper_id}, ensure_ascii=False), flush=True)
+    _finish_task(core, task, hosted, timeout=args.timeout, interval=args.poll_interval)
+    print(json.dumps({"status": "done", "batch_id": batch_id, "paper_id": task.paper_id}, ensure_ascii=False))
 
 
-def _resume(args: argparse.Namespace) -> None:
-    source = args.source.resolve()
-    if not source.is_file() or source.suffix.lower() != ".pdf":
-        raise ParserError("Source must be an existing PDF file")
-    _complete(source, args.output.resolve(), args.batch_id, args.model, args.language, args.timeout, args.poll_interval)
-    print(json.dumps({"status": "done", "batch_id": args.batch_id, "output": str(args.output.resolve())}, ensure_ascii=False))
+def _resume(args: argparse.Namespace, hosted: Any) -> None:
+    core = WorkspaceCore(args.workspace)
+    task = core.load_parser_task(args.batch_id)
+    _finish_task(core, task, hosted, timeout=args.timeout, interval=args.poll_interval)
+    print(json.dumps({"status": "done", "batch_id": args.batch_id, "paper_id": task.paper_id}, ensure_ascii=False))
+
+
+def _reuse(args: argparse.Namespace, hosted: Any) -> None:
+    del hosted
+    core = WorkspaceCore(args.workspace)
+    topic_id = core.reuse_paper(
+        args.paper_id,
+        topic_title=args.topic,
+        topic_id=args.topic_id,
+        existing_topic_id=args.existing_topic_id,
+    )
+    print(json.dumps({"status": "reused", "paper_id": args.paper_id, "topic_id": topic_id}, ensure_ascii=False))
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--output", type=Path, required=True)
-    common.add_argument("--model", choices=("vlm", "pipeline"), default="vlm")
-    common.add_argument("--language", default="en")
+    common.add_argument("--workspace", type=Path, required=True)
     common.add_argument("--timeout", type=float, default=1800.0)
     common.add_argument("--poll-interval", type=float, default=5.0)
     parse = subparsers.add_parser("parse", parents=[common])
     parse.add_argument("source", type=Path)
+    parse.add_argument("--title", required=True)
+    parse.add_argument("--topic", required=True)
+    parse.add_argument("--topic-id")
+    parse.add_argument("--model", choices=("vlm", "pipeline"), default="vlm")
+    parse.add_argument("--language", default="en")
     parse.add_argument("--ocr", action="store_true")
+    parse.add_argument("--authorize-upload", action="store_true")
     parse.set_defaults(func=_parse)
     resume = subparsers.add_parser("resume", parents=[common])
     resume.add_argument("batch_id")
-    resume.add_argument("--source", type=Path, required=True)
     resume.set_defaults(func=_resume)
+    reuse = subparsers.add_parser("reuse")
+    reuse.add_argument("--workspace", type=Path, required=True)
+    reuse.add_argument("--paper-id", required=True)
+    reuse_topic = reuse.add_mutually_exclusive_group(required=True)
+    reuse_topic.add_argument("--topic")
+    reuse_topic.add_argument("--existing-topic-id")
+    reuse.add_argument("--topic-id")
+    reuse.set_defaults(func=_reuse)
     return parser
 
 
-def main() -> int:
+def main(argv: list[str] | None = None, *, hosted: Any | None = None) -> int:
     try:
-        args = _build_parser().parse_args()
-        args.func(args)
+        args = _build_parser().parse_args(argv)
+        args.func(args, hosted or MinerUHostedParser())
         return 0
-    except (ParserError, OSError, zipfile.BadZipFile) as exc:
-        print(json.dumps({"ok": False, "error": type(exc).__name__, "message": str(exc)}, ensure_ascii=False), file=sys.stderr)
+    except (ParserError, WorkspaceError, OSError, zipfile.BadZipFile) as exc:
+        print(
+            json.dumps(
+                {"ok": False, "error_id": getattr(exc, "error_id", "parser_failed"), "message": str(exc)},
+                ensure_ascii=False,
+            ),
+            file=sys.stderr,
+        )
         return 1
 
 

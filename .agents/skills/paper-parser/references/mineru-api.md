@@ -25,5 +25,5 @@ The current documented states include `waiting-file`, `pending`, `running`, `con
 - Require HTTPS for signed uploads, downloads, and redirects; pass signed URLs to `curl` only over standard input.
 - Reject archive members that are absolute, contain `..`, or escape the extraction root.
 - Cap API response, ZIP download, archive member count, and expanded bytes.
-- Preserve the source SHA-256 and verify the copied source.
+- Verify the copied source by direct byte comparison without calculating or persisting a content hash.
 - Keep the transient ZIP and raw extraction outside the stable parser bundle.

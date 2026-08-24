@@ -12,7 +12,7 @@ FOCUS 记录“当前读到哪里”和“用户做了什么”，不判断用�
 - [Phase 2 DSH 迁移边界](docs/FOCUS_Phase2_DSH_Migration_and_Deployment.md)
 - [领域语言](CONTEXT.md)
 
-Paper Companion v0.2 已由 `paper-companion-v0.2` Git tag 保存；旧学习 Skills、状态内核和学习测试已退出活动主线。当前保留 `paper-parser` 与 `paper2blog`，供后续 Reading Workspace 实现切片接入。
+Paper Companion v0.2 已由 `paper-companion-v0.2` Git tag 保存；旧学习 Skills、状态内核和学习测试已退出活动主线。`paper-parser` 已接入 Reading Workspace：它在逐篇授权后生成无哈希 Parser Bundle，通过结构校验后才注册 Topic、Paper 和初始指针，并支持按非敏感 `batch_id` 恢复异步任务。该路径已通过受控解析 fixture 验证，尚未把一次真实 MinerU 调用声明为验收完成。
 
 ## 目标体验
 
@@ -22,10 +22,10 @@ Phase 1 计划提供三个显式阅读 Skill：
 - `focus-guide`：逐片段翻译、展示图片、记录备注并推进 Reading Cursor；
 - `focus-explain`：检索论文全文与必要外部资料，保存并恢复独立解释问答。
 
-现有两个论文处理 Skill 继续保留并将在实施阶段调整：
+两个论文处理 Skill 继续保留：
 
-- `paper-parser`：经逐篇授权调用 MinerU 托管精准解析 API，直接在 Workspace Paper 目录生成无哈希 Parser Bundle；
-- `paper2blog`：从 Parser Bundle 生成独立 Blog，不修改任何 Reading 数据。
+- `paper-parser`：经逐篇授权调用 MinerU 托管精准解析 API，直接在 Workspace Paper 目录生成无哈希 Parser Bundle，并在结构校验后完成注册；
+- `paper2blog`：当前从 Parser Bundle 生成独立 Blog；它与 Reading Workspace 的最终隔离接入由后续切片完成。
 
 不设置统一公共路由 Skill。`focus-guide` 中的“继续”表示继续阅读，`focus-explain` 中的“继续”表示继续解释；两者不能由隐藏路由混用。
 
@@ -65,7 +65,7 @@ workspace/
 
 目标实现仍只使用 MinerU 托管精准解析 API。上传 PDF 前必须取得用户对该论文的明确授权。Token 只从 `MINERU_API_TOKEN` 环境变量或被 Git 忽略的 `.env` 读取，不得进入聊天、命令行、日志或产物。
 
-解析任务是异步的；上传或创建任务不等于成功。超时可以使用非敏感 `batch_id` 恢复。实施阶段将删除现有解析器的全部 SHA-256 计算和 metadata hash 字段。
+解析任务是异步的；上传或创建任务不等于成功。超时可以使用非敏感 `batch_id` 恢复。解析器不计算或持久化内容哈希；源 PDF 副本使用直接字节比较验证。
 
 ## Explanation 检索
 
@@ -73,10 +73,10 @@ workspace/
 
 ## 后续实施边界
 
-当前实现基线只完成历史保全和旧运行时退役。后续实施任务将：
+当前实现基线已完成历史保全、旧运行时退役和 Paper Parser 注册切片。后续实施任务将：
 
-1. 修改 `paper-parser` 与 `paper2blog`；
-2. 建立最小确定性核心和 Workspace；
+1. 隔离接入 `paper2blog`；
+2. 扩展最小确定性核心以支持 Reading 数据；
 3. 实现 `focus-map`、`focus-guide`、`focus-explain`；
 4. 使用真实论文完成 Phase 1 十一项验收。
 
