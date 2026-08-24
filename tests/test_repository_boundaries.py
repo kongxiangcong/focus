@@ -21,7 +21,7 @@ def is_git_ignored(candidate: Path) -> bool:
 class RepositoryBoundaryTests(unittest.TestCase):
     def test_active_skill_surface_retires_paper_companion(self) -> None:
         retired = ("ask-paper", "paper-map", "paper-study", "paper-assess")
-        retained = ("paper-parser", "paper2blog", "focus-map")
+        retained = ("paper-parser", "paper2blog", "focus-map", "focus-guide")
 
         for skill_name in retired:
             with self.subTest(skill=skill_name):

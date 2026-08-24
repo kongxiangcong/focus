@@ -14,7 +14,17 @@ from typing import Any
 
 
 MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]\n]*\]\(([^)]+)\)")
+MARKDOWN_IMAGE_DETAIL_RE = re.compile(r"!\[([^\]\n]*)\]\(([^)]+)\)")
 SEQUENTIAL_IMAGE_RE = re.compile(r"^image-(\d{3})(\.[a-z0-9]+)$")
+CHUNK_RECORD_KEYS = {
+    "chunk_id",
+    "index",
+    "section_path",
+    "source_lines",
+    "images",
+    "translation",
+    "notes",
+}
 
 
 class WorkspaceError(RuntimeError):
@@ -63,6 +73,15 @@ def _restore(path: Path, snapshot: bytes | None) -> None:
     temporary.parent.mkdir(parents=True, exist_ok=True)
     temporary.write_bytes(snapshot)
     temporary.replace(path)
+
+
+def _replace_text(path: Path, value: str) -> None:
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_text(value, encoding="utf-8")
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _prepare_membership(
@@ -305,6 +324,65 @@ def _reading_plan_records(bundle: Path, draft: dict[str, Any]) -> tuple[list[dic
         seen_terms.add(row[0])
         normalized_glossary.append((row[0], row[1]))
     return records, normalized_glossary
+
+
+def _read_chunk_records(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        raise WorkspaceError("reading_plan_missing", f"Reading Plan does not exist: {path.parent.name}")
+    records: list[dict[str, Any]] = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for line in lines:
+            value = json.loads(line)
+            if not isinstance(value, dict) or set(value) != CHUNK_RECORD_KEYS:
+                raise ValueError
+            records.append(value)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise WorkspaceError("reading_plan_invalid", f"Reading Plan is invalid: {path.parent.name}") from exc
+    if not records or [record.get("index") for record in records] != list(range(1, len(records) + 1)):
+        raise WorkspaceError("reading_plan_invalid", f"Reading Plan is invalid: {path.parent.name}")
+    expected_ids = [f"chunk-{index:03d}" for index in range(1, len(records) + 1)]
+    if [record.get("chunk_id") for record in records] != expected_ids:
+        raise WorkspaceError("reading_plan_invalid", f"Reading Plan is invalid: {path.parent.name}")
+    return records
+
+
+def _read_glossary(path: Path) -> list[dict[str, str]]:
+    if not path.is_file():
+        raise WorkspaceError("reading_plan_invalid", f"Plan Glossary is missing: {path.parent.name}")
+    rows: list[dict[str, str]] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            source, translation = line.split("\t")
+            if not source or not translation:
+                raise ValueError
+            rows.append({"source": source, "translation": translation})
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise WorkspaceError("reading_plan_invalid", f"Plan Glossary is invalid: {path.parent.name}") from exc
+    return rows
+
+
+def _bound_image_presentations(bundle: Path, source_lines: list[str], image_paths: list[str]) -> list[dict[str, str]]:
+    presentations: list[dict[str, str]] = []
+    for image_path in image_paths:
+        caption = ""
+        for offset, line in enumerate(source_lines):
+            for match in MARKDOWN_IMAGE_DETAIL_RE.finditer(line):
+                if PurePosixPath(_split_image_target(match.group(2)).replace("\\", "/")).as_posix() != image_path:
+                    continue
+                caption = match.group(1).strip()
+                if offset + 1 < len(source_lines):
+                    adjacent = source_lines[offset + 1].strip()
+                    if re.match(r"^(figure|fig\.?|table)\s*\d", adjacent, flags=re.IGNORECASE):
+                        caption = adjacent
+                break
+            if caption:
+                break
+        resolved = (bundle / Path(*PurePosixPath(image_path).parts)).resolve()
+        if not resolved.is_relative_to(bundle.resolve()) or not resolved.is_file():
+            raise WorkspaceError("reading_chunk_invalid", "Reading Chunk image binding is invalid")
+        presentations.append({"path": str(resolved), "caption": caption})
+    return presentations
 
 
 class WorkspaceCore:
@@ -579,4 +657,88 @@ class WorkspaceCore:
             "plan_id": plan_id,
             "chunk_id": records[0]["chunk_id"],
             "reused": False,
+        }
+
+    def present_current_chunk(self, *, translation: str | None = None) -> dict[str, Any]:
+        pointers = _read_document(self.workspace / "pointers.yaml")
+        paper_id = pointers.get("current_paper_id")
+        pointer_entries = pointers.get("papers")
+        if not isinstance(paper_id, str) or not isinstance(pointer_entries, dict):
+            raise WorkspaceError("paper_missing", "No current Paper is selected")
+        paper_id = _identifier(paper_id, "paper_id")
+        paper_pointer = pointer_entries.get(paper_id)
+        if not isinstance(paper_pointer, dict):
+            raise WorkspaceError("workspace_pointers_invalid", "Workspace pointers are invalid")
+        plan_id = paper_pointer.get("current_plan_id")
+        chunk_id = paper_pointer.get("current_chunk_id")
+        if plan_id is None:
+            raise WorkspaceError("reading_plan_missing", f"Reading Plan does not exist: {paper_id}")
+        plan_id = _identifier(plan_id, "reading_plan")
+        if chunk_id is None:
+            return {"ok": True, "status": "reading_completed", "paper_id": paper_id, "plan_id": plan_id, "chunk_id": None}
+        chunk_id = _identifier(chunk_id, "reading_chunk")
+
+        paper_root = self.workspace / "papers" / paper_id
+        bundle = paper_root / "parser-bundle"
+        if not bundle.is_dir():
+            raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {paper_id}")
+        _validate_parser_bundle(bundle)
+        plan_root = paper_root / "reading" / "plans" / plan_id
+        chunks_path = plan_root / "chunks.jsonl"
+        records = _read_chunk_records(chunks_path)
+        matches = [(index, record) for index, record in enumerate(records) if record.get("chunk_id") == chunk_id]
+        if len(matches) != 1:
+            raise WorkspaceError("reading_chunk_missing", f"Reading Chunk does not exist: {chunk_id}")
+        record_index, record = matches[0]
+        source_range = record.get("source_lines")
+        images = record.get("images")
+        section_path = record.get("section_path")
+        cached_translation = record.get("translation")
+        if (
+            not isinstance(source_range, list)
+            or len(source_range) != 2
+            or any(not isinstance(value, int) for value in source_range)
+            or not isinstance(images, list)
+            or any(not isinstance(value, str) for value in images)
+            or not isinstance(section_path, list)
+            or not all(isinstance(value, str) for value in section_path)
+            or (cached_translation is not None and not isinstance(cached_translation, str))
+        ):
+            raise WorkspaceError("reading_chunk_invalid", f"Reading Chunk is invalid: {chunk_id}")
+        paper_lines = (bundle / "paper.md").read_text(encoding="utf-8", errors="replace").splitlines()
+        start, end = source_range
+        if start < 1 or end < start or end > len(paper_lines):
+            raise WorkspaceError("reading_chunk_invalid", f"Reading Chunk is invalid: {chunk_id}")
+        selected_lines = paper_lines[start - 1 : end]
+        presentation = {
+            "paper_id": paper_id,
+            "plan_id": plan_id,
+            "chunk_id": chunk_id,
+            "section_path": section_path,
+            "source_lines": source_range,
+            "source_text": "\n".join(selected_lines),
+            "images": _bound_image_presentations(bundle, selected_lines, images),
+            "glossary": _read_glossary(plan_root / "glossary.tsv"),
+        }
+        if cached_translation is None and translation is None:
+            return {"ok": True, "status": "translation_required", **presentation}
+        cached = cached_translation is not None
+        if not cached:
+            if not isinstance(translation, str) or not translation.strip():
+                raise WorkspaceError("translation_invalid", "Translation is empty or invalid")
+            updated = dict(record)
+            updated["translation"] = translation
+            records[record_index] = updated
+            content = "".join(json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n" for value in records)
+            try:
+                _replace_text(chunks_path, content)
+            except OSError as exc:
+                raise WorkspaceError("reading_chunk_write_failed", "Translation could not be cached") from exc
+            cached_translation = translation
+        return {
+            "ok": True,
+            "status": "presented",
+            **presentation,
+            "translation": cached_translation,
+            "cached": cached,
         }

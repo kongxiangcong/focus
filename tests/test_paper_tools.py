@@ -557,9 +557,12 @@ class PaperParserTests(unittest.TestCase):
             {},
             io.BytesIO(b"echoed-token-value"),
         )
-        with mock.patch.object(PARSER.urllib.request, "urlopen", side_effect=remote_error):
-            with self.assertRaises(PARSER.ParserError) as caught:
-                PARSER._request("GET", "https://mineru.net/api/v4/file-urls/batch", token="token")
+        try:
+            with mock.patch.object(PARSER.urllib.request, "urlopen", side_effect=remote_error):
+                with self.assertRaises(PARSER.ParserError) as caught:
+                    PARSER._request("GET", "https://mineru.net/api/v4/file-urls/batch", token="token")
+        finally:
+            remote_error.close()
 
         self.assertNotIn("echoed-token-value", str(caught.exception))
 
