@@ -54,7 +54,7 @@ class FocusGuideTests(unittest.TestCase):
         (bundle / "source.pdf").write_bytes(b"%PDF fixture")
         (bundle / "paper.md").write_text(
             "# Method\nSource mechanism.\n![Architecture](images/image-001.png)\n"
-            "Figure 1: Original architecture caption.\n## Results\nMore evidence.\n",
+            "图 1：原始架构图。\n## Results\nMore evidence.\n",
             encoding="utf-8",
         )
         (bundle / "metadata.json").write_text('{"parser":"mineru-precision-api"}\n', encoding="utf-8")
@@ -152,7 +152,7 @@ class FocusGuideTests(unittest.TestCase):
         self.assertEqual("presented", response["status"])
         self.assertEqual("# 方法\n源机制。", response["translation"])
         self.assertFalse(response["cached"])
-        self.assertEqual("Figure 1: Original architecture caption.", response["images"][0]["caption"])
+        self.assertEqual("图 1：原始架构图。", response["images"][0]["caption"])
         self.assertTrue(Path(response["images"][0]["path"]).is_file())
         self.assertTrue({"summary", "key_points", "image_explanation", "user_evaluation"}.isdisjoint(response))
         self.assertEqual(pointers_before, (workspace / "pointers.yaml").read_bytes())
@@ -256,6 +256,49 @@ class FocusGuideTests(unittest.TestCase):
             restored_response = json.loads(restored.stdout)
             self.assertEqual(("fixture-paper", "plan-001", "chunk-002"), tuple(restored_response[key] for key in ("paper_id", "plan_id", "chunk_id")))
         self.assertEqual(pointer_bytes, pointers_path.read_bytes())
+
+    def test_uncached_continue_waits_for_translation_before_advancing(self):
+        workspace, _, plan = self._workspace()
+        pointers_path = workspace / "pointers.yaml"
+        pointers_before = pointers_path.read_bytes()
+        chunks_before = (plan / "chunks.jsonl").read_bytes()
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            requested = FOCUS_GUIDE.main(["continue", "--workspace", str(workspace)])
+
+        self.assertEqual(0, requested)
+        request = json.loads(stdout.getvalue())
+        self.assertEqual("continue_translation_required", request["status"])
+        self.assertEqual("chunk-002", request["chunk_id"])
+        self.assertEqual(pointers_before, pointers_path.read_bytes())
+        self.assertEqual(chunks_before, (plan / "chunks.jsonl").read_bytes())
+
+        translation = self.root / "next-translation.txt"
+        translation.write_text("## 结果\n更多证据。", encoding="utf-8")
+        stderr = io.StringIO()
+        with mock.patch.object(WORKSPACE_CORE, "_replace_text", side_effect=OSError("controlled failure")):
+            with contextlib.redirect_stderr(stderr):
+                failed = FOCUS_GUIDE.main(
+                    ["continue", "--workspace", str(workspace), "--translation-file", str(translation)]
+                )
+        self.assertEqual(1, failed)
+        self.assertEqual("reading_cursor_write_failed", json.loads(stderr.getvalue())["error_id"])
+        self.assertEqual(pointers_before, pointers_path.read_bytes())
+        self.assertEqual(chunks_before, (plan / "chunks.jsonl").read_bytes())
+
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            continued = FOCUS_GUIDE.main(
+                ["continue", "--workspace", str(workspace), "--translation-file", str(translation)]
+            )
+
+        self.assertEqual(0, continued)
+        response = json.loads(stdout.getvalue())
+        self.assertEqual("chunk-002", response["chunk_id"])
+        self.assertEqual("## 结果\n更多证据。", response["translation"])
+        pointers = json.loads(pointers_path.read_text(encoding="utf-8"))
+        self.assertEqual("chunk-002", pointers["papers"]["fixture-paper"]["current_chunk_id"])
 
     def test_continue_on_final_chunk_completes_without_resetting_plan(self):
         workspace, _, _ = self._workspace()

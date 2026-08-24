@@ -31,7 +31,13 @@ Only an explicit Continue Reading request may invoke:
 python -B -X utf8 scripts/focus_guide.py continue --workspace <workspace>
 ```
 
-This advances exactly one Chunk after the deterministic core resolves and validates the next Chunk. If the new Chunk is uncached, the result is `translation_required`; follow the translation procedure above with `present --translation-file`. On the final Chunk, Continue Reading retains the Plan, clears the Chunk reference, and returns `reading_completed`. Never infer Continue Reading from a display, question, confirmation, translation, or other non-navigation request.
+The core first resolves and validates the next Chunk. If it is uncached, the result is `continue_translation_required` and the Reading Cursor remains unchanged. Translate the returned `source_text` with its Plan `glossary`, save only that translation to a private UTF-8 file, then complete the same Continue Reading operation atomically:
+
+```powershell
+python -B -X utf8 scripts/focus_guide.py continue --workspace <workspace> --translation-file <translation.txt>
+```
+
+Only after the translation is cacheable does the core advance exactly one Chunk and present it. Any validation or write failure preserves the prior cursor and Chunk records. On the final Chunk, Continue Reading retains the Plan, clears the Chunk reference, and returns `reading_completed`. Never infer Continue Reading from a display, question, confirmation, translation, or other non-navigation request.
 
 At the start of a new conversation, restore and present the persisted current Paper, Plan, and Chunk:
 

@@ -36,6 +36,7 @@ def _build_parser() -> argparse.ArgumentParser:
     restore.add_argument("--translation-file", type=Path)
     continuing = subparsers.add_parser("continue")
     continuing.add_argument("--workspace", type=Path, required=True)
+    continuing.add_argument("--translation-file", type=Path)
     switching = subparsers.add_parser("switch")
     switching.add_argument("--workspace", type=Path, required=True)
     switching.add_argument("--paper-id", required=True)
@@ -49,7 +50,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command in {"present", "restore"}:
             result = core.present_current_chunk(translation=_read_translation(args.translation_file))
         elif args.command == "continue":
-            result = core.continue_reading()
+            result = core.continue_reading(translation=_read_translation(args.translation_file))
         else:
             result = core.switch_paper(args.paper_id)
         print(json.dumps(result, ensure_ascii=False, indent=2))

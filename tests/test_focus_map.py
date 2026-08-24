@@ -207,6 +207,24 @@ class FocusMapTests(unittest.TestCase):
                 self.assertEqual(before, (workspace / "pointers.yaml").read_bytes())
                 self.assertFalse((paper_root / "reading" / "plans").exists())
 
+    def test_mapping_rejects_section_path_that_is_not_anchored_to_source_headings(self):
+        workspace, paper_root = self._workspace()
+        before = (workspace / "pointers.yaml").read_bytes()
+        chunks = [
+            {"section_path": ["Invented", "Section"], "source_lines": [1, 18], "images": ["images/image-001.png"]}
+        ]
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr):
+            result = FOCUS_MAP.main(
+                ["map", "--workspace", str(workspace), "--paper-id", "fixture-paper", "--draft", str(self._draft(chunks))]
+            )
+
+        self.assertEqual(1, result)
+        self.assertEqual("reading_plan_invalid", json.loads(stderr.getvalue())["error_id"])
+        self.assertEqual(before, (workspace / "pointers.yaml").read_bytes())
+        self.assertFalse((paper_root / "reading" / "plans").exists())
+
     def test_missing_paper_and_parser_bundle_return_structured_errors(self):
         workspace, paper_root = self._workspace()
         cases = [("missing-paper", "paper_missing")]

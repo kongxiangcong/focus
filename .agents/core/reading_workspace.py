@@ -159,6 +159,11 @@ def _identifier(value: str, kind: str) -> str:
     return value
 
 
+def validate_paper_id(value: str) -> str:
+    """Validate and return one public Paper ID."""
+    return _identifier(value, "paper_id")
+
+
 def _batch_id(value: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,200}", value):
         raise WorkspaceError("parser_task_invalid", "MinerU batch reference is invalid")
@@ -251,11 +256,26 @@ def _protected_source_ranges(lines: list[str]) -> list[tuple[int, int]]:
         raise WorkspaceError("reading_plan_invalid", "Paper Markdown contains an unterminated protected block")
 
     for number, line in enumerate(lines, 1):
-        if MARKDOWN_IMAGE_RE.search(line) and number < len(lines):
-            caption = lines[number].strip()
-            if re.match(r"^(figure|fig\.?|table)\s*\d", caption, flags=re.IGNORECASE):
-                ranges.append((number, number + 1))
+        if not MARKDOWN_IMAGE_RE.search(line):
+            continue
+        if number < len(lines) and _looks_like_caption(lines[number]):
+            ranges.append((number, number + 1))
+        if number > 1 and _looks_like_caption(lines[number - 2]):
+            ranges.append((number - 1, number))
     return ranges
+
+
+def _source_heading_paths(lines: list[str]) -> list[tuple[str, ...]]:
+    headings: dict[int, str] = {}
+    paths: list[tuple[str, ...]] = []
+    for line in lines:
+        match = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
+        if match:
+            level = len(match.group(1))
+            headings = {key: value for key, value in headings.items() if key < level}
+            headings[level] = match.group(2).strip()
+        paths.append(tuple(headings[key] for key in sorted(headings)))
+    return paths
 
 
 def _reading_plan_records(bundle: Path, draft: dict[str, Any]) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
@@ -265,6 +285,7 @@ def _reading_plan_records(bundle: Path, draft: dict[str, Any]) -> tuple[list[dic
         raise WorkspaceError("reading_plan_invalid", "Reading Plan draft is invalid")
     lines = (bundle / "paper.md").read_text(encoding="utf-8", errors="replace").splitlines()
     protected = _protected_source_ranges(lines)
+    heading_paths = _source_heading_paths(lines)
     records: list[dict[str, Any]] = []
     previous_end: int | None = None
     for index, chunk in enumerate(chunks, 1):
@@ -287,6 +308,8 @@ def _reading_plan_records(bundle: Path, draft: dict[str, Any]) -> tuple[list[dic
         start, end = source_lines
         if start < 1 or end < start or end > len(lines) or (previous_end is not None and start != previous_end + 1):
             raise WorkspaceError("reading_plan_invalid", "Reading Chunk source ranges must be ordered and continuous")
+        if tuple(section_path) not in set(heading_paths[start - 1 : end]):
+            raise WorkspaceError("reading_plan_invalid", "Reading Chunk section path is not anchored to source headings")
         if any(unit_start <= end < unit_end for unit_start, unit_end in protected):
             raise WorkspaceError("reading_plan_invalid", "Reading Chunk boundary splits a protected source unit")
         referenced: list[str] = []
@@ -362,6 +385,16 @@ def _read_glossary(path: Path) -> list[dict[str, str]]:
     return rows
 
 
+def _looks_like_caption(value: str) -> bool:
+    return bool(
+        re.match(
+            r"^\s*(?:figure|fig\.?|table|algorithm|scheme|图|表|算法)\s*[-.:：]?[\s\d一二三四五六七八九十]+",
+            value,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
 def _bound_image_presentations(bundle: Path, source_lines: list[str], image_paths: list[str]) -> list[dict[str, str]]:
     presentations: list[dict[str, str]] = []
     for image_path in image_paths:
@@ -371,10 +404,14 @@ def _bound_image_presentations(bundle: Path, source_lines: list[str], image_path
                 if PurePosixPath(_split_image_target(match.group(2)).replace("\\", "/")).as_posix() != image_path:
                     continue
                 caption = match.group(1).strip()
+                adjacent_candidates = []
                 if offset + 1 < len(source_lines):
-                    adjacent = source_lines[offset + 1].strip()
-                    if re.match(r"^(figure|fig\.?|table)\s*\d", adjacent, flags=re.IGNORECASE):
-                        caption = adjacent
+                    adjacent_candidates.append(source_lines[offset + 1].strip())
+                if offset > 0:
+                    adjacent_candidates.append(source_lines[offset - 1].strip())
+                original_caption = next((value for value in adjacent_candidates if _looks_like_caption(value)), "")
+                if original_caption:
+                    caption = original_caption
                 break
             if caption:
                 break
@@ -763,7 +800,7 @@ class WorkspaceCore:
             "cached": cached,
         }
 
-    def continue_reading(self) -> dict[str, Any]:
+    def continue_reading(self, *, translation: str | None = None) -> dict[str, Any]:
         pointers_path = self.workspace / "pointers.yaml"
         pointers = _read_document(pointers_path)
         paper_id = pointers.get("current_paper_id")
@@ -795,9 +832,11 @@ class WorkspaceCore:
             raise WorkspaceError("reading_chunk_missing", f"Reading Chunk does not exist: {chunk_id}")
         current_index = matches[0]
         next_chunk_id: str | None = None
+        next_record: dict[str, Any] | None = None
+        next_presentation: dict[str, Any] | None = None
         if current_index + 1 < len(records):
             next_record = records[current_index + 1]
-            _chunk_presentation(
+            next_presentation = _chunk_presentation(
                 bundle,
                 plan_root,
                 paper_id=paper_id,
@@ -806,11 +845,30 @@ class WorkspaceCore:
             )
             next_chunk_id = next_record["chunk_id"]
 
+        if next_record is not None and next_record.get("translation") is None and translation is None:
+            return {"ok": True, "status": "continue_translation_required", **next_presentation}
+
+        chunks_path = plan_root / "chunks.jsonl"
+        chunks_snapshot = chunks_path.read_bytes()
+        pointers_snapshot = pointers_path.read_bytes()
+        update_translation = next_record is not None and next_record.get("translation") is None
+        if update_translation:
+            if not isinstance(translation, str) or not translation.strip():
+                raise WorkspaceError("translation_invalid", "Translation is empty or invalid")
+            updated = dict(next_record)
+            updated["translation"] = translation
+            records[current_index + 1] = updated
+
         paper_pointer["current_chunk_id"] = next_chunk_id
         try:
+            if update_translation:
+                content = "".join(json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n" for value in records)
+                _replace_text(chunks_path, content)
             _write_document(pointers_path, pointers)
         except OSError as exc:
-            raise WorkspaceError("reading_cursor_write_failed", "Reading Cursor could not be updated") from exc
+            _restore(chunks_path, chunks_snapshot)
+            _restore(pointers_path, pointers_snapshot)
+            raise WorkspaceError("reading_cursor_write_failed", "Reading Cursor and presentation could not be updated") from exc
         if next_chunk_id is None:
             return {"ok": True, "status": "reading_completed", "paper_id": paper_id, "plan_id": plan_id, "chunk_id": None}
         return self.present_current_chunk()

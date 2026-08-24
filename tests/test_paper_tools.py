@@ -669,6 +669,13 @@ class PaperToBlogTests(unittest.TestCase):
         self.assertEqual(protected_before, self._snapshot((bundle, paper_root / "reading")))
         self.assertEqual(pointers_before, (workspace / "pointers.yaml").read_bytes())
 
+    def test_public_prepare_rejects_unregistered_bundle_and_caller_selected_output(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as caught:
+                BLOG.main(["prepare", str(self.root / "bundle"), "--output", str(self.root / "blog")])
+
+        self.assertEqual(2, caught.exception.code)
+
     def test_prepare_and_check_workspace(self):
         bundle = self.root / "bundle"
         (bundle / "images").mkdir(parents=True)

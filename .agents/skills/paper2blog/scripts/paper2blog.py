@@ -14,6 +14,10 @@ import sys
 import uuid
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+
+from core import WorkspaceError, validate_paper_id
+
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".jp2"}
 PLACEHOLDERS = ("待补", "TODO", "TBD", "<your-", "问题 1：……", "贡献 1：")
 
@@ -116,19 +120,14 @@ def _prepare(input_dir: Path, output: Path) -> dict:
     return {"ok": True, "output": str(output.resolve()), "headings": len(headings), "assets": len(image_names), "metadata_keys": sorted(metadata)}
 
 
-def _paper_id(value: str) -> str:
-    if not value or value != value.strip("-"):
-        raise BlogError("paper_invalid", "Paper ID is invalid")
-    if any(not (character.isalnum() or character == "-") for character in value):
-        raise BlogError("paper_invalid", "Paper ID is invalid")
-    return value
-
-
 def _prepare_registered(workspace: Path, paper_id: str) -> dict:
     workspace = workspace.resolve()
     if not workspace.is_dir():
         raise BlogError("workspace_missing", "Workspace does not exist")
-    paper_id = _paper_id(paper_id)
+    try:
+        paper_id = validate_paper_id(paper_id)
+    except WorkspaceError as exc:
+        raise BlogError("paper_invalid", "Paper ID is invalid") from exc
     paper_root = workspace / "papers" / paper_id
     paper_path = paper_root / "paper.yaml"
     if not paper_path.is_file():
@@ -336,10 +335,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     prepare = subparsers.add_parser("prepare")
-    prepare.add_argument("input_dir", type=Path, nargs="?")
-    prepare.add_argument("--output", type=Path)
-    prepare.add_argument("--workspace", type=Path)
-    prepare.add_argument("--paper-id")
+    prepare.add_argument("--workspace", type=Path, required=True)
+    prepare.add_argument("--paper-id", required=True)
     check = subparsers.add_parser("check")
     check.add_argument("workspace", type=Path)
     render = subparsers.add_parser("render")
@@ -351,17 +348,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = _build_parser().parse_args(argv)
         if args.command == "prepare":
-            if args.workspace is not None or args.paper_id is not None:
-                if args.workspace is None or args.paper_id is None or args.input_dir is not None or args.output is not None:
-                    raise BlogError(
-                        "blog_request_invalid",
-                        "Workspace Blog preparation requires --workspace and --paper-id only",
-                    )
-                result = _prepare_registered(args.workspace, args.paper_id)
-            else:
-                if args.input_dir is None or args.output is None:
-                    raise BlogError("blog_request_invalid", "Bundle preparation requires input_dir and --output")
-                result = _prepare(args.input_dir, args.output)
+            result = _prepare_registered(args.workspace, args.paper_id)
         elif args.command == "render":
             result = _render(args.workspace)
         else:
