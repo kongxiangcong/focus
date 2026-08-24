@@ -3,7 +3,8 @@
 tmp/
 knowledge-base/
 workspace/
-/*.pdf
+*.pdf
+!tests/fixtures/**/*.pdf
 __pycache__/
 *.py[cod]
 .pytest_cache/
