@@ -1,7 +1,0 @@
-interface:
-  display_name: "Ask Paper"
-  short_description: "Route persistent, evidence-based paper learning"
-  default_prompt: "Use $ask-paper to start or resume a paper-learning journey and give me the single next evidence-based step."
-
-policy:
-  allow_implicit_invocation: true

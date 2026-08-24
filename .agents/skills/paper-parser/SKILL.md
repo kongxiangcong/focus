@@ -1,6 +1,6 @@
 ---
 name: paper-parser
-description: Parse a PDF paper into one compact parser-bundle with source-faithful Markdown, sequentially named images, metadata, and validation through MinerU's hosted precision API. Use when a local or remote paper needs extraction before FOCUS mapping, study, or paper-to-blog work; do not use a local MinerU or Docling deployment.
+description: Parse a PDF paper into one compact parser-bundle with source-faithful Markdown, sequentially named images, metadata, and validation through MinerU's hosted precision API. Use when a local or remote paper needs extraction before FOCUS registration, mapping, or paper-to-blog work; do not use a local MinerU or Docling deployment.
 ---
 
 # Paper Parser
@@ -45,4 +45,4 @@ Require these outputs:
 
 The MinerU ZIP and extracted raw tree are transient and must be discarded after normalization. Never infer authors, venue, claims, or scientific correctness from file names. A structural pass is only permission for a semantic module to spot-check `source.pdf`; it is not proof that reading order, equations, tables, or figures are correct.
 
-For FOCUS ingestion, stage the single `parser-bundle/` inside the selected workspace and let `paper-map` perform page/section coverage, two-column order, inventory, and claim-to-span checks before promotion. Preserve a failed bundle for diagnosis and never overwrite notes, learner responses, assessments, or evidence.
+For FOCUS, treat the single `parser-bundle/` as parser-only input for later Paper registration and Reading Plan mapping. Preserve a failed bundle for diagnosis. Parser operations own only Parser Bundle artifacts and leave Reading Plans, Notes, and Explanation Sessions unchanged.

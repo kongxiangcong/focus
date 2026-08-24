@@ -2,7 +2,8 @@
 .env
 tmp/
 knowledge-base/
-*.pdf
+workspace/
+/*.pdf
 __pycache__/
 *.py[cod]
 .pytest_cache/
