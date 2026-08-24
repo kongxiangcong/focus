@@ -1,6 +1,6 @@
 ---
 name: focus-guide
-description: Present the current FOCUS Reading Chunk as a stable cached Chinese translation with its bound source images and captions. Use for Guided Reading display; navigation, notes, and discussion operations are added by their own tickets.
+description: Present and navigate the current FOCUS Reading Chunk, record explicit Notes and brief discussions, correct Plan terminology, or replace its cached Chinese translation.
 ---
 
 # Focus Guide
@@ -22,6 +22,44 @@ python -B -X utf8 scripts/focus_guide.py present --workspace <workspace> --trans
 ```
 
 Normal presentation must not add an image-mechanism explanation, summary, key-point list, importance judgment, or reader evaluation. Display the original image and caption without proactive interpretation. A `reading_completed` result is final for this invocation; do not reset or select another Plan. Other failures contain a stable `error_id`; report the direct message and do not edit Workspace files manually.
+
+## Current Chunk operations
+
+For an explicit save-note request, preserve the reader's original remark in a private UTF-8 file and append it as a Reader Note:
+
+```powershell
+python -B -X utf8 scripts/focus_guide.py save-note --workspace <workspace> --content-file <note.txt>
+```
+
+For a brief Guided Reading question, answer directly from the presented Chunk. Save the original question and visible answer in separate private UTF-8 files, then append their neutral recap as a Discussion Note:
+
+```powershell
+python -B -X utf8 scripts/focus_guide.py record-discussion --workspace <workspace> --question-file <question.txt> --answer-file <answer.txt>
+```
+
+The answer and recap state what was asked and answered. They make no claim about reader understanding, misunderstanding, or mastery. A deeper request remains available for an explicit Focus Explain invocation.
+
+Only the reader's explicit instruction that content is important may append an Emphasis Note. Preserve the selected content in a private UTF-8 file and invoke:
+
+```powershell
+python -B -X utf8 scripts/focus_guide.py emphasize --workspace <workspace> --content-file <emphasis.txt>
+```
+
+Ordinary presentation and model-selected importance never invoke `emphasize`.
+
+For an explicit terminology correction, update the current Plan Glossary. The corrected term appears in future uncached translation requests; cached translations remain stable:
+
+```powershell
+python -B -X utf8 scripts/focus_guide.py correct-term --workspace <workspace> --source <source-term> --translation <chinese-term>
+```
+
+For an explicit retranslation, translate the current `source_text` faithfully with the returned Plan Glossary, save only the replacement Chinese text to a private UTF-8 file, and replace the current cache:
+
+```powershell
+python -B -X utf8 scripts/focus_guide.py retranslate --workspace <workspace> --translation-file <translation.txt>
+```
+
+Each operation above leaves the Reading Cursor unchanged. A structured failure leaves the previous Chunk Record and Plan Glossary intact; report it without editing Workspace files manually.
 
 ## Continue and restore
 

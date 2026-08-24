@@ -370,6 +370,12 @@ def _read_chunk_records(path: Path) -> list[dict[str, Any]]:
     return records
 
 
+def _serialize_chunk_records(records: list[dict[str, Any]]) -> str:
+    return "".join(
+        json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n" for value in records
+    )
+
+
 def _read_glossary(path: Path) -> list[dict[str, str]]:
     if not path.is_file():
         raise WorkspaceError("reading_plan_invalid", f"Plan Glossary is missing: {path.parent.name}")
@@ -739,23 +745,9 @@ class WorkspaceCore:
         }
 
     def present_current_chunk(self, *, translation: str | None = None) -> dict[str, Any]:
-        pointers = _read_document(self.workspace / "pointers.yaml")
-        paper_id = pointers.get("current_paper_id")
-        pointer_entries = pointers.get("papers")
-        if not isinstance(paper_id, str) or not isinstance(pointer_entries, dict):
-            raise WorkspaceError("paper_missing", "No current Paper is selected")
-        paper_id = _identifier(paper_id, "paper_id")
-        paper_pointer = pointer_entries.get(paper_id)
-        if not isinstance(paper_pointer, dict):
-            raise WorkspaceError("workspace_pointers_invalid", "Workspace pointers are invalid")
-        plan_id = paper_pointer.get("current_plan_id")
-        chunk_id = paper_pointer.get("current_chunk_id")
-        if plan_id is None:
-            raise WorkspaceError("reading_plan_missing", f"Reading Plan does not exist: {paper_id}")
-        plan_id = _identifier(plan_id, "reading_plan")
+        _, _, paper_id, plan_id, chunk_id = self._current_reading_selection(require_chunk=False)
         if chunk_id is None:
             return {"ok": True, "status": "reading_completed", "paper_id": paper_id, "plan_id": plan_id, "chunk_id": None}
-        chunk_id = _identifier(chunk_id, "reading_chunk")
 
         paper_root = self.workspace / "papers" / paper_id
         bundle = paper_root / "parser-bundle"
@@ -786,9 +778,8 @@ class WorkspaceCore:
             updated = dict(record)
             updated["translation"] = translation
             records[record_index] = updated
-            content = "".join(json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n" for value in records)
             try:
-                _replace_text(chunks_path, content)
+                _replace_text(chunks_path, _serialize_chunk_records(records))
             except OSError as exc:
                 raise WorkspaceError("reading_chunk_write_failed", "Translation could not be cached") from exc
             cached_translation = translation
@@ -800,9 +791,10 @@ class WorkspaceCore:
             "cached": cached,
         }
 
-    def continue_reading(self, *, translation: str | None = None) -> dict[str, Any]:
-        pointers_path = self.workspace / "pointers.yaml"
-        pointers = _read_document(pointers_path)
+    def _current_reading_selection(
+        self, *, require_chunk: bool
+    ) -> tuple[dict[str, Any], dict[str, Any], str, str, str | None]:
+        pointers = _read_document(self.workspace / "pointers.yaml")
         paper_id = pointers.get("current_paper_id")
         pointer_entries = pointers.get("papers")
         if not isinstance(paper_id, str) or not isinstance(pointer_entries, dict):
@@ -817,8 +809,117 @@ class WorkspaceCore:
             raise WorkspaceError("reading_plan_missing", f"Reading Plan does not exist: {paper_id}")
         plan_id = _identifier(plan_id, "reading_plan")
         if chunk_id is None:
+            if require_chunk:
+                raise WorkspaceError("reading_completed", "Reading Plan is complete")
+        else:
+            chunk_id = _identifier(chunk_id, "reading_chunk")
+        return pointers, paper_pointer, paper_id, plan_id, chunk_id
+
+    def _current_chunk_records(self) -> tuple[str, str, str, Path, list[dict[str, Any]], int]:
+        _, _, paper_id, plan_id, chunk_id = self._current_reading_selection(require_chunk=True)
+        assert chunk_id is not None
+        chunks_path = self.workspace / "papers" / paper_id / "reading" / "plans" / plan_id / "chunks.jsonl"
+        records = _read_chunk_records(chunks_path)
+        matches = [index for index, record in enumerate(records) if record.get("chunk_id") == chunk_id]
+        if len(matches) != 1:
+            raise WorkspaceError("reading_chunk_missing", f"Reading Chunk does not exist: {chunk_id}")
+        return paper_id, plan_id, chunk_id, chunks_path, records, matches[0]
+
+    def append_current_note(self, *, kind: str, content: str) -> dict[str, Any]:
+        if kind not in {"reader", "discussion", "emphasis"}:
+            raise WorkspaceError("note_kind_invalid", "Note kind is invalid")
+        if not isinstance(content, str) or not content.strip():
+            raise WorkspaceError("note_content_invalid", "Note content is empty or invalid")
+
+        paper_id, plan_id, chunk_id, chunks_path, records, record_index = self._current_chunk_records()
+        updated = dict(records[record_index])
+        updated["notes"] = [*updated["notes"], {"kind": kind, "content": content}]
+        records[record_index] = updated
+        try:
+            _replace_text(chunks_path, _serialize_chunk_records(records))
+        except OSError as exc:
+            raise WorkspaceError("reading_chunk_write_failed", "Note could not be saved") from exc
+        return {
+            "ok": True,
+            "status": "note_saved",
+            "paper_id": paper_id,
+            "plan_id": plan_id,
+            "chunk_id": chunk_id,
+            "note": {"kind": kind, "content": content},
+        }
+
+    def record_current_discussion(self, *, question: str, answer: str) -> dict[str, Any]:
+        if not isinstance(question, str) or not question.strip():
+            raise WorkspaceError("discussion_question_invalid", "Discussion question is empty or invalid")
+        if not isinstance(answer, str) or not answer.strip():
+            raise WorkspaceError("discussion_answer_invalid", "Discussion answer is empty or invalid")
+        content = f"用户询问：{question}\n回复：{answer}"
+        result = self.append_current_note(kind="discussion", content=content)
+        return {**result, "status": "discussion_recorded", "answer": answer}
+
+    def correct_current_term(self, *, source: str, translation: str) -> dict[str, Any]:
+        if (
+            not isinstance(source, str)
+            or not source.strip()
+            or not isinstance(translation, str)
+            or not translation.strip()
+            or any(character in source + translation for character in "\t\r\n")
+        ):
+            raise WorkspaceError("glossary_term_invalid", "Glossary term is empty or invalid")
+
+        _, _, paper_id, plan_id, chunk_id = self._current_reading_selection(require_chunk=False)
+
+        glossary_path = self.workspace / "papers" / paper_id / "reading" / "plans" / plan_id / "glossary.tsv"
+        glossary = _read_glossary(glossary_path)
+        corrected = False
+        for row in glossary:
+            if row["source"] == source:
+                row["translation"] = translation
+                corrected = True
+        if not corrected:
+            glossary.append({"source": source, "translation": translation})
+        serialized = "".join(f'{row["source"]}\t{row["translation"]}\n' for row in glossary)
+        try:
+            _replace_text(glossary_path, serialized)
+        except OSError as exc:
+            raise WorkspaceError("glossary_write_failed", "Plan Glossary could not be updated") from exc
+        return {
+            "ok": True,
+            "status": "glossary_updated",
+            "paper_id": paper_id,
+            "plan_id": plan_id,
+            "chunk_id": chunk_id,
+            "term": {"source": source, "translation": translation},
+        }
+
+    def retranslate_current_chunk(self, *, translation: str) -> dict[str, Any]:
+        if not isinstance(translation, str) or not translation.strip():
+            raise WorkspaceError("translation_invalid", "Translation is empty or invalid")
+
+        paper_id, plan_id, chunk_id, chunks_path, records, record_index = self._current_chunk_records()
+        updated = dict(records[record_index])
+        updated["translation"] = translation
+        records[record_index] = updated
+        try:
+            _replace_text(chunks_path, _serialize_chunk_records(records))
+        except OSError as exc:
+            raise WorkspaceError("reading_chunk_write_failed", "Translation could not be replaced") from exc
+        return {
+            "ok": True,
+            "status": "retranslated",
+            "paper_id": paper_id,
+            "plan_id": plan_id,
+            "chunk_id": chunk_id,
+            "translation": translation,
+        }
+
+    def continue_reading(self, *, translation: str | None = None) -> dict[str, Any]:
+        pointers_path = self.workspace / "pointers.yaml"
+        pointers, paper_pointer, paper_id, plan_id, chunk_id = self._current_reading_selection(
+            require_chunk=False
+        )
+        if chunk_id is None:
             return {"ok": True, "status": "reading_completed", "paper_id": paper_id, "plan_id": plan_id, "chunk_id": None}
-        chunk_id = _identifier(chunk_id, "reading_chunk")
 
         paper_root = self.workspace / "papers" / paper_id
         bundle = paper_root / "parser-bundle"
@@ -862,8 +963,7 @@ class WorkspaceCore:
         paper_pointer["current_chunk_id"] = next_chunk_id
         try:
             if update_translation:
-                content = "".join(json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n" for value in records)
-                _replace_text(chunks_path, content)
+                _replace_text(chunks_path, _serialize_chunk_records(records))
             _write_document(pointers_path, pointers)
         except OSError as exc:
             _restore(chunks_path, chunks_snapshot)

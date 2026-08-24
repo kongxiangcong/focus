@@ -188,6 +188,228 @@ class FocusGuideTests(unittest.TestCase):
         self.assertEqual("reading_chunk_write_failed", json.loads(stderr.getvalue())["error_id"])
         self.assertEqual(chunks_before, (plan / "chunks.jsonl").read_bytes())
 
+    def test_explicit_reader_note_appends_original_remark_without_moving_cursor(self):
+        workspace, _, plan = self._workspace()
+        chunks_path = plan / "chunks.jsonl"
+        records = [json.loads(line) for line in chunks_path.read_text(encoding="utf-8").splitlines()]
+        records[0]["notes"] = [{"kind": "reader", "content": "先前备注。"}]
+        chunks_path.write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in records),
+            encoding="utf-8",
+        )
+        pointers_before = (workspace / "pointers.yaml").read_bytes()
+        remark = self.root / "reader-note.txt"
+        remark.write_text("这里的 source mechanism 需要和图 1 对照。", encoding="utf-8")
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            result = FOCUS_GUIDE.main(
+                ["save-note", "--workspace", str(workspace), "--content-file", str(remark)]
+            )
+
+        self.assertEqual(0, result)
+        response = json.loads(stdout.getvalue())
+        self.assertEqual("note_saved", response["status"])
+        records = [
+            json.loads(line)
+            for line in chunks_path.read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(
+            [
+                {"kind": "reader", "content": "先前备注。"},
+                {"kind": "reader", "content": "这里的 source mechanism 需要和图 1 对照。"},
+            ],
+            records[0]["notes"],
+        )
+        self.assertEqual(pointers_before, (workspace / "pointers.yaml").read_bytes())
+
+    def test_brief_question_returns_answer_and_appends_neutral_discussion_note(self):
+        workspace, _, plan = self._workspace()
+        pointers_before = (workspace / "pointers.yaml").read_bytes()
+        question = self.root / "question.txt"
+        answer = self.root / "answer.txt"
+        question.write_text("这里的 mechanism 指什么？", encoding="utf-8")
+        answer.write_text("它指图 1 展示的数据传递机制。", encoding="utf-8")
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            result = FOCUS_GUIDE.main(
+                [
+                    "record-discussion",
+                    "--workspace",
+                    str(workspace),
+                    "--question-file",
+                    str(question),
+                    "--answer-file",
+                    str(answer),
+                ]
+            )
+
+        self.assertEqual(0, result)
+        response = json.loads(stdout.getvalue())
+        self.assertEqual("discussion_recorded", response["status"])
+        self.assertEqual("它指图 1 展示的数据传递机制。", response["answer"])
+        records = [
+            json.loads(line)
+            for line in (plan / "chunks.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        note = records[0]["notes"][0]
+        self.assertEqual({"kind", "content"}, set(note))
+        self.assertEqual("discussion", note["kind"])
+        self.assertIn("这里的 mechanism 指什么？", note["content"])
+        self.assertIn("它指图 1 展示的数据传递机制。", note["content"])
+        self.assertNotRegex(note["content"], r"理解|不理解|掌握|误解")
+        self.assertEqual(pointers_before, (workspace / "pointers.yaml").read_bytes())
+
+    def test_emphasis_note_requires_the_explicit_emphasize_command(self):
+        workspace, _, plan = self._workspace()
+        pointers_before = (workspace / "pointers.yaml").read_bytes()
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            self.assertEqual(0, FOCUS_GUIDE.main(["present", "--workspace", str(workspace)]))
+        before = [
+            json.loads(line)
+            for line in (plan / "chunks.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual([], before[0]["notes"])
+
+        content = self.root / "emphasis.txt"
+        content.write_text("数据只在相邻处理单元之间传递。", encoding="utf-8")
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            result = FOCUS_GUIDE.main(
+                ["emphasize", "--workspace", str(workspace), "--content-file", str(content)]
+            )
+
+        self.assertEqual(0, result)
+        self.assertEqual("note_saved", json.loads(stdout.getvalue())["status"])
+        after = [
+            json.loads(line)
+            for line in (plan / "chunks.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(
+            [{"kind": "emphasis", "content": "数据只在相邻处理单元之间传递。"}],
+            after[0]["notes"],
+        )
+        self.assertEqual(pointers_before, (workspace / "pointers.yaml").read_bytes())
+
+    def test_terminology_correction_changes_future_context_without_rewriting_cached_translation(self):
+        workspace, _, plan = self._workspace()
+        chunks_path = plan / "chunks.jsonl"
+        records = [json.loads(line) for line in chunks_path.read_text(encoding="utf-8").splitlines()]
+        records[0]["translation"] = "既有机制译文。"
+        chunks_path.write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in records),
+            encoding="utf-8",
+        )
+        pointers_before = (workspace / "pointers.yaml").read_bytes()
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            result = FOCUS_GUIDE.main(
+                [
+                    "correct-term",
+                    "--workspace",
+                    str(workspace),
+                    "--source",
+                    "mechanism",
+                    "--translation",
+                    "作用机理",
+                ]
+            )
+
+        self.assertEqual(0, result)
+        response = json.loads(stdout.getvalue())
+        self.assertEqual("glossary_updated", response["status"])
+        unchanged = [json.loads(line) for line in chunks_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual("既有机制译文。", unchanged[0]["translation"])
+
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            self.assertEqual(0, FOCUS_GUIDE.main(["continue", "--workspace", str(workspace)]))
+        request = json.loads(stdout.getvalue())
+        self.assertEqual("continue_translation_required", request["status"])
+        self.assertEqual(
+            {"source": "mechanism", "translation": "作用机理"},
+            request["glossary"][0],
+        )
+        self.assertEqual(pointers_before, (workspace / "pointers.yaml").read_bytes())
+
+    def test_explicit_retranslation_replaces_only_current_translation(self):
+        workspace, _, plan = self._workspace()
+        chunks_path = plan / "chunks.jsonl"
+        records = [json.loads(line) for line in chunks_path.read_text(encoding="utf-8").splitlines()]
+        records[0]["translation"] = "旧译文。"
+        records[0]["notes"] = [{"kind": "reader", "content": "保留这条备注。"}]
+        chunks_path.write_text(
+            "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in records),
+            encoding="utf-8",
+        )
+        pointers_before = (workspace / "pointers.yaml").read_bytes()
+        glossary_before = (plan / "glossary.tsv").read_bytes()
+        record_before = records[0]
+        replacement = self.root / "replacement.txt"
+        replacement.write_text("新译文。", encoding="utf-8")
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            result = FOCUS_GUIDE.main(
+                [
+                    "retranslate",
+                    "--workspace",
+                    str(workspace),
+                    "--translation-file",
+                    str(replacement),
+                ]
+            )
+
+        self.assertEqual(0, result)
+        response = json.loads(stdout.getvalue())
+        self.assertEqual("retranslated", response["status"])
+        after = [json.loads(line) for line in chunks_path.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual("新译文。", after[0]["translation"])
+        for key in set(record_before) - {"translation"}:
+            self.assertEqual(record_before[key], after[0][key])
+        self.assertEqual(records[1], after[1])
+        self.assertEqual(glossary_before, (plan / "glossary.tsv").read_bytes())
+        self.assertEqual(pointers_before, (workspace / "pointers.yaml").read_bytes())
+
+    def test_failed_note_glossary_and_retranslation_updates_preserve_prior_files(self):
+        workspace, _, plan = self._workspace()
+        chunks_path = plan / "chunks.jsonl"
+        glossary_path = plan / "glossary.tsv"
+        content = self.root / "content.txt"
+        content.write_text("受控更新", encoding="utf-8")
+        operations = [
+            ["save-note", "--workspace", str(workspace), "--content-file", str(content)],
+            [
+                "correct-term",
+                "--workspace",
+                str(workspace),
+                "--source",
+                "mechanism",
+                "--translation",
+                "作用机理",
+            ],
+            ["retranslate", "--workspace", str(workspace), "--translation-file", str(content)],
+        ]
+
+        for operation in operations:
+            with self.subTest(command=operation[0]):
+                chunks_before = chunks_path.read_bytes()
+                glossary_before = glossary_path.read_bytes()
+                pointers_before = (workspace / "pointers.yaml").read_bytes()
+                stderr = io.StringIO()
+                with mock.patch.object(
+                    WORKSPACE_CORE, "_replace_text", side_effect=OSError("controlled failure")
+                ):
+                    with contextlib.redirect_stderr(stderr):
+                        result = FOCUS_GUIDE.main(operation)
+                self.assertEqual(1, result)
+                self.assertEqual(chunks_before, chunks_path.read_bytes())
+                self.assertEqual(glossary_before, glossary_path.read_bytes())
+                self.assertEqual(pointers_before, (workspace / "pointers.yaml").read_bytes())
+
     def test_missing_plan_chunk_and_completed_reading_return_direct_results(self):
         workspace, _, _ = self._workspace()
         pointers_path = workspace / "pointers.yaml"
