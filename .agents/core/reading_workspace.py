@@ -201,6 +201,112 @@ def _validate_parser_bundle(bundle: Path) -> None:
         raise WorkspaceError("parser_bundle_invalid", "; ".join(dict.fromkeys(errors)))
 
 
+def _protected_source_ranges(lines: list[str]) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    table_start: int | None = None
+    for number, line in enumerate(lines, 1):
+        if "|" in line:
+            table_start = table_start or number
+        elif table_start is not None:
+            table = lines[table_start - 1 : number - 1]
+            if len(table) >= 2 and any(re.fullmatch(r"\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*", row) for row in table):
+                ranges.append((table_start, number - 1))
+            table_start = None
+    if table_start is not None:
+        table = lines[table_start - 1 :]
+        if len(table) >= 2 and any(re.fullmatch(r"\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*", row) for row in table):
+            ranges.append((table_start, len(lines)))
+
+    opening: tuple[str, int] | None = None
+    for number, line in enumerate(lines, 1):
+        marker = line.strip()
+        if opening is None and (marker.startswith("```") or marker in {"$$", "\\["}):
+            opening = ("```" if marker.startswith("```") else marker, number)
+        elif opening is not None:
+            token, start = opening
+            closes = (token == "```" and marker.startswith("```")) or (token == "$$" and marker == "$$") or (token == "\\[" and marker == "\\]")
+            if closes:
+                ranges.append((start, number))
+                opening = None
+    if opening is not None:
+        raise WorkspaceError("reading_plan_invalid", "Paper Markdown contains an unterminated protected block")
+
+    for number, line in enumerate(lines, 1):
+        if MARKDOWN_IMAGE_RE.search(line) and number < len(lines):
+            caption = lines[number].strip()
+            if re.match(r"^(figure|fig\.?|table)\s*\d", caption, flags=re.IGNORECASE):
+                ranges.append((number, number + 1))
+    return ranges
+
+
+def _reading_plan_records(bundle: Path, draft: dict[str, Any]) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
+    chunks = draft.get("chunks")
+    glossary = draft.get("glossary", [])
+    if not isinstance(chunks, list) or not chunks or not isinstance(glossary, list):
+        raise WorkspaceError("reading_plan_invalid", "Reading Plan draft is invalid")
+    lines = (bundle / "paper.md").read_text(encoding="utf-8", errors="replace").splitlines()
+    protected = _protected_source_ranges(lines)
+    records: list[dict[str, Any]] = []
+    previous_end: int | None = None
+    for index, chunk in enumerate(chunks, 1):
+        if not isinstance(chunk, dict) or set(chunk) != {"section_path", "source_lines", "images"}:
+            raise WorkspaceError("reading_plan_invalid", "Reading Chunk draft is invalid")
+        section_path = chunk["section_path"]
+        source_lines = chunk["source_lines"]
+        images = chunk["images"]
+        if (
+            not isinstance(section_path, list)
+            or not section_path
+            or any(not isinstance(part, str) or not part.strip() for part in section_path)
+            or not isinstance(source_lines, list)
+            or len(source_lines) != 2
+            or any(not isinstance(value, int) or isinstance(value, bool) for value in source_lines)
+            or not isinstance(images, list)
+            or any(not isinstance(value, str) for value in images)
+        ):
+            raise WorkspaceError("reading_plan_invalid", "Reading Chunk draft is invalid")
+        start, end = source_lines
+        if start < 1 or end < start or end > len(lines) or (previous_end is not None and start != previous_end + 1):
+            raise WorkspaceError("reading_plan_invalid", "Reading Chunk source ranges must be ordered and continuous")
+        if any(unit_start <= end < unit_end for unit_start, unit_end in protected):
+            raise WorkspaceError("reading_plan_invalid", "Reading Chunk boundary splits a protected source unit")
+        referenced: list[str] = []
+        for line in lines[start - 1 : end]:
+            for match in MARKDOWN_IMAGE_RE.finditer(line):
+                target = _split_image_target(match.group(1))
+                parsed = urllib.parse.urlsplit(target)
+                if not parsed.scheme and not parsed.netloc and not target.startswith("#"):
+                    referenced.append(PurePosixPath(urllib.parse.unquote(parsed.path).replace("\\", "/")).as_posix())
+        if images != list(dict.fromkeys(referenced)):
+            raise WorkspaceError("reading_plan_invalid", "Reading Chunk image bindings do not match its source range")
+        records.append(
+            {
+                "chunk_id": f"chunk-{index:03d}",
+                "index": index,
+                "section_path": section_path,
+                "source_lines": [start, end],
+                "images": images,
+                "translation": None,
+                "notes": [],
+            }
+        )
+        previous_end = end
+
+    normalized_glossary: list[tuple[str, str]] = []
+    seen_terms: set[str] = set()
+    for row in glossary:
+        if (
+            not isinstance(row, list)
+            or len(row) != 2
+            or any(not isinstance(value, str) or not value.strip() or "\t" in value or "\n" in value or "\r" in value for value in row)
+            or row[0] in seen_terms
+        ):
+            raise WorkspaceError("reading_plan_invalid", "Plan Glossary is invalid")
+        seen_terms.add(row[0])
+        normalized_glossary.append((row[0], row[1]))
+    return records, normalized_glossary
+
+
 class WorkspaceCore:
     """Own identifiers, parser tasks, bundle installation, membership, and pointers."""
 
@@ -397,3 +503,80 @@ class WorkspaceCore:
         )
         _commit_documents({paper_path: paper, topic_path: topic, pointers_path: pointers})
         return resolved_topic_id
+
+    def map_reading_plan(
+        self,
+        paper_id: str,
+        *,
+        draft: dict[str, Any] | None,
+        scope: str | None = None,
+    ) -> dict[str, Any]:
+        paper_id = _identifier(paper_id, "paper_id")
+        paper_root = self.workspace / "papers" / paper_id
+        paper_path = paper_root / "paper.yaml"
+        if not paper_path.is_file():
+            raise WorkspaceError("paper_missing", f"Paper does not exist: {paper_id}")
+        paper = _read_document(paper_path)
+        if paper.get("paper_id") != paper_id:
+            raise WorkspaceError("paper_invalid", f"Paper is invalid: {paper_id}")
+        bundle = paper_root / "parser-bundle"
+        if not bundle.is_dir():
+            raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {paper_id}")
+        _validate_parser_bundle(bundle)
+        if scope is not None and (not isinstance(scope, str) or not scope.strip()):
+            raise WorkspaceError("reading_scope_invalid", "Reading scope is invalid")
+
+        pointers_path = self.workspace / "pointers.yaml"
+        pointers = _read_document(pointers_path)
+        pointer_entries = pointers.get("papers")
+        if not isinstance(pointer_entries, dict) or not isinstance(pointer_entries.get(paper_id), dict):
+            raise WorkspaceError("workspace_pointers_invalid", "Workspace pointers are invalid")
+        paper_pointer = pointer_entries[paper_id]
+        current_plan_id = paper_pointer.get("current_plan_id")
+        current_chunk_id = paper_pointer.get("current_chunk_id")
+        if current_plan_id is not None:
+            _identifier(current_plan_id, "reading_plan")
+            if not (paper_root / "reading" / "plans" / current_plan_id / "chunks.jsonl").is_file():
+                raise WorkspaceError("reading_plan_missing", f"Reading Plan does not exist: {current_plan_id}")
+            return {"ok": True, "paper_id": paper_id, "plan_id": current_plan_id, "chunk_id": current_chunk_id, "reused": True}
+        if draft is None:
+            raise WorkspaceError("reading_plan_input_missing", "A Reading Plan draft is required")
+        records, glossary = _reading_plan_records(bundle, draft)
+
+        plans_root = paper_root / "reading" / "plans"
+        used_numbers = []
+        for path in plans_root.glob("plan-*"):
+            match = re.fullmatch(r"plan-(\d{3})", path.name)
+            if path.is_dir() and match:
+                used_numbers.append(int(match.group(1)))
+        plan_id = f"plan-{(max(used_numbers, default=0) + 1):03d}"
+        plan_root = plans_root / plan_id
+        staging = plans_root / f".{plan_id}.{uuid.uuid4().hex}.staging"
+        pointer_snapshot = pointers_path.read_bytes()
+        installed = False
+        try:
+            staging.mkdir(parents=True)
+            chunks_text = "".join(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n" for record in records)
+            (staging / "chunks.jsonl").write_text(chunks_text, encoding="utf-8")
+            glossary_text = "".join(f"{source}\t{translation}\n" for source, translation in glossary)
+            (staging / "glossary.tsv").write_text(glossary_text, encoding="utf-8")
+            staging.replace(plan_root)
+            installed = True
+            paper_pointer["current_plan_id"] = plan_id
+            paper_pointer["current_chunk_id"] = records[0]["chunk_id"]
+            _write_document(pointers_path, pointers)
+        except Exception:
+            _restore(pointers_path, pointer_snapshot)
+            if installed:
+                shutil.rmtree(plan_root, ignore_errors=True)
+            shutil.rmtree(staging, ignore_errors=True)
+            if plans_root.is_dir() and not any(plans_root.iterdir()):
+                plans_root.rmdir()
+            raise
+        return {
+            "ok": True,
+            "paper_id": paper_id,
+            "plan_id": plan_id,
+            "chunk_id": records[0]["chunk_id"],
+            "reused": False,
+        }
