@@ -446,6 +446,6 @@ Phase 1 不建设全文向量库或 RAG。Explanation Session 的任何操作都
 
 ## 19. 当前实现状态
 
-本文是已接受但尚未实现的目标设计。当前仓库仍暂存旧 Paper Companion 运行时代码和测试，以避免在新核心尚未实现前留下不可验证的半成品。它们不是新产品的规范，将在后续实施任务的 M0 中删除。
+本文是已接受的目标设计。M0 已完成：旧 Paper Companion 运行时代码和学习测试已退出活动主线，并由 `paper-companion-v0.2` Git tag 保留历史。Reading Workspace 的后续运行时切片仍待实现；当前仅保留 `paper-parser` 与 `paper2blog`。
 
-现行规范以本文、根级 `CONTEXT.md` 和相关 ADR 为准；旧代码存在不代表旧学习模型仍然有效。
+现行规范以本文、根级 `CONTEXT.md` 和相关 ADR 为准。
