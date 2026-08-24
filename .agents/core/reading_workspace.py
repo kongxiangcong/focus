@@ -385,6 +385,48 @@ def _bound_image_presentations(bundle: Path, source_lines: list[str], image_path
     return presentations
 
 
+def _chunk_presentation(
+    bundle: Path,
+    plan_root: Path,
+    *,
+    paper_id: str,
+    plan_id: str,
+    record: dict[str, Any],
+) -> dict[str, Any]:
+    chunk_id = record.get("chunk_id")
+    source_range = record.get("source_lines")
+    images = record.get("images")
+    section_path = record.get("section_path")
+    cached_translation = record.get("translation")
+    if (
+        not isinstance(chunk_id, str)
+        or not isinstance(source_range, list)
+        or len(source_range) != 2
+        or any(not isinstance(value, int) or isinstance(value, bool) for value in source_range)
+        or not isinstance(images, list)
+        or any(not isinstance(value, str) for value in images)
+        or not isinstance(section_path, list)
+        or not all(isinstance(value, str) and value for value in section_path)
+        or (cached_translation is not None and not isinstance(cached_translation, str))
+    ):
+        raise WorkspaceError("reading_chunk_invalid", f"Reading Chunk is invalid: {chunk_id}")
+    paper_lines = (bundle / "paper.md").read_text(encoding="utf-8", errors="replace").splitlines()
+    start, end = source_range
+    if start < 1 or end < start or end > len(paper_lines):
+        raise WorkspaceError("reading_chunk_invalid", f"Reading Chunk is invalid: {chunk_id}")
+    selected_lines = paper_lines[start - 1 : end]
+    return {
+        "paper_id": paper_id,
+        "plan_id": plan_id,
+        "chunk_id": chunk_id,
+        "section_path": section_path,
+        "source_lines": source_range,
+        "source_text": "\n".join(selected_lines),
+        "images": _bound_image_presentations(bundle, selected_lines, images),
+        "glossary": _read_glossary(plan_root / "glossary.tsv"),
+    }
+
+
 class WorkspaceCore:
     """Own identifiers, parser tasks, bundle installation, membership, and pointers."""
 
@@ -690,36 +732,14 @@ class WorkspaceCore:
         if len(matches) != 1:
             raise WorkspaceError("reading_chunk_missing", f"Reading Chunk does not exist: {chunk_id}")
         record_index, record = matches[0]
-        source_range = record.get("source_lines")
-        images = record.get("images")
-        section_path = record.get("section_path")
         cached_translation = record.get("translation")
-        if (
-            not isinstance(source_range, list)
-            or len(source_range) != 2
-            or any(not isinstance(value, int) for value in source_range)
-            or not isinstance(images, list)
-            or any(not isinstance(value, str) for value in images)
-            or not isinstance(section_path, list)
-            or not all(isinstance(value, str) for value in section_path)
-            or (cached_translation is not None and not isinstance(cached_translation, str))
-        ):
-            raise WorkspaceError("reading_chunk_invalid", f"Reading Chunk is invalid: {chunk_id}")
-        paper_lines = (bundle / "paper.md").read_text(encoding="utf-8", errors="replace").splitlines()
-        start, end = source_range
-        if start < 1 or end < start or end > len(paper_lines):
-            raise WorkspaceError("reading_chunk_invalid", f"Reading Chunk is invalid: {chunk_id}")
-        selected_lines = paper_lines[start - 1 : end]
-        presentation = {
-            "paper_id": paper_id,
-            "plan_id": plan_id,
-            "chunk_id": chunk_id,
-            "section_path": section_path,
-            "source_lines": source_range,
-            "source_text": "\n".join(selected_lines),
-            "images": _bound_image_presentations(bundle, selected_lines, images),
-            "glossary": _read_glossary(plan_root / "glossary.tsv"),
-        }
+        presentation = _chunk_presentation(
+            bundle,
+            plan_root,
+            paper_id=paper_id,
+            plan_id=plan_id,
+            record=record,
+        )
         if cached_translation is None and translation is None:
             return {"ok": True, "status": "translation_required", **presentation}
         cached = cached_translation is not None
@@ -741,4 +761,90 @@ class WorkspaceCore:
             **presentation,
             "translation": cached_translation,
             "cached": cached,
+        }
+
+    def continue_reading(self) -> dict[str, Any]:
+        pointers_path = self.workspace / "pointers.yaml"
+        pointers = _read_document(pointers_path)
+        paper_id = pointers.get("current_paper_id")
+        pointer_entries = pointers.get("papers")
+        if not isinstance(paper_id, str) or not isinstance(pointer_entries, dict):
+            raise WorkspaceError("paper_missing", "No current Paper is selected")
+        paper_id = _identifier(paper_id, "paper_id")
+        paper_pointer = pointer_entries.get(paper_id)
+        if not isinstance(paper_pointer, dict):
+            raise WorkspaceError("workspace_pointers_invalid", "Workspace pointers are invalid")
+        plan_id = paper_pointer.get("current_plan_id")
+        chunk_id = paper_pointer.get("current_chunk_id")
+        if plan_id is None:
+            raise WorkspaceError("reading_plan_missing", f"Reading Plan does not exist: {paper_id}")
+        plan_id = _identifier(plan_id, "reading_plan")
+        if chunk_id is None:
+            return {"ok": True, "status": "reading_completed", "paper_id": paper_id, "plan_id": plan_id, "chunk_id": None}
+        chunk_id = _identifier(chunk_id, "reading_chunk")
+
+        paper_root = self.workspace / "papers" / paper_id
+        bundle = paper_root / "parser-bundle"
+        if not bundle.is_dir():
+            raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {paper_id}")
+        _validate_parser_bundle(bundle)
+        plan_root = paper_root / "reading" / "plans" / plan_id
+        records = _read_chunk_records(plan_root / "chunks.jsonl")
+        matches = [index for index, record in enumerate(records) if record.get("chunk_id") == chunk_id]
+        if len(matches) != 1:
+            raise WorkspaceError("reading_chunk_missing", f"Reading Chunk does not exist: {chunk_id}")
+        current_index = matches[0]
+        next_chunk_id: str | None = None
+        if current_index + 1 < len(records):
+            next_record = records[current_index + 1]
+            _chunk_presentation(
+                bundle,
+                plan_root,
+                paper_id=paper_id,
+                plan_id=plan_id,
+                record=next_record,
+            )
+            next_chunk_id = next_record["chunk_id"]
+
+        paper_pointer["current_chunk_id"] = next_chunk_id
+        try:
+            _write_document(pointers_path, pointers)
+        except OSError as exc:
+            raise WorkspaceError("reading_cursor_write_failed", "Reading Cursor could not be updated") from exc
+        if next_chunk_id is None:
+            return {"ok": True, "status": "reading_completed", "paper_id": paper_id, "plan_id": plan_id, "chunk_id": None}
+        return self.present_current_chunk()
+
+    def switch_paper(self, paper_id: str) -> dict[str, Any]:
+        paper_id = _identifier(paper_id, "paper_id")
+        paper_root = self.workspace / "papers" / paper_id
+        paper_path = paper_root / "paper.yaml"
+        if not paper_path.is_file():
+            raise WorkspaceError("paper_missing", f"Paper does not exist: {paper_id}")
+        paper = _read_document(paper_path)
+        if paper.get("paper_id") != paper_id:
+            raise WorkspaceError("paper_invalid", f"Paper is invalid: {paper_id}")
+        bundle = paper_root / "parser-bundle"
+        if not bundle.is_dir():
+            raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {paper_id}")
+        _validate_parser_bundle(bundle)
+
+        pointers_path = self.workspace / "pointers.yaml"
+        pointers = _read_document(pointers_path)
+        pointer_entries = pointers.get("papers")
+        if not isinstance(pointer_entries, dict) or not isinstance(pointer_entries.get(paper_id), dict):
+            raise WorkspaceError("workspace_pointers_invalid", "Workspace pointers are invalid")
+        paper_pointer = pointer_entries[paper_id]
+        pointers["current_paper_id"] = paper_id
+        try:
+            _write_document(pointers_path, pointers)
+        except OSError as exc:
+            raise WorkspaceError("workspace_pointers_write_failed", "Current Paper could not be selected") from exc
+        return {
+            "ok": True,
+            "status": "paper_selected",
+            "paper_id": paper_id,
+            "plan_id": paper_pointer.get("current_plan_id"),
+            "chunk_id": paper_pointer.get("current_chunk_id"),
+            "explanation_id": paper_pointer.get("current_explanation_id"),
         }

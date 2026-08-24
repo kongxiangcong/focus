@@ -22,3 +22,29 @@ python -B -X utf8 scripts/focus_guide.py present --workspace <workspace> --trans
 ```
 
 Normal presentation must not add an image-mechanism explanation, summary, key-point list, importance judgment, or reader evaluation. Display the original image and caption without proactive interpretation. A `reading_completed` result is final for this invocation; do not reset or select another Plan. Other failures contain a stable `error_id`; report the direct message and do not edit Workspace files manually.
+
+## Continue and restore
+
+Only an explicit Continue Reading request may invoke:
+
+```powershell
+python -B -X utf8 scripts/focus_guide.py continue --workspace <workspace>
+```
+
+This advances exactly one Chunk after the deterministic core resolves and validates the next Chunk. If the new Chunk is uncached, the result is `translation_required`; follow the translation procedure above with `present --translation-file`. On the final Chunk, Continue Reading retains the Plan, clears the Chunk reference, and returns `reading_completed`. Never infer Continue Reading from a display, question, confirmation, translation, or other non-navigation request.
+
+At the start of a new conversation, restore and present the persisted current Paper, Plan, and Chunk:
+
+```powershell
+python -B -X utf8 scripts/focus_guide.py restore --workspace <workspace>
+```
+
+Restoration is read-only except for the same explicit first-translation cache step described above. Repeated read-only sessions are harmless.
+
+To explicitly switch the current Paper without changing any Paper-local Plan, Chunk, or Explanation reference:
+
+```powershell
+python -B -X utf8 scripts/focus_guide.py switch --workspace <workspace> --paper-id <paper-id>
+```
+
+Phase 1 supports one active writer per Paper. It intentionally has no locks, revisions, conflict recovery, or multi-writer guarantees. Do not run translation caching, Continue Reading, or other writes concurrently for the same Paper; multiple read-only presentation/restoration processes are allowed.

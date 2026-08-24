@@ -101,6 +101,28 @@ class FocusGuideTests(unittest.TestCase):
         )
         return workspace, paper_root, plan
 
+    def _add_second_paper(self, workspace: Path):
+        paper_root = workspace / "papers" / "second-paper"
+        bundle = paper_root / "parser-bundle"
+        (bundle / "images").mkdir(parents=True)
+        (paper_root / "paper.yaml").write_text(
+            json.dumps({"paper_id": "second-paper", "title": "Second Paper", "topics": ["systems"]}),
+            encoding="utf-8",
+        )
+        (bundle / "source.pdf").write_bytes(b"%PDF second")
+        (bundle / "paper.md").write_text("# Second\nSource.\n", encoding="utf-8")
+        (bundle / "metadata.json").write_text('{"parser":"mineru-precision-api"}\n', encoding="utf-8")
+        (bundle / "validation.json").write_text('{"ok":true}\n', encoding="utf-8")
+        pointers_path = workspace / "pointers.yaml"
+        pointers = json.loads(pointers_path.read_text(encoding="utf-8"))
+        pointers["papers"]["second-paper"] = {
+            "current_plan_id": None,
+            "current_chunk_id": None,
+            "current_explanation_id": "explanation-002",
+        }
+        pointers_path.write_text(json.dumps(pointers), encoding="utf-8")
+        return paper_root
+
     def test_first_presentation_caches_translation_and_new_process_reuses_it_with_original_image_caption(self):
         workspace, _, plan = self._workspace()
         pointers_before = (workspace / "pointers.yaml").read_bytes()
@@ -195,6 +217,103 @@ class FocusGuideTests(unittest.TestCase):
             missing_chunk = FOCUS_GUIDE.main(["present", "--workspace", str(workspace)])
         self.assertEqual(1, missing_chunk)
         self.assertEqual("reading_chunk_missing", json.loads(stderr.getvalue())["error_id"])
+
+    def test_continue_advances_exactly_one_chunk_and_new_process_restores_it(self):
+        workspace, _, plan = self._workspace()
+        chunks_path = plan / "chunks.jsonl"
+        records = [json.loads(line) for line in chunks_path.read_text(encoding="utf-8").splitlines()]
+        records[1]["translation"] = "结果证据。"
+        chunks_path.write_text("".join(json.dumps(row, ensure_ascii=False) + "\n" for row in records), encoding="utf-8")
+        pointers_path = workspace / "pointers.yaml"
+        before = json.loads(pointers_path.read_text(encoding="utf-8"))
+        stdout = io.StringIO()
+
+        with contextlib.redirect_stdout(stdout):
+            result = FOCUS_GUIDE.main(["continue", "--workspace", str(workspace)])
+
+        self.assertEqual(0, result)
+        response = json.loads(stdout.getvalue())
+        self.assertEqual("chunk-002", response["chunk_id"])
+        self.assertEqual("结果证据。", response["translation"])
+        pointers = json.loads(pointers_path.read_text(encoding="utf-8"))
+        self.assertEqual("chunk-002", pointers["papers"]["fixture-paper"]["current_chunk_id"])
+        self.assertEqual(
+            before["papers"]["fixture-paper"]["current_explanation_id"],
+            pointers["papers"]["fixture-paper"]["current_explanation_id"],
+        )
+
+        pointer_bytes = pointers_path.read_bytes()
+        for _ in range(2):
+            restored = subprocess.run(
+                [sys.executable, "-B", "-X", "utf8", str(GUIDE_SCRIPT), "restore", "--workspace", str(workspace)],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            self.assertEqual(0, restored.returncode, restored.stderr)
+            restored_response = json.loads(restored.stdout)
+            self.assertEqual(("fixture-paper", "plan-001", "chunk-002"), tuple(restored_response[key] for key in ("paper_id", "plan_id", "chunk_id")))
+        self.assertEqual(pointer_bytes, pointers_path.read_bytes())
+
+    def test_continue_on_final_chunk_completes_without_resetting_plan(self):
+        workspace, _, _ = self._workspace()
+        pointers_path = workspace / "pointers.yaml"
+        pointers = json.loads(pointers_path.read_text(encoding="utf-8"))
+        pointers["papers"]["fixture-paper"]["current_chunk_id"] = "chunk-002"
+        pointers_path.write_text(json.dumps(pointers), encoding="utf-8")
+
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            result = FOCUS_GUIDE.main(["continue", "--workspace", str(workspace)])
+
+        self.assertEqual(0, result)
+        self.assertEqual("reading_completed", json.loads(stdout.getvalue())["status"])
+        completed = json.loads(pointers_path.read_text(encoding="utf-8"))
+        self.assertEqual("plan-001", completed["papers"]["fixture-paper"]["current_plan_id"])
+        self.assertIsNone(completed["papers"]["fixture-paper"]["current_chunk_id"])
+
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            self.assertEqual(0, FOCUS_GUIDE.main(["present", "--workspace", str(workspace)]))
+        self.assertEqual("reading_completed", json.loads(stdout.getvalue())["status"])
+        self.assertEqual(completed, json.loads(pointers_path.read_text(encoding="utf-8")))
+
+    def test_switching_current_paper_preserves_each_papers_independent_pointers(self):
+        workspace, _, _ = self._workspace()
+        self._add_second_paper(workspace)
+        pointers_path = workspace / "pointers.yaml"
+        before = json.loads(pointers_path.read_text(encoding="utf-8"))
+
+        for paper_id in ("second-paper", "fixture-paper"):
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                result = FOCUS_GUIDE.main(
+                    ["switch", "--workspace", str(workspace), "--paper-id", paper_id]
+                )
+            self.assertEqual(0, result)
+            self.assertEqual(paper_id, json.loads(stdout.getvalue())["paper_id"])
+            current = json.loads(pointers_path.read_text(encoding="utf-8"))
+            self.assertEqual(paper_id, current["current_paper_id"])
+            self.assertEqual(before["papers"], current["papers"])
+
+    def test_next_chunk_resolution_failure_leaves_prior_cursor_intact(self):
+        workspace, _, plan = self._workspace()
+        chunks_path = plan / "chunks.jsonl"
+        records = [json.loads(line) for line in chunks_path.read_text(encoding="utf-8").splitlines()]
+        records[1]["chunk_id"] = "broken-next-chunk"
+        chunks_path.write_text("".join(json.dumps(row) + "\n" for row in records), encoding="utf-8")
+        pointers_path = workspace / "pointers.yaml"
+        before = pointers_path.read_bytes()
+        stderr = io.StringIO()
+
+        with contextlib.redirect_stderr(stderr):
+            result = FOCUS_GUIDE.main(["continue", "--workspace", str(workspace)])
+
+        self.assertEqual(1, result)
+        self.assertEqual("reading_plan_invalid", json.loads(stderr.getvalue())["error_id"])
+        self.assertEqual(before, pointers_path.read_bytes())
 
 
 if __name__ == "__main__":
