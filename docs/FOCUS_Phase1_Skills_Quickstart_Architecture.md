@@ -1,291 +1,117 @@
-# FOCUS 第一阶段：Skills 快速跑通与系统骨架方案
+# FOCUS Phase 1：Skills 快速跑通与阅读工作台原型
 
-> 状态：Revised Proposed（已按 2026-08-23 讨论结论校正）
+> 状态：Accepted Design，等待实现
 >
-> 基线日期：2026-08-23
+> 决策日期：2026-08-24
 >
-> 适用范围：DeepSeek Harness 正式接入之前
->
-> 当前仓库基线：`kongxiangcong/focus@e8d8a2ad377459810e4b0749baa66cc3dc952bdb`
+> 适用范围：DeepSeek Harness 接入之前
+> 产品语义：[FOCUS Reading Workspace](../CONTEXT.md)
 
-## 1. 文档目的
+## 1. 目标
 
-第一阶段不建设完整 Web 工作台，只验证论文阅读工作台最核心的闭环是否真实可用：
+Phase 1 用三个显式 Skill 验证一个最小、真实可用的论文阅读闭环：
 
 ```text
-专题组织论文
-→ paper-parser 生成 Markdown、表格和图片
-→ paper2blog 提供粗读
-→ 对感兴趣论文初始化精读
-→ 按稳定片段逐段翻译
-→ 用户确认后推进阅读游标
-→ 新会话恢复同一进度
-→ 遇到疑问时开启独立解读会话
+按专题组织论文
+→ paper-parser 直接生成 Workspace 内的 Parser Bundle
+→ focus-map 建立稳定 Reading Plan
+→ focus-guide 逐片段翻译、记录备注并推进 Reading Cursor
+→ 新会话恢复同一论文、计划和片段
+→ focus-explain 独立检索并持久化解释问答
+→ paper2blog 独立生成粗读文章
 ```
 
-第一阶段同时建立未来系统需要的数据目录、领域边界、命令接口和测试基线。Skills 只是临时交互适配器，不能成为状态格式和业务规则的所有者。
+Phase 1 是可推翻的交互与数据原型，不承诺其文件格式直接成为 Phase 2 的兼容协议。它只保留防止状态被模型任意改写所需的最小确定性核心。
 
-## 2. 核心决策
+## 2. 产品边界
 
-> **新主线不定义阅读模式或用户学习状态。** 活动 Schema、CLI、Skills 和 DSH 接口只允许使用专题、论文、精读计划、片段、阅读游标、操作事件和会话引用等工作台领域对象。历史实现中的流程和状态不得进入新接口。
+FOCUS 是专题驱动的论文阅读工作台，不是学习评估系统。
 
-### 2.1 产品定位
+系统管理：
 
-FOCUS 定位为“专题驱动的论文阅读工作台”。系统只管理论文资产、精读规划、阅读位置、用户操作和会话上下文，不评价用户。
+- Topic 与 Paper；
+- Parser Bundle 与 Blog Output；
+- Reading Plan、Chunk Record、Plan Glossary；
+- 当前 Paper、Plan、Chunk 和 Explanation Session 指针；
+- 翻译缓存、Reader Note、Discussion Note、Emphasis Note；
+- 原始 Explanation Session 问答。
 
-系统只记录客观行为和阅读位置：
+系统不管理：
 
-- 当前读到哪个片段；
-- 哪些片段已由用户明确确认；
-- 用户在哪个片段暂停、重译或提出问题；
-- 当前论文是否完成精读初始化；
-- 当前论文是否已读完规划范围。
+- Scout、Study、Mastery 或其他阅读模式；
+- “理解确认”、checkpoint、测试、复测或答辩；
+- 用户能力、薄弱项、等级、画像或评价结论；
+- 认知证据、掌握状态或长期保持；
+- 自动论文推荐、跨论文知识图、向量库或 RAG；
+- 多用户、协作权限、并发写入或复杂迁移。
 
-系统不维护任何用户能力模型或学习评价状态，也不根据用户回答生成等级、薄弱项、画像或后续测试任务。
+“继续”必须由当前 Skill 上下文解释：
 
-### 2.2 三个精读能力
+- `focus-guide` 中是 Continue Reading，只推进 Reading Cursor；
+- `focus-explain` 中是 Continue Explanation，只追加解释问答。
 
-第一阶段新增三个能力：
+内部命令和持久化字段不得使用无上下文的裸 `continue`。
 
-| 能力 | 形态 | 职责 |
+## 3. 公开能力
+
+Phase 1 保留五个相互独立的公开能力：
+
+| Skill | 职责 | 明确不做 |
 |---|---|---|
-| `focus-map` | 初始化 Skill + 应用服务 | 通读解析产物，生成稳定片段、图片绑定、轻量术语表和初始进度 |
-| `focus-guide` | 主流程 Skill | 读取当前片段，翻译；有绑定图片时展示并解释；确认后推进游标 |
-| `focus-explain` | 独立解释 Skill | 从当前内容和片段加载上下文，逐步解释用户指定问题，不修改阅读进度 |
+| `paper-parser` | 经逐篇授权调用 MinerU 托管精准解析 API，直接生成规范 Parser Bundle 并注册 Paper | 阅读规划、翻译、解释、Blog |
+| `paper2blog` | 从 Parser Bundle 生成独立中文技术 Blog | 修改任何 Reading 数据 |
+| `focus-map` | 为已注册 Paper 创建或重新初始化 Reading Plan | 解析 PDF、翻译片段、推进游标 |
+| `focus-guide` | 展示当前片段、缓存翻译、记录 Notes、推进 Reading Cursor | 创建 Explanation Session、评价用户 |
+| `focus-explain` | 检索论文全文及必要外部资料，创建或恢复解释问答 | 修改 Reading Cursor、生成用户评价 |
 
-已有能力继续保留：
+不设置统一公共路由 Skill。用户显式进入 `focus-map`、`focus-guide` 或 `focus-explain`，避免“继续”在带读与解释之间产生隐藏路由。
 
-| 能力 | 第一阶段定位 |
-|---|---|
-| `paper-parser` | 经用户明确授权后调用 MinerU 托管精准解析 API，生成唯一、可复用且已校验的 `parser-bundle/` |
-| `paper2blog` | 从已验证的 `parser-bundle/` 先建立 Evidence Map，再生成 `blog.md` 和 `blog.html`；与精读状态相互独立 |
-
-`paper-parser` 上传 PDF 前必须取得用户对该论文的明确云端解析授权。Token 只从 `MINERU_API_TOKEN` 环境变量或当前工作目录下被 Git 忽略的 `.env` 读取，不得进入聊天、命令行、日志或产物。解析是异步操作；超时或中断时保留非敏感 `batch_id`，通过 `resume` 继续而不重复上传。上传成功或任务创建成功不等于解析完成，只有 MinerU 返回 `done` 并形成一个通过校验的 `parser-bundle/` 才算完成。
-
-唯一稳定的 `parser-bundle/` 包含字节一致的 `source.pdf`、`paper.md`、按正文首次引用顺序命名的 `images/image-001.*` 等图片、`metadata.json` 和 `validation.json`。下载 ZIP 与 raw extraction tree 只允许临时存在，规范化后丢弃。
-
-`paper2blog` 要求 `validation.json.ok=true` 且 `metadata.json.parser=mineru-precision-api`。它先完成 `evidence-map.md`，再写 `blog.md` 并渲染 `blog.html`；Blog 工作区只消费 bundle 中的 Markdown、顺序图片、metadata 和 validation evidence，不复制也不读取 `source.pdf`。
-
-不设置统一的论文学习路由 Skill。每个能力由用户显式触发，减少错误路由和功能漂移。
-
-### 2.3 初始化与带读必须拆开
-
-精读初始化是全文级任务，需要稳定决定：
-
-- 章节顺序；
-- 片段边界；
-- 表格、公式、caption 的完整性；
-- 图片与正文片段的绑定；
-- 固定术语译法；
-- 阅读范围。
-
-带读是局部、重复任务，只消费已经安装的 Reading Plan。带读过程中不得自动重新切片、改变图片绑定或重建术语表。
-
-因此：
-
-> `focus-map` 生成静态精读定义；`focus-guide` 只读取该定义并推进动态游标。
-
-### 2.4 带读以纯翻译为主
-
-`focus-guide` 可以在内部读取章节标题、前一片段、图片 caption 和术语表，但正常输出保持克制：
-
-```text
-论文位置与进度
-
-当前片段的中文翻译
-
-仅当当前片段绑定论文图片时：
-- 展示论文原图
-- 解释图中的组件、箭头、坐标、图例以及正文/caption 明确表达的关系
-```
-
-默认不输出：
-
-- 片段概括；
-- 关键点；
-- 关键术语列表；
-- 论文评价；
-- 外部观点；
-- 主动生成的 Mermaid；
-- 未经原文支持的推演。
-
-### 2.5 “理解并继续”只是进度操作
-
-用户点击或表达“理解了，继续”时，系统记录：
-
-```text
-用户确认当前片段，可以推进到下一片段。
-```
-
-它只表示用户允许系统推进阅读位置。内部统一使用 `chunk_confirmed`，不把确认动作映射成任何用户评价。
-
-### 2.6 解读会话不拥有阅读游标
-
-`focus-explain` 可以：
-
-- 读取当前论文、当前片段、相邻上下文、相关图片和术语表；
-- 逐步解释用户明确提出的问题；
-- 根据用户反馈换表达、换例子或继续下一步；
-- 按用户要求生成图示。
-
-它不能：
-
-- 确认当前片段；
-- 推进、回退或重置阅读游标；
-- 修改 Reading Plan；
-- 修改术语表；
-- 建立独立的理解状态机。
-
-解释过程由当前会话历史承载。第一阶段不创建 `explanation-progress.yaml`。
-
-## 3. 第一阶段范围
-
-### 3.1 必须完成
-
-1. 专题目录与论文目录管理。
-2. 注册并复用 `paper-parser` 解析包。
-3. 保持 `paper2blog` 独立可用。
-4. 对单篇论文生成稳定精读计划。
-5. 按计划逐片段翻译。
-6. 绑定图片的片段支持原图展示和图片解释。
-7. 用户确认后可靠推进进度。
-8. 任意新会话可以恢复当前论文和当前片段。
-9. 解读 Skill 可以加载当前片段上下文，但不能改变进度。
-10. 所有状态写入通过确定性应用服务完成，不由 Skill 任意改 YAML/JSONL。
-
-### 3.2 明确不做
-
-- DeepSeek Harness 插件和 Web UI；
-- 自动论文搜索、下载和推荐；
-- 向量数据库、RAG、跨论文知识图；
-- 用户能力评估、测试、复测和画像；
-- Agent 主动总结每个片段；
-- Agent 主动画 Mermaid；
-- 自动评价论文质量；
-- 多用户权限与远程协作；
-- 复杂状态迁移、失效传播和事务恢复框架；
-- 历史版本状态数据向新进度模型的自动转换。
-
-## 4. 总体架构
+## 4. 架构
 
 ```mermaid
 flowchart LR
     U[用户 / Codex 会话]
-    S1[focus-map Skill]
-    S2[focus-guide Skill]
-    S3[focus-explain Skill]
-    P1[paper-parser]
-    P2[paper2blog]
+    PP[paper-parser]
+    PB[paper2blog]
+    FM[focus-map]
+    FG[focus-guide]
+    FE[focus-explain]
+    CORE[最小确定性核心]
+    WS[Private Workspace]
+    WEB[论文全文与外部资料]
 
-    CLI[FOCUS CLI / Application API]
-    APP[Application Services]
-    DOM[Domain Model]
-    STORE[Filesystem Store]
-    WS[FOCUS Workspace]
-
-    U --> S1
-    U --> S2
-    U --> S3
-    U --> P1
-    U --> P2
-
-    S1 --> CLI
-    S2 --> CLI
-    S3 --> CLI
-    P1 --> CLI
-    P2 --> CLI
-
-    CLI --> APP --> DOM
-    APP --> STORE --> WS
+    U --> PP
+    U --> PB
+    U --> FM
+    U --> FG
+    U --> FE
+    PP --> CORE
+    PB --> CORE
+    FM --> CORE
+    FG --> CORE
+    FE --> CORE
+    CORE --> WS
+    FE --> WEB
 ```
 
-架构约束：
+边界如下：
 
-- Skills 负责语言交互和模型生成；
-- 应用服务负责用例、状态转移和权限边界；
-- 领域模型定义稳定术语和数据结构；
-- 文件存储负责读写、校验和原子替换；
-- Workspace 是论文资产和阅读状态的本地权威；
-- 后续 DSH 插件必须调用同一应用接口，而不是复制 Skill 逻辑。
+- Skills 负责自然语言理解、切片建议、翻译、问答和解释；
+- 确定性核心负责目录分配、文件校验、指针更新和受控字段写入；
+- Workspace 是本地论文资产和私人阅读数据的权威；
+- Phase 1 假设每篇 Paper 同时只有一个写入者；
+- 不实现锁、revision、事务日志、事件回放或自动恢复框架。
 
-## 5. 仓库组织方案
-
-```text
-focus/
-├── README.md
-├── pyproject.toml
-├── docs/
-│   ├── phase-1-skills-quickstart.md
-│   └── phase-2-dsh-migration.md
-│
-├── schemas/
-│   ├── workspace.schema.json
-│   ├── topic.schema.json
-│   ├── paper.schema.json
-│   ├── reading-plan.schema.json
-│   ├── reading-chunk.schema.json
-│   ├── reading-progress.schema.json
-│   └── reading-event.schema.json
-│
-├── src/focus/
-│   ├── domain/
-│   │   ├── ids.py
-│   │   ├── models.py
-│   │   ├── errors.py
-│   │   └── ports.py
-│   ├── application/
-│   │   ├── workspace.py
-│   │   ├── topics.py
-│   │   ├── papers.py
-│   │   ├── reading_init.py
-│   │   ├── reading.py
-│   │   └── explain_context.py
-│   ├── infrastructure/
-│   │   ├── fs_store.py
-│   │   ├── jsonl_store.py
-│   │   ├── markdown_blocks.py
-│   │   └── parser_bundle.py
-│   └── cli/
-│       └── main.py
-│
-├── .agents/skills/
-│   ├── paper-parser/
-│   ├── paper2blog/
-│   ├── focus-map/
-│   ├── focus-guide/
-│   └── focus-explain/
-│
-├── tests/
-│   ├── unit/
-│   ├── integration/
-│   ├── contracts/
-│   └── fixtures/
-│
-├── legacy/
-│   └── paper-companion-v0.2/
-│
-└── workspace/                       # gitignored，用户数据
-```
-
-### 5.1 历史实现隔离
-
-在新主线开发前，先为当前仓库创建冻结标签，并把现有论文学习主链路整体移动到 `legacy/paper-companion-v0.2/`。活动目录只保留本方案定义的五个能力和新系统核心；历史代码不参与 Skill 发现、运行时导入、状态读写或测试装配。
-
-具体归档文件清单由一次性迁移脚本或 archive manifest 记录，不进入新系统的领域模型和公开方案。
-
-## 6. Workspace 目录结构
+## 5. Workspace
 
 ```text
 workspace/
-├── workspace.yaml
+├── pointers.yaml
 ├── topics/
-│   ├── configurable-systolic-array-compiler/
-│   │   └── topic.yaml
-│   └── 3d-stacked-compiler/
+│   └── configurable-systolic-array/
 │       └── topic.yaml
-│
 └── papers/
-    └── FlexSA-Reconfigurable-Systolic-Array--9c31ad/
+    └── flexsa/
         ├── paper.yaml
         ├── parser-bundle/
         │   ├── source.pdf
@@ -293,566 +119,333 @@ workspace/
         │   ├── images/
         │   ├── metadata.json
         │   └── validation.json
-        ├── outputs/
-        │   └── blog/
-        │       ├── paper.md
-        │       ├── metadata.json
-        │       ├── assets/
-        │       ├── evidence-map.md
-        │       ├── blog.md
-        │       └── blog.html
-        ├── reading/
-        │   ├── plan.yaml
-        │   ├── chunks.jsonl
-        │   ├── glossary.tsv
-        │   ├── progress.yaml
-        │   └── events/
-        │       └── 2026-08.jsonl
-        └── notes/
+        ├── blog/
+        └── reading/
+            ├── plans/
+            │   ├── plan-001/
+            │   │   ├── chunks.jsonl
+            │   │   └── glossary.tsv
+            │   └── plan-002/
+            └── explanations/
+                ├── explanation-001.jsonl
+                └── explanation-002.jsonl
 ```
 
-### 6.1 目录命名
+整个 `/workspace/` 必须被 Git 忽略。它包含可能受版权保护的论文、翻译、用户备注和私人问答，不得进入公开仓库。
 
-论文目录以可读论文标题为主体，并追加短哈希避免同名冲突：
+## 6. Workspace 指针
+
+Workspace 使用一个根级 `pointers.yaml`：
+
+```yaml
+current_paper_id: flexsa
+papers:
+  flexsa:
+    current_plan_id: plan-002
+    current_chunk_id: chunk-018
+    current_explanation_id: explanation-003
+  another-paper:
+    current_plan_id: plan-001
+    current_chunk_id: null
+    current_explanation_id: null
+```
+
+语义：
+
+- `current_paper_id` 选择默认活动 Paper；
+- `current_plan_id` 选择该 Paper 当前 Reading Plan；
+- `current_chunk_id` 是唯一 Reading Cursor；
+- `current_explanation_id` 只是当前 Explanation Session 文件引用，不是解释进度；
+- 切换 Paper 不清除其他 Paper 的三个指针；
+- 未初始化：`current_plan_id` 与 `current_chunk_id` 都为 `null`；
+- 已读完：保留 `current_plan_id`，将 `current_chunk_id` 设为 `null`。
+
+## 7. Topic 与 Paper
+
+### 7.1 Topic
+
+`topic.yaml` 只保存最小展示数据：
+
+```yaml
+topic_id: configurable-systolic-array
+title: 可配置脉动阵列
+description: 可选的专题说明
+papers:
+  - flexsa
+  - another-paper
+```
+
+列表顺序就是展示顺序。同一 Paper 可以属于多个 Topic，Topic 不复制论文资产。
+
+### 7.2 Paper
+
+`paper.yaml`：
+
+```yaml
+paper_id: flexsa
+title: "FlexSA: Flexible Systolic Array Architecture"
+topics:
+  - configurable-systolic-array
+```
+
+Parser Bundle、Blog 和 Reading 路径由目录约定确定，不在 YAML 中重复。Paper 不保存阅读位置、哈希、标签或运行状态。
+
+Paper ID 从标题生成可读 slug。若冲突，依次使用 `-002`、`-003`。ID 创建后不随标题改变。系统不自动判断两个 PDF 是否相同；用户明确指定现有 Paper 时才复用，否则分配新 ID。
+
+## 8. Parser Bundle
+
+`paper-parser` 经用户对该 PDF 的明确云端解析授权后运行，并直接在最终 Paper 目录生成唯一 Parser Bundle。它不导入外部 bundle，也不把临时路径登记为规范资产。
+
+解析成功后才注册 Paper 与 Topic。失败时不留下活动 Paper 记录。已存在的 Parser Bundle 不覆盖；再次解析创建新的 Paper ID。
+
+Phase 1 实施时必须从 `paper-parser` 删除所有内容哈希：
+
+- 不计算 SHA-256；
+- metadata 不保存 source hash；
+- validation 不做哈希一致性检查；
+- 远端任务名不依赖 hash；
+- Paper、Plan 和 Chunk 身份也不依赖 hash。
+
+最小结构门：
+
+- `source.pdf` 存在；
+- `paper.md` 非空；
+- `images/` 包含 `paper.md` 实际引用的本地图片；
+- `metadata.json.parser=mineru-precision-api`；
+- `validation.json.ok=true`。
+
+Parser Bundle 成功生成后按约定不可变。Phase 1 不进行 PDF/Markdown 页级比对、公式抽检或全文覆盖评分。
+
+MinerU Token 仍只能来自 `MINERU_API_TOKEN` 环境变量或被 Git 忽略的 `.env`，不得进入聊天、命令行、日志或产物。异步解析可使用非敏感 `batch_id` 恢复。
+
+## 9. Blog Output
+
+`paper2blog` 读取规范 Parser Bundle，写入同一 Paper 下的 `blog/`：
 
 ```text
-<safe-title>--<source-hash-prefix>
+papers/<paper_id>/
+├── parser-bundle/
+├── blog/
+└── reading/
 ```
 
-UI 和 Skill 对用户只显示正式标题，不要求用户操作哈希。
+Blog 可以保留自身需要的 Evidence Map、Markdown、HTML 和 assets，但不得读取或修改：
 
-### 6.2 专题与论文的关系
+- `pointers.yaml`；
+- Reading Plan 或 Plan Glossary；
+- Chunk Record、翻译或 Notes；
+- Explanation Session。
 
-专题通过 `paper_id` 和相对目录引用论文，不复制论文资产。同一论文可以属于多个专题。
+## 10. Reading Plan 与 Chunk Record
 
-```yaml
-schema_version: 1
-topic_id: configurable-systolic-array-compiler
-title: 可配置脉动阵列编译器设计
-description: 面向可重构脉动阵列的映射、切分、数据流和编译策略
-papers:
-  - paper_id: p-flexsa-9c31ad
-    path: ../../papers/FlexSA-Reconfigurable-Systolic-Array--9c31ad
-    tags: [architecture, mapping, systolic-array]
-    order: 10
-```
+每次初始化创建顺序编号目录 `plan-001/`、`plan-002/`。普通重复调用复用当前计划；只有用户显式要求重新初始化才创建新计划并切换指针。旧计划原样保留。
 
-## 7. 数据权威与文件拆分
+每个计划包含：
 
-| 文件 | 类型 | 权威内容 | 是否频繁修改 |
-|---|---|---|---|
-| `parser-bundle/source.pdf` | 不可变来源 | 与用户授权上传的输入逐字节相同 | 否 |
-| `parser-bundle/paper.md` | 静态来源 | MinerU 解析后的正文、公式和表格 | 否 |
-| `parser-bundle/images/` | 静态来源 | 仅包含 `paper.md` 引用、按首次引用顺序重命名的论文图片 | 否 |
-| `parser-bundle/metadata.json` | 静态来源 | 来源 hash 与 Parser/API provenance，不含凭据或签名 URL | 否 |
-| `parser-bundle/validation.json` | 静态校验 | bundle 结构检查与 warning | 否 |
-| `outputs/blog/evidence-map.md` | 静态解释产物 | Blog 主张、机制、图表和实验的来源映射 | 否 |
-| `outputs/blog/blog.md` | 静态解释产物 | 来源忠实的中文技术博客正文 | 否 |
-| `outputs/blog/blog.html` | 静态解释产物 | 从 `blog.md` 渲染并通过 freshness 检查的最终页面 | 否 |
-| `reading/plan.yaml` | 静态定义 | 精读计划版本、来源指纹、阅读范围 | 否 |
-| `reading/chunks.jsonl` | 静态定义 | 稳定片段顺序和来源区间 | 否 |
-| `reading/glossary.tsv` | 轻量静态表 | 固定术语译法 | 少量人工修改 |
-| `reading/progress.yaml` | 动态快照 | 当前阅读游标和待确认片段 | 是，但始终很小 |
-| `reading/events/*.jsonl` | 追加历史 | 用户确认、暂停、重译、提问等客观操作 | 只追加 |
+- `chunks.jsonl`：该计划全部 Chunk Record；
+- `glossary.tsv`：该计划固定术语译法。
 
-不建立独立“理解追踪表”。用户反馈进入事件日志，阅读位置进入进度快照，二者不混写。
+Chunk ID 在每个计划内从 `chunk-001` 重新编号，完整身份是 `plan_id + chunk_id`。
 
-## 8. 关键数据契约
-
-### 8.1 `workspace.yaml`
-
-```yaml
-schema_version: 1
-workspace_id: focus-local
-language:
-  source: en
-  translation: zh-CN
-paths:
-  topics: topics
-  papers: papers
-reading_defaults:
-  include_appendix: true
-  include_references: false
-  image_explanation: when-bound
-```
-
-### 8.2 `paper.yaml`
-
-```yaml
-schema_version: 1
-paper_id: p-flexsa-9c31ad
-title: FlexSA: Flexible Systolic Array Architecture
-aliases: [FlexSA]
-tags: [systolic-array, accelerator, compiler-mapping]
-topic_refs:
-  - configurable-systolic-array-compiler
-source:
-  pdf: parser-bundle/source.pdf
-  sha256: <sha256>
-parsed:
-  markdown: parser-bundle/paper.md
-  images: parser-bundle/images
-  metadata: parser-bundle/metadata.json
-  validation: parser-bundle/validation.json
-outputs:
-  blog: outputs/blog
-reading:
-  directory: reading
-```
-
-`paper.yaml` 不复制具体阅读进度。工作台状态由文件存在性和 `progress.yaml` 计算。
-
-### 8.3 `reading/plan.yaml`
-
-```yaml
-schema_version: 1
-paper_id: p-flexsa-9c31ad
-plan_id: rp-001
-created_at: 2026-08-23T16:00:00+08:00
-source_fingerprint:
-  markdown_sha256: <sha256>
-  image_inventory_sha256: <sha256>
-reading_scope:
-  include: [abstract, main-text, appendix]
-  exclude: [references]
-chunk_policy:
-  unit: semantic-source-blocks
-  target_words: 250
-  max_words: 600
-  preserve_tables: true
-  preserve_equations: true
-  preserve_captions: true
-chunks_file: chunks.jsonl
-glossary_file: glossary.tsv
-total_chunks: 126
-warnings: []
-```
-
-这些长度是规划提示，不是机械切分规则。片段边界优先服从语义完整性。
-
-### 8.4 `reading/chunks.jsonl`
-
-每行一个稳定片段：
+`chunks.jsonl` 每行：
 
 ```json
-{"index":1,"chunk_id":"c0001","section_path":["Abstract"],"source":{"start_line":1,"end_line":14,"content_sha256":"..."},"images":[]}
-{"index":18,"chunk_id":"c0018","section_path":["3 Architecture","3.2 Reconfigurable PE Array"],"source":{"start_line":418,"end_line":431,"content_sha256":"..."},"images":[{"path":"../parser-bundle/images/image-007.png","caption_lines":[432,435],"role":"figure"}]}
+{"chunk_id":"chunk-001","index":1,"section_path":["Abstract"],"source_lines":[1,14],"images":[],"translation":null,"notes":[]}
 ```
 
-约束：
+字段约束：
 
 - `index` 严格递增；
-- `chunk_id` 唯一且生成后稳定；
-- 来源区间单调、不重叠；
-- 正文规划范围不得静默遗漏；
-- 图片路径必须存在；
-- 表格、公式和 caption 不得被不完整切开；
-- 文件不保存摘要、关键点、观点或用户评价目标。
+- `source_lines` 是不可变 `paper.md` 的闭区间；
+- `images` 保存绑定图片相对路径；
+- `translation` 初始为 `null`，首次带读后缓存中文翻译；
+- `notes` 只包含三种 Note；
+- 不保存时间、哈希、revision、状态、评价或理解结论。
 
-### 8.5 `reading/glossary.tsv`
-
-```text
-source_term	zh_translation	first_chunk	note
-processing element	处理单元	c0008	
-output stationary	输出驻留	c0014	dataflow
-reconfiguration	重配置	c0018	
-```
-
-术语表只用于保持翻译一致。它不记录用户状态或跨论文关系。
-
-### 8.6 `reading/progress.yaml`
-
-```yaml
-schema_version: 1
-paper_id: p-flexsa-9c31ad
-plan_id: rp-001
-status: reading
-total_chunks: 126
-confirmed_through_index: 17
-pending_chunk_id: c0018
-pending_presented_at: 2026-08-23T16:20:00+08:00
-last_conversation_ref: null
-revision: 24
-updated_at: 2026-08-23T16:20:00+08:00
-```
-
-含义：
-
-- `c0001` 到 `c0017` 已由用户明确确认；
-- `c0018` 已展示但尚未确认；
-- `c0019` 及之后尚未展示。
-
-`progress.yaml` 始终保持小型，不保存每个片段的完整状态数组。
-
-### 8.7 用户操作事件
+Notes：
 
 ```json
-{"event_id":"ev-001","type":"chunk_presented","paper_id":"p-flexsa-9c31ad","chunk_id":"c0018","progress_revision":24,"conversation_ref":null,"at":"2026-08-23T16:20:00+08:00"}
-{"event_id":"ev-002","type":"question_raised","paper_id":"p-flexsa-9c31ad","chunk_id":"c0018","user_text":"为什么这里要重新排列 ACT？","conversation_ref":null,"at":"2026-08-23T16:24:00+08:00"}
-{"event_id":"ev-003","type":"chunk_confirmed","paper_id":"p-flexsa-9c31ad","chunk_id":"c0018","user_text":"理解了，继续","progress_revision":25,"conversation_ref":null,"at":"2026-08-23T16:35:00+08:00"}
+{"kind":"reader","content":"用户明确要求保存的原始备注"}
+{"kind":"discussion","content":"对 Guide 内简短问答的中性概括"}
+{"kind":"emphasis","content":"用户明确标记为重要的观点"}
 ```
 
-事件按月轮转，避免单个日志无限增长。事件只记录客观操作，不生成用户评价。
+Discussion Note 可以记录“用户询问 X 是否意味着 Y；回复确认并补充 Z”，但不能写“用户理解了 X”“用户仍不理解 Y”。Emphasis Note 只能由用户显式触发，模型不得主动判定重要性。
 
-## 9. 精读初始化流程
+确定性核心更新翻译或追加 Note 时，读取当前计划的完整 `chunks.jsonl`，按 `chunk_id` 找到唯一一行并安全替换文件。它不创建行版本或事件日志。
 
-```text
-1. 校验唯一 `parser-bundle/` 的 `validation.json.ok=true`、Parser provenance、来源 hash 和本地引用
-2. 构建确定性的 Markdown block inventory
-3. Agent 通读全文和图片清单
-4. Agent 生成片段分组提案和轻量术语表
-5. 应用服务验证提案
-6. 安装 plan.yaml / chunks.jsonl / glossary.tsv
-7. 初始化 progress.yaml
-8. 返回总片段数、章节范围和非阻塞警告
-```
+## 11. Plan Glossary 与重新翻译
 
-### 9.1 确定性 Block Inventory
+`glossary.tsv` 只保存原文术语与固定中文译法。用户明确指定新译法时，`focus-guide` 更新当前计划的 glossary；新译法只影响尚未缓存的片段。
 
-应用服务先把 Markdown 解析为顺序 block：
+用户显式要求重新翻译当前片段时，只替换该 Chunk 的 `translation`。来源定位、Notes 和所有指针保持不变。不保留多个翻译版本，也不自动重译其他 Chunk。
 
-- heading；
-- paragraph；
-- equation；
-- table；
-- caption；
-- list；
-- code/algorithm；
-- image reference。
+## 12. `focus-map`
 
-Agent 只决定连续 block 如何组合为片段，不直接任意重写来源位置。
+输入：
 
-### 9.2 图片绑定
+- 已注册 `paper_id`；
+- 可选阅读范围，例如是否包含附录或参考文献；
+- 可选显式“重新初始化”。
 
-优先使用以下证据：
+行为：
 
-1. Markdown 中显式图片引用；
-2. parser metadata 中的 caption 和位置；
-3. 正文中的 `Figure N` 引用；
-4. 文件顺序与 caption 顺序。
+1. 校验规范 Parser Bundle；
+2. 读取完整 `paper.md` 与图片清单；
+3. 以章节、段落、公式、表格、caption 和图片引用为边界建立连续片段；
+4. 用 `source_lines`、章节路径和图片路径写入 Chunk Record；
+5. 生成 Plan Glossary；
+6. 普通调用发现当前计划时直接复用；
+7. 重新初始化时创建下一个计划目录，不删除旧计划；
+8. 只有新目录完整生成后才切换当前计划和第一个 Chunk 指针。
 
-若图片只能依靠文件顺序猜测且无法形成稳定绑定，初始化可以记录 warning，并暂不绑定该图片；不得在带读时临时猜测。
+`focus-map` 不生成翻译、不展示第一片、不创建解释会话。
 
-### 9.3 安装验证
+## 13. `focus-guide`
 
-只保留必要验证：
+无操作参数时：
 
-- 规划范围覆盖完整；
-- block 顺序单调；
-- 无重叠和非法跳跃；
-- chunk ID 唯一；
-- 图片存在；
-- 来源指纹一致。
+- 读取当前 Paper、Plan 和 Chunk；
+- 缓存不存在时生成当前片段中文翻译；
+- 展示章节、位置和翻译；
+- 有绑定图片时展示原图和原文 caption，但不主动生成图片机制解释。
 
-不建设复杂的事务、迁移和依赖失效系统。来源指纹变化时，阅读状态直接标记为 `needs-reinit`。
+用户操作：
 
-## 10. 带读运行流程
+| 用户行为 | 结果 |
+|---|---|
+| 继续阅读 | 游标推进一个 Chunk，然后展示新 Chunk |
+| 简短追问 | 直接回答，追加中性 Discussion Note，游标不动 |
+| 明确保存备注 | 追加 Reader Note，游标不动 |
+| 明确强调观点 | 追加 Emphasis Note，游标不动 |
+| 修正术语 | 更新当前 Plan Glossary，游标不动 |
+| 重新翻译 | 替换当前翻译缓存，游标不动 |
 
-### 10.1 获取当前阅读包
+在最后一个 Chunk 上继续时，将 `current_chunk_id` 设为 `null` 并返回已完成。完成后再次调用只报告完成，不自动重置。
 
-应用服务返回：
+只有 Continue Reading 可以移动 Reading Cursor。普通问题不会自动唤起 `focus-explain`。
+
+## 14. `focus-explain`
+
+新建 Explanation Session 时分配 `explanation-001.jsonl`、`explanation-002.jsonl`，并更新当前解释引用。同一解释上下文中的追问和 Continue Explanation 追加到当前文件；显式新建创建下一个文件；显式指定旧 ID 可以恢复。
+
+每行严格只有：
 
 ```json
-{
-  "paper_id": "p-flexsa-9c31ad",
-  "plan_id": "rp-001",
-  "chunk_id": "c0018",
-  "index": 18,
-  "total": 126,
-  "section_path": ["3 Architecture", "3.2 Reconfigurable PE Array"],
-  "source_text": "...",
-  "previous_context": "...",
-  "glossary": {"processing element": "处理单元"},
-  "images": [{"path": ".../0007.png", "caption": "..."}],
-  "progress_revision": 24
-}
+{"role":"user","content":"为什么这里要重新排列 ACT？"}
+{"role":"assistant","content":"这里的重新排列是为了……"}
 ```
 
-`previous_context` 和 `glossary` 只供模型保持衔接和译名一致，不要求展示给用户。
+不保存时间、Chunk ID、Paper ID、来源、模型、状态或评价。恢复旧解释时只使用该 JSONL 已保存的问答，不读取当前 Reading Cursor。若旧问答不足以恢复原始上下文，用户需要补充原文或新建解释。
 
-### 10.2 正常展示
+解释检索采用以下内部纪律：
 
-```text
-进度：18 / 126
-章节：3 Architecture > 3.2 Reconfigurable PE Array
+1. 按标题、关键词和正文引用扫描完整 `paper.md`；
+2. 按需读取相关段落、公式、表格、图片和 caption；
+3. 必要时研究外部一手资料；
+4. 形成自己的综合解释后直接回复用户；
+5. 不强制展示来源分类、引用清单或检索过程；
+6. 不建立来源账本或检索审计；
+7. 无法形成可靠解释时直接拒绝，不猜测。
 
-[中文翻译]
+Phase 1 不建设全文向量库或 RAG。Explanation Session 的任何操作都不得读取后再写回 Reading Cursor。
 
-[仅在有绑定图片时展示原图和图片解释]
+## 15. 最小确定性核心
 
-等待用户：理解并继续 / 暂停 / 重新翻译 / Hold on 解释问题
+核心只需要支持：
+
+- 初始化 Workspace；
+- 创建 Topic、分配 Paper ID、注册解析成功的 Paper；
+- 读取和更新 `pointers.yaml`；
+- 创建新 Plan 目录；
+- 读取当前 Chunk；
+- 写翻译、追加 Note、更新 glossary；
+- Continue Reading；
+- 创建、选择和追加 Explanation Session；
+- 返回小型 JSON 成功或失败结果。
+
+错误格式：
+
+```json
+{"ok":false,"error":"PLAN_NOT_FOUND","message":"当前论文尚未初始化阅读计划"}
 ```
 
-### 10.3 用户确认
+只需覆盖 Workspace、Topic、Paper、Bundle、Plan、Chunk、Explanation 不存在和 Reading Completed。Skills 不解析面向人的调试日志。
 
-确认命令必须携带：
+基本写入顺序：
 
-- `paper_id`；
-- `chunk_id`；
-- `expected_revision`。
+- 新计划完整生成后才切换指针；
+- 找到下一个 Chunk 后才推进游标；
+- 翻译或 Note 写入失败时保留原行；
+- Explanation 回复失败时可以保留已写入的用户消息，后续继续补回答。
 
-应用服务只在以下条件同时满足时推进：
+这些是正常写入顺序，不扩展成锁、revision、事务日志或自动恢复系统。
 
-- `pending_chunk_id` 等于当前 chunk；
-- `expected_revision` 等于当前 revision；
-- Reading Plan 仍绑定相同来源指纹。
+## 16. 公开与私人数据
 
-重复提交同一个确认请求应返回已有结果，不重复推进。
+公开 Git 允许：
 
-### 10.4 跨会话恢复
+- Skills 和确定性脚本；
+- README、架构文档、ADR 和研究说明；
+- 不含真实论文或用户内容的合成 fixtures；
+- Parser 与 Blog 工具测试。
 
-新会话执行“继续阅读”时：
+公开 Git 禁止：
 
-- 若有 `pending_chunk_id`，恢复并重新展示该片段，不自动确认；
-- 若无 pending，则展示 `confirmed_through_index + 1`；
-- 若已读完，明确返回 `completed`；
-- 若来源已变化，返回 `needs-reinit`。
+- `/workspace/`；
+- PDF、Parser Bundle、Blog 产物；
+- 翻译、Notes、Explanation Sessions 和指针；
+- `.env`、Token、签名 URL 或其他凭据；
+- 真实用户阅读数据。
 
-## 11. 解读上下文流程
+## 17. 实施顺序
 
-`focus-explain` 默认从当前活跃内容和 `pending_chunk_id` 加载：
+### M0：删除旧产品语义
 
-- 当前片段；
-- 前后相邻片段；
-- 绑定图片及 caption；
-- 当前章节标题；
-- 论文级术语表；
-- 用户明确问题。
+- 在旧发布提交 `f776d8a` 创建 `paper-companion-v0.2` tag；
+- 删除 `ask-paper`、`paper-map`、`paper-study`、`paper-assess`；
+- 删除旧状态内核、旧状态测试和旧学习模型文档；
+- 不创建 `legacy/`；
+- 重写 README 和活动设计文档。
 
-它可以追加 `question_raised` 或 `explanation_started` 事件，但调用接口中不暴露 `confirm_chunk`、`set_cursor` 或 `reset_progress`。
+### M1：调整现有工具
 
-输出协议：
+- 从 `paper-parser` 删除所有哈希逻辑和旧 `paper-map`/学习状态引用；
+- 让解析成功直接创建 Paper、Topic 引用和最终 Parser Bundle；
+- 将 `paper2blog` 输出固定到 Paper 下的 `blog/`；
+- 保留 MinerU 授权、Token 和异步 resume 边界。
 
-```text
-每轮只解释一个子问题
-→ 停下来等待用户反馈
-→ 用户确认后继续下一步
-→ 用户要求图示时才生成 Mermaid 或其他图
-```
+### M2：最小核心与 Workspace
 
-新的解释会话结束后，用户回到主阅读会话；主会话仍停留在原来的 pending chunk。
+- 实现 Topic、Paper、指针和简单 JSON 错误；
+- 实现版本化 Plan 目录、Chunk Record 和 Plan Glossary；
+- 实现受控 JSONL 行更新与 Explanation 追加。
 
-## 12. CLI / Application API
+### M3：三个公开 Skill
 
-建议第一阶段提供以下命令：
+- 实现 `focus-map`；
+- 实现 `focus-guide`；
+- 实现 `focus-explain`；
+- 使用一篇真实论文完成跨会话试读。
 
-```text
-focus workspace init <path>
-focus topic create --id <id> --title <title>
-focus topic add-paper <topic> <paper>
-focus paper register-bundle <parser-bundle> --title <title>
+## 18. Phase 1 完成标准
 
-focus reading init-inventory <paper> --json
-focus reading install-plan <paper> --proposal <json>
-focus reading status <paper> --json
-focus reading current <paper> --json
-focus reading mark-presented <paper> <chunk> --expected-revision <n>
-focus reading confirm <paper> <chunk> --expected-revision <n> --event-id <id>
-focus reading pause <paper> --event-id <id>
+只有同时满足以下场景，原型才算跑通：
 
-focus explain context <paper> --chunk current --question <text> --json
-focus interaction record-question <paper> <chunk> --text <text> --event-id <id>
-```
+1. PDF 经授权直接解析并注册进一个 Topic；
+2. `focus-map` 生成第一份计划；
+3. `focus-guide` 缓存翻译并记录三类 Notes；
+4. 只有 Continue Reading 推进 Reading Cursor；
+5. 新会话恢复同一 Paper、Plan 和 Chunk；
+6. `focus-explain` 检索全文及必要外部资料，持久化并恢复问答；
+7. 解释前后 Reading Cursor 完全一致；
+8. 重新初始化生成新计划目录，旧翻译和 Notes 原样保留；
+9. `paper2blog` 生成同级 `blog/` 且不修改 Reading；
+10. 运行时不出现用户评价、用户画像、内容哈希或旧学习 Skill；
+11. `/workspace/` 不进入公开 Git。
 
-CLI 输出稳定 JSON，Skills 不解析面向人的日志文本。错误使用稳定错误码，例如：
+## 19. 当前实现状态
 
-```text
-WORKSPACE_NOT_FOUND
-PAPER_NOT_FOUND
-READING_NOT_INITIALIZED
-SOURCE_CHANGED
-PENDING_CHUNK_MISMATCH
-REVISION_CONFLICT
-PLAN_INVALID
-IMAGE_NOT_FOUND
-READING_COMPLETED
-```
+本文是已接受但尚未实现的目标设计。当前仓库仍暂存旧 Paper Companion 运行时代码和测试，以避免在新核心尚未实现前留下不可验证的半成品。它们不是新产品的规范，将在后续实施任务的 M0 中删除。
 
-## 13. Skills 契约
-
-### 13.1 `focus-map`
-
-读取：
-
-- 已验证的唯一 `parser-bundle/`；
-- `paper.md`、顺序图片、parser metadata 和 validation evidence；
-- block inventory。
-
-允许写入的业务产物仅由 CLI 安装：
-
-- `reading/plan.yaml`；
-- `reading/chunks.jsonl`；
-- `reading/glossary.tsv`；
-- `reading/progress.yaml`。
-
-禁止生成摘要、测试任务、用户评价状态和 Agent 观点。
-
-### 13.2 `focus-guide`
-
-读取：
-
-- current reading packet；
-- 术语表的局部命中；
-- 绑定图片。
-
-允许操作：
-
-- 展示当前片段；
-- 记录 presented；
-- 确认当前片段；
-- 暂停；
-- 记录问题；
-- 获取下一片段。
-
-禁止直接编辑任何状态文件。
-
-### 13.3 `focus-explain`
-
-读取：
-
-- explanation context packet。
-
-允许操作：
-
-- 记录用户问题事件；
-- 在当前会话内逐步解释。
-
-禁止调用阅读游标写接口。
-
-## 14. 测试方案
-
-### 14.1 契约测试
-
-- 所有 YAML/JSONL 满足 Schema；
-- Markdown 来源指纹变化可被发现；
-- chunk 来源区间合法；
-- 图片引用可解析；
-- 术语表可加载且列固定。
-
-### 14.2 状态测试
-
-覆盖：
-
-```text
-not-initialized
-→ ready
-→ chunk presented
-→ chunk confirmed
-→ next chunk presented
-→ completed
-```
-
-以及：
-
-- pending chunk 跨进程恢复；
-- 重复确认幂等；
-- 错误 chunk 不推进；
-- revision 冲突不推进；
-- `focus-explain` 调用前后 progress 文件完全一致；
-- 来源变化进入 `needs-reinit`。
-
-### 14.3 集成测试
-
-至少准备三类固定论文 fixture：
-
-1. 纯文本、单栏论文；
-2. 双栏、公式和表格密集论文；
-3. 架构图和实验图较多论文。
-
-验证：
-
-- 初始化结果顺序稳定；
-- 表格和公式未被破坏；
-- 图片绑定正确；
-- 新会话能够从同一 pending chunk 恢复；
-- `paper2blog` 与精读目录互不覆盖。
-
-## 15. 实施里程碑
-
-### M0：建立新主线边界
-
-- 创建当前版本冻结标签；
-- 把现有论文学习主链路整体移入 `legacy/`；
-- 建立活动 Skill allowlist 和新系统入口；
-- 更新 README，明确新产品定位。
-
-### M1：系统骨架与数据契约
-
-- 建立 `src/focus` 分层；
-- 建立 schemas；
-- 实现 workspace、topic、paper 注册；
-- 建立文件存储和 JSON 输出 CLI。
-
-### M2：精读初始化
-
-- 实现 Markdown block inventory；
-- 实现 plan proposal 安装与必要校验；
-- 实现 chunks、glossary 和 progress 初始化；
-- 完成 `focus-map` Skill。
-
-### M3：带读闭环
-
-- 实现 current/present/confirm/pause；
-- 实现跨会话恢复；
-- 实现图片绑定读取；
-- 完成 `focus-guide` Skill。
-
-### M4：解读支线
-
-- 实现只读 explanation context；
-- 实现问题事件记录；
-- 完成 `focus-explain` Skill；
-- 验证解读不修改游标。
-
-### M5：整体验收
-
-- 串通专题、解析、粗读、初始化、带读、解读；
-- 使用真实论文完成端到端试读；
-- 固化 DSH 迁移所需的 JSON 接口和数据格式。
-
-## 16. 风险与处理
-
-### 16.1 图片只有顺序、没有位置
-
-这是最主要的来源风险。优先改进 parser bundle，使 Markdown 或 metadata 能提供图片引用、caption 和位置。初始化无法稳定绑定时，宁可暂不绑定，不在带读阶段临时猜测。
-
-### 16.2 初始化模型每次切片不同
-
-通过“一次生成、验证安装、后续只读”消除运行期漂移。只有用户显式重新初始化时才生成新计划。
-
-### 16.3 多个会话同时推进同一论文
-
-不引入长期锁。使用小型 `revision` 和 `pending_chunk_id` 条件写即可。冲突会话重新读取最新进度。
-
-### 16.4 翻译结果跨会话略有差异
-
-第一阶段不持久化每个片段的翻译正文。已确认片段不需要重新生成；pending 片段恢复时可以重新翻译。若真实使用表明差异造成问题，再增加可选 presentation cache，不预先建设。
-
-### 16.5 DSH 接口未来变化
-
-第一阶段只冻结领域数据和 JSON 应用接口，不引用 DSH 类型。第二阶段通过独立适配器接入。
-
-## 17. 第一阶段完成标准
-
-只有同时满足以下条件，第一阶段才算完成：
-
-1. 用户能以专题查看和选择论文；
-2. 解析包和博客产物被统一整理到论文目录；
-3. 用户可以显式初始化一篇论文的精读计划；
-4. 同一计划在不同会话中保持相同片段顺序；
-5. 带读输出默认只有位置、翻译以及必要的论文原图解释；
-6. “理解并继续”可靠推进一个片段且不会重复推进；
-7. 新会话可以恢复 pending chunk；
-8. 解读会话能加载当前上下文且无法修改进度；
-9. 不生成用户评价、用户画像和主动 Mermaid；
-10. Skills 仅调用稳定 CLI/API，没有直接维护状态文件；
-11. 同一 Workspace 可以被后续 DSH 插件原样复用。
-
-## 18. 基线来源
-
-本方案根据以下仓库状态制定：
-
-- FOCUS：`kongxiangcong/focus@e8d8a2ad377459810e4b0749baa66cc3dc952bdb`；
-- 当前 `paper-parser` 使用 MinerU 托管精准解析 API；经逐篇授权后异步运行，可用 `batch_id` 恢复，并只保留包含 `source.pdf`、`paper.md`、顺序图片、metadata 和 validation 的唯一 `parser-bundle/`；
-- 当前 `paper2blog` 不读取 `source.pdf`，先建立 `evidence-map.md`，再生成并检查 `blog.md` 与 `blog.html`；
-- 当前活动实现将整体冻结为历史版本；新主线只采用本文定义的专题、论文、精读计划、阅读片段、进度快照和操作事件模型。
+现行规范以本文、根级 `CONTEXT.md` 和相关 ADR 为准；旧代码存在不代表旧学习模型仍然有效。

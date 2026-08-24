@@ -1,8 +1,8 @@
 # 学术 PDF OCR / 文档解析工具评估
 
-> **现行实现说明（2026-08-23）：** 本文保留为 2026-08-01 的本地解析器选型历史证据。项目现已按用户要求改为仅使用 MinerU 网页端精准解析 API；当前行为以 README、`paper-parser` 和 `paper-map` 为准，本文的“本地 Docling 默认”结论不再是运行时配置。
+> **现行设计说明（2026-08-24）：** 本文保留为 2026-08-01 的本地解析器选型历史证据。项目目标仍只使用 MinerU 网页端精准解析 API；当前产品边界以 README、`paper-parser` 和 Phase 1 Reading Workspace 设计为准，本文的“本地 Docling 默认”结论不再是运行时配置。
 
-> 评估日期：2026-08-01  
+> 评估日期：2026-08-01
 > 范围：Paper Companion 的论文摄取（ingest）适配器  
 > 证据边界：工具能力与许可只引用项目官方仓库、官方文档、官方模型卡、官方许可和云厂商官方定价页；另对工作区中的 `A04_FlexSA.pdf` 做了只读结构检查与页面抽样渲染，但没有运行候选 OCR/解析器的质量横评。
 
@@ -32,7 +32,7 @@ Paper Companion 的首个本地默认适配器应采用 **Docling 标准流水�
 
 ## 2. Paper Companion 所需的硬边界
 
-根据 `paper_companion_skill_suit.md` 的摄取契约，解析器不应直接拥有工作区状态。它只负责在 staging run 中，把输入 PDF 转换为一组可验证候选产物：
+根据当时 Paper Companion 的摄取契约，解析器不应直接拥有工作区状态。它只负责在 staging run 中，把输入 PDF 转换为一组可验证候选产物：
 
 - 原始 `source.pdf` 及其 SHA-256；
 - 非空 `paper.md`；
