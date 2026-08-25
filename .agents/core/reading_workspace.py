@@ -487,6 +487,7 @@ def _chunk_presentation(
     images = record.get("images")
     section_path = record.get("section_path")
     cached_translation = record.get("translation")
+    notes = record.get("notes")
     if (
         not isinstance(chunk_id, str)
         or not isinstance(source_range, list)
@@ -497,6 +498,15 @@ def _chunk_presentation(
         or not isinstance(section_path, list)
         or not all(isinstance(value, str) and value for value in section_path)
         or (cached_translation is not None and not isinstance(cached_translation, str))
+        or not isinstance(notes, list)
+        or any(
+            not isinstance(note, dict)
+            or set(note) != {"kind", "content"}
+            or note.get("kind") not in {"reader", "discussion", "emphasis"}
+            or not isinstance(note.get("content"), str)
+            or not note["content"].strip()
+            for note in notes
+        )
     ):
         raise WorkspaceError("reading_chunk_invalid", f"Reading Chunk is invalid: {chunk_id}")
     paper_lines = (bundle / "paper.md").read_text(encoding="utf-8", errors="replace").splitlines()
@@ -513,6 +523,7 @@ def _chunk_presentation(
         "source_text": "\n".join(selected_lines),
         "images": _bound_image_presentations(bundle, selected_lines, images),
         "glossary": _read_glossary(plan_root / "glossary.tsv"),
+        "notes": notes,
     }
 
 

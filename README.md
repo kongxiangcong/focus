@@ -40,6 +40,7 @@ Phase 1 的显式阅读 Skill：
 - 重新初始化创建新 Plan 目录，旧翻译和 Notes 原样保留；
 - Blog、Parser Bundle 与 Reading 数据互不拥有；
 - Phase 1 假设每篇 Paper 只有一个写入者，不建设锁、revision 或事务框架；
+- Phase 1 是可丢弃的原型格式；DSH 集成前可以根据真实阅读证据冻结或替换文件结构；
 - Paper、Plan、Chunk 和 Parser Bundle 均不使用内容哈希。
 
 ## 目标 Workspace

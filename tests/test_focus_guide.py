@@ -223,6 +223,17 @@ class FocusGuideTests(unittest.TestCase):
         )
         self.assertEqual(pointers_before, (workspace / "pointers.yaml").read_bytes())
 
+        restored = subprocess.run(
+            [sys.executable, "-B", "-X", "utf8", str(GUIDE_SCRIPT), "restore", "--workspace", str(workspace)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        self.assertEqual(0, restored.returncode, restored.stderr)
+        self.assertEqual(records[0]["notes"], json.loads(restored.stdout)["notes"])
+
     def test_brief_question_returns_answer_and_appends_neutral_discussion_note(self):
         workspace, _, plan = self._workspace()
         pointers_before = (workspace / "pointers.yaml").read_bytes()
