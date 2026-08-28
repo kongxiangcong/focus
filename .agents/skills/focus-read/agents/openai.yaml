@@ -1,0 +1,4 @@
+interface:
+  display_name: "Focus Read"
+  short_description: "Read, question, note, and continue one Paper"
+  default_prompt: "Use $focus-read to resume my current Paper and show the current Reading Chunk."

@@ -5,55 +5,62 @@ description: Create, reuse, or explicitly reinitialize a source-anchored Reading
 
 # Focus Map
 
-Map one explicitly selected registered Paper into stable Reading Chunks. Do not invoke Paper Parser, translate source text, present a Chunk, move an existing Reading Cursor, or create an Explanation Session.
+Map one explicitly selected registered Paper into stable, ordered Reading Chunks. Do not invoke Paper Parser, translate or present source text, move an existing Reading Cursor, or start a reading conversation.
 
-## Reuse before generating
+Resolve scripts/focus_map.py relative to this skill directory.
 
-Resolve `scripts/focus_map.py` relative to this skill directory. First invoke the map command without a draft:
+## Reuse before drafting
 
-```powershell
+First request the selected Paper without a draft:
+
+~~~powershell
 python -B -X utf8 scripts/focus_map.py map --workspace <workspace> --paper-id <paper-id>
-```
+~~~
 
-If it returns an existing `plan_id` with `reused=true`, stop. Ordinary repetition must preserve the current Chunk exactly. If it returns `reading_plan_input_missing`, inspect the selected Paper's canonical `parser-bundle/paper.md` and local images, then prepare a semantic draft.
+If the result has reused=true, return the existing plan_id and chunk_id. Do not inspect the Paper or generate a new draft. Normal reuse preserves the current Cursor.
 
-## Draft the first plan
+If the result reports reading_plan_input_missing, read the canonical parser-bundle/paper.md and its referenced images. Build one private UTF-8 JSON draft:
 
-Write a private JSON draft outside the public repository with this shape:
-
-```json
+~~~json
 {
   "chunks": [
     {
-      "section_path": ["Method", "Architecture"],
-      "source_lines": [20, 42],
-      "images": ["images/image-001.png"]
+      "section_path": ["Method", "Address Mapping"],
+      "source_lines": [420, 447],
+      "images": ["images/image-012.png"]
     }
   ],
-  "glossary": [["systolic array", "脉动阵列"]]
+  "glossary": [["alias address", "别名地址"]]
 }
-```
+~~~
 
-Chunks must be ordered, continuous across the selected range, and source-faithful. Keep complete Markdown tables, fenced equations or code, and an image with its adjacent original caption in one Chunk. Bind exactly the local image references inside each range. `section_path` uses source headings. The optional reading scope may omit material such as appendices or references, but never silently omit lines inside the selected range.
+Then install it:
 
-Do not put Plan IDs, Chunk IDs, translations, Notes, hashes, timestamps, states, or evaluations in the draft. The deterministic core owns those fields and installs `plan-001/chunks.jsonl`, `glossary.tsv`, and the first selected Reading Chunk only after all validation succeeds.
+~~~powershell
+python -B -X utf8 scripts/focus_map.py map --workspace <workspace> --paper-id <paper-id> --scope <scope> --draft <draft.json>
+~~~
 
-Install the draft:
+## Plan rules
 
-```powershell
-python -B -X utf8 scripts/focus_map.py map --workspace <workspace> --paper-id <paper-id> --scope "<optional scope>" --draft <draft.json>
-```
+- Chunks follow selected source order and cover the selected range continuously.
+- Keep formulas, tables, fenced code, images, and adjacent captions intact.
+- section_path must be evidenced by source headings.
+- source_lines use one-based inclusive line numbers.
+- images exactly match local image references inside the range.
+- glossary terms are Paper terminology needed for stable translation.
+- chunks.jsonl stores only fixed identity, order, source anchor, and images.
+- records/<chunk_id>.json starts with translation=null and notes=[].
 
-Treat every nonzero result as blocking for this invocation. The command emits one direct JSON error with a stable `error_id`; do not repair Workspace pointers or Plan files manually.
+Do not add summaries, learning objectives, questions, translations, Notes, state flags, hashes, or model evaluation to the draft.
 
 ## Explicit reinitialization
 
-Only an explicit reader request to replace the active Reading Plan may reinitialize it. Inspect the immutable Parser Bundle again and prepare a complete fresh draft under the same source-unit rules. Build the new chunks and Plan Glossary from source; perform no content matching, hash comparison, cursor migration, source-change inference, or merge with the active Plan.
+Only an explicit reset/rebuild request may run:
 
-Install and select the next sequential Plan atomically:
+~~~powershell
+python -B -X utf8 scripts/focus_map.py map --workspace <workspace> --paper-id <paper-id> --reinitialize --scope <scope> --draft <draft.json>
+~~~
 
-```powershell
-python -B -X utf8 scripts/focus_map.py map --workspace <workspace> --paper-id <paper-id> --reinitialize --scope "<optional scope>" --draft <draft.json>
-```
+A successful reinitialization creates the next plan-NNN directory, fully installs its Chunks, Glossary, and empty Records, then selects its chunk-001 in state.json. Existing Plan directories and Reading Records remain unchanged. A failure leaves the prior Plan and Cursor selected.
 
-A successful result has `reinitialized=true`, a new `plan_id`, and its fresh `chunk-001` selected. Existing Plan directories, cached translations, Notes, Explanation Sessions, the current Explanation Session reference, and other Paper pointers remain unchanged. A failure leaves the prior Plan and Reading Cursor selected; report the structured error without editing Workspace files manually.
+Phase 1 intentionally has no compatibility conversion, locks, revisions, event log, or multi-writer recovery.

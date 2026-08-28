@@ -1,4 +1,0 @@
-interface:
-  display_name: "Focus Explain"
-  short_description: "Persist an independent paper explanation"
-  default_prompt: "Use $focus-explain to open a new Explanation Session for my paper question."

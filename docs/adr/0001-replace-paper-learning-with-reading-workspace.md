@@ -2,8 +2,8 @@
 status: accepted
 ---
 
-# Replace Paper Learning with a Reading Workspace
+# Use one minimal Reading Workspace
 
-FOCUS will replace the active Paper Companion learning product with a topic-driven Reading Workspace. The new product owns Papers, Reading Plans, the Reading Cursor, translation caches, Reader Notes, and independent Explanation Sessions, but it does not model understanding, assessment, mastery, retention, or a cognitive profile. This deliberately trades automated learning evaluation for a smaller and clearer reading experience in which only Continue Reading can move the Reading Cursor.
+FOCUS replaces the former paper-learning product and any split reading interaction with one natural host conversation backed by a fixed Reading Plan, a minimal Cursor State, and per-Chunk Reading Records. The host owns raw dialogue; FOCUS persists only source anchors, cached translation, glossary terms, and compact Notes. Only Continue Reading moves the Cursor, and the active mainline keeps no compatibility layer, learner evaluation, session archive, or parallel state model.
 
-The old `ask-paper` / Scout / Study / Mastery implementation will be recoverable through the `paper-companion-v0.2` Git tag and removed from the active mainline during implementation rather than retained in a `legacy/` directory. Phase 1 is an intentionally disposable prototype: its file formats may be replaced before DSH integration, while the domain boundaries in [CONTEXT.md](../../CONTEXT.md) remain authoritative.
+The historical product remains recoverable through the paper-companion-v0.2 Git tag. Phase 1 is a disposable prototype: its file formats may be replaced before DSH integration, while the domain language in ../../CONTEXT.md remains authoritative.

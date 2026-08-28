@@ -49,7 +49,7 @@ Require these outputs:
 
 The MinerU ZIP and extracted raw tree are transient and must be discarded after normalization. Never infer authors, venue, claims, or scientific correctness from file names. A structural pass is only permission for a semantic module to spot-check `source.pdf`; it is not proof that reading order, equations, tables, or figures are correct.
 
-For FOCUS, install the single `parser-bundle/` directly inside a new Paper and register the Paper, Topic membership, and Workspace pointer only after structural validation succeeds. A repeated parse allocates the next readable Paper ID; reuse an existing Paper only with the explicit `reuse --paper-id ...` operation. Preserve the non-secret task reference for resume, but discard incomplete staging. Parser operations own only Parser Bundle and registration artifacts and leave Reading Plans, Notes, and Explanation Sessions unchanged.
+For FOCUS, install the single `parser-bundle/` directly inside a new Paper and register the Paper, Topic membership, and its empty entry in `state.json` only after structural validation succeeds. A repeated parse allocates the next readable Paper ID; reuse an existing Paper only with the explicit `reuse --paper-id ...` operation. Preserve the non-secret task reference for resume, but discard incomplete staging. Parser operations own only Parser Bundle and registration artifacts and leave Reading Plans, Glossaries, and Reading Records unchanged.
 
 To add an already registered Paper to another Topic without uploading or parsing again:
 

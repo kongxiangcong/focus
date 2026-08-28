@@ -1,7 +1,6 @@
 """Deterministic FOCUS Reading Workspace core."""
 
 from .reading_workspace import (
-    ExplanationWorkspaceCore,
     ParserTask,
     WorkspaceCore,
     WorkspaceError,
@@ -9,7 +8,6 @@ from .reading_workspace import (
 )
 
 __all__ = [
-    "ExplanationWorkspaceCore",
     "ParserTask",
     "WorkspaceCore",
     "WorkspaceError",

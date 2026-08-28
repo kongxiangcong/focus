@@ -63,4 +63,4 @@ python -B -X utf8 scripts/paper2blog.py check <workspace>/papers/<paper-id>/blog
 
 Treat failed parser-bundle links, placeholders, a missing evidence map, an empty final article, no causal method detail, no limitations, a missing/stale `blog.html`, or a copied `source.pdf` as blocking. Warnings about length or absent images require judgment based on the paper, not mechanical padding.
 
-Preparation and validation failures return one JSON error with a stable `error_id`. Do not fall back to a caller-selected output directory for registered Papers. Blog generation has no Reading write capability: never read or modify `pointers.yaml`, Reading Plans, Chunk Records, Plan Glossaries, translations, Notes, or Explanation Sessions.
+Preparation and validation failures return one JSON error with a stable `error_id`. Do not fall back to a caller-selected output directory for registered Papers. Blog generation has no Reading write capability: never read or modify `state.json`, Reading Plans, Plan Glossaries, Reading Records, translations, or Notes.

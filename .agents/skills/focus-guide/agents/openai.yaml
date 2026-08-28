@@ -1,4 +1,0 @@
-interface:
-  display_name: "Focus Guide"
-  short_description: "Present the current cached Reading Chunk"
-  default_prompt: "Use $focus-guide to present my current Reading Chunk as a stable Chinese translation."

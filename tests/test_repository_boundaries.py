@@ -30,27 +30,19 @@ class RepositoryBoundaryTests(unittest.TestCase):
             text=True,
         ).stdout.splitlines()
 
-    def test_active_skill_surface_retires_paper_companion(self) -> None:
-        retired = ("ask-paper", "paper-map", "paper-study", "paper-assess")
-        retained = ("paper-parser", "paper2blog", "focus-map", "focus-guide", "focus-explain")
-
-        for skill_name in retired:
-            with self.subTest(skill=skill_name):
-                skill_root = SKILLS / skill_name
-                self.assertFalse((skill_root / "SKILL.md").exists())
-                self.assertFalse(any(skill_root.rglob("*.py")))
-
-        for skill_name in retained:
-            with self.subTest(skill=skill_name):
-                self.assertTrue((SKILLS / skill_name / "SKILL.md").is_file())
+    def test_active_skill_surface_contains_only_four_public_skills(self) -> None:
+        active = sorted(
+            path.parent.name for path in SKILLS.glob("*/SKILL.md") if path.is_file()
+        )
+        self.assertEqual(["focus-map", "focus-read", "paper-parser", "paper2blog"], active)
 
     def test_private_workspace_root_is_ignored(self) -> None:
-        candidate = ROOT / "workspace" / "pointers.yaml"
+        candidate = ROOT / "workspace" / "state.json"
         self.assertTrue(is_git_ignored(candidate))
 
     def test_private_workspace_artifacts_are_not_tracked(self) -> None:
         tracked = self._tracked_paths()
-        private_filenames = {"pointers.yaml", "chunks.jsonl", "glossary.tsv"}
+        private_filenames = {"state.json", "chunks.jsonl", "glossary.tsv"}
         prohibited = [
             path
             for path in tracked
@@ -58,7 +50,6 @@ class RepositoryBoundaryTests(unittest.TestCase):
             or (path.lower().endswith(".pdf") and not path.startswith("tests/fixtures/"))
             or re.search(r"(^|/)papers/[^/]+/(parser-bundle|blog|reading)(/|$)", path)
             or Path(path).name in private_filenames
-            or re.fullmatch(r"explanation-\d+\.jsonl", Path(path).name)
             or Path(path).name == ".env"
             or Path(path).suffix.lower() in {".pem", ".key", ".p12", ".pfx"}
         ]
@@ -85,19 +76,35 @@ class RepositoryBoundaryTests(unittest.TestCase):
                 findings.append(relative)
         self.assertEqual([], findings)
 
-    def test_active_python_surface_contains_no_retired_learning_or_hash_runtime(self) -> None:
-        forbidden = re.compile(
+    def test_active_surface_contains_no_retired_modes_learning_or_hash_runtime(self) -> None:
+        retired_names = (
+            "focus" + "-guide",
+            "focus" + "-explain",
+            "Explanation" + "WorkspaceCore",
+            "current" + "_explanation_id",
+            "Continue" + " Explanation",
+            "Explanation" + " Session",
+        )
+        retired = re.compile(
+            r"\b(?:" + "|".join(re.escape(name) for name in retired_names) + r")\b",
+            re.IGNORECASE,
+        )
+        python_only = re.compile(
             r"\b(?:Scout|Study|Mastery|assessment|cognitive[_ -]?profile|retention|"
             r"ask-paper|paper-study|paper-assess|content[_ -]?hash|hashlib|sha256)\b",
             re.IGNORECASE,
         )
         findings = []
-        roots = (ROOT / ".agents", ROOT / "tests")
+        roots = (ROOT / ".agents", ROOT / "tests", ROOT / "README.md", ROOT / "CONTEXT.md")
         for root in roots:
-            for path in root.rglob("*.py"):
+            paths = root.rglob("*") if root.is_dir() else (root,)
+            for path in paths:
+                if not path.is_file() or path.suffix.lower() not in {".py", ".md", ".yaml"}:
+                    continue
                 if path.name == "test_repository_boundaries.py":
                     continue
-                if forbidden.search(path.read_text(encoding="utf-8")):
+                content = path.read_text(encoding="utf-8")
+                if retired.search(content) or (path.suffix.lower() == ".py" and python_only.search(content)):
                     findings.append(path.relative_to(ROOT).as_posix())
         self.assertEqual([], findings)
 

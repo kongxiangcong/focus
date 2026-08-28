@@ -98,13 +98,12 @@ class PaperParserTests(unittest.TestCase):
             (workspace / "topics" / "accelerator-architecture" / "topic.yaml").read_text(encoding="utf-8")
         )
         self.assertEqual(["fixture-paper"], topic["papers"])
-        pointers = json.loads((workspace / "pointers.yaml").read_text(encoding="utf-8"))
+        pointers = json.loads((workspace / "state.json").read_text(encoding="utf-8"))
         self.assertEqual("fixture-paper", pointers["current_paper_id"])
         self.assertEqual(
             {
                 "current_plan_id": None,
                 "current_chunk_id": None,
-                "current_explanation_id": None,
             },
             pointers["papers"]["fixture-paper"],
         )
@@ -149,7 +148,7 @@ class PaperParserTests(unittest.TestCase):
         self.assertEqual("parser_bundle_invalid", json.loads(stderr.getvalue())["error_id"])
         self.assertFalse((workspace / "papers" / "incomplete" / "paper.yaml").exists())
         self.assertFalse((workspace / "topics" / "parsing" / "topic.yaml").exists())
-        self.assertFalse((workspace / "pointers.yaml").exists())
+        self.assertFalse((workspace / "state.json").exists())
 
     def test_registration_write_failure_rolls_back_bundle_and_membership(self):
         source = self.root / "fixture.pdf"
@@ -173,7 +172,7 @@ class PaperParserTests(unittest.TestCase):
         write_document = WORKSPACE_CORE._write_document
 
         def fail_pointer_write(path, value):
-            if path.name == "pointers.yaml":
+            if path.name == "state.json":
                 raise OSError("controlled pointer write failure")
             write_document(path, value)
 
@@ -197,7 +196,7 @@ class PaperParserTests(unittest.TestCase):
         self.assertEqual(1, result)
         self.assertFalse((workspace / "papers" / "rollback-paper").exists())
         self.assertFalse((workspace / "topics" / "failure-safety" / "topic.yaml").exists())
-        self.assertFalse((workspace / "pointers.yaml").exists())
+        self.assertFalse((workspace / "state.json").exists())
         self.assertTrue((workspace / "parser-tasks" / "batch-write-failure" / "task.json").is_file())
 
     def test_timed_out_parse_resumes_by_batch_reference_without_reupload(self):
@@ -600,13 +599,11 @@ class PaperToBlogTests(unittest.TestCase):
             encoding="utf-8",
         )
         (bundle / "images" / "image-001.png").write_bytes(b"fixture")
-        (workspace / "pointers.yaml").write_bytes(b"not blog input\n")
+        (workspace / "state.json").write_bytes(b"not blog input\n")
         reading = paper_root / "reading"
         (reading / "plans" / "plan-001").mkdir(parents=True)
         (reading / "plans" / "plan-001" / "chunks.jsonl").write_bytes(b"private chunks\n")
         (reading / "plans" / "plan-001" / "glossary.tsv").write_bytes(b"private glossary\n")
-        (reading / "explanations").mkdir()
-        (reading / "explanations" / "explanation-001.jsonl").write_bytes(b"private explanation\n")
         return workspace, paper_root, bundle
 
     @staticmethod
@@ -616,7 +613,7 @@ class PaperToBlogTests(unittest.TestCase):
     def test_registered_paper_blog_is_generated_beside_bundle_without_reading_access(self):
         workspace, paper_root, bundle = self._registered_paper()
         protected_before = self._snapshot((bundle, paper_root / "reading"))
-        pointers_before = (workspace / "pointers.yaml").read_bytes()
+        pointers_before = (workspace / "state.json").read_bytes()
 
         stdout = io.StringIO()
         with contextlib.redirect_stdout(stdout):
@@ -650,12 +647,12 @@ class PaperToBlogTests(unittest.TestCase):
         self.assertEqual(0, rendered)
         self.assertTrue((blog / "blog.html").is_file())
         self.assertEqual(protected_before, self._snapshot((bundle, paper_root / "reading")))
-        self.assertEqual(pointers_before, (workspace / "pointers.yaml").read_bytes())
+        self.assertEqual(pointers_before, (workspace / "state.json").read_bytes())
 
     def test_failed_registered_paper_blog_returns_structured_error_without_mutating_private_data(self):
         workspace, paper_root, bundle = self._registered_paper(valid_bundle=False)
         protected_before = self._snapshot((bundle, paper_root / "reading"))
-        pointers_before = (workspace / "pointers.yaml").read_bytes()
+        pointers_before = (workspace / "state.json").read_bytes()
         stderr = io.StringIO()
 
         with contextlib.redirect_stderr(stderr):
@@ -667,7 +664,7 @@ class PaperToBlogTests(unittest.TestCase):
         self.assertEqual("parser_bundle_invalid", json.loads(stderr.getvalue())["error_id"])
         self.assertFalse((paper_root / "blog").exists())
         self.assertEqual(protected_before, self._snapshot((bundle, paper_root / "reading")))
-        self.assertEqual(pointers_before, (workspace / "pointers.yaml").read_bytes())
+        self.assertEqual(pointers_before, (workspace / "state.json").read_bytes())
 
     def test_public_prepare_rejects_unregistered_bundle_and_caller_selected_output(self):
         with contextlib.redirect_stderr(io.StringIO()):

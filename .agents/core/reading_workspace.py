@@ -16,15 +16,16 @@ from typing import Any
 MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]\n]*\]\(([^)]+)\)")
 MARKDOWN_IMAGE_DETAIL_RE = re.compile(r"!\[([^\]\n]*)\]\(([^)]+)\)")
 SEQUENTIAL_IMAGE_RE = re.compile(r"^image-(\d{3})(\.[a-z0-9]+)$")
-CHUNK_RECORD_KEYS = {
+CHUNK_KEYS = {
     "chunk_id",
     "index",
     "section_path",
     "source_lines",
     "images",
-    "translation",
-    "notes",
 }
+READING_RECORD_KEYS = {"chunk_id", "translation", "notes"}
+NOTE_KINDS = {"thought", "emphasis", "question", "clarification"}
+NOTE_ORIGINS = {"user", "dialogue"}
 
 
 class WorkspaceError(RuntimeError):
@@ -86,46 +87,44 @@ def _replace_text(path: Path, value: str) -> None:
 
 def _prepare_membership(
     topic: dict[str, Any],
-    pointers: dict[str, Any],
+    state: dict[str, Any],
     *,
     paper_id: str,
-    topic_id: str,
     initialize_pointer: bool,
 ) -> None:
     topic_papers = topic.get("papers")
     if not isinstance(topic_papers, list):
-        raise WorkspaceError("topic_invalid", f"Topic is invalid: {topic_id}")
+        raise WorkspaceError("topic_invalid", "Topic is invalid")
     if paper_id not in topic_papers:
         topic_papers.append(paper_id)
-    pointer_entries = pointers.get("papers")
-    if not isinstance(pointer_entries, dict):
-        raise WorkspaceError("workspace_pointers_invalid", "Workspace pointers are invalid")
-    empty_pointer = {
-        "current_plan_id": None,
-        "current_chunk_id": None,
-        "current_explanation_id": None,
-    }
+    paper_states = state.get("papers")
+    if not isinstance(paper_states, dict):
+        raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
+    empty_state = {"current_plan_id": None, "current_chunk_id": None}
     if initialize_pointer:
-        pointer_entries[paper_id] = empty_pointer
+        paper_states[paper_id] = empty_state
     else:
-        pointer_entries.setdefault(paper_id, empty_pointer)
-    pointers["current_paper_id"] = paper_id
+        paper_states.setdefault(paper_id, empty_state)
+    state["current_paper_id"] = paper_id
 
 
-def _current_paper_pointer(
+def _current_paper_state(
     workspace: Path,
 ) -> tuple[Path, dict[str, Any], dict[str, Any], str, Path]:
-    pointers_path = workspace / "pointers.yaml"
-    pointers = _read_document(pointers_path)
-    paper_id = pointers.get("current_paper_id")
-    pointer_entries = pointers.get("papers")
-    if not isinstance(paper_id, str) or not isinstance(pointer_entries, dict):
+    state_path = workspace / "state.json"
+    state = _read_document(state_path)
+    paper_id = state.get("current_paper_id")
+    paper_states = state.get("papers")
+    if not isinstance(paper_id, str) or not isinstance(paper_states, dict):
         raise WorkspaceError("paper_missing", "No current Paper is selected")
     paper_id = _identifier(paper_id, "paper_id")
-    paper_pointer = pointer_entries.get(paper_id)
-    if not isinstance(paper_pointer, dict):
-        raise WorkspaceError("workspace_pointers_invalid", "Workspace pointers are invalid")
-    return pointers_path, pointers, paper_pointer, paper_id, workspace / "papers" / paper_id
+    paper_state = paper_states.get(paper_id)
+    if not isinstance(paper_state, dict) or set(paper_state) != {
+        "current_plan_id",
+        "current_chunk_id",
+    }:
+        raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
+    return state_path, state, paper_state, paper_id, workspace / "papers" / paper_id
 
 
 def _commit_documents(
@@ -344,8 +343,6 @@ def _reading_plan_records(bundle: Path, draft: dict[str, Any]) -> tuple[list[dic
                 "section_path": section_path,
                 "source_lines": [start, end],
                 "images": images,
-                "translation": None,
-                "notes": [],
             }
         )
         previous_end = end
@@ -373,7 +370,7 @@ def _read_chunk_records(path: Path) -> list[dict[str, Any]]:
         lines = path.read_text(encoding="utf-8").splitlines()
         for line in lines:
             value = json.loads(line)
-            if not isinstance(value, dict) or set(value) != CHUNK_RECORD_KEYS:
+            if not isinstance(value, dict) or set(value) != CHUNK_KEYS:
                 raise ValueError
             records.append(value)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
@@ -386,40 +383,56 @@ def _read_chunk_records(path: Path) -> list[dict[str, Any]]:
     return records
 
 
-def _serialize_chunk_records(records: list[dict[str, Any]]) -> str:
-    return "".join(
-        json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n" for value in records
+def _validate_anchor(value: Any) -> bool:
+    if value is None:
+        return True
+    if not isinstance(value, dict) or not value or not set(value).issubset({"source_lines", "quote"}):
+        return False
+    source_lines = value.get("source_lines")
+    quote = value.get("quote")
+    return (
+        (source_lines is None or (
+            isinstance(source_lines, list)
+            and len(source_lines) == 2
+            and all(isinstance(item, int) and not isinstance(item, bool) for item in source_lines)
+            and 1 <= source_lines[0] <= source_lines[1]
+        ))
+        and (quote is None or isinstance(quote, str) and bool(quote.strip()))
     )
 
 
-def _serialize_explanation_rows(rows: list[dict[str, str]]) -> str:
-    return "".join(json.dumps(row, ensure_ascii=False, separators=(",", ":")) + "\n" for row in rows)
+def _validate_note(note: Any) -> bool:
+    if not isinstance(note, dict) or set(note) not in (
+        {"kind", "origin", "content"},
+        {"kind", "origin", "content", "anchor"},
+    ):
+        return False
+    return (
+        note.get("kind") in NOTE_KINDS
+        and note.get("origin") in NOTE_ORIGINS
+        and isinstance(note.get("content"), str)
+        and bool(note["content"].strip())
+        and _validate_anchor(note.get("anchor"))
+    )
 
 
-def _read_explanation_rows(path: Path) -> list[dict[str, str]]:
-    if not path.is_file():
-        raise WorkspaceError("explanation_session_missing", f"Explanation Session does not exist: {path.stem}")
-    rows: list[dict[str, str]] = []
-    try:
-        for line in path.read_text(encoding="utf-8").splitlines():
-            row = json.loads(line)
-            if (
-                not isinstance(row, dict)
-                or set(row) != {"role", "content"}
-                or row.get("role") not in {"user", "assistant"}
-                or not isinstance(row.get("content"), str)
-                or not row["content"].strip()
-            ):
-                raise ValueError
-            expected_role = "user" if len(rows) % 2 == 0 else "assistant"
-            if row["role"] != expected_role:
-                raise ValueError
-            rows.append(row)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
-        raise WorkspaceError("explanation_session_invalid", f"Explanation Session is invalid: {path.stem}") from exc
-    if not rows:
-        raise WorkspaceError("explanation_session_invalid", f"Explanation Session is invalid: {path.stem}")
-    return rows
+def _read_reading_record(path: Path, chunk_id: str) -> dict[str, Any]:
+    value = _read_document(path)
+    if (
+        set(value) != READING_RECORD_KEYS
+        or value.get("chunk_id") != chunk_id
+        or (
+            value.get("translation") is not None
+            and (
+                not isinstance(value.get("translation"), str)
+                or not value["translation"].strip()
+            )
+        )
+        or not isinstance(value.get("notes"), list)
+        or any(not _validate_note(note) for note in value["notes"])
+    ):
+        raise WorkspaceError("reading_record_invalid", f"Reading Record is invalid: {chunk_id}")
+    return value
 
 
 def _read_glossary(path: Path) -> list[dict[str, str]]:
@@ -480,16 +493,17 @@ def _chunk_presentation(
     *,
     paper_id: str,
     plan_id: str,
-    record: dict[str, Any],
+    chunk: dict[str, Any],
+    reading_record: dict[str, Any],
+    total: int,
 ) -> dict[str, Any]:
-    chunk_id = record.get("chunk_id")
-    source_range = record.get("source_lines")
-    images = record.get("images")
-    section_path = record.get("section_path")
-    cached_translation = record.get("translation")
-    notes = record.get("notes")
+    chunk_id = chunk.get("chunk_id")
+    source_range = chunk.get("source_lines")
+    images = chunk.get("images")
+    section_path = chunk.get("section_path")
     if (
         not isinstance(chunk_id, str)
+        or reading_record.get("chunk_id") != chunk_id
         or not isinstance(source_range, list)
         or len(source_range) != 2
         or any(not isinstance(value, int) or isinstance(value, bool) for value in source_range)
@@ -497,16 +511,6 @@ def _chunk_presentation(
         or any(not isinstance(value, str) for value in images)
         or not isinstance(section_path, list)
         or not all(isinstance(value, str) and value for value in section_path)
-        or (cached_translation is not None and not isinstance(cached_translation, str))
-        or not isinstance(notes, list)
-        or any(
-            not isinstance(note, dict)
-            or set(note) != {"kind", "content"}
-            or note.get("kind") not in {"reader", "discussion", "emphasis"}
-            or not isinstance(note.get("content"), str)
-            or not note["content"].strip()
-            for note in notes
-        )
     ):
         raise WorkspaceError("reading_chunk_invalid", f"Reading Chunk is invalid: {chunk_id}")
     paper_lines = (bundle / "paper.md").read_text(encoding="utf-8", errors="replace").splitlines()
@@ -514,21 +518,29 @@ def _chunk_presentation(
     if start < 1 or end < start or end > len(paper_lines):
         raise WorkspaceError("reading_chunk_invalid", f"Reading Chunk is invalid: {chunk_id}")
     selected_lines = paper_lines[start - 1 : end]
+    source_text = "\n".join(selected_lines)
+    glossary = [
+        row
+        for row in _read_glossary(plan_root / "glossary.tsv")
+        if row["source"].casefold() in source_text.casefold()
+    ]
     return {
         "paper_id": paper_id,
         "plan_id": plan_id,
         "chunk_id": chunk_id,
+        "index": chunk["index"],
+        "total": total,
         "section_path": section_path,
         "source_lines": source_range,
-        "source_text": "\n".join(selected_lines),
+        "source_text": source_text,
+        "translation": reading_record["translation"],
         "images": _bound_image_presentations(bundle, selected_lines, images),
-        "glossary": _read_glossary(plan_root / "glossary.tsv"),
-        "notes": notes,
+        "relevant_glossary": glossary,
     }
 
 
 class WorkspaceCore:
-    """Own identifiers, parser tasks, bundle installation, membership, and pointers."""
+    """Own Parser assets, fixed Reading Plans, Cursor State, and Reading Records."""
 
     def __init__(self, workspace: Path):
         self.workspace = workspace.resolve()
@@ -650,7 +662,7 @@ class WorkspaceCore:
         bundle = paper_root / "parser-bundle"
         paper_path = paper_root / "paper.yaml"
         topic_path = self.workspace / "topics" / task.topic_id / "topic.yaml"
-        pointers_path = self.workspace / "pointers.yaml"
+        state_path = self.workspace / "state.json"
         if bundle.exists() or paper_path.exists():
             raise WorkspaceError("parser_bundle_exists", "The Paper is already registered")
 
@@ -658,17 +670,16 @@ class WorkspaceCore:
             topic_path,
             {"topic_id": task.topic_id, "title": task.topic_title, "description": "", "papers": []},
         )
-        pointers = _read_document(pointers_path, {"current_paper_id": None, "papers": {}})
+        state = _read_document(state_path, {"current_paper_id": None, "papers": {}})
         _prepare_membership(
             topic,
-            pointers,
+            state,
             paper_id=task.paper_id,
-            topic_id=task.topic_id,
             initialize_pointer=True,
         )
         paper = {"paper_id": task.paper_id, "title": task.title, "topics": [task.topic_id]}
         _commit_documents(
-            {paper_path: paper, topic_path: topic, pointers_path: pointers},
+            {paper_path: paper, topic_path: topic, state_path: state},
             staged_bundle=(staging, bundle),
         )
         shutil.rmtree(self._task_root(task.batch_id), ignore_errors=True)
@@ -712,16 +723,15 @@ class WorkspaceCore:
             )
         if resolved_topic_id not in paper_topics:
             paper_topics.append(resolved_topic_id)
-        pointers_path = self.workspace / "pointers.yaml"
-        pointers = _read_document(pointers_path, {"current_paper_id": None, "papers": {}})
+        state_path = self.workspace / "state.json"
+        state = _read_document(state_path, {"current_paper_id": None, "papers": {}})
         _prepare_membership(
             topic,
-            pointers,
+            state,
             paper_id=paper_id,
-            topic_id=resolved_topic_id,
             initialize_pointer=False,
         )
-        _commit_documents({paper_path: paper, topic_path: topic, pointers_path: pointers})
+        _commit_documents({paper_path: paper, topic_path: topic, state_path: state})
         return resolved_topic_id
 
     def map_reading_plan(
@@ -747,18 +757,31 @@ class WorkspaceCore:
         if scope is not None and (not isinstance(scope, str) or not scope.strip()):
             raise WorkspaceError("reading_scope_invalid", "Reading scope is invalid")
 
-        pointers_path = self.workspace / "pointers.yaml"
-        pointers = _read_document(pointers_path)
-        pointer_entries = pointers.get("papers")
-        if not isinstance(pointer_entries, dict) or not isinstance(pointer_entries.get(paper_id), dict):
-            raise WorkspaceError("workspace_pointers_invalid", "Workspace pointers are invalid")
-        paper_pointer = pointer_entries[paper_id]
-        current_plan_id = paper_pointer.get("current_plan_id")
-        current_chunk_id = paper_pointer.get("current_chunk_id")
+        state_path = self.workspace / "state.json"
+        state = _read_document(state_path)
+        paper_states = state.get("papers")
+        if not isinstance(paper_states, dict) or not isinstance(paper_states.get(paper_id), dict):
+            raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
+        paper_state = paper_states[paper_id]
+        if set(paper_state) != {"current_plan_id", "current_chunk_id"}:
+            raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
+        current_plan_id = paper_state.get("current_plan_id")
+        current_chunk_id = paper_state.get("current_chunk_id")
         if current_plan_id is not None:
-            _identifier(current_plan_id, "reading_plan")
-            if not (paper_root / "reading" / "plans" / current_plan_id / "chunks.jsonl").is_file():
-                raise WorkspaceError("reading_plan_missing", f"Reading Plan does not exist: {current_plan_id}")
+            current_plan_id = _identifier(current_plan_id, "reading_plan")
+            current_plan_root = paper_root / "reading" / "plans" / current_plan_id
+            chunks = _read_chunk_records(current_plan_root / "chunks.jsonl")
+            if current_chunk_id is not None:
+                current_chunk_id = _identifier(current_chunk_id, "reading_chunk")
+                if current_chunk_id not in {chunk["chunk_id"] for chunk in chunks}:
+                    raise WorkspaceError(
+                        "reading_chunk_missing", f"Reading Chunk does not exist: {current_chunk_id}"
+                    )
+            for chunk in chunks:
+                _read_reading_record(
+                    current_plan_root / "records" / f'{chunk["chunk_id"]}.json',
+                    chunk["chunk_id"],
+                )
             if not reinitialize:
                 return {
                     "ok": True,
@@ -783,7 +806,7 @@ class WorkspaceCore:
         plan_id = f"plan-{(max(used_numbers, default=0) + 1):03d}"
         plan_root = plans_root / plan_id
         staging = plans_root / f".{plan_id}.{uuid.uuid4().hex}.staging"
-        pointer_snapshot = pointers_path.read_bytes()
+        state_snapshot = state_path.read_bytes()
         installed = False
         try:
             staging.mkdir(parents=True)
@@ -791,13 +814,20 @@ class WorkspaceCore:
             (staging / "chunks.jsonl").write_text(chunks_text, encoding="utf-8")
             glossary_text = "".join(f"{source}\t{translation}\n" for source, translation in glossary)
             (staging / "glossary.tsv").write_text(glossary_text, encoding="utf-8")
+            records_root = staging / "records"
+            records_root.mkdir()
+            for record in records:
+                _write_document(
+                    records_root / f'{record["chunk_id"]}.json',
+                    {"chunk_id": record["chunk_id"], "translation": None, "notes": []},
+                )
             staging.replace(plan_root)
             installed = True
-            paper_pointer["current_plan_id"] = plan_id
-            paper_pointer["current_chunk_id"] = records[0]["chunk_id"]
-            _write_document(pointers_path, pointers)
+            paper_state["current_plan_id"] = plan_id
+            paper_state["current_chunk_id"] = records[0]["chunk_id"]
+            _write_document(state_path, state)
         except Exception:
-            _restore(pointers_path, pointer_snapshot)
+            _restore(state_path, state_snapshot)
             if installed:
                 shutil.rmtree(plan_root, ignore_errors=True)
             shutil.rmtree(staging, ignore_errors=True)
@@ -813,59 +843,12 @@ class WorkspaceCore:
             "reinitialized": reinitialize,
         }
 
-    def present_current_chunk(self, *, translation: str | None = None) -> dict[str, Any]:
-        _, _, paper_id, plan_id, chunk_id = self._current_reading_selection(require_chunk=False)
-        if chunk_id is None:
-            return {"ok": True, "status": "reading_completed", "paper_id": paper_id, "plan_id": plan_id, "chunk_id": None}
-
-        paper_root = self.workspace / "papers" / paper_id
-        bundle = paper_root / "parser-bundle"
-        if not bundle.is_dir():
-            raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {paper_id}")
-        _validate_parser_bundle(bundle)
-        plan_root = paper_root / "reading" / "plans" / plan_id
-        chunks_path = plan_root / "chunks.jsonl"
-        records = _read_chunk_records(chunks_path)
-        matches = [(index, record) for index, record in enumerate(records) if record.get("chunk_id") == chunk_id]
-        if len(matches) != 1:
-            raise WorkspaceError("reading_chunk_missing", f"Reading Chunk does not exist: {chunk_id}")
-        record_index, record = matches[0]
-        cached_translation = record.get("translation")
-        presentation = _chunk_presentation(
-            bundle,
-            plan_root,
-            paper_id=paper_id,
-            plan_id=plan_id,
-            record=record,
-        )
-        if cached_translation is None and translation is None:
-            return {"ok": True, "status": "translation_required", **presentation}
-        cached = cached_translation is not None
-        if not cached:
-            if not isinstance(translation, str) or not translation.strip():
-                raise WorkspaceError("translation_invalid", "Translation is empty or invalid")
-            updated = dict(record)
-            updated["translation"] = translation
-            records[record_index] = updated
-            try:
-                _replace_text(chunks_path, _serialize_chunk_records(records))
-            except OSError as exc:
-                raise WorkspaceError("reading_chunk_write_failed", "Translation could not be cached") from exc
-            cached_translation = translation
-        return {
-            "ok": True,
-            "status": "presented",
-            **presentation,
-            "translation": cached_translation,
-            "cached": cached,
-        }
-
     def _current_reading_selection(
         self, *, require_chunk: bool
-    ) -> tuple[dict[str, Any], dict[str, Any], str, str, str | None]:
-        _, pointers, paper_pointer, paper_id, _ = _current_paper_pointer(self.workspace)
-        plan_id = paper_pointer.get("current_plan_id")
-        chunk_id = paper_pointer.get("current_chunk_id")
+    ) -> tuple[Path, dict[str, Any], dict[str, Any], str, str, str | None]:
+        state_path, state, paper_state, paper_id, _ = _current_paper_state(self.workspace)
+        plan_id = paper_state.get("current_plan_id")
+        chunk_id = paper_state.get("current_chunk_id")
         if plan_id is None:
             raise WorkspaceError("reading_plan_missing", f"Reading Plan does not exist: {paper_id}")
         plan_id = _identifier(plan_id, "reading_plan")
@@ -874,51 +857,163 @@ class WorkspaceCore:
                 raise WorkspaceError("reading_completed", "Reading Plan is complete")
         else:
             chunk_id = _identifier(chunk_id, "reading_chunk")
-        return pointers, paper_pointer, paper_id, plan_id, chunk_id
+        return state_path, state, paper_state, paper_id, plan_id, chunk_id
 
-    def _current_chunk_records(self) -> tuple[str, str, str, Path, list[dict[str, Any]], int]:
-        _, _, paper_id, plan_id, chunk_id = self._current_reading_selection(require_chunk=True)
+    def _current_chunk_context(
+        self,
+    ) -> tuple[Path, dict[str, Any], dict[str, Any], str, str, str, Path, list[dict[str, Any]], int]:
+        state_path, state, paper_state, paper_id, plan_id, chunk_id = self._current_reading_selection(
+            require_chunk=True
+        )
         assert chunk_id is not None
-        chunks_path = self.workspace / "papers" / paper_id / "reading" / "plans" / plan_id / "chunks.jsonl"
-        records = _read_chunk_records(chunks_path)
-        matches = [index for index, record in enumerate(records) if record.get("chunk_id") == chunk_id]
+        plan_root = self.workspace / "papers" / paper_id / "reading" / "plans" / plan_id
+        chunks = _read_chunk_records(plan_root / "chunks.jsonl")
+        matches = [index for index, chunk in enumerate(chunks) if chunk.get("chunk_id") == chunk_id]
         if len(matches) != 1:
             raise WorkspaceError("reading_chunk_missing", f"Reading Chunk does not exist: {chunk_id}")
-        return paper_id, plan_id, chunk_id, chunks_path, records, matches[0]
+        return state_path, state, paper_state, paper_id, plan_id, chunk_id, plan_root, chunks, matches[0]
 
-    def append_current_note(self, *, kind: str, content: str) -> dict[str, Any]:
-        if kind not in {"reader", "discussion", "emphasis"}:
-            raise WorkspaceError("note_kind_invalid", "Note kind is invalid")
-        if not isinstance(content, str) or not content.strip():
-            raise WorkspaceError("note_content_invalid", "Note content is empty or invalid")
-
-        paper_id, plan_id, chunk_id, chunks_path, records, record_index = self._current_chunk_records()
-        updated = dict(records[record_index])
-        updated["notes"] = [*updated["notes"], {"kind": kind, "content": content}]
-        records[record_index] = updated
-        try:
-            _replace_text(chunks_path, _serialize_chunk_records(records))
-        except OSError as exc:
-            raise WorkspaceError("reading_chunk_write_failed", "Note could not be saved") from exc
+    def get_reading_state(self) -> dict[str, Any]:
+        _, _, _, paper_id, plan_id, chunk_id = self._current_reading_selection(require_chunk=False)
+        plan_root = self.workspace / "papers" / paper_id / "reading" / "plans" / plan_id
+        chunks = _read_chunk_records(plan_root / "chunks.jsonl")
+        if chunk_id is None:
+            return {
+                "ok": True,
+                "status": "reading_completed",
+                "paper_id": paper_id,
+                "plan_id": plan_id,
+                "chunk_id": None,
+                "index": None,
+                "total": len(chunks),
+                "section_path": [],
+            }
+        matches = [chunk for chunk in chunks if chunk.get("chunk_id") == chunk_id]
+        if len(matches) != 1:
+            raise WorkspaceError("reading_chunk_missing", f"Reading Chunk does not exist: {chunk_id}")
+        chunk = matches[0]
         return {
             "ok": True,
-            "status": "note_saved",
+            "status": "reading",
             "paper_id": paper_id,
             "plan_id": plan_id,
             "chunk_id": chunk_id,
-            "note": {"kind": kind, "content": content},
+            "index": chunk["index"],
+            "total": len(chunks),
+            "section_path": chunk["section_path"],
         }
 
-    def record_current_discussion(self, *, question: str, answer: str) -> dict[str, Any]:
-        if not isinstance(question, str) or not question.strip():
-            raise WorkspaceError("discussion_question_invalid", "Discussion question is empty or invalid")
-        if not isinstance(answer, str) or not answer.strip():
-            raise WorkspaceError("discussion_answer_invalid", "Discussion answer is empty or invalid")
-        content = f"用户询问：{question}\n回复：{answer}"
-        result = self.append_current_note(kind="discussion", content=content)
-        return {**result, "status": "discussion_recorded", "answer": answer}
+    def get_current_chunk(self) -> dict[str, Any]:
+        try:
+            _, _, _, paper_id, plan_id, chunk_id, plan_root, chunks, index = self._current_chunk_context()
+        except WorkspaceError as exc:
+            if exc.error_id == "reading_completed":
+                return self.get_reading_state()
+            raise
+        bundle = self.workspace / "papers" / paper_id / "parser-bundle"
+        if not bundle.is_dir():
+            raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {paper_id}")
+        _validate_parser_bundle(bundle)
+        reading_record = _read_reading_record(plan_root / "records" / f"{chunk_id}.json", chunk_id)
+        presentation = _chunk_presentation(
+            bundle,
+            plan_root,
+            paper_id=paper_id,
+            plan_id=plan_id,
+            chunk=chunks[index],
+            reading_record=reading_record,
+            total=len(chunks),
+        )
+        return {
+            "ok": True,
+            "status": "translation_required" if reading_record["translation"] is None else "presented",
+            **presentation,
+        }
 
-    def correct_current_term(self, *, source: str, translation: str) -> dict[str, Any]:
+    def _cursor_changed(self) -> dict[str, Any]:
+        return {**self.get_reading_state(), "status": "cursor_changed"}
+
+    @staticmethod
+    def _note(*, kind: str, origin: str, content: str, anchor: dict[str, Any] | None) -> dict[str, Any]:
+        note: dict[str, Any] = {
+            "kind": kind,
+            "origin": origin,
+            "content": content.strip() if isinstance(content, str) else content,
+        }
+        if anchor is not None:
+            note["anchor"] = anchor
+        if not _validate_note(note):
+            error_id = "note_kind_invalid" if kind not in NOTE_KINDS else "note_invalid"
+            raise WorkspaceError(error_id, "Note is invalid")
+        return note
+
+    def append_note(
+        self,
+        *,
+        expected_plan_id: str,
+        expected_chunk_id: str,
+        kind: str,
+        origin: str,
+        content: str,
+        anchor: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        _, _, _, paper_id, plan_id, chunk_id, plan_root, _, _ = self._current_chunk_context()
+        if plan_id != expected_plan_id or chunk_id != expected_chunk_id:
+            return self._cursor_changed()
+        note = self._note(kind=kind, origin=origin, content=content, anchor=anchor)
+        record_path = plan_root / "records" / f"{chunk_id}.json"
+        record = _read_reading_record(record_path, chunk_id)
+        if note in record["notes"]:
+            status = "note_unchanged"
+        else:
+            record["notes"].append(note)
+            try:
+                _write_document(record_path, record)
+            except OSError as exc:
+                raise WorkspaceError("reading_record_write_failed", "Note could not be saved") from exc
+            status = "note_saved"
+        return {
+            "ok": True,
+            "status": status,
+            "paper_id": paper_id,
+            "plan_id": plan_id,
+            "chunk_id": chunk_id,
+            "note": note,
+        }
+
+    def list_notes(
+        self,
+        *,
+        plan_id: str,
+        chunk_id: str,
+        kinds: list[str] | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        _, _, _, paper_id, _, _ = self._current_reading_selection(require_chunk=False)
+        plan_id = _identifier(plan_id, "reading_plan")
+        chunk_id = _identifier(chunk_id, "reading_chunk")
+        if kinds is not None and (not isinstance(kinds, list) or any(kind not in NOTE_KINDS for kind in kinds)):
+            raise WorkspaceError("note_kind_invalid", "Note kind is invalid")
+        if limit is not None and (not isinstance(limit, int) or isinstance(limit, bool) or limit < 1):
+            raise WorkspaceError("note_limit_invalid", "Note limit is invalid")
+        plan_root = self.workspace / "papers" / paper_id / "reading" / "plans" / plan_id
+        chunks = _read_chunk_records(plan_root / "chunks.jsonl")
+        if chunk_id not in {chunk["chunk_id"] for chunk in chunks}:
+            raise WorkspaceError("reading_chunk_missing", f"Reading Chunk does not exist: {chunk_id}")
+        record = _read_reading_record(plan_root / "records" / f"{chunk_id}.json", chunk_id)
+        notes = [note for note in record["notes"] if kinds is None or note["kind"] in kinds]
+        if limit is not None:
+            notes = notes[-limit:]
+        return {
+            "ok": True,
+            "status": "notes_listed",
+            "paper_id": paper_id,
+            "plan_id": plan_id,
+            "chunk_id": chunk_id,
+            "notes": notes,
+        }
+
+    def update_glossary(self, *, expected_plan_id: str, source: str, translation: str) -> dict[str, Any]:
         if (
             not isinstance(source, str)
             or not source.strip()
@@ -927,17 +1022,16 @@ class WorkspaceCore:
             or any(character in source + translation for character in "\t\r\n")
         ):
             raise WorkspaceError("glossary_term_invalid", "Glossary term is empty or invalid")
-
-        _, _, paper_id, plan_id, chunk_id = self._current_reading_selection(require_chunk=False)
-
+        _, _, _, paper_id, plan_id, chunk_id = self._current_reading_selection(require_chunk=False)
+        if plan_id != expected_plan_id:
+            return self._cursor_changed()
         glossary_path = self.workspace / "papers" / paper_id / "reading" / "plans" / plan_id / "glossary.tsv"
         glossary = _read_glossary(glossary_path)
-        corrected = False
         for row in glossary:
             if row["source"] == source:
                 row["translation"] = translation
-                corrected = True
-        if not corrected:
+                break
+        else:
             glossary.append({"source": source, "translation": translation})
         serialized = "".join(f'{row["source"]}\t{row["translation"]}\n' for row in glossary)
         try:
@@ -953,18 +1047,21 @@ class WorkspaceCore:
             "term": {"source": source, "translation": translation},
         }
 
-    def retranslate_current_chunk(self, *, translation: str) -> dict[str, Any]:
+    def retranslate_current_chunk(
+        self, *, expected_plan_id: str, expected_chunk_id: str, translation: str
+    ) -> dict[str, Any]:
         if not isinstance(translation, str) or not translation.strip():
             raise WorkspaceError("translation_invalid", "Translation is empty or invalid")
-
-        paper_id, plan_id, chunk_id, chunks_path, records, record_index = self._current_chunk_records()
-        updated = dict(records[record_index])
-        updated["translation"] = translation
-        records[record_index] = updated
+        _, _, _, paper_id, plan_id, chunk_id, plan_root, _, _ = self._current_chunk_context()
+        if plan_id != expected_plan_id or chunk_id != expected_chunk_id:
+            return self._cursor_changed()
+        record_path = plan_root / "records" / f"{chunk_id}.json"
+        record = _read_reading_record(record_path, chunk_id)
+        record["translation"] = translation
         try:
-            _replace_text(chunks_path, _serialize_chunk_records(records))
+            _write_document(record_path, record)
         except OSError as exc:
-            raise WorkspaceError("reading_chunk_write_failed", "Translation could not be replaced") from exc
+            raise WorkspaceError("reading_record_write_failed", "Translation could not be replaced") from exc
         return {
             "ok": True,
             "status": "retranslated",
@@ -974,65 +1071,122 @@ class WorkspaceCore:
             "translation": translation,
         }
 
-    def continue_reading(self, *, translation: str | None = None) -> dict[str, Any]:
-        pointers_path = self.workspace / "pointers.yaml"
-        pointers, paper_pointer, paper_id, plan_id, chunk_id = self._current_reading_selection(
+    def continue_reading(
+        self,
+        *,
+        expected_plan_id: str,
+        expected_chunk_id: str,
+        pending_notes: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        _, _, _, _, current_plan_id, current_chunk_id = self._current_reading_selection(
             require_chunk=False
         )
-        if chunk_id is None:
-            return {"ok": True, "status": "reading_completed", "paper_id": paper_id, "plan_id": plan_id, "chunk_id": None}
-
-        paper_root = self.workspace / "papers" / paper_id
-        bundle = paper_root / "parser-bundle"
-        if not bundle.is_dir():
-            raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {paper_id}")
-        _validate_parser_bundle(bundle)
-        plan_root = paper_root / "reading" / "plans" / plan_id
-        records = _read_chunk_records(plan_root / "chunks.jsonl")
-        matches = [index for index, record in enumerate(records) if record.get("chunk_id") == chunk_id]
-        if len(matches) != 1:
-            raise WorkspaceError("reading_chunk_missing", f"Reading Chunk does not exist: {chunk_id}")
-        current_index = matches[0]
-        next_chunk_id: str | None = None
-        next_record: dict[str, Any] | None = None
-        next_presentation: dict[str, Any] | None = None
-        if current_index + 1 < len(records):
-            next_record = records[current_index + 1]
-            next_presentation = _chunk_presentation(
-                bundle,
-                plan_root,
-                paper_id=paper_id,
-                plan_id=plan_id,
-                record=next_record,
+        if current_chunk_id is None:
+            return self.get_reading_state()
+        if current_plan_id != expected_plan_id or current_chunk_id != expected_chunk_id:
+            return self._cursor_changed()
+        state_path, state, paper_state, paper_id, plan_id, chunk_id, plan_root, chunks, index = self._current_chunk_context()
+        if pending_notes is None:
+            pending_notes = []
+        if not isinstance(pending_notes, list):
+            raise WorkspaceError("note_invalid", "Pending Notes are invalid")
+        if any(not _validate_note(note) for note in pending_notes):
+            raise WorkspaceError("note_invalid", "Pending Notes are invalid")
+        normalized_notes = [
+            self._note(
+                kind=note["kind"],
+                origin=note["origin"],
+                content=note["content"],
+                anchor=note.get("anchor"),
             )
-            next_chunk_id = next_record["chunk_id"]
-
-        if next_record is not None and next_record.get("translation") is None and translation is None:
-            return {"ok": True, "status": "continue_translation_required", **next_presentation}
-
-        chunks_path = plan_root / "chunks.jsonl"
-        chunks_snapshot = chunks_path.read_bytes()
-        pointers_snapshot = pointers_path.read_bytes()
-        update_translation = next_record is not None and next_record.get("translation") is None
-        if update_translation:
-            if not isinstance(translation, str) or not translation.strip():
-                raise WorkspaceError("translation_invalid", "Translation is empty or invalid")
-            updated = dict(next_record)
-            updated["translation"] = translation
-            records[current_index + 1] = updated
-
-        paper_pointer["current_chunk_id"] = next_chunk_id
+            for note in pending_notes
+        ]
+        if normalized_notes:
+            record_path = plan_root / "records" / f"{chunk_id}.json"
+            record = _read_reading_record(record_path, chunk_id)
+            changed = False
+            for note in normalized_notes:
+                if note not in record["notes"]:
+                    record["notes"].append(note)
+                    changed = True
+            if changed:
+                try:
+                    _write_document(record_path, record)
+                except OSError as exc:
+                    raise WorkspaceError("reading_record_write_failed", "Pending Notes could not be saved") from exc
+        next_chunk_id = chunks[index + 1]["chunk_id"] if index + 1 < len(chunks) else None
+        paper_state["current_chunk_id"] = next_chunk_id
         try:
-            if update_translation:
-                _replace_text(chunks_path, _serialize_chunk_records(records))
-            _write_document(pointers_path, pointers)
+            _write_document(state_path, state)
         except OSError as exc:
-            _restore(chunks_path, chunks_snapshot)
-            _restore(pointers_path, pointers_snapshot)
-            raise WorkspaceError("reading_cursor_write_failed", "Reading Cursor and presentation could not be updated") from exc
+            raise WorkspaceError("reading_cursor_write_failed", "Reading Cursor could not be updated") from exc
         if next_chunk_id is None:
-            return {"ok": True, "status": "reading_completed", "paper_id": paper_id, "plan_id": plan_id, "chunk_id": None}
-        return self.present_current_chunk()
+            return self.get_reading_state()
+        return {
+            **self.get_reading_state(),
+            "status": "continued",
+        }
+
+    def search_paper(self, *, query: str, limit: int = 5) -> dict[str, Any]:
+        if not isinstance(query, str) or not query.strip():
+            raise WorkspaceError("paper_query_invalid", "Paper query is empty or invalid")
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+            raise WorkspaceError("paper_query_limit_invalid", "Paper query limit is invalid")
+        _, _, _, paper_id, paper_root = _current_paper_state(self.workspace)
+        bundle = paper_root / "parser-bundle"
+        _validate_parser_bundle(bundle)
+        lines = (bundle / "paper.md").read_text(encoding="utf-8", errors="replace").splitlines()
+        paths = _source_heading_paths(lines)
+        terms = [term.casefold() for term in re.findall(r"[\w]+", query) if len(term) > 1]
+        terms = terms or [query.strip().casefold()]
+        matches: list[dict[str, Any]] = []
+        for index, line in enumerate(lines):
+            if not any(term in line.casefold() for term in terms):
+                continue
+            start = max(0, index - 1)
+            end = min(len(lines), index + 2)
+            snippet = " ".join(part.strip() for part in lines[start:end] if part.strip())
+            matches.append(
+                {
+                    "section_path": list(paths[index]),
+                    "source_lines": [start + 1, end],
+                    "snippet": snippet[:320],
+                }
+            )
+            if len(matches) == limit:
+                break
+        return {
+            "ok": True,
+            "status": "paper_matches_found" if matches else "paper_matches_empty",
+            "paper_id": paper_id,
+            "query": query,
+            "matches": matches,
+        }
+
+    def read_source_range(self, *, start: int, end: int) -> dict[str, Any]:
+        if any(not isinstance(value, int) or isinstance(value, bool) for value in (start, end)):
+            raise WorkspaceError("source_range_invalid", "Source range is invalid")
+        _, _, _, paper_id, paper_root = _current_paper_state(self.workspace)
+        bundle = paper_root / "parser-bundle"
+        _validate_parser_bundle(bundle)
+        lines = (bundle / "paper.md").read_text(encoding="utf-8", errors="replace").splitlines()
+        if start < 1 or end < start or end > len(lines):
+            raise WorkspaceError("source_range_invalid", "Source range is invalid")
+        selected = lines[start - 1 : end]
+        image_paths = [
+            PurePosixPath(_split_image_target(match.group(2)).replace("\\", "/")).as_posix()
+            for line in selected
+            for match in MARKDOWN_IMAGE_DETAIL_RE.finditer(line)
+        ]
+        return {
+            "ok": True,
+            "status": "source_range_read",
+            "paper_id": paper_id,
+            "section_path": list(_source_heading_paths(lines)[start - 1]),
+            "source_lines": [start, end],
+            "source_text": "\n".join(selected),
+            "images": _bound_image_presentations(bundle, selected, image_paths),
+        }
 
     def switch_paper(self, paper_id: str) -> dict[str, Any]:
         paper_id = _identifier(paper_id, "paper_id")
@@ -1047,264 +1201,23 @@ class WorkspaceCore:
         if not bundle.is_dir():
             raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {paper_id}")
         _validate_parser_bundle(bundle)
-
-        pointers_path = self.workspace / "pointers.yaml"
-        pointers = _read_document(pointers_path)
-        pointer_entries = pointers.get("papers")
-        if not isinstance(pointer_entries, dict) or not isinstance(pointer_entries.get(paper_id), dict):
-            raise WorkspaceError("workspace_pointers_invalid", "Workspace pointers are invalid")
-        paper_pointer = pointer_entries[paper_id]
-        pointers["current_paper_id"] = paper_id
+        state_path = self.workspace / "state.json"
+        state = _read_document(state_path)
+        paper_states = state.get("papers")
+        if not isinstance(paper_states, dict) or not isinstance(paper_states.get(paper_id), dict):
+            raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
+        paper_state = paper_states[paper_id]
+        if set(paper_state) != {"current_plan_id", "current_chunk_id"}:
+            raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
+        state["current_paper_id"] = paper_id
         try:
-            _write_document(pointers_path, pointers)
+            _write_document(state_path, state)
         except OSError as exc:
-            raise WorkspaceError("workspace_pointers_write_failed", "Current Paper could not be selected") from exc
+            raise WorkspaceError("workspace_state_write_failed", "Current Paper could not be selected") from exc
         return {
             "ok": True,
             "status": "paper_selected",
             "paper_id": paper_id,
-            "plan_id": paper_pointer.get("current_plan_id"),
-            "chunk_id": paper_pointer.get("current_chunk_id"),
-            "explanation_id": paper_pointer.get("current_explanation_id"),
-        }
-
-
-class ExplanationWorkspaceCore:
-    """Capability-limited write seam for private Explanation Sessions."""
-
-    def __init__(self, workspace: Path):
-        self.workspace = workspace.resolve()
-
-    def _current_paper(
-        self,
-    ) -> tuple[Path, dict[str, Any], dict[str, Any], str, Path]:
-        pointers_path, pointers, paper_pointer, paper_id, paper_root = _current_paper_pointer(
-            self.workspace
-        )
-        if not (paper_root / "paper.yaml").is_file():
-            raise WorkspaceError("paper_missing", f"Paper does not exist: {paper_id}")
-        return pointers_path, pointers, paper_pointer, paper_id, paper_root
-
-    def new_explanation(self, *, question: str) -> dict[str, Any]:
-        if not isinstance(question, str) or not question.strip():
-            raise WorkspaceError("explanation_question_invalid", "Explanation question is empty or invalid")
-        pointers_path, pointers, paper_pointer, paper_id, paper_root = self._current_paper()
-        explanations_root = paper_root / "reading" / "explanations"
-        used_numbers = []
-        for path in explanations_root.glob("explanation-*.jsonl"):
-            match = re.fullmatch(r"explanation-(\d+)\.jsonl", path.name)
-            if path.is_file() and match:
-                used_numbers.append(int(match.group(1)))
-        explanation_id = f"explanation-{(max(used_numbers, default=0) + 1):03d}"
-        session_path = explanations_root / f"{explanation_id}.jsonl"
-        pointers_snapshot = pointers_path.read_bytes()
-        explanations_root.mkdir(parents=True, exist_ok=True)
-        try:
-            _replace_text(
-                session_path,
-                _serialize_explanation_rows([{"role": "user", "content": question}]),
-            )
-            paper_pointer["current_explanation_id"] = explanation_id
-            _write_document(pointers_path, pointers)
-        except OSError as exc:
-            _restore(pointers_path, pointers_snapshot)
-            session_path.unlink(missing_ok=True)
-            if explanations_root.is_dir() and not any(explanations_root.iterdir()):
-                explanations_root.rmdir()
-            raise WorkspaceError(
-                "explanation_write_failed", "Explanation Session could not be created"
-            ) from exc
-        return {
-            "ok": True,
-            "status": "response_required",
-            "paper_id": paper_id,
-            "explanation_id": explanation_id,
-            "history": [{"role": "user", "content": question}],
-        }
-
-    def _current_session(self) -> tuple[str, str, Path, list[dict[str, str]]]:
-        _, _, paper_pointer, paper_id, paper_root = self._current_paper()
-        explanation_id = paper_pointer.get("current_explanation_id")
-        if not isinstance(explanation_id, str):
-            raise WorkspaceError("explanation_session_missing", "No current Explanation Session is selected")
-        explanation_id = _identifier(explanation_id, "explanation_session")
-        session_path = paper_root / "reading" / "explanations" / f"{explanation_id}.jsonl"
-        return paper_id, explanation_id, session_path, _read_explanation_rows(session_path)
-
-    def append_question(self, *, question: str) -> dict[str, Any]:
-        if not isinstance(question, str) or not question.strip():
-            raise WorkspaceError("explanation_question_invalid", "Explanation question is empty or invalid")
-        return self._append_current_row(role="user", content=question)
-
-    def append_answer(self, *, answer: str) -> dict[str, Any]:
-        if not isinstance(answer, str) or not answer.strip():
-            raise WorkspaceError("explanation_answer_invalid", "Explanation answer is empty or invalid")
-        result = self._append_current_row(role="assistant", content=answer)
-        return {**result, "answer": answer}
-
-    def refuse_explanation(self, *, reason: str) -> dict[str, Any]:
-        if not isinstance(reason, str) or not reason.strip():
-            raise WorkspaceError("explanation_refusal_invalid", "Explanation refusal reason is empty or invalid")
-        refusal = f"无法提供可靠解释：{reason}"
-        result = self._append_current_row(role="assistant", content=refusal)
-        return {**result, "status": "refused", "answer": refusal}
-
-    def _append_current_row(self, *, role: str, content: str) -> dict[str, Any]:
-        paper_id, explanation_id, session_path, rows = self._current_session()
-        expected_previous = "assistant" if role == "user" else "user"
-        if rows[-1]["role"] != expected_previous:
-            if role == "user":
-                raise WorkspaceError(
-                    "explanation_response_pending", "The previous question still needs a response"
-                )
-            raise WorkspaceError(
-                "explanation_question_missing", "No Explanation question is waiting for a response"
-            )
-        rows.append({"role": role, "content": content})
-        try:
-            _replace_text(session_path, _serialize_explanation_rows(rows))
-        except OSError as exc:
-            label = "question" if role == "user" else "answer"
-            raise WorkspaceError(
-                "explanation_write_failed", f"Explanation {label} could not be saved"
-            ) from exc
-        return {
-            "ok": True,
-            "status": "response_required" if role == "user" else "answered",
-            "paper_id": paper_id,
-            "explanation_id": explanation_id,
-            "history": rows,
-        }
-
-    def select_explanation(self, explanation_id: str) -> dict[str, Any]:
-        explanation_id = _identifier(explanation_id, "explanation_session")
-        pointers_path, pointers, paper_pointer, paper_id, paper_root = self._current_paper()
-        session_path = paper_root / "reading" / "explanations" / f"{explanation_id}.jsonl"
-        history = _read_explanation_rows(session_path)
-        paper_pointer["current_explanation_id"] = explanation_id
-        try:
-            _write_document(pointers_path, pointers)
-        except OSError as exc:
-            raise WorkspaceError(
-                "explanation_selection_failed", "Explanation Session could not be selected"
-            ) from exc
-        return {
-            "ok": True,
-            "status": "explanation_selected",
-            "paper_id": paper_id,
-            "explanation_id": explanation_id,
-            "history": history,
-        }
-
-    def resume_explanation(self) -> dict[str, Any]:
-        paper_id, explanation_id, _, history = self._current_session()
-        return {
-            "ok": True,
-            "status": "response_pending" if history[-1]["role"] == "user" else "resumed",
-            "paper_id": paper_id,
-            "explanation_id": explanation_id,
-            "history": history,
-        }
-
-    def research_paper(self, *, query: str) -> dict[str, Any]:
-        if not isinstance(query, str) or not query.strip():
-            raise WorkspaceError("explanation_query_invalid", "Explanation research query is empty or invalid")
-        _, _, _, paper_id, paper_root = self._current_paper()
-        bundle = paper_root / "parser-bundle"
-        if not bundle.is_dir():
-            raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {paper_id}")
-        _validate_parser_bundle(bundle)
-        try:
-            lines = (bundle / "paper.md").read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeDecodeError) as exc:
-            raise WorkspaceError("parser_bundle_invalid", "Parser Bundle Markdown is invalid") from exc
-
-        terms = [term.casefold() for term in re.findall(r"[\w]+", query) if len(term) > 1]
-        if not terms:
-            terms = [query.strip().casefold()]
-        headings = [index for index, line in enumerate(lines) if re.match(r"^#{1,6}\s+\S", line)]
-        starts = ([0] if headings and headings[0] > 0 else []) + (headings or [0])
-        matches = []
-        heading_stack: list[str] = []
-        for position, start in enumerate(starts):
-            end = starts[position + 1] - 1 if position + 1 < len(starts) else len(lines) - 1
-            selected = lines[start : end + 1]
-            section_text = "\n".join(selected)
-            heading = re.match(r"^(#{1,6})\s+(.+?)\s*$", lines[start]) if headings else None
-            if heading:
-                level = len(heading.group(1))
-                heading_stack = heading_stack[: level - 1]
-                heading_stack.append(heading.group(2))
-            searchable = section_text.casefold()
-            if not any(term in searchable for term in terms):
-                continue
-            image_paths = [
-                _split_image_target(image.group(2))
-                for image in MARKDOWN_IMAGE_DETAIL_RE.finditer(section_text)
-            ]
-            matches.append(
-                {
-                    "section_path": list(heading_stack),
-                    "source_lines": [start + 1, end + 1],
-                    "content": section_text,
-                    "images": _bound_image_presentations(bundle, selected, image_paths),
-                }
-            )
-        return {
-            "ok": True,
-            "status": "paper_evidence_found" if matches else "external_research_required",
-            "paper_id": paper_id,
-            "query": query,
-            "matches": matches,
-        }
-
-    def assess_external_evidence(self, evidence: dict[str, Any]) -> dict[str, Any]:
-        _, _, _, paper_id, _ = self._current_paper()
-        if not isinstance(evidence, dict) or not set(evidence).issubset(
-            {"sources", "insufficient_reason"}
-        ):
-            raise WorkspaceError("external_evidence_invalid", "External evidence is invalid")
-        sources = evidence.get("sources")
-        if not isinstance(sources, list):
-            raise WorkspaceError("external_evidence_invalid", "External evidence is invalid")
-        allowed_source_types = {
-            "research_paper",
-            "official_specification",
-            "first_party_documentation",
-            "authoritative_source_code",
-        }
-        for source in sources:
-            if not isinstance(source, dict) or set(source) != {
-                "source_type",
-                "title",
-                "url",
-                "content",
-            }:
-                raise WorkspaceError("external_evidence_invalid", "External evidence is invalid")
-            source_url = source.get("url")
-            parsed_url = urllib.parse.urlparse(source_url) if isinstance(source_url, str) else None
-            if (
-                source.get("source_type") not in allowed_source_types
-                or not isinstance(source.get("title"), str)
-                or not source["title"].strip()
-                or parsed_url is None
-                or parsed_url.scheme not in {"http", "https"}
-                or not parsed_url.netloc
-                or not isinstance(source.get("content"), str)
-                or not source["content"].strip()
-            ):
-                raise WorkspaceError("external_evidence_invalid", "External evidence is invalid")
-        insufficient_reason = evidence.get("insufficient_reason")
-        if not sources and (
-            not isinstance(insufficient_reason, str) or not insufficient_reason.strip()
-        ):
-            raise WorkspaceError("external_evidence_invalid", "Insufficient external evidence needs a reason")
-        if sources and insufficient_reason is not None:
-            raise WorkspaceError("external_evidence_invalid", "External evidence is ambiguous")
-        return {
-            "ok": True,
-            "status": "external_evidence_found" if sources else "external_evidence_insufficient",
-            "paper_id": paper_id,
-            "sources": sources,
-            **({"insufficient_reason": insufficient_reason} if not sources else {}),
+            "plan_id": paper_state.get("current_plan_id"),
+            "chunk_id": paper_state.get("current_chunk_id"),
         }
