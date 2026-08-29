@@ -1,4 +1,4 @@
 interface:
   display_name: "Focus Map"
-  short_description: "Map a Paper into stable Reading Chunks"
-  default_prompt: "Use $focus-map to create or reuse a source-anchored Reading Plan for this registered Paper."
+  short_description: "Map a Reading Source into stable Reading Chunks"
+  default_prompt: "Use $focus-map to create or reuse a source-anchored Reading Plan for this registered Reading Source."

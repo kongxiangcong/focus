@@ -42,11 +42,11 @@ class FocusMapTests(unittest.TestCase):
 
     def _workspace(self):
         workspace = self.root / "workspace"
-        paper_root = workspace / "papers" / "fixture-paper"
-        bundle = paper_root / "parser-bundle"
+        source_root = workspace / "sources" / "fixture-source"
+        bundle = source_root / "parser-bundle"
         (bundle / "images").mkdir(parents=True)
-        (paper_root / "paper.yaml").write_text(
-            json.dumps({"paper_id": "fixture-paper", "title": "Fixture Paper", "topics": ["systems"]}),
+        (source_root / "source.yaml").write_text(
+            json.dumps({"source_id": "fixture-source", "source_kind": "paper_pdf", "title": "Fixture Paper", "topics": ["systems"]}),
             encoding="utf-8",
         )
         lines = [
@@ -70,20 +70,22 @@ class FocusMapTests(unittest.TestCase):
             "Evidence.",
         ]
         (bundle / "source.pdf").write_bytes(b"%PDF fixture")
-        (bundle / "paper.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-        (bundle / "metadata.json").write_text('{"parser":"mineru-precision-api"}\n', encoding="utf-8")
+        (bundle / "content.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        (bundle / "metadata.json").write_text(
+            '{"source_kind":"paper_pdf","language":"en","parser":"paper-parser","batch_id":"fixture-batch"}\n', encoding="utf-8"
+        )
         (bundle / "validation.json").write_text('{"ok":true}\n', encoding="utf-8")
         (bundle / "images" / "image-001.png").write_bytes(b"image")
         (workspace / "state.json").write_text(
             json.dumps(
                 {
-                    "current_paper_id": "fixture-paper",
-                    "papers": {"fixture-paper": {"current_plan_id": None, "current_chunk_id": None}},
+                    "current_source_id": "fixture-source",
+                    "sources": {"fixture-source": {"current_plan_id": None, "current_chunk_id": None}},
                 }
             ),
             encoding="utf-8",
         )
-        return workspace, paper_root
+        return workspace, source_root
 
     def _draft(self, chunks=None):
         path = self.root / f"draft-{uuid.uuid4().hex}.json"
@@ -114,17 +116,17 @@ class FocusMapTests(unittest.TestCase):
         stdout = io.StringIO()
         with contextlib.redirect_stdout(stdout):
             result = FOCUS_MAP.main(
-                ["map", "--workspace", str(workspace), "--paper-id", "fixture-paper", *extra]
+                ["map", "--workspace", str(workspace), "--source-id", "fixture-source", *extra]
             )
         return result, json.loads(stdout.getvalue())
 
     def test_map_installs_fixed_chunks_records_glossary_and_cursor_state(self):
-        workspace, paper_root = self._workspace()
+        workspace, source_root = self._workspace()
         result, response = self._map(workspace, "--draft", str(self._draft()))
 
         self.assertEqual(0, result)
         self.assertEqual(("plan-001", "chunk-001"), (response["plan_id"], response["chunk_id"]))
-        plan = paper_root / "reading" / "plans" / "plan-001"
+        plan = source_root / "reading" / "plans" / "plan-001"
         chunks = [json.loads(line) for line in (plan / "chunks.jsonl").read_text(encoding="utf-8").splitlines()]
         self.assertEqual({"chunk_id", "index", "section_path", "source_lines", "images"}, set(chunks[0]))
         self.assertEqual([1, 2, 3, 4, 5], [chunk["index"] for chunk in chunks])
@@ -135,15 +137,15 @@ class FocusMapTests(unittest.TestCase):
         state = json.loads((workspace / "state.json").read_text(encoding="utf-8"))
         self.assertEqual(
             {"current_plan_id": "plan-001", "current_chunk_id": "chunk-001"},
-            state["papers"]["fixture-paper"],
+            state["sources"]["fixture-source"],
         )
 
     def test_repeated_map_reuses_current_plan_without_resetting_cursor(self):
-        workspace, paper_root = self._workspace()
+        workspace, source_root = self._workspace()
         self._map(workspace, "--draft", str(self._draft()))
         state_path = workspace / "state.json"
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        state["papers"]["fixture-paper"]["current_chunk_id"] = "chunk-003"
+        state["sources"]["fixture-source"]["current_chunk_id"] = "chunk-003"
         state_path.write_text(json.dumps(state), encoding="utf-8")
 
         result, response = self._map(workspace)
@@ -151,12 +153,12 @@ class FocusMapTests(unittest.TestCase):
         self.assertEqual(0, result)
         self.assertTrue(response["reused"])
         self.assertEqual("chunk-003", response["chunk_id"])
-        self.assertEqual(["plan-001"], [path.name for path in (paper_root / "reading" / "plans").iterdir()])
+        self.assertEqual(["plan-001"], [path.name for path in (source_root / "reading" / "plans").iterdir()])
 
     def test_reinitialize_preserves_old_plan_and_records_before_selecting_new_plan(self):
-        workspace, paper_root = self._workspace()
+        workspace, source_root = self._workspace()
         self._map(workspace, "--draft", str(self._draft()))
-        old_plan = paper_root / "reading" / "plans" / "plan-001"
+        old_plan = source_root / "reading" / "plans" / "plan-001"
         old_record = old_plan / "records" / "chunk-001.json"
         old_record.write_text(
             json.dumps(
@@ -186,15 +188,15 @@ class FocusMapTests(unittest.TestCase):
             {path.relative_to(old_plan): path.read_bytes() for path in old_plan.rglob("*") if path.is_file()},
         )
         new_record = json.loads(
-            (paper_root / "reading" / "plans" / "plan-002" / "records" / "chunk-001.json").read_text(encoding="utf-8")
+            (source_root / "reading" / "plans" / "plan-002" / "records" / "chunk-001.json").read_text(encoding="utf-8")
         )
         self.assertEqual({"chunk_id": "chunk-001", "translation": None, "notes": []}, new_record)
 
     def test_failed_state_install_removes_new_plan_and_preserves_old_selection(self):
-        workspace, paper_root = self._workspace()
+        workspace, source_root = self._workspace()
         self._map(workspace, "--draft", str(self._draft()))
         state_before = (workspace / "state.json").read_bytes()
-        old_plan = paper_root / "reading" / "plans" / "plan-001"
+        old_plan = source_root / "reading" / "plans" / "plan-001"
         old_before = {path.relative_to(old_plan): path.read_bytes() for path in old_plan.rglob("*") if path.is_file()}
 
         original = WORKSPACE_CORE._write_document
@@ -212,8 +214,8 @@ class FocusMapTests(unittest.TestCase):
                         "map",
                         "--workspace",
                         str(workspace),
-                        "--paper-id",
-                        "fixture-paper",
+                        "--source-id",
+                        "fixture-source",
                         "--reinitialize",
                         "--draft",
                         str(self._draft()),
@@ -226,7 +228,7 @@ class FocusMapTests(unittest.TestCase):
         self.assertEqual(old_before, {path.relative_to(old_plan): path.read_bytes() for path in old_plan.rglob("*") if path.is_file()})
 
     def test_mapping_rejects_split_protected_unit_without_changing_state(self):
-        workspace, paper_root = self._workspace()
+        workspace, source_root = self._workspace()
         before = (workspace / "state.json").read_bytes()
         split_table = [
             {"section_path": ["Fixture Paper", "Method"], "source_lines": [1, 6], "images": []},
@@ -243,8 +245,8 @@ class FocusMapTests(unittest.TestCase):
                     "map",
                     "--workspace",
                     str(workspace),
-                    "--paper-id",
-                    "fixture-paper",
+                    "--source-id",
+                    "fixture-source",
                     "--draft",
                     str(self._draft(split_table)),
                 ]
@@ -253,12 +255,12 @@ class FocusMapTests(unittest.TestCase):
         self.assertEqual(1, result)
         self.assertEqual("reading_plan_invalid", json.loads(stderr.getvalue())["error_id"])
         self.assertEqual(before, (workspace / "state.json").read_bytes())
-        self.assertFalse((paper_root / "reading" / "plans").exists())
+        self.assertFalse((source_root / "reading" / "plans").exists())
 
     def test_reuse_rejects_old_plan_shape_instead_of_converting_it(self):
-        workspace, paper_root = self._workspace()
+        workspace, source_root = self._workspace()
         self._map(workspace, "--draft", str(self._draft()))
-        chunks_path = paper_root / "reading" / "plans" / "plan-001" / "chunks.jsonl"
+        chunks_path = source_root / "reading" / "plans" / "plan-001" / "chunks.jsonl"
         chunks = [json.loads(line) for line in chunks_path.read_text(encoding="utf-8").splitlines()]
         chunks[0]["translation"] = "旧结构译文"
         chunks[0]["notes"] = []
@@ -270,7 +272,7 @@ class FocusMapTests(unittest.TestCase):
 
         with contextlib.redirect_stderr(stderr):
             result = FOCUS_MAP.main(
-                ["map", "--workspace", str(workspace), "--paper-id", "fixture-paper"]
+                ["map", "--workspace", str(workspace), "--source-id", "fixture-source"]
             )
 
         self.assertEqual(1, result)

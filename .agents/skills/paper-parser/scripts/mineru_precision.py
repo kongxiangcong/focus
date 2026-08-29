@@ -29,7 +29,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from core import ParserTask, WorkspaceCore, WorkspaceError
+from core import ParserTask, WorkspaceCore, WorkspaceError, validate_topic_id
 
 BASE_URL = "https://mineru.net"
 TOKEN_ENV = "MINERU_API_TOKEN"
@@ -47,6 +47,10 @@ PENDING_STATES = {"waiting-file", "pending", "running", "converting"}
 
 class ParserError(RuntimeError):
     error_id = "parser_failed"
+
+    def __init__(self, message: str, *, recoverable: bool = True):
+        super().__init__(message)
+        self.recoverable = recoverable
 
 
 def _dotenv_token(path: Path) -> str:
@@ -256,8 +260,8 @@ def _rewrite_and_copy_images(markdown: Path, raw_root: Path, output: Path) -> tu
     return MARKDOWN_IMAGE_RE.sub(replace, text), copied
 
 
-def _bundle_image_checks(paper_path: Path, output: Path) -> tuple[bool, bool]:
-    paper = paper_path.read_text(encoding="utf-8", errors="replace")
+def _bundle_image_checks(source_path: Path, output: Path) -> tuple[bool, bool]:
+    paper = source_path.read_text(encoding="utf-8", errors="replace")
     linked: list[Path] = []
     for match in MARKDOWN_IMAGE_RE.finditer(paper):
         target, _ = _split_image_target(match.group(2))
@@ -290,31 +294,31 @@ def _normalize(source: Path, archive: Path, output: Path, batch_id: str, model: 
         _safe_extract(archive, raw_root)
         markdown = _select_full_markdown(raw_root)
         paper, images = _rewrite_and_copy_images(markdown, raw_root, output)
-        (output / "paper.md").write_text(paper, encoding="utf-8")
+        (output / "content.md").write_text(paper, encoding="utf-8")
     finally:
         shutil.rmtree(raw_root, ignore_errors=True)
     shutil.copy2(source, output / "source.pdf")
     metadata = {
-        "schema_version": 2,
+        "source_kind": "paper_pdf",
         "source_file": source.name,
-        "parser": "mineru-precision-api",
+        "parser": "paper-parser",
         "api_version": "v4",
         "model_version": model,
         "language": language,
         "batch_id": batch_id,
         "completed_at": datetime.now(timezone.utc).isoformat(),
-        "image_naming": "paper-reference-order",
+        "image_naming": "source-reference-order",
         "image_count": len(images),
     }
     (output / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    headings = sum(1 for line in (output / "paper.md").read_text(encoding="utf-8", errors="replace").splitlines() if line.startswith("#"))
-    image_links_resolve, image_names_sequential = _bundle_image_checks(output / "paper.md", output)
+    headings = sum(1 for line in (output / "content.md").read_text(encoding="utf-8", errors="replace").splitlines() if line.startswith("#"))
+    image_links_resolve, image_names_sequential = _bundle_image_checks(output / "content.md", output)
     validation = {
         "schema_version": 2,
         "ok": True,
         "checks": {
             "source_copy_matches": filecmp.cmp(source, output / "source.pdf", shallow=False),
-            "paper_markdown_nonempty": (output / "paper.md").stat().st_size > 0,
+            "paper_markdown_nonempty": (output / "content.md").stat().st_size > 0,
             "metadata_parseable": True,
             "image_links_resolve": image_links_resolve,
             "image_names_sequential": image_names_sequential,
@@ -343,9 +347,11 @@ def _poll(batch_id: str, token: str, deadline: float, interval: float) -> dict[s
         if state == "done":
             return entry
         if state == "failed":
-            raise ParserError(f"MinerU parsing failed: {entry.get('err_msg', 'unknown error')}")
+            raise ParserError(
+                f"MinerU parsing failed: {entry.get('err_msg', 'unknown error')}", recoverable=False
+            )
         if state not in PENDING_STATES:
-            raise ParserError(f"MinerU returned unknown task state: {state}")
+            raise ParserError(f"MinerU returned unknown task state: {state}", recoverable=False)
         if time.monotonic() >= deadline:
             raise ParserError(f"Polling timed out; resume with batch_id {batch_id}")
         time.sleep(interval)
@@ -356,7 +362,7 @@ def _complete(source: Path, output: Path, batch_id: str, model: str, language: s
     entry = _poll(batch_id, token, time.monotonic() + timeout, interval)
     result_url = entry.get("full_zip_url")
     if not isinstance(result_url, str) or not result_url:
-        raise ParserError("Completed MinerU task has no full_zip_url")
+        raise ParserError("Completed MinerU task has no full_zip_url", recoverable=False)
     output.parent.mkdir(parents=True, exist_ok=True)
     transfer_root = output.parent / f".focus-mineru-{uuid.uuid4().hex}"
     transfer_root.mkdir()
@@ -424,8 +430,10 @@ def _finish_task(
             interval=interval,
         )
         core.install_parser_bundle(task, staging)
-    except Exception:
+    except Exception as exc:
         core.discard_parser_bundle(task)
+        if isinstance(exc, ParserError) and not exc.recoverable:
+            core.discard_parser_task(task)
         raise
 
 
@@ -438,6 +446,12 @@ def _parse(args: argparse.Namespace, hosted: Any) -> None:
     core = WorkspaceCore(args.workspace)
     if not args.authorize_upload:
         raise WorkspaceError("upload_authorization_required", "Explicit upload authorization is required for this Paper")
+    if not args.title.strip():
+        raise WorkspaceError("source_title_invalid", "Reading Source title is empty or invalid")
+    if not args.topic.strip():
+        raise WorkspaceError("topic_invalid", "Topic title is empty or invalid")
+    if args.topic_id is not None:
+        validate_topic_id(args.topic_id)
     batch_id = hosted.start(source, model=args.model, language=args.language, ocr=args.ocr)
     task = core.create_parser_task(
         batch_id,
@@ -448,28 +462,28 @@ def _parse(args: argparse.Namespace, hosted: Any) -> None:
         model=args.model,
         language=args.language,
     )
-    print(json.dumps({"status": "uploaded", "batch_id": batch_id, "paper_id": task.paper_id}, ensure_ascii=False), flush=True)
+    print(json.dumps({"status": "uploaded", "batch_id": batch_id, "source_id": task.source_id}, ensure_ascii=False), flush=True)
     _finish_task(core, task, hosted, timeout=args.timeout, interval=args.poll_interval)
-    print(json.dumps({"status": "done", "batch_id": batch_id, "paper_id": task.paper_id}, ensure_ascii=False))
+    print(json.dumps({"status": "done", "batch_id": batch_id, "source_id": task.source_id}, ensure_ascii=False))
 
 
 def _resume(args: argparse.Namespace, hosted: Any) -> None:
     core = WorkspaceCore(args.workspace)
     task = core.load_parser_task(args.batch_id)
     _finish_task(core, task, hosted, timeout=args.timeout, interval=args.poll_interval)
-    print(json.dumps({"status": "done", "batch_id": args.batch_id, "paper_id": task.paper_id}, ensure_ascii=False))
+    print(json.dumps({"status": "done", "batch_id": args.batch_id, "source_id": task.source_id}, ensure_ascii=False))
 
 
 def _reuse(args: argparse.Namespace, hosted: Any) -> None:
     del hosted
     core = WorkspaceCore(args.workspace)
-    topic_id = core.reuse_paper(
-        args.paper_id,
+    topic_id = core.reuse_source(
+        args.source_id,
         topic_title=args.topic,
         topic_id=args.topic_id,
         existing_topic_id=args.existing_topic_id,
     )
-    print(json.dumps({"status": "reused", "paper_id": args.paper_id, "topic_id": topic_id}, ensure_ascii=False))
+    print(json.dumps({"status": "reused", "source_id": args.source_id, "topic_id": topic_id}, ensure_ascii=False))
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -494,7 +508,7 @@ def _build_parser() -> argparse.ArgumentParser:
     resume.set_defaults(func=_resume)
     reuse = subparsers.add_parser("reuse")
     reuse.add_argument("--workspace", type=Path, required=True)
-    reuse.add_argument("--paper-id", required=True)
+    reuse.add_argument("--source-id", required=True)
     reuse_topic = reuse.add_mutually_exclusive_group(required=True)
     reuse_topic.add_argument("--topic")
     reuse_topic.add_argument("--existing-topic-id")

@@ -30,7 +30,7 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     mapping = subparsers.add_parser("map")
     mapping.add_argument("--workspace", type=Path, required=True)
-    mapping.add_argument("--paper-id", required=True)
+    mapping.add_argument("--source-id", required=True)
     mapping.add_argument("--scope")
     mapping.add_argument("--draft", type=Path)
     mapping.add_argument("--reinitialize", action="store_true")
@@ -42,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
         args = _build_parser().parse_args(argv)
         core = WorkspaceCore(args.workspace)
         result = core.map_reading_plan(
-            args.paper_id,
+            args.source_id,
             draft=_read_draft(args.draft),
             scope=args.scope,
             reinitialize=args.reinitialize,

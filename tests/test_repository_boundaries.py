@@ -30,11 +30,16 @@ class RepositoryBoundaryTests(unittest.TestCase):
             text=True,
         ).stdout.splitlines()
 
-    def test_active_skill_surface_contains_only_four_public_skills(self) -> None:
+    def test_active_skill_surface_contains_only_five_public_skills(self) -> None:
         active = sorted(
             path.parent.name for path in SKILLS.glob("*/SKILL.md") if path.is_file()
         )
-        self.assertEqual(["focus-map", "focus-read", "paper-parser", "paper2blog"], active)
+        self.assertEqual(["article-parser", "focus-map", "focus-read", "paper-parser", "paper2blog"], active)
+
+    def test_article_parser_has_no_publisher_or_capture_adapter(self) -> None:
+        script = (SKILLS / "article-parser" / "scripts" / "article_parser.py").read_text(encoding="utf-8")
+        prohibited = re.compile(r"zhihu|wechat|weixin|mhtml|playwright|selenium|print[-_ ]?pdf", re.IGNORECASE)
+        self.assertIsNone(prohibited.search(script))
 
     def test_private_workspace_root_is_ignored(self) -> None:
         candidate = ROOT / "workspace" / "state.json"

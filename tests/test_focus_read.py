@@ -42,14 +42,14 @@ class FocusReadTests(unittest.TestCase):
 
     def _workspace(self):
         workspace = self.root / "workspace"
-        paper_root = workspace / "papers" / "fixture-paper"
-        bundle = paper_root / "parser-bundle"
-        plan = paper_root / "reading" / "plans" / "plan-001"
+        source_root = workspace / "sources" / "fixture-paper"
+        bundle = source_root / "parser-bundle"
+        plan = source_root / "reading" / "plans" / "plan-001"
         records = plan / "records"
         (bundle / "images").mkdir(parents=True)
         records.mkdir(parents=True)
-        (paper_root / "paper.yaml").write_text(
-            json.dumps({"paper_id": "fixture-paper", "title": "Fixture Paper", "topics": ["systems"]}),
+        (source_root / "source.yaml").write_text(
+            json.dumps({"source_kind": "paper_pdf", "source_id": "fixture-paper", "title": "Fixture Paper", "topics": ["systems"]}),
             encoding="utf-8",
         )
         lines = [
@@ -67,8 +67,8 @@ class FocusReadTests(unittest.TestCase):
             "The array improves throughput.",
         ]
         (bundle / "source.pdf").write_bytes(b"%PDF fixture")
-        (bundle / "paper.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-        (bundle / "metadata.json").write_text('{"parser":"mineru-precision-api"}\n', encoding="utf-8")
+        (bundle / "content.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        (bundle / "metadata.json").write_text('{"source_kind":"paper_pdf","language":"en","parser":"paper-parser","batch_id":"fixture-batch"}\n', encoding="utf-8")
         (bundle / "validation.json").write_text('{"ok":true}\n', encoding="utf-8")
         (bundle / "images" / "image-001.png").write_bytes(b"image")
         chunks = [
@@ -110,13 +110,13 @@ class FocusReadTests(unittest.TestCase):
         (workspace / "state.json").write_text(
             json.dumps(
                 {
-                    "current_paper_id": "fixture-paper",
-                    "papers": {"fixture-paper": {"current_plan_id": "plan-001", "current_chunk_id": "chunk-001"}},
+                    "current_source_id": "fixture-paper",
+                    "sources": {"fixture-paper": {"current_plan_id": "plan-001", "current_chunk_id": "chunk-001"}},
                 }
             ),
             encoding="utf-8",
         )
-        return workspace, paper_root, plan
+        return workspace, source_root, plan
 
     @staticmethod
     def _run(*args):
@@ -156,6 +156,19 @@ class FocusReadTests(unittest.TestCase):
         )
         self.assertNotIn("unused term", json.dumps(chunk, ensure_ascii=False))
         self.assertLess(len(json.dumps(state, ensure_ascii=False)), 300)
+
+    def test_chinese_paper_source_keeps_existing_translation_behavior(self):
+        workspace, source_root, _ = self._workspace()
+        metadata_path = source_root / "parser-bundle" / "metadata.json"
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        metadata["language"] = "zh"
+        metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+        code, chunk = self._run("current", "--workspace", str(workspace))
+
+        self.assertEqual(0, code)
+        self.assertEqual("translation_required", chunk["status"])
+        self.assertIsNone(chunk["translation"])
 
     def test_translation_and_notes_change_only_the_current_reading_record(self):
         workspace, _, plan = self._workspace()
@@ -272,7 +285,7 @@ class FocusReadTests(unittest.TestCase):
 
         self.assertEqual("reading_cursor_write_failed", caught.exception.error_id)
         state = json.loads((workspace / "state.json").read_text(encoding="utf-8"))
-        self.assertEqual("chunk-001", state["papers"]["fixture-paper"]["current_chunk_id"])
+        self.assertEqual("chunk-001", state["sources"]["fixture-paper"]["current_chunk_id"])
         saved = json.loads((plan / "records" / "chunk-001.json").read_text(encoding="utf-8"))
         self.assertEqual(pending, saved["notes"])
 
@@ -339,37 +352,37 @@ class FocusReadTests(unittest.TestCase):
             current["relevant_glossary"],
         )
 
-        other_root = workspace / "papers" / "other-paper"
+        other_root = workspace / "sources" / "other-paper"
         other_bundle = other_root / "parser-bundle"
         (other_bundle / "images").mkdir(parents=True)
         (other_bundle / "source.pdf").write_bytes(b"%PDF fixture")
-        (other_bundle / "paper.md").write_text("# Other\n", encoding="utf-8")
-        (other_bundle / "metadata.json").write_text('{"parser":"mineru-precision-api"}\n', encoding="utf-8")
+        (other_bundle / "content.md").write_text("# Other\n", encoding="utf-8")
+        (other_bundle / "metadata.json").write_text('{"source_kind":"paper_pdf","language":"en","parser":"paper-parser","batch_id":"fixture-batch"}\n', encoding="utf-8")
         (other_bundle / "validation.json").write_text('{"ok":true}\n', encoding="utf-8")
-        (other_root / "paper.yaml").write_text(
-            json.dumps({"paper_id": "other-paper", "title": "Other", "topics": []}),
+        (other_root / "source.yaml").write_text(
+            json.dumps({"source_kind": "paper_pdf", "source_id": "other-paper", "title": "Other", "topics": []}),
             encoding="utf-8",
         )
         state_path = workspace / "state.json"
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        original_cursor = dict(state["papers"]["fixture-paper"])
-        state["papers"]["other-paper"] = {"current_plan_id": None, "current_chunk_id": None}
+        original_cursor = dict(state["sources"]["fixture-paper"])
+        state["sources"]["other-paper"] = {"current_plan_id": None, "current_chunk_id": None}
         state_path.write_text(json.dumps(state), encoding="utf-8")
 
         code, switched = self._run(
-            "switch", "--workspace", str(workspace), "--paper-id", "other-paper"
+            "switch", "--workspace", str(workspace), "--source-id", "other-paper"
         )
         self.assertEqual(0, code)
-        self.assertEqual("other-paper", switched["paper_id"])
+        self.assertEqual("other-paper", switched["source_id"])
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        self.assertEqual("other-paper", state["current_paper_id"])
-        self.assertEqual(original_cursor, state["papers"]["fixture-paper"])
+        self.assertEqual("other-paper", state["current_source_id"])
+        self.assertEqual(original_cursor, state["sources"]["fixture-paper"])
 
     def test_final_continue_completes_plan_and_old_receipt_cannot_restart_it(self):
         workspace, _, _ = self._workspace()
         state_path = workspace / "state.json"
         state = json.loads(state_path.read_text(encoding="utf-8"))
-        state["papers"]["fixture-paper"]["current_chunk_id"] = "chunk-003"
+        state["sources"]["fixture-paper"]["current_chunk_id"] = "chunk-003"
         state_path.write_text(json.dumps(state), encoding="utf-8")
 
         code, completed = self._run(

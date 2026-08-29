@@ -1,19 +1,19 @@
 ---
 name: focus-read
-description: Read and translate the current FOCUS Reading Chunk, answer connected questions, search the Paper, save compact Reading Notes, or advance the Reading Cursor.
+description: Read the current FOCUS Reading Chunk, translate when applicable, answer connected questions, search the Reading Source, save compact Reading Notes, or advance the Reading Cursor.
 ---
 
 # Focus Read
 
 Use one natural conversation for reading and explanation. There is no Guide or Explain mode and no FOCUS chat archive. The host conversation carries the dialogue; the Workspace stores only the fixed Reading Plan, Cursor State, cached translation, glossary, and compact per-Chunk Reading Notes.
 
-Resolve `scripts/focus_read.py` relative to this skill directory. At the start of a new conversation, after an explicit restore, or after switching Paper, read the small persisted receipt once:
+Resolve `scripts/focus_read.py` relative to this skill directory. At the start of a new conversation, after an explicit restore, or after switching Reading Source, read the small persisted receipt once:
 
 ```powershell
 python -B -X utf8 scripts/focus_read.py state --workspace <workspace>
 ```
 
-Use the latest returned `paper_id`, `plan_id`, and `chunk_id` as the conversation's hot Cursor receipt. Do not repeatedly reload state during an uninterrupted exchange.
+Use the latest returned `source_id`, `plan_id`, and `chunk_id` as the conversation's hot Cursor receipt. Do not repeatedly reload state during an uninterrupted exchange.
 
 ## Read the current Chunk
 
@@ -21,11 +21,11 @@ Use the latest returned `paper_id`, `plan_id`, and `chunk_id` as the conversatio
 python -B -X utf8 scripts/focus_read.py current --workspace <workspace>
 ```
 
-Present the source location, faithful Chinese translation, and bound images with their original captions. If `status=translation_required`, translate only the returned `source_text`, applying `relevant_glossary`, then cache it with `retranslate` using the returned Plan and Chunk IDs. Do not add an unsolicited summary, key-point list, diagram, image-mechanism explanation, or importance judgment.
+Present the source location and bound images with their original captions. If `status=translation_required`, translate only the returned `source_text`, applying `relevant_glossary`, then cache it with `retranslate` using the returned Plan and Chunk IDs. If `status=source_ready`, display the Chinese `source_text` directly; do not call `retranslate`, and keep `translation=null`. Do not add an unsolicited summary, key-point list, diagram, image-mechanism explanation, or importance judgment.
 
 The current Chunk is the default evidence. For a question, first identify the actual distinction the reader needs, then answer directly at their level. Use the smallest concrete example that preserves the mechanism. Add a diagram only when three or more relationships would otherwise be hard to follow. Distinguish current source evidence, documented intent, inference, and missing evidence; do not blend them. If reliable support is missing, say so instead of guessing.
 
-Follow-up questions, alternative explanations, examples, Paper search, external first-party research, and side tasks never move the Cursor. Prefer inference from the conversation over asking the reader to restate context. End long explanations with direct answers to the reader's explicit questions; stop once those answers are usable.
+Follow-up questions, alternative explanations, examples, Reading Source search, external first-party research, and side tasks never move the Cursor. Prefer inference from the conversation over asking the reader to restate context. End long explanations with direct answers to the reader's explicit questions; stop once those answers are usable.
 
 ## Search without flooding context
 
@@ -36,7 +36,7 @@ python -B -X utf8 scripts/focus_read.py search --workspace <workspace> --query <
 python -B -X utf8 scripts/focus_read.py read-range --workspace <workspace> --start <line> --end <line>
 ```
 
-Do not treat a search hit as proof. Check the selected source range and relevant figure or caption before making a Paper-specific claim. External research stays in the host conversation and is not persisted by FOCUS.
+Do not treat a search hit as proof. Check the selected source range and relevant figure or caption before making a Source-specific claim. External research stays in the host conversation and is not persisted by FOCUS.
 
 ## Save only distilled reading value
 

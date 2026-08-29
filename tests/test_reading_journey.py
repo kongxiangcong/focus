@@ -43,27 +43,27 @@ class ReadingJourneyTests(unittest.TestCase):
 
     def _workspace(self):
         workspace = self.root / "workspace"
-        paper_root = workspace / "papers" / "journey-paper"
-        bundle = paper_root / "parser-bundle"
+        source_root = workspace / "sources" / "journey-paper"
+        bundle = source_root / "parser-bundle"
         (bundle / "images").mkdir(parents=True)
-        (paper_root / "paper.yaml").write_text(
-            json.dumps({"paper_id": "journey-paper", "title": "Journey Paper", "topics": ["systems"]}),
+        (source_root / "source.yaml").write_text(
+            json.dumps({"source_kind": "paper_pdf", "source_id": "journey-paper", "title": "Journey Paper", "topics": ["systems"]}),
             encoding="utf-8",
         )
         (bundle / "source.pdf").write_bytes(b"%PDF fixture")
-        (bundle / "paper.md").write_text(
+        (bundle / "content.md").write_text(
             "# Journey Paper\n\n## Compile Time\nThe compiler emits relocation metadata.\n\n"
             "## Runtime\nThe loader resolves the final address.\n\n"
             "## Result\nThe program uses the resolved address.\n",
             encoding="utf-8",
         )
-        (bundle / "metadata.json").write_text('{"parser":"mineru-precision-api"}\n', encoding="utf-8")
+        (bundle / "metadata.json").write_text('{"source_kind":"paper_pdf","language":"en","parser":"paper-parser","batch_id":"fixture-batch"}\n', encoding="utf-8")
         (bundle / "validation.json").write_text('{"ok":true}\n', encoding="utf-8")
         (workspace / "state.json").write_text(
             json.dumps(
                 {
-                    "current_paper_id": "journey-paper",
-                    "papers": {"journey-paper": {"current_plan_id": None, "current_chunk_id": None}},
+                    "current_source_id": "journey-paper",
+                    "sources": {"journey-paper": {"current_plan_id": None, "current_chunk_id": None}},
                 }
             ),
             encoding="utf-8",
@@ -95,7 +95,7 @@ class ReadingJourneyTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        return workspace, paper_root, draft
+        return workspace, source_root, draft
 
     @staticmethod
     def _run(module, args):
@@ -106,14 +106,14 @@ class ReadingJourneyTests(unittest.TestCase):
         return code, json.loads(stdout.getvalue() or stderr.getvalue())
 
     def test_map_read_question_search_note_continue_and_restore_share_one_cursor(self):
-        workspace, paper_root, draft = self._workspace()
+        workspace, source_root, draft = self._workspace()
         code, mapped = self._run(
             FOCUS_MAP,
             [
                 "map",
                 "--workspace",
                 str(workspace),
-                "--paper-id",
+                "--source-id",
                 "journey-paper",
                 "--draft",
                 str(draft),
@@ -192,7 +192,7 @@ class ReadingJourneyTests(unittest.TestCase):
         self.assertEqual(0, code)
         self.assertEqual("note_saved", saved["status"])
 
-        chunks_path = paper_root / "reading" / "plans" / "plan-001" / "chunks.jsonl"
+        chunks_path = source_root / "reading" / "plans" / "plan-001" / "chunks.jsonl"
         chunks_before_continue = chunks_path.read_bytes()
         code, advanced = self._run(
             FOCUS_READ,
@@ -220,11 +220,11 @@ class ReadingJourneyTests(unittest.TestCase):
         self.assertNotIn("编译器保留重定位信息", json.dumps(next_chunk, ensure_ascii=False))
 
     def test_read_requires_plan_but_never_creates_a_parallel_session(self):
-        workspace, paper_root, _ = self._workspace()
+        workspace, source_root, _ = self._workspace()
         code, error = self._run(FOCUS_READ, ["state", "--workspace", str(workspace)])
         self.assertEqual(1, code)
         self.assertEqual("reading_plan_missing", error["error_id"])
-        self.assertFalse((paper_root / "reading").exists())
+        self.assertFalse((source_root / "reading").exists())
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@
 
 Keep these artifacts distinct:
 
-1. Parser interface: validated `paper.md`, sequential `images/`, `metadata.json`, and `validation.json` from `paper-parser`. `source.pdf` is not a paper2blog dependency.
+1. Parser interface: validated `content.md`, sequential `images/`, `metadata.json`, and `validation.json` from `paper-parser`. `source.pdf` is not a paper2blog dependency.
 2. Parsed-evidence check: compare material formulas, figures, tables, captions, and surrounding prose within that interface before using them.
 3. Evidence map: claims and writing decisions anchored to observable parsed paper evidence.
 4. Blog: a reader-oriented causal explanation in `blog.md` with a matching final `blog.html`.

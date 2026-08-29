@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read, search, annotate, and advance the current FOCUS Paper."""
+"""Read, search, annotate, and advance the current FOCUS Reading Source."""
 
 from __future__ import annotations
 
@@ -84,7 +84,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     switching = commands.add_parser("switch")
     switching.add_argument("--workspace", type=Path, required=True)
-    switching.add_argument("--paper-id", required=True)
+    switching.add_argument("--source-id", required=True)
     return parser
 
 
@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None) -> int:
                 limit=args.limit,
             )
         elif args.command == "search":
-            result = core.search_paper(query=args.query, limit=args.limit)
+            result = core.search_source(query=args.query, limit=args.limit)
         elif args.command == "read-range":
             result = core.read_source_range(start=args.start, end=args.end)
         elif args.command == "update-glossary":
@@ -145,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
                 ),
             )
         else:
-            result = core.switch_paper(args.paper_id)
+            result = core.switch_source(args.source_id)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (WorkspaceError, OSError) as exc:

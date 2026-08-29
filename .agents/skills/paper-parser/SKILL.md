@@ -42,18 +42,18 @@ Do not treat upload or task creation as parse success. Completion requires a `do
 Require these outputs:
 
 - `source.pdf`: byte-identical input copy;
-- `paper.md`: non-empty MinerU `full.md` projection whose local image links point into `images/`;
-- `images/`: only images referenced by `paper.md`, renamed `image-001.*`, `image-002.*`, and so on by first-reference order;
+- `content.md`: non-empty MinerU `full.md` projection whose local image links point into `images/`;
+- `images/`: only images referenced by `content.md`, renamed `image-001.*`, `image-002.*`, and so on by first-reference order;
 - `metadata.json`: parser/API provenance and the non-secret batch reference, without credentials, signed URLs, or content hashes;
 - `validation.json`: machine-readable checks and warnings.
 
 The MinerU ZIP and extracted raw tree are transient and must be discarded after normalization. Never infer authors, venue, claims, or scientific correctness from file names. A structural pass is only permission for a semantic module to spot-check `source.pdf`; it is not proof that reading order, equations, tables, or figures are correct.
 
-For FOCUS, install the single `parser-bundle/` directly inside a new Paper and register the Paper, Topic membership, and its empty entry in `state.json` only after structural validation succeeds. A repeated parse allocates the next readable Paper ID; reuse an existing Paper only with the explicit `reuse --paper-id ...` operation. Preserve the non-secret task reference for resume, but discard incomplete staging. Parser operations own only Parser Bundle and registration artifacts and leave Reading Plans, Glossaries, and Reading Records unchanged.
+For FOCUS, install the common `parser-bundle/` directly inside a new `paper_pdf` Reading Source and register the Source, Topic membership, and its empty entry in `state.json` only after structural validation succeeds. A repeated parse allocates the next readable Source ID; reuse an existing Paper Source only with the explicit `reuse --source-id ...` operation. Preserve the non-secret task reference for resume, but discard incomplete staging. Parser operations own only Parser Bundle and registration artifacts and leave Reading Plans, Glossaries, and Reading Records unchanged.
 
 To add an already registered Paper to another Topic without uploading or parsing again:
 
 ```powershell
 python -B -X utf8 scripts/mineru_precision.py reuse `
-  --workspace <workspace> --paper-id <paper-id> --topic "<topic title>"
+  --workspace <workspace> --source-id <source-id> --topic "<topic title>"
 ```

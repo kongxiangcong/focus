@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from core import WorkspaceError, validate_paper_id
+from core import WorkspaceError, validate_source_id
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".jp2"}
 PLACEHOLDERS = ("待补", "TODO", "TBD", "<your-", "问题 1：……", "贡献 1：")
@@ -48,26 +48,26 @@ def _retarget_parser_images(markdown: str) -> str:
 
 def _prepare(input_dir: Path, output: Path) -> dict:
     input_dir = input_dir.resolve()
-    required = [input_dir / "paper.md", input_dir / "metadata.json", input_dir / "validation.json", input_dir / "images"]
+    required = [input_dir / "content.md", input_dir / "metadata.json", input_dir / "validation.json", input_dir / "images"]
     missing = [path.name for path in required if not path.exists()]
     if missing:
         raise BlogError(f"Parser bundle is missing: {', '.join(missing)}")
     metadata = _read_json(input_dir / "metadata.json")
     validation = _read_json(input_dir / "validation.json")
-    if metadata.get("parser") != "mineru-precision-api":
+    if metadata.get("source_kind") != "paper_pdf" or metadata.get("parser") != "paper-parser":
         raise BlogError("metadata.json is not from paper-parser")
     if validation.get("ok") is not True:
         raise BlogError("paper-parser validation did not pass")
     if output.exists() and any(output.iterdir()):
         raise BlogError(f"Output directory is not empty: {output}")
     output.mkdir(parents=True, exist_ok=True)
-    paper = (input_dir / "paper.md").read_text(encoding="utf-8", errors="replace")
-    (output / "paper.md").write_text(_retarget_parser_images(paper), encoding="utf-8")
+    paper = (input_dir / "content.md").read_text(encoding="utf-8", errors="replace")
+    (output / "content.md").write_text(_retarget_parser_images(paper), encoding="utf-8")
     shutil.copy2(input_dir / "metadata.json", output / "metadata.json")
     assets = output / "assets"
     shutil.copytree(input_dir / "images", assets, dirs_exist_ok=True)
     headings = []
-    for line in (output / "paper.md").read_text(encoding="utf-8", errors="replace").splitlines():
+    for line in (output / "content.md").read_text(encoding="utf-8", errors="replace").splitlines():
         match = re.match(r"^#{1,4}\s+(.+?)\s*$", line)
         if match:
             headings.append(match.group(1))
@@ -120,36 +120,42 @@ def _prepare(input_dir: Path, output: Path) -> dict:
     return {"ok": True, "output": str(output.resolve()), "headings": len(headings), "assets": len(image_names), "metadata_keys": sorted(metadata)}
 
 
-def _prepare_registered(workspace: Path, paper_id: str) -> dict:
+def _prepare_registered(workspace: Path, source_id: str) -> dict:
     workspace = workspace.resolve()
     if not workspace.is_dir():
         raise BlogError("workspace_missing", "Workspace does not exist")
     try:
-        paper_id = validate_paper_id(paper_id)
+        source_id = validate_source_id(source_id)
     except WorkspaceError as exc:
         raise BlogError("paper_invalid", "Paper ID is invalid") from exc
-    paper_root = workspace / "papers" / paper_id
-    paper_path = paper_root / "paper.yaml"
-    if not paper_path.is_file():
-        raise BlogError("paper_missing", f"Paper does not exist: {paper_id}")
-    paper = _read_json(paper_path)
-    if paper.get("paper_id") != paper_id:
-        raise BlogError("paper_invalid", f"Paper is invalid: {paper_id}")
-    bundle = paper_root / "parser-bundle"
+    source_root = workspace / "sources" / source_id
+    source_path = source_root / "source.yaml"
+    if not source_path.is_file():
+        raise BlogError("paper_missing", f"Paper does not exist: {source_id}")
+    source = _read_json(source_path)
+    if source.get("source_id") != source_id:
+        raise BlogError("paper_invalid", f"Paper is invalid: {source_id}")
+    if source.get("source_kind") != "paper_pdf":
+        raise BlogError("source_kind_unsupported", "paper2blog supports only paper_pdf Reading Sources")
+    bundle = source_root / "parser-bundle"
     if not bundle.is_dir():
-        raise BlogError("parser_bundle_missing", f"Parser Bundle does not exist: {paper_id}")
+        raise BlogError("parser_bundle_missing", f"Parser Bundle does not exist: {source_id}")
     try:
         metadata = _read_json(bundle / "metadata.json")
         validation = _read_json(bundle / "validation.json")
     except BlogError as exc:
         raise BlogError("parser_bundle_invalid", str(exc)) from exc
-    if metadata.get("parser") != "mineru-precision-api" or validation.get("ok") is not True:
-        raise BlogError("parser_bundle_invalid", f"Parser Bundle is invalid: {paper_id}")
+    if (
+        metadata.get("source_kind") != "paper_pdf"
+        or metadata.get("parser") != "paper-parser"
+        or validation.get("ok") is not True
+    ):
+        raise BlogError("parser_bundle_invalid", f"Parser Bundle is invalid: {source_id}")
 
-    output = paper_root / "blog"
+    output = source_root / "blog"
     if output.exists():
-        raise BlogError("blog_output_exists", f"Blog Output already exists: {paper_id}")
-    staging = paper_root / f".blog-{uuid.uuid4().hex}.staging"
+        raise BlogError("blog_output_exists", f"Blog Output already exists: {source_id}")
+    staging = source_root / f".blog-{uuid.uuid4().hex}.staging"
     try:
         result = _prepare(bundle, staging)
         staging.replace(output)
@@ -157,7 +163,7 @@ def _prepare_registered(workspace: Path, paper_id: str) -> dict:
         shutil.rmtree(staging, ignore_errors=True)
         raise
     result["output"] = str(output.resolve())
-    result["paper_id"] = paper_id
+    result["source_id"] = source_id
     return result
 
 
@@ -298,7 +304,7 @@ def _check(workspace: Path, *, require_html: bool = True) -> dict:
     asset_count = sum(1 for path in (workspace / "assets").rglob("*") if path.is_file()) if (workspace / "assets").exists() else 0
     if asset_count and not any(link.startswith("assets/") for link in local_links):
         warnings.append("Extracted figures exist but blog.md references none of them")
-    paper_chars = len((workspace / "paper.md").read_text(encoding="utf-8", errors="replace")) if (workspace / "paper.md").is_file() else 0
+    paper_chars = len((workspace / "content.md").read_text(encoding="utf-8", errors="replace")) if (workspace / "content.md").is_file() else 0
     if blog and paper_chars and len(blog) < paper_chars * 0.05:
         warnings.append("The blog is under 5% of parsed paper length; check depth")
     html_chars = 0
@@ -336,7 +342,7 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     prepare = subparsers.add_parser("prepare")
     prepare.add_argument("--workspace", type=Path, required=True)
-    prepare.add_argument("--paper-id", required=True)
+    prepare.add_argument("--source-id", required=True)
     check = subparsers.add_parser("check")
     check.add_argument("workspace", type=Path)
     render = subparsers.add_parser("render")
@@ -348,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = _build_parser().parse_args(argv)
         if args.command == "prepare":
-            result = _prepare_registered(args.workspace, args.paper_id)
+            result = _prepare_registered(args.workspace, args.source_id)
         elif args.command == "render":
             result = _render(args.workspace)
         else:
