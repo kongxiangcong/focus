@@ -17,7 +17,14 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "paper-parser" / "scripts"))
 
-from core import ArticleParserTask, WorkspaceCore, WorkspaceError, validate_topic_id
+from core import (
+    ArticleParserTask,
+    SourceLibrary,
+    WorkspaceCore,
+    WorkspaceError,
+    canonical_article_url,
+    validate_topic_id,
+)
 from mineru_precision import (
     BASE_URL,
     ParserError,
@@ -55,10 +62,12 @@ def _article_url(value: str) -> str:
     return value
 
 
-def _validate_registration(title: str, topic: str, topic_id: str | None) -> None:
-    if not title.strip():
+def _validate_registration(title: str | None, short_name: str | None, topic: str | None, topic_id: str | None) -> None:
+    if title is not None and not title.strip():
         raise WorkspaceError("source_title_invalid", "Reading Source title is empty or invalid")
-    if not topic.strip():
+    if short_name is not None and not short_name.strip():
+        raise WorkspaceError("source_short_name_invalid", "Source Short Name is empty or invalid")
+    if topic is not None and not topic.strip():
         raise WorkspaceError("topic_invalid", "Topic title is empty or invalid")
     if topic_id is not None:
         validate_topic_id(topic_id)
@@ -225,7 +234,7 @@ class MinerUHTMLHostedParser:
             shutil.rmtree(transfer_root, ignore_errors=True)
 
 
-def _finish(core: WorkspaceCore, task: ArticleParserTask, hosted: Any, timeout: float, interval: float) -> None:
+def _finish(core: WorkspaceCore, task: ArticleParserTask, hosted: Any, timeout: float, interval: float) -> dict[str, Any]:
     staging = core.prepare_parser_bundle(task)
     try:
         hosted.complete(
@@ -235,7 +244,7 @@ def _finish(core: WorkspaceCore, task: ArticleParserTask, hosted: Any, timeout: 
             timeout=timeout,
             interval=interval,
         )
-        core.install_parser_bundle(task, staging)
+        return core.install_parser_bundle(task, staging)
     except Exception as exc:
         core.discard_parser_bundle(task)
         if isinstance(exc, ArticleParserError) and not exc.recoverable:
@@ -245,14 +254,18 @@ def _finish(core: WorkspaceCore, task: ArticleParserTask, hosted: Any, timeout: 
 
 def _parse_url(args: argparse.Namespace, hosted: Any) -> None:
     url = _article_url(args.url)
-    if not args.authorize_cloud_fetch:
-        raise WorkspaceError(
-            "cloud_fetch_authorization_required", "Explicit MinerU cloud-fetch authorization is required"
-        )
     core = WorkspaceCore(args.workspace)
-    url_name = PurePosixPath(urllib.parse.unquote(urllib.parse.urlsplit(url).path)).name
-    title = args.title or Path(url_name).stem or "article"
-    _validate_registration(title, args.topic, args.topic_id)
+    _validate_registration(args.title, args.short_name, args.topic, args.topic_id)
+    identity = "url:" + canonical_article_url(url)
+    existing = SourceLibrary(args.workspace).find(identity)
+    if existing is not None:
+        topic_id = None
+        if args.topic is not None or args.topic_id is not None:
+            topic_id = SourceLibrary(args.workspace).attach(
+                existing["source_id"], topic_title=args.topic, topic_id=args.topic_id
+            )
+        print(json.dumps({"status": "reused", "source_id": existing["source_id"], "topic_id": topic_id}, ensure_ascii=False))
+        return
     try:
         reference_kind, reference_id = hosted.start_url(url)
     except ParserError as exc:
@@ -263,50 +276,58 @@ def _parse_url(args: argparse.Namespace, hosted: Any) -> None:
     task = core.create_article_parser_task(
         reference_id,
         reference_kind,
-        title=title,
+        title=args.title or "",
+        short_name=args.short_name or "",
         topic_title=args.topic,
         topic_id=args.topic_id,
+        published_at=args.published_at,
         source_url=url,
         local_html=None,
     )
-    print(json.dumps({"status": "submitted", reference_kind: reference_id, "source_id": task.source_id}, ensure_ascii=False), flush=True)
-    _finish(core, task, hosted, args.timeout, args.poll_interval)
-    print(json.dumps({"status": "done", reference_kind: reference_id, "source_id": task.source_id}, ensure_ascii=False))
+    print(json.dumps({"status": "submitted", reference_kind: reference_id}, ensure_ascii=False), flush=True)
+    result = _finish(core, task, hosted, args.timeout, args.poll_interval)
+    print(json.dumps({**result, "status": "done", reference_kind: reference_id}, ensure_ascii=False))
 
 
 def _parse_file(args: argparse.Namespace, hosted: Any) -> None:
     source = args.source.resolve()
     if not source.is_file() or source.suffix.lower() != ".html":
         raise ArticleParserError("Source must be an existing .html file", "source_html_missing")
-    if not args.authorize_upload:
-        raise WorkspaceError(
-            "upload_authorization_required", "Explicit MinerU upload authorization is required for this HTML file"
-        )
     core = WorkspaceCore(args.workspace)
-    title = args.title or source.stem
-    _validate_registration(title, args.topic, args.topic_id)
+    _validate_registration(args.title, args.short_name, args.topic, args.topic_id)
+    existing = SourceLibrary(args.workspace).find_original(source, source_kind="article_html")
+    if existing is not None:
+        topic_id = None
+        if args.topic is not None or args.topic_id is not None:
+            topic_id = SourceLibrary(args.workspace).attach(
+                existing["source_id"], topic_title=args.topic, topic_id=args.topic_id
+            )
+        print(json.dumps({"status": "reused", "source_id": existing["source_id"], "topic_id": topic_id}, ensure_ascii=False))
+        return
     reference_kind, reference_id = hosted.start_file(source)
     task = core.create_article_parser_task(
         reference_id,
         reference_kind,
-        title=title,
+        title=args.title or "",
+        short_name=args.short_name or "",
         topic_title=args.topic,
         topic_id=args.topic_id,
+        published_at=args.published_at,
         source_url="",
         local_html=source,
     )
-    print(json.dumps({"status": "uploaded", reference_kind: reference_id, "source_id": task.source_id}, ensure_ascii=False), flush=True)
-    _finish(core, task, hosted, args.timeout, args.poll_interval)
-    print(json.dumps({"status": "done", reference_kind: reference_id, "source_id": task.source_id}, ensure_ascii=False))
+    print(json.dumps({"status": "uploaded", reference_kind: reference_id}, ensure_ascii=False), flush=True)
+    result = _finish(core, task, hosted, args.timeout, args.poll_interval)
+    print(json.dumps({**result, "status": "done", reference_kind: reference_id}, ensure_ascii=False))
 
 
 def _resume(args: argparse.Namespace, hosted: Any) -> None:
     core = WorkspaceCore(args.workspace)
     task = core.load_article_parser_task(args.reference_id)
-    _finish(core, task, hosted, args.timeout, args.poll_interval)
+    result = _finish(core, task, hosted, args.timeout, args.poll_interval)
     print(
         json.dumps(
-            {"status": "done", task.reference_kind: task.reference_id, "source_id": task.source_id},
+            {**result, "status": "done", task.reference_kind: task.reference_id},
             ensure_ascii=False,
         )
     )
@@ -318,17 +339,17 @@ def _build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--workspace", type=Path, required=True)
     common.add_argument("--title")
-    common.add_argument("--topic", required=True)
+    common.add_argument("--short-name")
+    common.add_argument("--topic")
     common.add_argument("--topic-id")
+    common.add_argument("--published-at")
     common.add_argument("--timeout", type=float, default=1800.0)
     common.add_argument("--poll-interval", type=float, default=5.0)
     parse_url = commands.add_parser("parse-url", parents=[common])
     parse_url.add_argument("url")
-    parse_url.add_argument("--authorize-cloud-fetch", action="store_true")
     parse_url.set_defaults(func=_parse_url)
     parse_file = commands.add_parser("parse-file", parents=[common])
     parse_file.add_argument("source", type=Path)
-    parse_file.add_argument("--authorize-upload", action="store_true")
     parse_file.set_defaults(func=_parse_file)
     resume = commands.add_parser("resume")
     resume.add_argument("reference_id")

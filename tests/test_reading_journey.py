@@ -8,6 +8,7 @@ import shutil
 import unittest
 import uuid
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +36,7 @@ class ReadingJourneyTests(unittest.TestCase):
     def setUp(self):
         test_runs = ROOT / "tmp" / "test-runs"
         test_runs.mkdir(parents=True, exist_ok=True)
-        self.root = test_runs / f"reading-journey-{uuid.uuid4().hex}"
+        self.root = test_runs / f"r-{uuid.uuid4().hex[:8]}"
         self.root.mkdir()
 
     def tearDown(self):
@@ -47,7 +48,7 @@ class ReadingJourneyTests(unittest.TestCase):
         bundle = source_root / "parser-bundle"
         (bundle / "images").mkdir(parents=True)
         (source_root / "source.yaml").write_text(
-            json.dumps({"source_kind": "paper_pdf", "source_id": "journey-paper", "title": "Journey Paper", "topics": ["systems"]}),
+            json.dumps({"source_kind": "paper_pdf", "source_id": "journey-paper", "title": "Journey Paper", "short_name": "journey", "identity": "fixture:journey"}),
             encoding="utf-8",
         )
         (bundle / "source.pdf").write_bytes(b"%PDF fixture")
@@ -63,14 +64,13 @@ class ReadingJourneyTests(unittest.TestCase):
             json.dumps(
                 {
                     "current_source_id": "journey-paper",
+                    "current_topic_id": None,
                     "sources": {"journey-paper": {"current_plan_id": None, "current_chunk_id": None}},
                 }
             ),
             encoding="utf-8",
         )
-        draft = self.root / "draft.json"
-        draft.write_text(
-            json.dumps(
+        draft = json.dumps(
                 {
                     "chunks": [
                         {
@@ -92,16 +92,14 @@ class ReadingJourneyTests(unittest.TestCase):
                     "glossary": [["relocation", "重定位"], ["loader", "加载器"]],
                 },
                 ensure_ascii=False,
-            ),
-            encoding="utf-8",
         )
         return workspace, source_root, draft
 
     @staticmethod
-    def _run(module, args):
+    def _run(module, args, stdin: str = ""):
         stdout = io.StringIO()
         stderr = io.StringIO()
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr), mock.patch("sys.stdin", io.StringIO(stdin)):
             code = module.main(args)
         return code, json.loads(stdout.getvalue() or stderr.getvalue())
 
@@ -115,9 +113,8 @@ class ReadingJourneyTests(unittest.TestCase):
                 str(workspace),
                 "--source-id",
                 "journey-paper",
-                "--draft",
-                str(draft),
             ],
+            draft,
         )
         self.assertEqual(0, code)
         self.assertEqual(("plan-001", "chunk-001"), (mapped["plan_id"], mapped["chunk_id"]))

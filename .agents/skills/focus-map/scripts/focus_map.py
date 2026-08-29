@@ -13,11 +13,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from core import WorkspaceCore, WorkspaceError
 
 
-def _read_draft(path: Path | None) -> dict | None:
-    if path is None:
+def _read_draft() -> dict | None:
+    if sys.stdin.isatty():
         return None
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        raw = sys.stdin.read()
+        if not raw.strip():
+            return None
+        value = json.loads(raw)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise WorkspaceError("reading_plan_input_invalid", "Reading Plan draft is invalid") from exc
     if not isinstance(value, dict):
@@ -32,7 +35,6 @@ def _build_parser() -> argparse.ArgumentParser:
     mapping.add_argument("--workspace", type=Path, required=True)
     mapping.add_argument("--source-id", required=True)
     mapping.add_argument("--scope")
-    mapping.add_argument("--draft", type=Path)
     mapping.add_argument("--reinitialize", action="store_true")
     return parser
 
@@ -43,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
         core = WorkspaceCore(args.workspace)
         result = core.map_reading_plan(
             args.source_id,
-            draft=_read_draft(args.draft),
+            draft=_read_draft(),
             scope=args.scope,
             reinitialize=args.reinitialize,
         )

@@ -37,11 +37,14 @@ class WorkspaceError(RuntimeError):
 @dataclass(frozen=True)
 class ParserTask:
     batch_id: str
-    source_id: str
     source_kind: str
     title: str
-    topic_id: str
-    topic_title: str
+    fallback_title: str
+    short_name: str
+    identity: str
+    topic_id: str | None
+    topic_title: str | None
+    published_at: str | None
     model: str
     language: str
 
@@ -50,11 +53,14 @@ class ParserTask:
 class ArticleParserTask:
     reference_id: str
     reference_kind: str
-    source_id: str
     source_kind: str
     title: str
-    topic_id: str
-    topic_title: str
+    fallback_title: str
+    short_name: str
+    identity: str
+    topic_id: str | None
+    topic_title: str | None
+    published_at: str | None
     model: str
     language: str
     source_url: str
@@ -101,29 +107,6 @@ def _replace_text(path: Path, value: str) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def _prepare_membership(
-    topic: dict[str, Any],
-    state: dict[str, Any],
-    *,
-    source_id: str,
-    initialize_pointer: bool,
-) -> None:
-    topic_sources = topic.get("sources")
-    if not isinstance(topic_sources, list):
-        raise WorkspaceError("topic_invalid", "Topic is invalid")
-    if source_id not in topic_sources:
-        topic_sources.append(source_id)
-    source_states = state.get("sources")
-    if not isinstance(source_states, dict):
-        raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
-    empty_state = {"current_plan_id": None, "current_chunk_id": None}
-    if initialize_pointer:
-        source_states[source_id] = empty_state
-    else:
-        source_states.setdefault(source_id, empty_state)
-    state["current_source_id"] = source_id
-
-
 def _current_source_state(
     workspace: Path,
 ) -> tuple[Path, dict[str, Any], dict[str, Any], str, Path]:
@@ -133,7 +116,7 @@ def _current_source_state(
     source_states = state.get("sources")
     if not isinstance(source_id, str) or not isinstance(source_states, dict):
         raise WorkspaceError("source_missing", "No current Reading Source is selected")
-    source_id = _identifier(source_id, "source_id")
+    source_id = validate_source_id(source_id)
     source_state = source_states.get(source_id)
     if not isinstance(source_state, dict) or set(source_state) != {
         "current_plan_id",
@@ -141,30 +124,6 @@ def _current_source_state(
     }:
         raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
     return state_path, state, source_state, source_id, workspace / "sources" / source_id
-
-
-def _commit_documents(
-    documents: dict[Path, dict[str, Any]],
-    *,
-    staged_bundle: tuple[Path, Path] | None = None,
-) -> None:
-    snapshots = {path: path.read_bytes() if path.is_file() else None for path in documents}
-    installed = False
-    try:
-        if staged_bundle:
-            staging, bundle = staged_bundle
-            staging.replace(bundle)
-            installed = True
-        for path, value in documents.items():
-            _write_document(path, value)
-    except Exception:
-        for path, snapshot in snapshots.items():
-            _restore(path, snapshot)
-        if installed and staged_bundle:
-            staging, bundle = staged_bundle
-            if bundle.exists():
-                bundle.replace(staging)
-        raise
 
 
 def _slug(value: str, fallback: str) -> str:
@@ -192,7 +151,16 @@ def _identifier(value: str, kind: str) -> str:
 
 def validate_source_id(value: str) -> str:
     """Validate and return one public Source ID."""
-    return _identifier(value, "source_id")
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip(" .")
+        or len(value) > 180
+        or any(ord(character) < 32 or character in '<>:"/\\|?*' for character in value)
+        or not (value.endswith("-paper") or value.endswith("-article"))
+    ):
+        raise WorkspaceError("source_id_invalid", "Source Id is invalid")
+    return value
 
 
 def validate_topic_id(value: str) -> str:
@@ -607,39 +575,16 @@ class WorkspaceCore:
     def _task_root(self, reference_id: str) -> Path:
         return self.workspace / "parser-tasks" / _task_reference(reference_id)
 
-    def _registered_and_reserved_source_ids(self) -> set[str]:
-        result = {
-            path.parent.name
-            for path in (self.workspace / "sources").glob("*/source.yaml")
-            if path.is_file()
-        }
-        for task_path in (self.workspace / "parser-tasks").glob("*/task.json"):
-            try:
-                task = _read_document(task_path)
-                source_id = str(task.get("source_id", ""))
-                result.add(_identifier(source_id, "source_id"))
-            except WorkspaceError:
-                continue
-        return result
-
-    def _allocate_source_id(self, title: str) -> str:
-        base = _slug(title, "paper")
-        used = self._registered_and_reserved_source_ids()
-        if base not in used:
-            return base
-        suffix = 2
-        while f"{base}-{suffix:03d}" in used:
-            suffix += 1
-        return f"{base}-{suffix:03d}"
-
     def create_parser_task(
         self,
         batch_id: str,
         source: Path,
         *,
         title: str,
-        topic_title: str,
+        short_name: str,
+        topic_title: str | None,
         topic_id: str | None,
+        published_at: str | None,
         model: str,
         language: str,
     ) -> ParserTask:
@@ -647,14 +592,20 @@ class WorkspaceCore:
         resolved_source = source.resolve()
         if not resolved_source.is_file() or resolved_source.suffix.lower() != ".pdf":
             raise WorkspaceError("source_pdf_missing", "Source must be an existing PDF file")
-        resolved_topic_id = _identifier(topic_id, "topic_id") if topic_id else _slug(topic_title, "topic")
+        resolved_topic_id = _identifier(topic_id, "topic_id") if topic_id else (
+            _slug(topic_title, "topic") if topic_title else None
+        )
+        identity = f"paper-original:{resolved_source.name}:{resolved_source.stat().st_size}"
         task = ParserTask(
             batch_id=batch_id,
-            source_id=self._allocate_source_id(title),
             source_kind="paper_pdf",
             title=title,
+            fallback_title=resolved_source.stem,
+            short_name=short_name,
+            identity=identity,
             topic_id=resolved_topic_id,
             topic_title=topic_title,
+            published_at=published_at,
             model=model,
             language=language,
         )
@@ -679,8 +630,10 @@ class WorkspaceCore:
         reference_kind: str,
         *,
         title: str,
-        topic_title: str,
+        short_name: str,
+        topic_title: str | None,
         topic_id: str | None,
+        published_at: str | None,
         source_url: str,
         local_html: Path | None,
     ) -> ArticleParserTask:
@@ -692,15 +645,27 @@ class WorkspaceCore:
         resolved_html = local_html.resolve() if local_html is not None else None
         if resolved_html is not None and (not resolved_html.is_file() or resolved_html.suffix.lower() != ".html"):
             raise WorkspaceError("source_html_missing", "Source must be an existing .html file")
-        resolved_topic_id = _identifier(topic_id, "topic_id") if topic_id else _slug(topic_title, "topic")
+        resolved_topic_id = _identifier(topic_id, "topic_id") if topic_id else (
+            _slug(topic_title, "topic") if topic_title else None
+        )
+        if source_url:
+            from .source_library import canonical_article_url
+
+            identity = "url:" + canonical_article_url(source_url)
+        else:
+            assert resolved_html is not None
+            identity = f"article-original:{resolved_html.name}:{resolved_html.stat().st_size}"
         task = ArticleParserTask(
             reference_id=reference_id,
             reference_kind=reference_kind,
-            source_id=self._allocate_source_id(title),
             source_kind="article_html",
             title=title,
+            fallback_title=resolved_html.stem if resolved_html is not None else "",
+            short_name=short_name,
+            identity=identity,
             topic_id=resolved_topic_id,
             topic_title=topic_title,
+            published_at=published_at,
             model="MinerU-HTML",
             language="zh",
             source_url=source_url,
@@ -737,8 +702,8 @@ class WorkspaceCore:
             task = ArticleParserTask(reference_id=reference_id, reference_kind=reference_kind, **value)
         except TypeError as exc:
             raise WorkspaceError("parser_task_invalid", "MinerU task reference is invalid") from exc
-        _identifier(task.source_id, "source_id")
-        _identifier(task.topic_id, "topic_id")
+        if task.topic_id is not None:
+            _identifier(task.topic_id, "topic_id")
         if task.source_kind != "article_html" or task.model != "MinerU-HTML" or task.language != "zh":
             raise WorkspaceError("parser_task_invalid", "MinerU task reference is invalid")
         if task.local_html != (task_root / "source.html").is_file():
@@ -765,8 +730,8 @@ class WorkspaceCore:
             task = ParserTask(**value)
         except TypeError as exc:
             raise WorkspaceError("parser_task_invalid", "Parser task reference is invalid") from exc
-        _identifier(task.source_id, "source_id")
-        _identifier(task.topic_id, "topic_id")
+        if task.topic_id is not None:
+            _identifier(task.topic_id, "topic_id")
         if (
             task.source_kind != "paper_pdf"
             or task.model not in {"vlm", "pipeline"}
@@ -783,60 +748,45 @@ class WorkspaceCore:
         return task.batch_id if isinstance(task, ParserTask) else task.reference_id
 
     def prepare_parser_bundle(self, task: ParserTask | ArticleParserTask) -> Path:
-        source_root = self.workspace / "sources" / task.source_id
-        bundle = source_root / "parser-bundle"
-        if bundle.exists():
-            raise WorkspaceError("parser_bundle_exists", "The Reading Source already has an immutable Parser Bundle")
-        staging = source_root / ".parser-bundle-staging"
+        task_root = self._task_root(self._reference_id(task))
+        staging = task_root / ".parser-bundle-staging"
         if staging.exists():
             shutil.rmtree(staging)
-        source_root.mkdir(parents=True, exist_ok=True)
         return staging
 
     def discard_parser_bundle(self, task: ParserTask | ArticleParserTask) -> None:
-        source_root = self.workspace / "sources" / task.source_id
-        staging = source_root / ".parser-bundle-staging"
+        staging = self._task_root(self._reference_id(task)) / ".parser-bundle-staging"
         if staging.exists():
             shutil.rmtree(staging)
-        if source_root.exists() and not any(source_root.iterdir()):
-            source_root.rmdir()
 
-    def install_parser_bundle(self, task: ParserTask | ArticleParserTask, staging: Path) -> None:
-        metadata = _validate_parser_bundle(staging)
-        if metadata.get("source_kind") != task.source_kind:
-            raise WorkspaceError("parser_bundle_invalid", "Parser Bundle source kind does not match its task")
-        source_root = self.workspace / "sources" / task.source_id
-        bundle = source_root / "parser-bundle"
-        source_path = source_root / "source.yaml"
-        topic_path = self.workspace / "topics" / task.topic_id / "topic.yaml"
-        state_path = self.workspace / "state.json"
-        if bundle.exists() or source_path.exists():
-            raise WorkspaceError("parser_bundle_exists", "The Reading Source is already registered")
+    def install_parser_bundle(self, task: ParserTask | ArticleParserTask, staging: Path) -> dict[str, Any]:
+        from .source_library import SourceLibrary, normalize_short_name
 
-        topic = _read_document(
-            topic_path,
-            {"topic_id": task.topic_id, "title": task.topic_title, "description": "", "sources": []},
+        content = (staging / "content.md").read_text(encoding="utf-8", errors="replace")
+        heading = next(
+            (match.group(1).strip() for line in content.splitlines() if (match := re.match(r"^#\s+(.+?)\s*$", line))),
+            "",
         )
-        state = _read_document(state_path, {"current_source_id": None, "sources": {}})
-        _prepare_membership(
-            topic,
-            state,
-            source_id=task.source_id,
-            initialize_pointer=True,
-        )
-        source = {
-            "source_id": task.source_id,
-            "source_kind": task.source_kind,
-            "title": task.title,
-            "topics": [task.topic_id],
-        }
-        if isinstance(task, ArticleParserTask) and task.source_url:
-            source["source_url"] = task.source_url
-        _commit_documents(
-            {source_path: source, topic_path: topic, state_path: state},
-            staged_bundle=(staging, bundle),
+        title = task.title.strip() or heading or task.fallback_title.strip()
+        if not title:
+            raise WorkspaceError("source_title_missing", "A trustworthy Source Title could not be resolved")
+        short_name = task.short_name.strip() if task.short_name else title
+        if task.source_kind == "paper_pdf" and "deepstack" in title.casefold():
+            short_name = task.short_name.strip() if task.short_name else "DeepStack"
+        short_name = normalize_short_name(short_name)
+        result = SourceLibrary(self.workspace).register(
+            staging,
+            source_kind=task.source_kind,
+            title=title,
+            short_name=short_name,
+            identity=task.identity,
+            published_at=task.published_at,
+            topic_title=task.topic_title,
+            topic_id=task.topic_id,
+            source_url=task.source_url if isinstance(task, ArticleParserTask) and task.source_url else None,
         )
         shutil.rmtree(self._task_root(self._reference_id(task)), ignore_errors=True)
+        return result
 
     def reuse_source(
         self,
@@ -846,47 +796,14 @@ class WorkspaceCore:
         topic_id: str | None = None,
         existing_topic_id: str | None = None,
     ) -> str:
-        source_id = _identifier(source_id, "source_id")
-        source_root = self.workspace / "sources" / source_id
-        source_path = source_root / "source.yaml"
-        if not source_path.is_file():
-            raise WorkspaceError("source_missing", f"Reading Source does not exist: {source_id}")
-        bundle = source_root / "parser-bundle"
-        if not bundle.is_dir():
-            raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {source_id}")
-        _validate_parser_bundle(bundle)
-        source = _read_document(source_path)
-        source_topics = source.get("topics")
-        if not isinstance(source_topics, list):
-            raise WorkspaceError("source_invalid", f"Reading Source is invalid: {source_id}")
+        from .source_library import SourceLibrary
 
-        if existing_topic_id:
-            resolved_topic_id = _identifier(existing_topic_id, "topic_id")
-            topic_path = self.workspace / "topics" / resolved_topic_id / "topic.yaml"
-            if not topic_path.is_file():
-                raise WorkspaceError("topic_missing", f"Topic does not exist: {resolved_topic_id}")
-            topic = _read_document(topic_path)
-        else:
-            if topic_title is None:
-                raise WorkspaceError("topic_missing", "A Topic title or existing Topic ID is required")
-            resolved_topic_id = _identifier(topic_id, "topic_id") if topic_id else _slug(topic_title, "topic")
-            topic_path = self.workspace / "topics" / resolved_topic_id / "topic.yaml"
-            topic = _read_document(
-                topic_path,
-                {"topic_id": resolved_topic_id, "title": topic_title, "description": "", "sources": []},
-            )
-        if resolved_topic_id not in source_topics:
-            source_topics.append(resolved_topic_id)
-        state_path = self.workspace / "state.json"
-        state = _read_document(state_path, {"current_source_id": None, "sources": {}})
-        _prepare_membership(
-            topic,
-            state,
-            source_id=source_id,
-            initialize_pointer=False,
+        return SourceLibrary(self.workspace).attach(
+            source_id,
+            topic_title=topic_title,
+            topic_id=topic_id,
+            existing_topic_id=existing_topic_id,
         )
-        _commit_documents({source_path: source, topic_path: topic, state_path: state})
-        return resolved_topic_id
 
     def map_reading_plan(
         self,
@@ -896,14 +813,11 @@ class WorkspaceCore:
         scope: str | None = None,
         reinitialize: bool = False,
     ) -> dict[str, Any]:
-        source_id = _identifier(source_id, "source_id")
+        source_id = validate_source_id(source_id)
         source_root = self.workspace / "sources" / source_id
-        source_path = source_root / "source.yaml"
-        if not source_path.is_file():
-            raise WorkspaceError("source_missing", f"Reading Source does not exist: {source_id}")
-        source = _read_document(source_path)
-        if source.get("source_id") != source_id or source.get("source_kind") not in {"paper_pdf", "article_html"}:
-            raise WorkspaceError("source_invalid", f"Reading Source is invalid: {source_id}")
+        from .source_library import SourceLibrary
+
+        SourceLibrary(self.workspace).get(source_id)
         bundle = source_root / "parser-bundle"
         if not bundle.is_dir():
             raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {source_id}")
@@ -1028,7 +942,7 @@ class WorkspaceCore:
         return state_path, state, source_state, source_id, plan_id, chunk_id, plan_root, chunks, matches[0]
 
     def get_reading_state(self) -> dict[str, Any]:
-        _, _, _, source_id, plan_id, chunk_id = self._current_reading_selection(require_chunk=False)
+        _, state, _, source_id, plan_id, chunk_id = self._current_reading_selection(require_chunk=False)
         plan_root = self.workspace / "sources" / source_id / "reading" / "plans" / plan_id
         chunks = _read_chunk_records(plan_root / "chunks.jsonl")
         if chunk_id is None:
@@ -1036,6 +950,7 @@ class WorkspaceCore:
                 "ok": True,
                 "status": "reading_completed",
                 "source_id": source_id,
+                "topic_id": state.get("current_topic_id"),
                 "plan_id": plan_id,
                 "chunk_id": None,
                 "index": None,
@@ -1050,6 +965,7 @@ class WorkspaceCore:
             "ok": True,
             "status": "reading",
             "source_id": source_id,
+            "topic_id": state.get("current_topic_id"),
             "plan_id": plan_id,
             "chunk_id": chunk_id,
             "index": chunk["index"],
@@ -1280,11 +1196,22 @@ class WorkspaceCore:
                     raise WorkspaceError("reading_record_write_failed", "Pending Notes could not be saved") from exc
         next_chunk_id = chunks[index + 1]["chunk_id"] if index + 1 < len(chunks) else None
         source_state["current_chunk_id"] = next_chunk_id
+        topic_advanced = False
+        if next_chunk_id is None and state.get("current_topic_id") is not None:
+            topic_id = validate_topic_id(state["current_topic_id"])
+            next_source_id = self._next_topic_source(topic_id, state, after_source_id=source_id)
+            if next_source_id is not None:
+                state["current_source_id"] = next_source_id
+                topic_advanced = True
         try:
             _write_document(state_path, state)
         except OSError as exc:
             raise WorkspaceError("reading_cursor_write_failed", "Reading Cursor could not be updated") from exc
+        if topic_advanced:
+            return {**self.get_reading_state(), "status": "topic_source_advanced", "topic_id": state["current_topic_id"]}
         if next_chunk_id is None:
+            if state.get("current_topic_id") is not None:
+                return {**self.get_reading_state(), "status": "topic_completed", "topic_id": state["current_topic_id"]}
             return self.get_reading_state()
         return {
             **self.get_reading_state(),
@@ -1327,10 +1254,17 @@ class WorkspaceCore:
             "matches": matches,
         }
 
-    def read_source_range(self, *, start: int, end: int) -> dict[str, Any]:
+    def read_source_range(self, *, start: int, end: int, source_id: str | None = None) -> dict[str, Any]:
         if any(not isinstance(value, int) or isinstance(value, bool) for value in (start, end)):
             raise WorkspaceError("source_range_invalid", "Source range is invalid")
-        _, _, _, source_id, source_root = _current_source_state(self.workspace)
+        if source_id is None:
+            _, _, _, source_id, source_root = _current_source_state(self.workspace)
+        else:
+            source_id = validate_source_id(source_id)
+            source_root = self.workspace / "sources" / source_id
+            from .source_library import SourceLibrary
+
+            SourceLibrary(self.workspace).get(source_id)
         bundle = source_root / "parser-bundle"
         _validate_parser_bundle(bundle)
         lines = (bundle / "content.md").read_text(encoding="utf-8", errors="replace").splitlines()
@@ -1352,15 +1286,18 @@ class WorkspaceCore:
             "images": _bound_image_presentations(bundle, selected, image_paths),
         }
 
+    def read_topic_range(self, *, topic_id: str, source_id: str, start: int, end: int) -> dict[str, Any]:
+        topic = self._topic(topic_id)
+        if source_id not in topic["sources"]:
+            raise WorkspaceError("topic_source_missing", f"Source is not in Topic {topic_id}: {source_id}")
+        return {**self.read_source_range(source_id=source_id, start=start, end=end), "topic_id": topic_id}
+
     def switch_source(self, source_id: str) -> dict[str, Any]:
-        source_id = _identifier(source_id, "source_id")
+        source_id = validate_source_id(source_id)
         source_root = self.workspace / "sources" / source_id
-        source_path = source_root / "source.yaml"
-        if not source_path.is_file():
-            raise WorkspaceError("source_missing", f"Reading Source does not exist: {source_id}")
-        source = _read_document(source_path)
-        if source.get("source_id") != source_id:
-            raise WorkspaceError("source_invalid", f"Reading Source is invalid: {source_id}")
+        from .source_library import SourceLibrary
+
+        SourceLibrary(self.workspace).get(source_id)
         bundle = source_root / "parser-bundle"
         if not bundle.is_dir():
             raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {source_id}")
@@ -1385,3 +1322,213 @@ class WorkspaceCore:
             "plan_id": source_state.get("current_plan_id"),
             "chunk_id": source_state.get("current_chunk_id"),
         }
+
+    def _topic(self, topic_id: str) -> dict[str, Any]:
+        topic_id = validate_topic_id(topic_id)
+        topic = _read_document(self.workspace / "topics" / topic_id / "topic.yaml")
+        sources = topic.get("sources")
+        if topic.get("topic_id") != topic_id or not isinstance(sources, list) or any(
+            not isinstance(source_id, str) for source_id in sources
+        ):
+            raise WorkspaceError("topic_invalid", f"Topic is invalid: {topic_id}")
+        for index, source_id in enumerate(sources, 1):
+            try:
+                validate_source_id(source_id)
+            except WorkspaceError as exc:
+                raise WorkspaceError(
+                    "topic_source_invalid", f"Topic {topic_id} entry {index} has an invalid Source ID"
+                ) from exc
+            source_root = self.workspace / "sources" / source_id
+            from .source_library import SourceLibrary
+
+            try:
+                SourceLibrary(self.workspace).get(source_id)
+            except WorkspaceError as exc:
+                if exc.error_id == "source_missing":
+                    raise WorkspaceError(
+                        "topic_source_missing", f"Topic {topic_id} entry {index} is missing: {source_id}"
+                    ) from exc
+                raise
+            _validate_parser_bundle(source_root / "parser-bundle")
+        return topic
+
+    def _next_topic_source(
+        self, topic_id: str, state: dict[str, Any], *, after_source_id: str | None = None
+    ) -> str | None:
+        topic = self._topic(topic_id)
+        source_states = state.get("sources")
+        if not isinstance(source_states, dict):
+            raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
+        started = after_source_id is None
+        found_after = after_source_id is None
+        for source_id in topic["sources"]:
+            if not started:
+                if source_id == after_source_id:
+                    started = True
+                    found_after = True
+                continue
+            source_state = source_states.get(source_id)
+            if not isinstance(source_state, dict) or set(source_state) != {"current_plan_id", "current_chunk_id"}:
+                raise WorkspaceError("workspace_state_invalid", f"Workspace state is invalid for Source: {source_id}")
+            if source_state["current_plan_id"] is None:
+                raise WorkspaceError("reading_plan_missing", f"Topic Source has no Reading Plan: {source_id}")
+            if source_state["current_chunk_id"] is not None:
+                return source_id
+        if not found_after:
+            raise WorkspaceError("topic_source_missing", f"Current Source is not in Topic: {after_source_id}")
+        return None
+
+    def select_topic(self, topic_id: str) -> dict[str, Any]:
+        topic_id = validate_topic_id(topic_id)
+        state_path = self.workspace / "state.json"
+        state = _read_document(state_path)
+        next_source_id = self._next_topic_source(topic_id, state)
+        state["current_topic_id"] = topic_id
+        if next_source_id is not None:
+            state["current_source_id"] = next_source_id
+        _write_document(state_path, state)
+        if next_source_id is None:
+            return {"ok": True, "status": "topic_completed", "topic_id": topic_id, "source_id": None}
+        return {**self.get_reading_state(), "status": "topic_selected", "topic_id": topic_id}
+
+    def search_topic(self, *, topic_id: str, query: str, limit: int = 5) -> dict[str, Any]:
+        if not isinstance(query, str) or not query.strip():
+            raise WorkspaceError("source_query_invalid", "Source query is empty or invalid")
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1 or limit > 100:
+            raise WorkspaceError("source_query_limit_invalid", "Source query limit is invalid")
+        topic = self._topic(topic_id)
+        terms = [term.casefold() for term in re.findall(r"[\w]+", query) if len(term) > 1]
+        terms = terms or [query.strip().casefold()]
+        matches: list[dict[str, Any]] = []
+        for source_id in topic["sources"]:
+            bundle = self.workspace / "sources" / source_id / "parser-bundle"
+            lines = (bundle / "content.md").read_text(encoding="utf-8", errors="replace").splitlines()
+            paths = _source_heading_paths(lines)
+            for index, line in enumerate(lines):
+                if not any(term in line.casefold() for term in terms):
+                    continue
+                start = max(0, index - 1)
+                end = min(len(lines), index + 2)
+                matches.append(
+                    {
+                        "source_id": source_id,
+                        "section_path": list(paths[index]),
+                        "source_lines": [start + 1, end],
+                        "snippet": " ".join(part.strip() for part in lines[start:end] if part.strip())[:320],
+                    }
+                )
+                if len(matches) == limit:
+                    return {"ok": True, "status": "topic_matches_found", "topic_id": topic_id, "query": query, "matches": matches}
+        return {
+            "ok": True,
+            "status": "topic_matches_found" if matches else "topic_matches_empty",
+            "topic_id": topic_id,
+            "query": query,
+            "matches": matches,
+        }
+
+    def topic_notes(self, topic_id: str) -> dict[str, Any]:
+        topic = self._topic(topic_id)
+        notes: list[dict[str, Any]] = []
+        for source_id in topic["sources"]:
+            plans_root = self.workspace / "sources" / source_id / "reading" / "plans"
+            for plan_root in sorted(plans_root.glob("plan-*")):
+                for chunk in _read_chunk_records(plan_root / "chunks.jsonl"):
+                    record = _read_reading_record(
+                        plan_root / "records" / f'{chunk["chunk_id"]}.json', chunk["chunk_id"]
+                    )
+                    for note in record["notes"]:
+                        if "anchor" in note and note["anchor"].get("source_lines") is not None:
+                            notes.append(
+                                {
+                                    "source_id": source_id,
+                                    "plan_id": plan_root.name,
+                                    "chunk_id": chunk["chunk_id"],
+                                    **note,
+                                }
+                            )
+        return {"ok": True, "status": "topic_notes_listed", "topic_id": topic_id, "notes": notes}
+
+    def _validate_topic_range(self, source_id: str, source_lines: Any) -> tuple[int, int]:
+        validate_source_id(source_id)
+        if (
+            not isinstance(source_lines, list)
+            or len(source_lines) != 2
+            or any(not isinstance(value, int) or isinstance(value, bool) for value in source_lines)
+        ):
+            raise WorkspaceError("topic_synthesis_invalid", "Topic Synthesis Source Anchor is invalid")
+        start, end = source_lines
+        content = self.workspace / "sources" / source_id / "parser-bundle" / "content.md"
+        lines = content.read_text(encoding="utf-8", errors="replace").splitlines()
+        if start < 1 or end < start or end > len(lines):
+            raise WorkspaceError("topic_synthesis_invalid", "Topic Synthesis Source Anchor is invalid")
+        return start, end
+
+    def synthesize_topic(self, topic_id: str, draft: dict[str, Any]) -> dict[str, Any]:
+        topic_id = validate_topic_id(topic_id)
+        topic = self._topic(topic_id)
+        topic_sources = set(topic["sources"])
+        if not isinstance(draft, dict) or set(draft) != {"selected_ranges", "claims"}:
+            raise WorkspaceError("topic_synthesis_invalid", "Topic Synthesis draft is invalid")
+        selected_ranges = draft["selected_ranges"]
+        claims = draft["claims"]
+        if not isinstance(selected_ranges, list) or not isinstance(claims, list) or not claims:
+            raise WorkspaceError("topic_synthesis_invalid", "Topic Synthesis draft is invalid")
+        allowed: set[tuple[str, int, int]] = set()
+        for selected in selected_ranges:
+            if not isinstance(selected, dict) or set(selected) != {"source_id", "source_lines"}:
+                raise WorkspaceError("topic_synthesis_invalid", "Selected Source range is invalid")
+            source_id = selected["source_id"]
+            if source_id not in topic_sources:
+                raise WorkspaceError("topic_synthesis_invalid", "Selected Source is outside the Topic")
+            start, end = self._validate_topic_range(source_id, selected["source_lines"])
+            allowed.add((source_id, start, end))
+        for note in self.topic_notes(topic_id)["notes"]:
+            start, end = note["anchor"]["source_lines"]
+            allowed.add((note["source_id"], start, end))
+
+        normalized_claims: list[dict[str, Any]] = []
+        for claim in claims:
+            if not isinstance(claim, dict) or set(claim) != {"text", "anchors"}:
+                raise WorkspaceError("topic_synthesis_invalid", "Topic Synthesis claim is invalid")
+            text = claim["text"]
+            anchors = claim["anchors"]
+            if not isinstance(text, str) or not text.strip() or not isinstance(anchors, list) or not anchors:
+                raise WorkspaceError("topic_synthesis_invalid", "Every claim requires text and Source Anchors")
+            normalized_anchors: list[dict[str, Any]] = []
+            for anchor in anchors:
+                if not isinstance(anchor, dict) or set(anchor) not in (
+                    {"source_id", "source_lines"}, {"source_id", "source_lines", "quote"}
+                ):
+                    raise WorkspaceError("topic_synthesis_invalid", "Topic Synthesis Source Anchor is invalid")
+                source_id = anchor["source_id"]
+                if source_id not in topic_sources:
+                    raise WorkspaceError("topic_synthesis_invalid", "Claim Source is outside the Topic")
+                start, end = self._validate_topic_range(source_id, anchor["source_lines"])
+                if (source_id, start, end) not in allowed:
+                    raise WorkspaceError("topic_synthesis_invalid", "Claim is not grounded in a Reading Note or selected range")
+                if "quote" in anchor:
+                    quote = anchor["quote"]
+                    selected_text = "\n".join(
+                        (self.workspace / "sources" / source_id / "parser-bundle" / "content.md")
+                        .read_text(encoding="utf-8", errors="replace")
+                        .splitlines()[start - 1 : end]
+                    )
+                    if not isinstance(quote, str) or not quote.strip() or quote not in selected_text:
+                        raise WorkspaceError("topic_synthesis_invalid", "Claim quote is not present at its Source Anchor")
+                normalized_anchors.append(anchor)
+            normalized_claims.append({"text": text.strip(), "anchors": normalized_anchors})
+
+        synthesis_root = self.workspace / "topics" / topic_id / "synthesis"
+        used = [
+            int(match.group(1))
+            for path in synthesis_root.glob("synthesis-*.json")
+            if (match := re.fullmatch(r"synthesis-(\d+)\.json", path.name))
+        ]
+        synthesis_id = f"synthesis-{max(used, default=0) + 1:03d}"
+        path = synthesis_root / f"{synthesis_id}.json"
+        _write_document(
+            path,
+            {"topic_id": topic_id, "synthesis_id": synthesis_id, "claims": normalized_claims},
+        )
+        return {"ok": True, "status": "topic_synthesized", "topic_id": topic_id, "synthesis_id": synthesis_id, "path": str(path)}

@@ -117,6 +117,25 @@ class RepositoryBoundaryTests(unittest.TestCase):
         candidate = ROOT / "tests" / "fixtures" / "synthetic-paper.pdf"
         self.assertFalse(is_git_ignored(candidate))
 
+    def test_replaced_source_and_mapping_contracts_have_no_legacy_surface(self) -> None:
+        tracked_surface = [
+            *ROOT.joinpath(".agents").rglob("*.py"),
+            *ROOT.joinpath(".agents").rglob("SKILL.md"),
+            *ROOT.joinpath("docs").rglob("*.md"),
+        ]
+        forbidden = (
+            "--authorize-" + "upload",
+            "--authorize-" + "cloud-fetch",
+            "--" + "draft",
+            '"topics": [',
+        )
+        findings = []
+        for path in tracked_surface:
+            text = path.read_text(encoding="utf-8")
+            if any(value in text for value in forbidden):
+                findings.append(path.relative_to(ROOT).as_posix())
+        self.assertEqual([], findings)
+
 
 if __name__ == "__main__":
     unittest.main()

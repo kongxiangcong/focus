@@ -31,6 +31,7 @@ PARSER = load_module(
     ROOT / ".agents" / "skills" / "paper-parser" / "scripts" / "mineru_precision.py",
 )
 WORKSPACE_CORE = importlib.import_module("core.reading_workspace")
+SOURCE_LIBRARY = importlib.import_module("core.source_library")
 BLOG = load_module(
     "focus_paper2blog",
     ROOT / ".agents" / "skills" / "paper2blog" / "scripts" / "paper2blog.py",
@@ -80,32 +81,33 @@ class PaperParserTests(unittest.TestCase):
                     str(workspace),
                     "--title",
                     "Fixture Paper",
+                    "--short-name",
+                    "Fixture",
                     "--topic",
                     "Accelerator Architecture",
-                    "--authorize-upload",
                 ],
                 hosted=HostedParserFixture(),
             )
 
         self.assertEqual(0, result)
         response = json.loads(stdout.getvalue().splitlines()[-1])
-        self.assertEqual("fixture-paper", response["source_id"])
-        source_root = workspace / "sources" / "fixture-paper"
+        self.assertEqual("Fixture-paper", response["source_id"])
+        source_root = workspace / "sources" / "Fixture-paper"
         self.assertTrue((source_root / "parser-bundle" / "source.pdf").is_file())
         paper = json.loads((source_root / "source.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(["accelerator-architecture"], paper["topics"])
+        self.assertNotIn("topics", paper)
         topic = json.loads(
             (workspace / "topics" / "accelerator-architecture" / "topic.yaml").read_text(encoding="utf-8")
         )
-        self.assertEqual(["fixture-paper"], topic["sources"])
+        self.assertEqual(["Fixture-paper"], topic["sources"])
         pointers = json.loads((workspace / "state.json").read_text(encoding="utf-8"))
-        self.assertEqual("fixture-paper", pointers["current_source_id"])
+        self.assertEqual("Fixture-paper", pointers["current_source_id"])
         self.assertEqual(
             {
                 "current_plan_id": None,
                 "current_chunk_id": None,
             },
-            pointers["sources"]["fixture-paper"],
+            pointers["sources"]["Fixture-paper"],
         )
 
     def test_invalid_parse_result_leaves_no_registered_paper_or_topic(self):
@@ -139,7 +141,6 @@ class PaperParserTests(unittest.TestCase):
                     "Incomplete",
                     "--topic",
                     "Parsing",
-                    "--authorize-upload",
                 ],
                 hosted=InvalidHostedParserFixture(),
             )
@@ -169,14 +170,14 @@ class PaperParserTests(unittest.TestCase):
                 )
                 (output / "validation.json").write_text('{"ok": true}\n', encoding="utf-8")
 
-        write_document = WORKSPACE_CORE._write_document
+        write_document = SOURCE_LIBRARY._write_document
 
         def fail_pointer_write(path, value):
             if path.name == "state.json":
                 raise OSError("controlled pointer write failure")
             write_document(path, value)
 
-        with mock.patch.object(WORKSPACE_CORE, "_write_document", side_effect=fail_pointer_write):
+        with mock.patch.object(SOURCE_LIBRARY, "_write_document", side_effect=fail_pointer_write):
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 result = PARSER.main(
                     [
@@ -188,13 +189,12 @@ class PaperParserTests(unittest.TestCase):
                         "Rollback Paper",
                         "--topic",
                         "Failure Safety",
-                        "--authorize-upload",
                     ],
                     hosted=HostedParserFixture(),
                 )
 
         self.assertEqual(1, result)
-        self.assertFalse((workspace / "sources" / "rollback-paper").exists())
+        self.assertFalse((workspace / "sources" / "Rollback Paper-paper").exists())
         self.assertFalse((workspace / "topics" / "failure-safety" / "topic.yaml").exists())
         self.assertFalse((workspace / "state.json").exists())
         self.assertTrue((workspace / "parser-tasks" / "batch-write-failure" / "task.json").is_file())
@@ -239,7 +239,6 @@ class PaperParserTests(unittest.TestCase):
                     "Resumed Paper",
                     "--topic",
                     "Recovery",
-                    "--authorize-upload",
                 ],
                 hosted=hosted,
             )
@@ -252,7 +251,7 @@ class PaperParserTests(unittest.TestCase):
         self.assertNotIn("hash", task_text)
         self.assertNotIn("token", task_text)
         self.assertNotIn("url", task_text)
-        self.assertFalse((workspace / "sources" / "resumed-paper" / "source.yaml").exists())
+        self.assertFalse((workspace / "sources" / "Resumed Paper-paper" / "source.yaml").exists())
         source.write_bytes(b"%PDF replacement that was not uploaded")
 
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -269,14 +268,14 @@ class PaperParserTests(unittest.TestCase):
         self.assertEqual(0, resumed)
         self.assertEqual(1, hosted.starts)
         self.assertEqual(2, hosted.completions)
-        self.assertTrue((workspace / "sources" / "resumed-paper" / "source.yaml").is_file())
+        self.assertTrue((workspace / "sources" / "Resumed Paper-paper" / "source.yaml").is_file())
         self.assertEqual(
             b"%PDF-1.4\nfixture\n",
-            (workspace / "sources" / "resumed-paper" / "parser-bundle" / "source.pdf").read_bytes(),
+            (workspace / "sources" / "Resumed Paper-paper" / "parser-bundle" / "source.pdf").read_bytes(),
         )
         self.assertFalse(task_root.exists())
 
-    def test_reparse_allocates_numeric_suffix_without_overwriting_existing_paper(self):
+    def test_reparse_of_identical_paper_reuses_without_uploading_again(self):
         source = self.root / "fixture.pdf"
         source.write_bytes(b"%PDF-1.4\nfixture\n")
         workspace = self.root / "workspace"
@@ -310,40 +309,24 @@ class PaperParserTests(unittest.TestCase):
             "Collision Paper",
             "--topic",
             "Identity",
-            "--authorize-upload",
         ]
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(0, PARSER.main(command, hosted=hosted))
-        original = (workspace / "sources" / "collision-paper" / "parser-bundle" / "content.md").read_bytes()
+        original = (workspace / "sources" / "Collision Paper-paper" / "parser-bundle" / "content.md").read_bytes()
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(0, PARSER.main(command, hosted=hosted))
 
         self.assertEqual(
             original,
-            (workspace / "sources" / "collision-paper" / "parser-bundle" / "content.md").read_bytes(),
+            (workspace / "sources" / "Collision Paper-paper" / "parser-bundle" / "content.md").read_bytes(),
         )
-        self.assertTrue((workspace / "sources" / "collision-paper-002" / "source.yaml").is_file())
+        self.assertEqual(1, hosted.number)
         topic = json.loads((workspace / "topics" / "identity" / "topic.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(["collision-paper", "collision-paper-002"], topic["sources"])
-
-        chinese_command = [
-            "parse",
-            str(source),
-            "--workspace",
-            str(workspace),
-            "--title",
-            "可配置脉动阵列",
-            "--topic",
-            "Identity",
-            "--authorize-upload",
-        ]
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(0, PARSER.main(chinese_command, hosted=hosted))
-        self.assertTrue((workspace / "sources" / "可配置脉动阵列" / "source.yaml").is_file())
+        self.assertEqual(["Collision Paper-paper"], topic["sources"])
 
     def test_existing_paper_is_reused_only_by_explicit_selection(self):
         workspace = self.root / "workspace"
-        bundle = workspace / "sources" / "existing-paper" / "parser-bundle"
+        bundle = workspace / "sources" / "Existing-paper" / "parser-bundle"
         (bundle / "images").mkdir(parents=True)
         (bundle / "source.pdf").write_bytes(b"%PDF fixture")
         (bundle / "content.md").write_text("# Existing\n", encoding="utf-8")
@@ -352,7 +335,7 @@ class PaperParserTests(unittest.TestCase):
         )
         (bundle / "validation.json").write_text('{"ok": true}\n', encoding="utf-8")
         (bundle.parent / "source.yaml").write_text(
-            json.dumps({"source_kind": "paper_pdf", "source_id": "existing-paper", "title": "Existing Paper", "topics": []}),
+            json.dumps({"source_kind": "paper_pdf", "source_id": "Existing-paper", "title": "Existing Paper", "short_name": "Existing", "identity": "fixture:existing"}),
             encoding="utf-8",
         )
         before = (bundle / "content.md").read_bytes()
@@ -364,7 +347,7 @@ class PaperParserTests(unittest.TestCase):
                     "--workspace",
                     str(workspace),
                     "--source-id",
-                    "existing-paper",
+                    "Existing-paper",
                     "--topic",
                     "Second Topic",
                 ]
@@ -372,9 +355,9 @@ class PaperParserTests(unittest.TestCase):
 
         self.assertEqual(0, result)
         paper = json.loads((bundle.parent / "source.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(["second-topic"], paper["topics"])
+        self.assertNotIn("topics", paper)
         topic = json.loads((workspace / "topics" / "second-topic" / "topic.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(["existing-paper"], topic["sources"])
+        self.assertEqual(["Existing-paper"], topic["sources"])
         self.assertEqual(before, (bundle / "content.md").read_bytes())
 
     def test_normalize_builds_compact_bundle_and_rewrites_images_in_reference_order(self):
@@ -411,36 +394,6 @@ class PaperParserTests(unittest.TestCase):
         self.assertTrue(validation["ok"])
         self.assertNotIn("hash", json.dumps(validation).lower())
 
-    def test_upload_requires_authorization_before_hosted_parser_is_called(self):
-        source = self.root / "fixture.pdf"
-        source.write_bytes(b"%PDF fixture")
-        workspace = self.root / "workspace"
-        workspace.mkdir()
-
-        class HostedParserFixture:
-            def start(self, *args, **kwargs):
-                raise AssertionError("hosted parser must not be called")
-
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
-            result = PARSER.main(
-                [
-                    "parse",
-                    str(source),
-                    "--workspace",
-                    str(workspace),
-                    "--title",
-                    "Unauthorized",
-                    "--topic",
-                    "Security",
-                ],
-                hosted=HostedParserFixture(),
-            )
-
-        self.assertEqual(1, result)
-        self.assertEqual("upload_authorization_required", json.loads(stderr.getvalue())["error_id"])
-        self.assertFalse((workspace / "parser-tasks").exists())
-
     def test_missing_workspace_paper_and_parser_bundle_return_structured_errors(self):
         missing_workspace = self.root / "missing"
         stderr = io.StringIO()
@@ -451,7 +404,7 @@ class PaperParserTests(unittest.TestCase):
                     "--workspace",
                     str(missing_workspace),
                     "--source-id",
-                    "paper",
+                    "Missing-paper",
                     "--topic",
                     "Topic",
                 ]
@@ -461,12 +414,12 @@ class PaperParserTests(unittest.TestCase):
 
         workspace = self.root / "workspace-errors"
         workspace.mkdir()
-        for source_id, expected in (("missing", "source_missing"), ("no-bundle", "parser_bundle_missing")):
-            if source_id == "no-bundle":
+        for source_id, expected in (("Missing-paper", "source_missing"), ("No Bundle-paper", "parser_bundle_missing")):
+            if source_id == "No Bundle-paper":
                 source_root = workspace / "sources" / source_id
                 source_root.mkdir(parents=True)
                 (source_root / "source.yaml").write_text(
-                    json.dumps({"source_kind": "paper_pdf", "source_id": source_id, "title": "No Bundle", "topics": []}),
+                    json.dumps({"source_kind": "paper_pdf", "source_id": source_id, "title": "No Bundle", "short_name": "No Bundle", "identity": "fixture:no-bundle"}),
                     encoding="utf-8",
                 )
             stderr = io.StringIO()
@@ -485,7 +438,7 @@ class PaperParserTests(unittest.TestCase):
             self.assertEqual(1, result)
             self.assertEqual(expected, json.loads(stderr.getvalue())["error_id"])
 
-        source_root = workspace / "sources" / "valid-paper"
+        source_root = workspace / "sources" / "Valid-paper"
         bundle = source_root / "parser-bundle"
         (bundle / "images").mkdir(parents=True)
         (bundle / "source.pdf").write_bytes(b"%PDF fixture")
@@ -495,7 +448,7 @@ class PaperParserTests(unittest.TestCase):
         )
         (bundle / "validation.json").write_text('{"ok": true}\n', encoding="utf-8")
         (source_root / "source.yaml").write_text(
-            json.dumps({"source_kind": "paper_pdf", "source_id": "valid-paper", "title": "Valid", "topics": []}), encoding="utf-8"
+            json.dumps({"source_kind": "paper_pdf", "source_id": "Valid-paper", "title": "Valid", "short_name": "Valid", "identity": "fixture:valid"}), encoding="utf-8"
         )
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
@@ -505,7 +458,7 @@ class PaperParserTests(unittest.TestCase):
                     "--workspace",
                     str(workspace),
                     "--source-id",
-                    "valid-paper",
+                    "Valid-paper",
                     "--existing-topic-id",
                     "missing-topic",
                 ]
@@ -578,11 +531,11 @@ class PaperToBlogTests(unittest.TestCase):
 
     def _registered_paper(self, *, valid_bundle: bool = True):
         workspace = self.root / "workspace"
-        source_root = workspace / "sources" / "fixture-paper"
+        source_root = workspace / "sources" / "Fixture-paper"
         bundle = source_root / "parser-bundle"
         (bundle / "images").mkdir(parents=True)
         (source_root / "source.yaml").write_text(
-            json.dumps({"source_kind": "paper_pdf", "source_id": "fixture-paper", "title": "Fixture Paper", "topics": ["systems"]}),
+            json.dumps({"source_kind": "paper_pdf", "source_id": "Fixture-paper", "title": "Fixture Paper", "short_name": "Fixture", "identity": "fixture:blog"}),
             encoding="utf-8",
         )
         (bundle / "source.pdf").write_bytes(b"%PDF fixture")
@@ -618,7 +571,7 @@ class PaperToBlogTests(unittest.TestCase):
         stdout = io.StringIO()
         with contextlib.redirect_stdout(stdout):
             prepared = BLOG.main(
-                ["prepare", "--workspace", str(workspace), "--source-id", "fixture-paper"]
+                ["prepare", "--workspace", str(workspace), "--source-id", "Fixture-paper"]
             )
 
         self.assertEqual(0, prepared)
@@ -657,7 +610,7 @@ class PaperToBlogTests(unittest.TestCase):
 
         with contextlib.redirect_stderr(stderr):
             result = BLOG.main(
-                ["prepare", "--workspace", str(workspace), "--source-id", "fixture-paper"]
+                ["prepare", "--workspace", str(workspace), "--source-id", "Fixture-paper"]
             )
 
         self.assertEqual(1, result)

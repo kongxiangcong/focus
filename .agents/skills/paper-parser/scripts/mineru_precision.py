@@ -29,7 +29,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from core import ParserTask, WorkspaceCore, WorkspaceError, validate_topic_id
+from core import ParserTask, SourceLibrary, WorkspaceCore, WorkspaceError, validate_topic_id
 
 BASE_URL = "https://mineru.net"
 TOKEN_ENV = "MINERU_API_TOKEN"
@@ -417,7 +417,7 @@ def _finish_task(
     *,
     timeout: float,
     interval: float,
-) -> None:
+) -> dict[str, Any]:
     staging = core.prepare_parser_bundle(task)
     try:
         hosted.complete(
@@ -429,7 +429,7 @@ def _finish_task(
             timeout=timeout,
             interval=interval,
         )
-        core.install_parser_bundle(task, staging)
+        return core.install_parser_bundle(task, staging)
     except Exception as exc:
         core.discard_parser_bundle(task)
         if isinstance(exc, ParserError) and not exc.recoverable:
@@ -444,34 +444,45 @@ def _parse(args: argparse.Namespace, hosted: Any) -> None:
     if source.stat().st_size > MAX_SOURCE_BYTES:
         raise ParserError("Source exceeds MinerU's 200 MB precision-API limit")
     core = WorkspaceCore(args.workspace)
-    if not args.authorize_upload:
-        raise WorkspaceError("upload_authorization_required", "Explicit upload authorization is required for this Paper")
-    if not args.title.strip():
+    if args.title is not None and not args.title.strip():
         raise WorkspaceError("source_title_invalid", "Reading Source title is empty or invalid")
-    if not args.topic.strip():
+    if args.short_name is not None and not args.short_name.strip():
+        raise WorkspaceError("source_short_name_invalid", "Source Short Name is empty or invalid")
+    if args.topic is not None and not args.topic.strip():
         raise WorkspaceError("topic_invalid", "Topic title is empty or invalid")
     if args.topic_id is not None:
         validate_topic_id(args.topic_id)
+    existing = SourceLibrary(args.workspace).find_original(source, source_kind="paper_pdf")
+    if existing is not None:
+        topic_id = None
+        if args.topic is not None or args.topic_id is not None:
+            topic_id = SourceLibrary(args.workspace).attach(
+                existing["source_id"], topic_title=args.topic, topic_id=args.topic_id
+            )
+        print(json.dumps({"status": "reused", "source_id": existing["source_id"], "topic_id": topic_id}, ensure_ascii=False))
+        return
     batch_id = hosted.start(source, model=args.model, language=args.language, ocr=args.ocr)
     task = core.create_parser_task(
         batch_id,
         source,
-        title=args.title,
+        title=args.title or "",
+        short_name=args.short_name or "",
         topic_title=args.topic,
         topic_id=args.topic_id,
+        published_at=args.published_at,
         model=args.model,
         language=args.language,
     )
-    print(json.dumps({"status": "uploaded", "batch_id": batch_id, "source_id": task.source_id}, ensure_ascii=False), flush=True)
-    _finish_task(core, task, hosted, timeout=args.timeout, interval=args.poll_interval)
-    print(json.dumps({"status": "done", "batch_id": batch_id, "source_id": task.source_id}, ensure_ascii=False))
+    print(json.dumps({"status": "uploaded", "batch_id": batch_id}, ensure_ascii=False), flush=True)
+    result = _finish_task(core, task, hosted, timeout=args.timeout, interval=args.poll_interval)
+    print(json.dumps({**result, "status": "done", "batch_id": batch_id}, ensure_ascii=False))
 
 
 def _resume(args: argparse.Namespace, hosted: Any) -> None:
     core = WorkspaceCore(args.workspace)
     task = core.load_parser_task(args.batch_id)
-    _finish_task(core, task, hosted, timeout=args.timeout, interval=args.poll_interval)
-    print(json.dumps({"status": "done", "batch_id": args.batch_id, "source_id": task.source_id}, ensure_ascii=False))
+    result = _finish_task(core, task, hosted, timeout=args.timeout, interval=args.poll_interval)
+    print(json.dumps({**result, "status": "done", "batch_id": args.batch_id}, ensure_ascii=False))
 
 
 def _reuse(args: argparse.Namespace, hosted: Any) -> None:
@@ -495,13 +506,14 @@ def _build_parser() -> argparse.ArgumentParser:
     common.add_argument("--poll-interval", type=float, default=5.0)
     parse = subparsers.add_parser("parse", parents=[common])
     parse.add_argument("source", type=Path)
-    parse.add_argument("--title", required=True)
-    parse.add_argument("--topic", required=True)
+    parse.add_argument("--title")
+    parse.add_argument("--short-name")
+    parse.add_argument("--topic")
     parse.add_argument("--topic-id")
+    parse.add_argument("--published-at")
     parse.add_argument("--model", choices=("vlm", "pipeline"), default="vlm")
     parse.add_argument("--language", default="en")
     parse.add_argument("--ocr", action="store_true")
-    parse.add_argument("--authorize-upload", action="store_true")
     parse.set_defaults(func=_parse)
     resume = subparsers.add_parser("resume", parents=[common])
     resume.add_argument("batch_id")

@@ -4,13 +4,9 @@ import contextlib
 import importlib.util
 import io
 import json
-import shutil
+import tempfile
 import unittest
-import uuid
-import zipfile
 from pathlib import Path
-from types import SimpleNamespace
-from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,285 +15,127 @@ ROOT = Path(__file__).resolve().parents[1]
 def load_module(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
+    assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
 
 
-ARTICLE = load_module(
-    "focus_article_parser",
-    ROOT / ".agents" / "skills" / "article-parser" / "scripts" / "article_parser.py",
-)
+ARTICLE = load_module("article_parser_current", ROOT / ".agents" / "skills" / "article-parser" / "scripts" / "article_parser.py")
 
 
-class FixtureHosted:
-    def __init__(self, archive: Path):
-        self.archive = archive
-        self.starts: list[tuple] = []
-        self.completions = 0
+class Hosted:
+    def __init__(self, *, fail_start: bool = False, timeout: bool = False):
+        self.fail_start = fail_start
+        self.timeout = timeout
+        self.starts = 0
 
-    def start_url(self, url: str):
-        self.starts.append(("url", url, "MinerU-HTML"))
-        return "task_id", "article-task-1"
+    def start_url(self, url):
+        self.starts += 1
+        if self.fail_start:
+            raise ARTICLE.ParserError("access denied")
+        return "task_id", "article-task"
 
-    def start_file(self, source: Path):
-        self.starts.append(("file", source.name, "MinerU-HTML"))
-        return "batch_id", "article-batch-1"
+    def start_file(self, source):
+        self.starts += 1
+        return "batch_id", "article-batch"
 
-    def complete(self, task, source: Path | None, output: Path, *, timeout: float, interval: float):
-        del timeout, interval
-        self.completions += 1
-        ARTICLE._normalize(
-            self.archive,
-            output,
-            reference_kind=task.reference_kind,
-            reference_id=task.reference_id,
-            source_url=task.source_url,
-        )
+    def complete(self, task, source, output, *, timeout, interval):
+        if self.timeout:
+            raise ARTICLE.ArticleParserError("Polling timed out; resume with task_id article-task")
+        output.mkdir(parents=True)
+        (output / "images").mkdir()
+        (output / "source.html").write_text("<h1>完整文章标题</h1>", encoding="utf-8")
+        (output / "content.md").write_text("# 完整文章标题\n\n正文。\n", encoding="utf-8")
+        metadata = {
+            "source_kind": "article_html",
+            "language": "zh",
+            "parser": "article-parser",
+            task.reference_kind: task.reference_id,
+        }
+        if task.source_url:
+            metadata["source_url"] = task.source_url
+        (output / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+        (output / "validation.json").write_text(json.dumps({"ok": True, "warnings": []}), encoding="utf-8")
 
 
 class ArticleParserTests(unittest.TestCase):
     def setUp(self):
-        test_runs = ROOT / "tmp" / "test-runs"
-        test_runs.mkdir(parents=True, exist_ok=True)
-        self.root = test_runs / f"article-parser-{uuid.uuid4().hex}"
-        self.root.mkdir()
-        self.archive = self.root / "result.zip"
-        with zipfile.ZipFile(self.archive, "w") as bundle:
-            bundle.writestr(
-                "article/full.md",
-                "# 中文文章\n\n第一段。\n\n![图](images/cover.png)\n\n## 第二节\n第二段。\n",
-            )
-            bundle.writestr("article/main.html", "<!doctype html><html lang='zh-CN'><body>中文文章</body></html>")
-            bundle.writestr("article/images/cover.png", b"image")
-            bundle.writestr("article/images/unused.png", b"unused")
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.workspace = self.root / "workspace"
+        self.workspace.mkdir()
 
     def tearDown(self):
-        shutil.rmtree(self.root)
+        self.temporary.cleanup()
 
-    @staticmethod
-    def _run(args, hosted):
-        stdout = io.StringIO()
-        stderr = io.StringIO()
+    def run_parser(self, args, hosted):
+        stdout, stderr = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             code = ARTICLE.main(args, hosted=hosted)
-        lines = stderr.getvalue().splitlines() if code else stdout.getvalue().splitlines()
-        payload = json.loads(lines[-1])
-        return code, payload, stderr.getvalue()
+        output = [json.loads(line) for line in stdout.getvalue().splitlines() if line.strip()]
+        error = json.loads(stderr.getvalue()) if stderr.getvalue() else None
+        return code, output, error
 
-    def test_parse_url_uses_mineru_html_and_registers_common_bundle(self):
-        workspace = self.root / "workspace"
-        workspace.mkdir()
-        hosted = FixtureHosted(self.archive)
-
-        code, result, _ = self._run(
-            [
-                "parse-url",
-                "https://example.test/article",
-                "--workspace",
-                str(workspace),
-                "--topic",
-                "系统",
-                "--authorize-cloud-fetch",
-            ],
+    def test_url_invocation_is_authorization_and_registers_after_title_resolution(self):
+        hosted = Hosted()
+        code, output, error = self.run_parser(
+            ["parse-url", "https://example.com/post?utm_source=noise", "--workspace", str(self.workspace), "--short-name", "核心对象与主张"],
             hosted,
         )
+        self.assertEqual((0, None), (code, error))
+        self.assertEqual("submitted", output[0]["status"])
+        self.assertNotIn("source_id", output[0])
+        self.assertEqual("核心对象与主张-article", output[1]["source_id"])
+        source = json.loads((self.workspace / "sources" / "核心对象与主张-article" / "source.yaml").read_text(encoding="utf-8"))
+        self.assertEqual("完整文章标题", source["title"])
+        self.assertEqual("https://example.com/post", source["source_url"])
+        self.assertNotIn("topics", source)
+        self.assertEqual([], list((self.workspace / "parser-tasks").iterdir()))
 
-        self.assertEqual(0, code)
-        self.assertEqual([("url", "https://example.test/article", "MinerU-HTML")], hosted.starts)
-        self.assertEqual("article-task-1", result["task_id"])
-        source_root = workspace / "sources" / "article"
-        bundle = source_root / "parser-bundle"
-        self.assertEqual(
-            {"source.html", "content.md", "images", "metadata.json", "validation.json"},
-            {path.name for path in bundle.iterdir()},
-        )
-        self.assertEqual(["image-001.png"], [path.name for path in (bundle / "images").iterdir()])
-        self.assertIn("images/image-001.png", (bundle / "content.md").read_text(encoding="utf-8"))
-        metadata = json.loads((bundle / "metadata.json").read_text(encoding="utf-8"))
-        self.assertEqual(
-            {
-                "source_kind": "article_html",
-                "language": "zh",
-                "parser": "article-parser",
-                "model_version": "MinerU-HTML",
-                "source_url": "https://example.test/article",
-                "task_id": "article-task-1",
-                "image_count": 1,
-            },
-            metadata,
-        )
-        self.assertFalse((workspace / "parser-tasks" / "article-task-1").exists())
-
-    def test_parse_file_requires_upload_authorization_and_uses_saved_html(self):
-        workspace = self.root / "workspace"
-        workspace.mkdir()
+    def test_saved_html_upload_needs_no_second_flag_and_may_attach_topic(self):
         html = self.root / "saved.html"
-        html.write_text("<!doctype html><html><body>手动保存</body></html>", encoding="utf-8")
-        hosted = FixtureHosted(self.archive)
-        command = [
-            "parse-file",
-            str(html),
-            "--workspace",
-            str(workspace),
-            "--title",
-            "本地文章",
-            "--topic",
-            "系统",
-        ]
-
-        code, error, _ = self._run(command, hosted)
-        self.assertEqual((1, "upload_authorization_required"), (code, error["error_id"]))
-        self.assertEqual([], hosted.starts)
-
-        code, result, _ = self._run([*command, "--authorize-upload"], hosted)
-        self.assertEqual(0, code)
-        self.assertEqual("article-batch-1", result["batch_id"])
-        self.assertEqual([("file", "saved.html", "MinerU-HTML")], hosted.starts)
-        source_html = workspace / "sources" / "本地文章" / "parser-bundle" / "source.html"
-        self.assertIn("中文文章", source_html.read_text(encoding="utf-8"))
-
-    def test_invalid_local_registration_input_is_rejected_before_submission(self):
-        workspace = self.root / "workspace"
-        workspace.mkdir()
-        hosted = FixtureHosted(self.archive)
-
-        code, error, _ = self._run(
-            [
-                "parse-url",
-                "https://example.test/article",
-                "--workspace",
-                str(workspace),
-                "--topic",
-                "Web",
-                "--topic-id",
-                "invalid/topic",
-                "--authorize-cloud-fetch",
-            ],
-            hosted,
+        html.write_text("<html>saved</html>", encoding="utf-8")
+        code, output, error = self.run_parser(
+            ["parse-file", str(html), "--workspace", str(self.workspace), "--short-name", "文章工作名", "--topic", "AI Systems"],
+            Hosted(),
         )
+        self.assertEqual((0, None), (code, error))
+        self.assertEqual("文章工作名-article", output[-1]["source_id"])
+        topic = json.loads((self.workspace / "topics" / "ai-systems" / "topic.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(["文章工作名-article"], topic["sources"])
 
-        self.assertEqual((1, "topic_id_invalid"), (code, error["error_id"]))
-        self.assertEqual([], hosted.starts)
+    def test_identical_canonical_url_reuses_without_resubmission(self):
+        self.run_parser(
+            ["parse-url", "https://example.com/post?utm_source=a", "--workspace", str(self.workspace), "--short-name", "测试文章"],
+            Hosted(),
+        )
+        second = Hosted(fail_start=True)
+        code, output, error = self.run_parser(
+            ["parse-url", "https://example.com/post", "--workspace", str(self.workspace)], second
+        )
+        self.assertEqual((0, None, 0), (code, error, second.starts))
+        self.assertEqual("reused", output[-1]["status"])
 
-    def test_url_submission_failure_points_to_parse_file_without_bypass(self):
-        workspace = self.root / "workspace"
-        workspace.mkdir()
-
-        class RejectedHosted(FixtureHosted):
-            def start_url(self, url: str):
-                del url
-                raise ARTICLE.ArticleParserError("MinerU URL fetch failed")
-
-        code, error, stderr = self._run(
-            [
-                "parse-url",
-                "https://example.test/blocked",
-                "--workspace",
-                str(workspace),
-                "--title",
-                "Blocked",
-                "--topic",
-                "Web",
-                "--authorize-cloud-fetch",
-            ],
-            RejectedHosted(self.archive),
+    def test_url_failure_is_direct_and_does_not_bypass_access_controls(self):
+        code, _, error = self.run_parser(
+            ["parse-url", "https://example.com/blocked", "--workspace", str(self.workspace)], Hosted(fail_start=True)
         )
         self.assertEqual(1, code)
         self.assertEqual("url_fetch_failed", error["error_id"])
-        self.assertIn("parse-file", stderr)
-        self.assertFalse((workspace / "sources").exists())
+        self.assertIn("save the article as one .html file", error["message"].lower())
 
-    def test_remote_url_fetch_failure_points_to_parse_file(self):
-        task = SimpleNamespace(
-            reference_kind="task_id",
-            reference_id="blocked-task",
-            source_url="https://example.test/blocked",
+    def test_timeout_retains_only_resumable_task_and_resume_installs_source(self):
+        hosted = Hosted(timeout=True)
+        code, _, error = self.run_parser(
+            ["parse-url", "https://example.com/slow", "--workspace", str(self.workspace), "--short-name", "慢文章"], hosted
         )
-        with mock.patch.object(
-            ARTICLE,
-            "_poll",
-            side_effect=ARTICLE.ArticleParserError("MinerU parsing failed: remote fetch denied"),
-        ):
-            with self.assertRaises(ARTICLE.ArticleParserError) as caught:
-                ARTICLE.MinerUHTMLHostedParser().complete(
-                    task, None, self.root / "output", timeout=1, interval=0
-                )
-        self.assertEqual("url_fetch_failed", caught.exception.error_id)
-        self.assertIn("parse-file", str(caught.exception))
-
-    def test_timed_out_url_parse_resumes_with_one_task_reference(self):
-        workspace = self.root / "workspace"
-        workspace.mkdir()
-
-        class TimeoutOnceHosted(FixtureHosted):
-            def complete(self, task, source, output, *, timeout, interval):
-                if self.completions == 0:
-                    self.completions += 1
-                    raise ARTICLE.ArticleParserError(
-                        f"Polling timed out; resume with task_id {task.reference_id}"
-                    )
-                return super().complete(task, source, output, timeout=timeout, interval=interval)
-
-        hosted = TimeoutOnceHosted(self.archive)
-        code, error, _ = self._run(
-            [
-                "parse-url",
-                "https://example.test/resume",
-                "--workspace",
-                str(workspace),
-                "--title",
-                "恢复文章",
-                "--topic",
-                "系统",
-                "--authorize-cloud-fetch",
-            ],
-            hosted,
-        )
-        self.assertEqual(1, code)
-        self.assertIn("resume", error["message"])
-        task_root = workspace / "parser-tasks" / "article-task-1"
-        task = json.loads((task_root / "task.json").read_text(encoding="utf-8"))
-        self.assertEqual("article-task-1", task["task_id"])
-        self.assertNotIn("batch_id", task)
-        self.assertFalse(any("history" in path.name or "receipt" in path.name for path in task_root.iterdir()))
-
-        code, result, _ = self._run(
-            ["resume", "article-task-1", "--workspace", str(workspace)], hosted
-        )
-        self.assertEqual(0, code)
-        self.assertEqual("article-task-1", result["task_id"])
-        self.assertEqual(1, len(hosted.starts))
-        self.assertFalse(task_root.exists())
-
-    def test_terminal_failure_discards_non_resumable_task(self):
-        workspace = self.root / "workspace"
-        workspace.mkdir()
-
-        class FailedHosted(FixtureHosted):
-            def complete(self, task, source, output, *, timeout, interval):
-                del task, source, output, timeout, interval
-                raise ARTICLE.ArticleParserError(
-                    "MinerU parsing failed: access denied", recoverable=False
-                )
-
-        code, error, _ = self._run(
-            [
-                "parse-url",
-                "https://example.test/denied",
-                "--workspace",
-                str(workspace),
-                "--title",
-                "Denied",
-                "--topic",
-                "Web",
-                "--authorize-cloud-fetch",
-            ],
-            FailedHosted(self.archive),
-        )
-        self.assertEqual(1, code)
-        self.assertEqual("article_parser_failed", error["error_id"])
-        self.assertFalse((workspace / "parser-tasks" / "article-task-1").exists())
+        self.assertEqual((1, "article_parser_failed"), (code, error["error_id"]))
+        task = json.loads((self.workspace / "parser-tasks" / "article-task" / "task.json").read_text(encoding="utf-8"))
+        self.assertNotIn("source_id", task)
+        hosted.timeout = False
+        code, output, error = self.run_parser(["resume", "article-task", "--workspace", str(self.workspace)], hosted)
+        self.assertEqual((0, None), (code, error))
+        self.assertEqual("慢文章-article", output[-1]["source_id"])
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ python -B -X utf8 scripts/focus_map.py map --workspace <workspace> --source-id <
 
 If the result has reused=true, return the existing plan_id and chunk_id. Do not inspect the Reading Source or generate a new draft. Normal reuse preserves the current Cursor.
 
-If the result reports reading_plan_input_missing, read the canonical `parser-bundle/content.md` and its referenced images. Build one private UTF-8 JSON draft:
+If the result reports `reading_plan_input_missing`, read the canonical `parser-bundle/content.md` and its referenced images. Build one private UTF-8 JSON draft in memory:
 
 ~~~json
 {
@@ -34,10 +34,11 @@ If the result reports reading_plan_input_missing, read the canonical `parser-bun
 }
 ~~~
 
-Then install it:
+Then pipe that private draft to the same command over stdin. Do not create a caller-visible draft file:
 
 ~~~powershell
-python -B -X utf8 scripts/focus_map.py map --workspace <workspace> --source-id <source-id> --scope <scope> --draft <draft.json>
+python -B -X utf8 scripts/focus_map.py map `
+  --workspace <workspace> --source-id <source-id> --scope <scope>
 ~~~
 
 ## Plan rules
@@ -58,9 +59,12 @@ Do not add summaries, learning objectives, questions, translations, Notes, state
 Only an explicit reset/rebuild request may run:
 
 ~~~powershell
-python -B -X utf8 scripts/focus_map.py map --workspace <workspace> --source-id <source-id> --reinitialize --scope <scope> --draft <draft.json>
+python -B -X utf8 scripts/focus_map.py map `
+  --workspace <workspace> --source-id <source-id> --reinitialize --scope <scope>
 ~~~
 
 A successful reinitialization creates the next plan-NNN directory, fully installs its Chunks, Glossary, and empty Records, then selects its chunk-001 in state.json. Existing Plan directories and Reading Records remain unchanged. A failure leaves the prior Plan and Cursor selected.
 
 Phase 1 intentionally has no compatibility conversion, locks, revisions, event log, or multi-writer recovery.
+
+The JSON is transport only. Never persist it under `tmp/`, emit its path as a receipt, or retain internal staging after success or failure.

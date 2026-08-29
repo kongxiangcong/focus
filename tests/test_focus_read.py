@@ -49,7 +49,7 @@ class FocusReadTests(unittest.TestCase):
         (bundle / "images").mkdir(parents=True)
         records.mkdir(parents=True)
         (source_root / "source.yaml").write_text(
-            json.dumps({"source_kind": "paper_pdf", "source_id": "fixture-paper", "title": "Fixture Paper", "topics": ["systems"]}),
+            json.dumps({"source_kind": "paper_pdf", "source_id": "fixture-paper", "title": "Fixture Paper", "short_name": "fixture", "identity": "fixture:read"}),
             encoding="utf-8",
         )
         lines = [
@@ -111,6 +111,7 @@ class FocusReadTests(unittest.TestCase):
             json.dumps(
                 {
                     "current_source_id": "fixture-paper",
+                    "current_topic_id": None,
                     "sources": {"fixture-paper": {"current_plan_id": "plan-001", "current_chunk_id": "chunk-001"}},
                 }
             ),
@@ -360,7 +361,7 @@ class FocusReadTests(unittest.TestCase):
         (other_bundle / "metadata.json").write_text('{"source_kind":"paper_pdf","language":"en","parser":"paper-parser","batch_id":"fixture-batch"}\n', encoding="utf-8")
         (other_bundle / "validation.json").write_text('{"ok":true}\n', encoding="utf-8")
         (other_root / "source.yaml").write_text(
-            json.dumps({"source_kind": "paper_pdf", "source_id": "other-paper", "title": "Other", "topics": []}),
+            json.dumps({"source_kind": "paper_pdf", "source_id": "other-paper", "title": "Other", "short_name": "other", "identity": "fixture:other"}),
             encoding="utf-8",
         )
         state_path = workspace / "state.json"

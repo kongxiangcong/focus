@@ -30,6 +30,14 @@ def _read_json(path: Path, *, error_id: str, label: str):
         raise WorkspaceError(error_id, f"{label} file is invalid") from exc
 
 
+def _read_json_stdin(*, error_id: str, label: str):
+    try:
+        value = json.loads(sys.stdin.read())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise WorkspaceError(error_id, f"{label} input is invalid") from exc
+    return value
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -85,6 +93,31 @@ def _build_parser() -> argparse.ArgumentParser:
     switching = commands.add_parser("switch")
     switching.add_argument("--workspace", type=Path, required=True)
     switching.add_argument("--source-id", required=True)
+
+    topic = commands.add_parser("topic")
+    topic.add_argument("topic_id")
+    topic.add_argument("--workspace", type=Path, required=True)
+
+    topic_search = commands.add_parser("topic-search")
+    topic_search.add_argument("topic_id")
+    topic_search.add_argument("--workspace", type=Path, required=True)
+    topic_search.add_argument("--query", required=True)
+    topic_search.add_argument("--limit", type=int, default=5)
+
+    topic_range = commands.add_parser("topic-range")
+    topic_range.add_argument("topic_id")
+    topic_range.add_argument("source_id")
+    topic_range.add_argument("--workspace", type=Path, required=True)
+    topic_range.add_argument("--start", type=int, required=True)
+    topic_range.add_argument("--end", type=int, required=True)
+
+    topic_notes = commands.add_parser("topic-notes")
+    topic_notes.add_argument("topic_id")
+    topic_notes.add_argument("--workspace", type=Path, required=True)
+
+    synthesis = commands.add_parser("synthesize-topic")
+    synthesis.add_argument("topic_id")
+    synthesis.add_argument("--workspace", type=Path, required=True)
     return parser
 
 
@@ -144,8 +177,26 @@ def main(argv: list[str] | None = None) -> int:
                     label="Translation",
                 ),
             )
-        else:
+        elif args.command == "switch":
             result = core.switch_source(args.source_id)
+        elif args.command == "topic":
+            result = core.select_topic(args.topic_id)
+        elif args.command == "topic-search":
+            result = core.search_topic(topic_id=args.topic_id, query=args.query, limit=args.limit)
+        elif args.command == "topic-range":
+            result = core.read_topic_range(
+                topic_id=args.topic_id,
+                source_id=args.source_id,
+                start=args.start,
+                end=args.end,
+            )
+        elif args.command == "topic-notes":
+            result = core.topic_notes(args.topic_id)
+        else:
+            result = core.synthesize_topic(
+                args.topic_id,
+                _read_json_stdin(error_id="topic_synthesis_invalid", label="Topic Synthesis"),
+            )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (WorkspaceError, OSError) as exc:

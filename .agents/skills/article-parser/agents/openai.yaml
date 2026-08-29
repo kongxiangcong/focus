@@ -1,4 +1,4 @@
 interface:
   display_name: "Article Parser"
   short_description: "Parse Chinese HTML articles with MinerU-HTML"
-  default_prompt: "Use $article-parser to parse and register this Chinese article in my private FOCUS Workspace after confirming the required MinerU authorization."
+  default_prompt: "Use $article-parser to parse and register this Chinese article in my private FOCUS Source Library now; this invocation authorizes the required MinerU request."

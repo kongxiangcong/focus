@@ -5,8 +5,12 @@ FOCUS 是一个以来源原文为锚点的私人阅读工作台。它保存可�
 ## Language
 
 **Topic**:
-组织相关 Reading Sources 的命名集合，不拥有或复制来源资产。
-_Avoid_: Course, learning path, knowledge domain
+按阅读意图组织 Reading Source ID 的命名有序集合；顺序就是 Topic Reading 顺序，不拥有或复制来源资产。
+_Avoid_: Course, tag directory, physical asset owner, knowledge domain
+
+**Source Library**:
+Workspace 内唯一的 `sources/` 权威集合；每份 Reading Source 及其 Parser Bundle、Reading Plans、Records 与 Notes 只保存一次。
+_Avoid_: Topic-owned sources, object store, duplicate source tree
 
 **Reading Source**:
 一份已在 Workspace 本地注册、可稳定阅读的来源及其可复用源资产；类型只区分 Paper Source 与 Article Source。
@@ -20,9 +24,21 @@ _Avoid_: Article Source, generic document
 以公开 URL 或用户手动保存的单文件 HTML 提供并由 MinerU-HTML 解析的中文文章或博客，不按发布平台细分。
 _Avoid_: Zhihu Source, WeChat Source, Paper Source
 
+**Source Title**:
+Reading Source 由发布者或文档给出的完整原题；不混入 Source ID、Source 类型、发布日期或目录消歧信息。
+_Avoid_: Source ID, storage name, title with type suffix
+
+**Source Short Name**:
+Reading Source 注册时确定的简短、可读且稳定的工作名；优先采用作品公认简称，否则概括其核心对象或主张，确定后不随摘要或展示文案变化。
+_Avoid_: Source Title, generated summary, mutable alias
+
 **Source ID**:
-Reading Source 注册时分配的稳定可读 slug；仅在冲突时追加数字后缀，不依赖内容哈希。
-_Avoid_: Full title, source hash, mutable display name
+Reading Source 注册时分配的稳定引用和目录键；以 Source Short Name 加 `-paper` 或 `-article` 构成，不作为展示标题，只有同名同类型冲突时才追加消歧信息。
+_Avoid_: Source Title, source hash, mutable display name
+
+**Source Identity**:
+用于识别相同规范 URL 或相同 Paper 原件并复用已注册 Reading Source 的稳定输入身份；它独立于 MinerU Parser Task ID 与 Source ID。
+_Avoid_: Source ID, directory name, display title
 
 **Parser Bundle**:
 由 Paper Parser 或 Article Parser 直接生成在 Reading Source 目录中的规范来源表示、Markdown、引用图片、最小元数据与结构验证结果。
@@ -45,8 +61,8 @@ Reading Plan 中一个稳定、连续、可整体展示的原文单元。
 _Avoid_: Lesson, checkpoint, mastery node
 
 **Cursor State**:
-workspace/state.json 中保存当前 Reading Source 及每份 Source 当前 Plan/Chunk 引用的极小持久化对象。
-_Avoid_: Session state, event log, progress matrix
+workspace/state.json 中保存当前 Reading Source、可选当前 Topic，以及每份 Source 当前 Plan/Chunk 引用的极小持久化对象。
+_Avoid_: Session state, event log, per-Topic progress matrix
 
 **Reading Cursor**:
 Cursor State 中当前选择的 Reading Chunk 引用；null 表示当前 Plan 已经经过最后一个 Chunk。
@@ -60,6 +76,10 @@ _Avoid_: Lock, revision, second state authority
 读者明确要求向后阅读时，将 Reading Cursor 推进一个 Chunk 的唯一操作。
 _Avoid_: Bare continue, confirmed, understood, mastered, passed
 
+**Topic Reading**:
+沿 Topic manifest 的 Source ID 顺序选择首个未完成 Source，并复用每份 Source 自己的 Reading Plan、Cursor、Records 与 Notes；跨 Source 的 Continue Reading 不创建 Topic 进度副本。
+_Avoid_: Topic-owned plan, duplicated progress, tag browsing
+
 **Reading Record**:
 按 Chunk 隔离的可变阅读资产，仅包含可选的纯中文翻译和精简 Reading Notes；中文来源不保存重复翻译。
 _Avoid_: Chat history, plan row, learner record
@@ -71,6 +91,10 @@ _Avoid_: Transcript, discussion log, assessment result, cognitive evidence
 **Source Anchor**:
 Reading Chunk 或 Reading Note 回到 Parser Bundle 原文的行范围及可选短引文。
 _Avoid_: Content hash, duplicated source text
+
+**Topic Synthesis**:
+用户显式请求后，从 Topic 内带 Source Anchor 的 Reading Notes 与选定原文范围生成的简洁 claims 集合；它保存在 Topic 下但只是可重新生成的派生产物。
+_Avoid_: Source authority, automatic summary, copied Parser Bundle, knowledge graph
 
 **Relevant Glossary**:
 当前 Chunk 原文实际出现的 Plan Glossary 子集。

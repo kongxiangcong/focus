@@ -72,3 +72,43 @@ python -B -X utf8 scripts/focus_read.py continue --workspace <workspace> --expec
 The command advances exactly one Chunk and does not translate the next Chunk. Repeating an old receipt returns current state without advancing again. After success, use the new receipt and call `current` only when the user wants the next Chunk shown.
 
 Use `update-glossary`, `retranslate`, and `switch` only on explicit requests. A Cursor mismatch means the hot receipt is stale: use the returned current state and do not retry the old write blindly. Phase 1 intentionally provides no migration layer, locks, revisions, event log, or multi-writer protocol.
+
+## Read an ordered Topic
+
+On an explicit Topic Reading request, select the Topic once:
+
+```powershell
+python -B -X utf8 scripts/focus_read.py topic <topic-id> --workspace <workspace>
+```
+
+This selects the first unfinished Source in `topic.yaml.sources` order and reuses that Source's own Plan, Records, Notes, translation, and Cursor. `continue` advances exactly one Chunk; completing the last Chunk of a Source selects the next unfinished Topic Source. A Source completed through any Topic is already complete everywhere. Only explicit Source reinitialization/rereading resets it. Keep the returned `topic_id`, `source_id`, `plan_id`, and `chunk_id` as the hot receipt; Workspace state persists only `current_topic_id` plus existing per-Source cursors.
+
+## Search and synthesize a Topic
+
+Only search Sources referenced by the selected Topic, with a bounded total result count:
+
+```powershell
+python -B -X utf8 scripts/focus_read.py topic-search <topic-id> --workspace <workspace> --query <query> --limit 5
+python -B -X utf8 scripts/focus_read.py topic-range <topic-id> <source-id> --workspace <workspace> --start <line> --end <line>
+python -B -X utf8 scripts/focus_read.py topic-notes <topic-id> --workspace <workspace>
+```
+
+Create a Topic Synthesis only on explicit request. Build a small private JSON draft from source-anchored Topic Reading Notes and the ranges selected with `topic-range`, then send it on stdin:
+
+```json
+{
+  "selected_ranges": [{"source_id": "DeepStack-paper", "source_lines": [120, 138]}],
+  "claims": [
+    {
+      "text": "A concise cross-source claim.",
+      "anchors": [{"source_id": "DeepStack-paper", "source_lines": [120, 138]}]
+    }
+  ]
+}
+```
+
+```powershell
+python -B -X utf8 scripts/focus_read.py synthesize-topic <topic-id> --workspace <workspace>
+```
+
+Every claim must carry at least one Source ID and Source Anchor that exactly matches an anchored Reading Note or selected range. The installed `topics/<topic-id>/synthesis/synthesis-NNN.json` contains only concise claims and anchors. It is explicit derived output: never copy Bundles, Records, dialogue, or source text, and never rewrite it automatically when reading or attaching Sources.

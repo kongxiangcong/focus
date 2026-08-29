@@ -9,6 +9,7 @@ import unittest
 import uuid
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,7 +33,7 @@ class ArticleReadingJourneyTests(unittest.TestCase):
     def setUp(self):
         runs = ROOT / "tmp" / "test-runs"
         runs.mkdir(parents=True, exist_ok=True)
-        self.root = runs / f"article-reading-{uuid.uuid4().hex}"
+        self.root = runs / f"a-{uuid.uuid4().hex[:8]}"
         self.root.mkdir()
 
     def tearDown(self):
@@ -40,9 +41,10 @@ class ArticleReadingJourneyTests(unittest.TestCase):
 
     @staticmethod
     def _run(module, args, **kwargs):
+        stdin = kwargs.pop("stdin", "")
         stdout = io.StringIO()
         stderr = io.StringIO()
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr), mock.patch("sys.stdin", io.StringIO(stdin)):
             code = module.main(args, **kwargs)
         text = stdout.getvalue() if code == 0 else stderr.getvalue()
         try:
@@ -88,17 +90,16 @@ class ArticleReadingJourneyTests(unittest.TestCase):
                 str(workspace),
                 "--title",
                 "中文系统文章",
+                "--short-name",
+                "中文系统",
                 "--topic",
                 "系统",
-                "--authorize-cloud-fetch",
             ],
             hosted=Hosted(),
         )
         self.assertEqual(0, code)
         source_id = parsed["source_id"]
-        draft = self.root / "draft.json"
-        draft.write_text(
-            json.dumps(
+        draft = json.dumps(
                 {
                     "chunks": [
                         {"section_path": ["中文系统文章", "第一节"], "source_lines": [1, 5], "images": []},
@@ -107,13 +108,12 @@ class ArticleReadingJourneyTests(unittest.TestCase):
                     "glossary": [],
                 },
                 ensure_ascii=False,
-            ),
-            encoding="utf-8",
         )
 
         code, mapped = self._run(
             FOCUS_MAP,
-            ["map", "--workspace", str(workspace), "--source-id", source_id, "--draft", str(draft)],
+            ["map", "--workspace", str(workspace), "--source-id", source_id],
+            stdin=draft,
         )
         self.assertEqual((0, "plan-001"), (code, mapped["plan_id"]))
         code, current = self._run(FOCUS_READ, ["current", "--workspace", str(workspace)])
@@ -200,9 +200,8 @@ class ArticleReadingJourneyTests(unittest.TestCase):
                 "--source-id",
                 source_id,
                 "--reinitialize",
-                "--draft",
-                str(draft),
             ],
+            stdin=draft,
         )
         self.assertEqual((0, "plan-002"), (code, rebuilt["plan_id"]))
         self.assertIsNone(

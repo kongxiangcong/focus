@@ -1,4 +1,4 @@
 interface:
   display_name: "Paper Parser"
   short_description: "Parse papers with MinerU precision API"
-  default_prompt: "Use $paper-parser to parse and register this PDF in my private FOCUS Workspace after confirming cloud-upload authorization."
+  default_prompt: "Use $paper-parser to parse and register this selected PDF in my private FOCUS Source Library now; this invocation authorizes the required MinerU upload."
