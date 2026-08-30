@@ -64,6 +64,7 @@ textarea:focus-visible {
   pointer-events: none;
   background: radial-gradient(circle, rgba(244, 196, 170, 0.35) 0, rgba(244, 196, 170, 0.16) 30%, rgba(244, 196, 170, 0) 70%);
   opacity: 0.88;
+  transform: translate3d(50vw, 55vh, 0) translate(-50%, -50%);
   transition: transform var(--reader-duration-move) var(--reader-ease-out), opacity var(--reader-duration-move) var(--reader-ease-out);
   will-change: transform;
 }

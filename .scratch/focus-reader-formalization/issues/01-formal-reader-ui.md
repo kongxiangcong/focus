@@ -1,6 +1,7 @@
 # Rewrite the selected prototype as the formal Reader UI
 
-Status: resolved
+Status: ready-for-human
+Implementation: complete; awaiting human design review
 
 ## Requirements
 
@@ -27,4 +28,6 @@ Status: resolved
 
 The current-session prototype was rewritten as the formal initial Reader UI. `FocusReader({ host })` remains the public Interface; Reading Chunk rendering and transition-frame derivation are internal modules; ReaderHost operations use a single-operation lock and AbortSignal; stale Cursor receipts reload the authoritative projection; complete history is a `ReadingWindow` Interface invariant; the synthetic development fixture is Chinese; and formal design tokens, documentation, ADR, tests, and browser evidence are in place.
 
-Verified at resolution: all Reader workspace typechecks, 8 Reader UI tests, 5 Standalone Adapter tests, production build, desktop browser, 390px browser, three historical depth levels, post-Continue focus landing, and zero browser console warnings/errors. Keyboard traversal automation, contrast resolution, long-history/Markdown performance, repeatable visual regression, and physical-device density remain in issue 02. A live ReaderHost remains issue 03.
+Verified for human review: all Reader workspace typechecks, 11 Reader UI tests, 5 Standalone Adapter tests, production build, desktop browser, 390px browser, three historical depth levels, post-Continue focus landing, and zero browser console warnings/errors. Keyboard traversal automation, contrast resolution, long-history/Markdown performance, repeatable visual regression, and physical-device density remain in issue 02. A live ReaderHost remains issue 03.
+
+The two-axis review found and corrected the non-canonical Issue status, duplicated host-load lifecycle, old-Chunk remount risk, synthesized transition history, scroll-time glow detachment, and incomplete sending/error control locks. The Issue now remains `ready-for-human` for design review rather than claiming final completion.

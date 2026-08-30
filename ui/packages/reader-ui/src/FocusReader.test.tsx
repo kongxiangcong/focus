@@ -58,12 +58,14 @@ describe("FocusReader", () => {
 
     render(<FocusReader host={host} />);
 
-    expect(await screen.findByText("The first chunk.")).toBeInTheDocument();
+    const firstArticle = (await screen.findByText("The first chunk.")).closest("article");
+    expect(firstArticle).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "继续阅读" }));
 
     await waitFor(() => expect(screen.getByText("The second chunk.")).toBeInTheDocument());
-    expect(screen.getByText("The first chunk.").closest("article")).toHaveAttribute("data-depth", "1");
-    expect(screen.getByText("The first chunk.").closest("article")).toHaveAttribute("data-settling", "true");
+    expect(screen.getByText("The first chunk.").closest("article")).toBe(firstArticle);
+    expect(firstArticle).toHaveAttribute("data-depth", "1");
+    expect(firstArticle).toHaveAttribute("data-settling", "true");
     expect(screen.getByText("The second chunk.").closest("article")).toHaveAttribute("data-depth", "0");
     expect(screen.getByRole("button", { name: "正在继续…" })).toHaveAttribute("aria-busy", "true");
     expect(host.continueReading).toHaveBeenCalledWith(
@@ -232,5 +234,49 @@ describe("FocusReader", () => {
     expect(await screen.findByRole("heading", { name: "阅读完成" })).toBeInTheDocument();
     expect(screen.getByText("The first chunk.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "继续阅读" })).toBeDisabled();
+  });
+
+  it("leaves only recovery available after an operation error", async () => {
+    const host: ReaderHost = {
+      getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(firstWindow)),
+      continueReading: vi.fn().mockResolvedValue(
+        readerFailure("unavailable", "继续阅读暂时不可用。", true),
+      ),
+      sendMessage: vi.fn(),
+    };
+
+    render(<FocusReader host={host} />);
+    await screen.findByText("The first chunk.");
+    fireEvent.click(screen.getByRole("button", { name: "继续阅读" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("继续阅读暂时不可用。");
+    expect(screen.getByRole("button", { name: "继续阅读" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "针对这一段提问…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "重试" })).toBeEnabled();
+  });
+
+  it("locks marginalia and Continue Reading while a message is in flight", async () => {
+    let resolveMessage: ((value: ReturnType<typeof readerSuccess<ReadingWindow>>) => void) | undefined;
+    const pending = new Promise<ReturnType<typeof readerSuccess<ReadingWindow>>>((resolve) => {
+      resolveMessage = resolve;
+    });
+    const host: ReaderHost = {
+      getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(firstWindow)),
+      continueReading: vi.fn(),
+      sendMessage: vi.fn().mockReturnValue(pending),
+    };
+
+    render(<FocusReader host={host} />);
+    await screen.findByText("The first chunk.");
+    fireEvent.click(screen.getByRole("button", { name: "针对这一段提问…" }));
+    fireEvent.change(screen.getByLabelText("针对当前 Reading Chunk 提问"), {
+      target: { value: "Why?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(screen.getByRole("button", { name: "收起旁注" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "继续阅读" })).toBeDisabled();
+    resolveMessage?.(readerSuccess(firstWindow));
+    await waitFor(() => expect(screen.getByRole("button", { name: "继续阅读" })).toBeEnabled());
   });
 });

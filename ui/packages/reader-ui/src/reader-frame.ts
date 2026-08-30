@@ -29,10 +29,7 @@ export function projectReaderFrame(
 
   return {
     window: transition.target,
-    history:
-      settledWindow.current === null
-        ? transition.target.history
-        : [...settledWindow.history, settledWindow.current],
+    history: transition.target.history,
     current: transition.target.current,
     enteringCurrent: !transition.active,
     settlingChunkId: settledWindow.current?.chunkId ?? null,

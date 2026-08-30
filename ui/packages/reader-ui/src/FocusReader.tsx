@@ -35,8 +35,8 @@ export function FocusReader({ host }: FocusReaderProps) {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [annotationOpen, setAnnotationOpen] = useState(false);
-  const [glowTransform, setGlowTransform] = useState("translate3d(50vw, 55vh, 0) translate(-50%, -50%)");
   const currentHeadingRef = useRef<HTMLHeadingElement>(null);
+  const glowRef = useRef<HTMLDivElement>(null);
   const operationRef = useRef<AbortController | null>(null);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameRef = useRef<number | null>(null);
@@ -56,10 +56,10 @@ export function FocusReader({ host }: FocusReaderProps) {
     }
   }
 
-  async function reload() {
-    const controller = beginOperation();
-    if (controller === null) {
-      return;
+  async function loadReadingWindow(controller: AbortController, resetView: boolean) {
+    if (resetView) {
+      setSettledWindow(null);
+      setTransition(null);
     }
     setError(null);
     setPhase("loading");
@@ -79,6 +79,13 @@ export function FocusReader({ host }: FocusReaderProps) {
     setPhase("error");
   }
 
+  async function reload() {
+    const controller = beginOperation();
+    if (controller !== null) {
+      await loadReadingWindow(controller, false);
+    }
+  }
+
   useEffect(() => {
     operationRef.current?.abort();
     if (settleTimerRef.current !== null) {
@@ -91,24 +98,7 @@ export function FocusReader({ host }: FocusReaderProps) {
     }
     const controller = new AbortController();
     operationRef.current = controller;
-    setSettledWindow(null);
-    setTransition(null);
-    setError(null);
-    setPhase("loading");
-
-    void host.getReadingWindow(controller.signal).then((result) => {
-      if (controller.signal.aborted) {
-        return;
-      }
-      finishOperation(controller);
-      if (result.ok) {
-        setSettledWindow(result.value);
-        setPhase("ready");
-        return;
-      }
-      setError(result.error.message);
-      setPhase("error");
-    });
+    void loadReadingWindow(controller, true);
 
     return () => {
       controller.abort();
@@ -147,12 +137,18 @@ export function FocusReader({ host }: FocusReaderProps) {
       const rect = article.getBoundingClientRect();
       const x = rect.left + rect.width / 2;
       const y = Math.min(rect.top + rect.height / 2, globalThis.innerHeight * 0.58);
-      setGlowTransform(`translate3d(${x}px, ${y}px, 0) translate(-50%, -50%)`);
+      if (glowRef.current !== null) {
+        glowRef.current.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%)`;
+      }
     };
 
     placeGlow();
     globalThis.addEventListener("resize", placeGlow);
-    return () => globalThis.removeEventListener("resize", placeGlow);
+    globalThis.addEventListener("scroll", placeGlow, { passive: true });
+    return () => {
+      globalThis.removeEventListener("resize", placeGlow);
+      globalThis.removeEventListener("scroll", placeGlow);
+    };
   }, [current?.chunkId]);
 
   async function continueReading() {
@@ -265,13 +261,17 @@ export function FocusReader({ host }: FocusReaderProps) {
   }
 
   const busy = phase === "loading" || phase === "continuing" || phase === "sending";
+  const controlsDisabled = busy || phase === "error";
   const progress = current === null ? 100 : (current.index / current.total) * 100;
   const progressMax = current?.total ?? readerFrame.history.at(-1)?.total ?? 1;
   const progressStyle = { "--reader-progress": progress / 100 } as CSSProperties;
+  const streamChunks = current === null
+    ? readerFrame.history
+    : [...readerFrame.history, current];
 
   return (
     <main aria-busy={busy} className="focus-reader" data-phase={phase}>
-      <div aria-hidden="true" className="focus-reader__glow" style={{ transform: glowTransform }} />
+      <div aria-hidden="true" className="focus-reader__glow" ref={glowRef} />
 
       <header className="focus-reader__header">
         <h1>{readerFrame.window.source.title}</h1>
@@ -295,15 +295,51 @@ export function FocusReader({ host }: FocusReaderProps) {
       ) : null}
 
       <section aria-label="连续阅读内容" className="focus-reader__stream">
-        {readerFrame.history.map((chunk, index) => {
-          const depth = readerFrame.history.length - index;
+        {streamChunks.map((chunk, index) => {
+          const isCurrent = chunk.chunkId === current?.chunkId;
+          const depth = isCurrent ? 0 : readerFrame.history.length - index;
           return (
             <ReadingChunk
               chunk={chunk}
               depth={depth}
+              entering={isCurrent && readerFrame.enteringCurrent}
+              headingRef={isCurrent ? currentHeadingRef : undefined}
+              isCurrent={isCurrent}
               key={chunk.chunkId}
               settling={chunk.chunkId === readerFrame.settlingChunkId}
-            />
+            >
+              {isCurrent ? (
+                <aside aria-label="当前段落旁注" className="focus-reader__marginalia">
+                  <button
+                    aria-expanded={annotationOpen}
+                    className="focus-reader__marginalia-toggle"
+                    disabled={controlsDisabled}
+                    onClick={() => setAnnotationOpen((open) => !open)}
+                    type="button"
+                  >
+                    {annotationOpen ? "收起旁注" : "针对这一段提问…"}
+                  </button>
+                  {annotationOpen ? (
+                    <div className="focus-reader__marginalia-body">
+                      <ReaderConversation messages={readerFrame.window.conversation} />
+                      <form onSubmit={(event) => void sendMessage(event)}>
+                        <label htmlFor="focus-reader-message">针对当前 Reading Chunk 提问</label>
+                        <textarea
+                          disabled={controlsDisabled}
+                          id="focus-reader-message"
+                          onChange={(event) => setMessage(event.target.value)}
+                          rows={2}
+                          value={message}
+                        />
+                        <button disabled={controlsDisabled || message.trim().length === 0} type="submit">
+                          {phase === "sending" ? "正在发送…" : "发送"}
+                        </button>
+                      </form>
+                    </div>
+                  ) : null}
+                </aside>
+              ) : null}
+            </ReadingChunk>
           );
         })}
 
@@ -312,52 +348,13 @@ export function FocusReader({ host }: FocusReaderProps) {
             <h2>阅读完成</h2>
             <p>当前 Reading Plan 已经没有待阅读的 Reading Chunk。</p>
           </section>
-        ) : (
-          <ReadingChunk
-            chunk={current}
-            depth={0}
-            entering={readerFrame.enteringCurrent}
-            headingRef={currentHeadingRef}
-            isCurrent
-            key={current.chunkId}
-          >
-            <aside aria-label="当前段落旁注" className="focus-reader__marginalia">
-              <button
-                aria-expanded={annotationOpen}
-                className="focus-reader__marginalia-toggle"
-                disabled={phase === "continuing"}
-                onClick={() => setAnnotationOpen((open) => !open)}
-                type="button"
-              >
-                {annotationOpen ? "收起旁注" : "针对这一段提问…"}
-              </button>
-              {annotationOpen ? (
-                <div className="focus-reader__marginalia-body">
-                  <ReaderConversation messages={readerFrame.window.conversation} />
-                  <form onSubmit={(event) => void sendMessage(event)}>
-                    <label htmlFor="focus-reader-message">针对当前 Reading Chunk 提问</label>
-                    <textarea
-                      disabled={busy}
-                      id="focus-reader-message"
-                      onChange={(event) => setMessage(event.target.value)}
-                      rows={2}
-                      value={message}
-                    />
-                    <button disabled={busy || message.trim().length === 0} type="submit">
-                      {phase === "sending" ? "正在发送…" : "发送"}
-                    </button>
-                  </form>
-                </div>
-              ) : null}
-            </aside>
-          </ReadingChunk>
-        )}
+        ) : null}
       </section>
 
       <footer className="focus-reader__footer">
         <button
           aria-busy={phase === "continuing"}
-          disabled={busy || current === null}
+          disabled={controlsDisabled || current === null}
           onClick={() => void continueReading()}
           type="button"
         >
