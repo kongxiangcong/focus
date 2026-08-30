@@ -10,7 +10,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { FocusReader } from "./FocusReader";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 const firstWindow: ReadingWindow = {
   status: "reading",
@@ -58,6 +61,10 @@ describe("FocusReader", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continue reading" }));
 
     await waitFor(() => expect(screen.getByText("The second chunk.")).toBeInTheDocument());
+    expect(screen.getByText("The first chunk.").closest("article")).toHaveAttribute("data-depth", "1");
+    expect(screen.getByText("The first chunk.").closest("article")).toHaveAttribute("data-settling", "true");
+    expect(screen.getByText("The second chunk.").closest("article")).toHaveAttribute("data-depth", "0");
+    expect(screen.getByRole("button", { name: "Continuing…" })).toHaveAttribute("aria-busy", "true");
     expect(host.continueReading).toHaveBeenCalledWith({
       receipt: {
         sourceId: "fixture-paper",
@@ -83,6 +90,8 @@ describe("FocusReader", () => {
 
     render(<FocusReader host={host} />);
     await screen.findByText("The first chunk.");
+    expect(screen.queryByLabelText("Ask about the current chunk")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Ask about this passage…" }));
     fireEvent.change(screen.getByLabelText("Ask about the current chunk"), {
       target: { value: "Why?" },
     });
@@ -98,5 +107,43 @@ describe("FocusReader", () => {
       content: "Why?",
     });
     expect(host.continueReading).not.toHaveBeenCalled();
+  });
+
+  it("derives the three history depths from distance to the cursor", async () => {
+    const oldest = { ...firstWindow.current!, chunkId: "chunk-oldest", sourceMarkdown: "Oldest." };
+    const middle = { ...firstWindow.current!, chunkId: "chunk-middle", sourceMarkdown: "Middle." };
+    const nearest = { ...firstWindow.current!, chunkId: "chunk-nearest", sourceMarkdown: "Nearest." };
+    const current = { ...firstWindow.current!, chunkId: "chunk-current", sourceMarkdown: "Current." };
+    const host: ReaderHost = {
+      getReadingWindow: vi.fn().mockResolvedValue(
+        readerSuccess({ ...firstWindow, history: [oldest, middle, nearest], current }),
+      ),
+      continueReading: vi.fn(),
+      sendMessage: vi.fn(),
+    };
+
+    render(<FocusReader host={host} />);
+
+    expect((await screen.findByText("Oldest.")).closest("article")).toHaveAttribute("data-depth", "3");
+    expect(screen.getByText("Middle.").closest("article")).toHaveAttribute("data-depth", "2");
+    expect(screen.getByText("Nearest.").closest("article")).toHaveAttribute("data-depth", "1");
+    expect(screen.getByText("Current.").closest("article")).toHaveAttribute("data-depth", "0");
+  });
+
+  it("commits Continue Reading immediately when reduced motion is requested", async () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
+    const host: ReaderHost = {
+      getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(firstWindow)),
+      continueReading: vi.fn().mockResolvedValue(readerSuccess(secondWindow)),
+      sendMessage: vi.fn(),
+    };
+
+    render(<FocusReader host={host} />);
+    await screen.findByText("The first chunk.");
+    fireEvent.click(screen.getByRole("button", { name: "Continue reading" }));
+
+    expect(await screen.findByText("The second chunk.")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Continue reading" })).toBeEnabled());
+    expect(screen.getByText("The first chunk.").closest("article")).not.toHaveAttribute("data-settling");
   });
 });
