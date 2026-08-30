@@ -1,15 +1,15 @@
 # Focus Reader UI
 
-This directory contains the host-agnostic Focus Reader skeleton. It deliberately does not contain a visual prototype yet.
+This directory contains the host-agnostic formal Focus Reader UI and its standalone development host.
 
 ## Module layout
 
 ```text
 ui/
-├── apps/standalone/             # Runnable browser host
+├── apps/standalone/             # Runnable Fixture or HTTP host
 └── packages/
     ├── reader-contracts/        # ReaderHost Interface and browser projections
-    └── reader-ui/               # Host-agnostic Reader Module
+    └── reader-ui/               # Formal Reader Module
 ```
 
 The dependency direction is fixed:
@@ -21,14 +21,16 @@ Focus Core
   -> FocusReader
 ```
 
-`reader-ui` may import `reader-contracts`, React, and its own internal implementation. It must not import the Standalone app, HTTP, filesystem code, Python scripts, Workspace paths, or DSH packages.
+`FocusReader({ host })` is the only public Reader UI Interface. `reader-ui` may import `reader-contracts`, React, and its own internal implementation. It must not import the Standalone app, HTTP, filesystem code, Python scripts, Workspace paths, or DSH packages.
 
-The Standalone app currently has two Adapters:
+The formal initial UI promotes the current-session diffusion prototype captured in commit `5dae3de`. It uses one continuous Reading Chunk stream, complete host-projected history, a Reading Cursor-anchored diffusion field, a settling/entering Continue Reading handoff, and current-chunk marginalia. It contains no A/B/C variants, prototype switcher, or variant URL.
 
-- `FixtureReaderHost` is the default and keeps all demonstration state in memory.
+## Host Adapters
+
+- `FixtureReaderHost` supplies Chinese synthetic data for development and tests. It never reads private Workspace data.
 - `HttpReaderHost` consumes a browser-safe projection exposed by a future local Focus HTTP host.
 
-A future DSH Adapter must implement the same `ReaderHost` Interface. It belongs outside `reader-ui`; DSH session events and transport types must not leak through the Seam.
+A future real Adapter must implement the same `ReaderHost` Interface outside `reader-ui`. Host events and transport types must not leak through the seam.
 
 ## Commands
 
@@ -40,13 +42,15 @@ pnpm reader:test
 pnpm reader:build
 ```
 
-Set `VITE_FOCUS_READER_BASE_URL` when the Standalone app should use the HTTP Adapter. Without it, the app uses synthetic fixtures.
+Set `VITE_FOCUS_READER_BASE_URL` to select the HTTP Adapter. Without it, Standalone uses the synthetic Fixture Adapter.
 
-## Deferred to the visual prototype feature
+## Evidence status
 
-- visual variants and the prototype switcher;
-- the production Markdown pipeline;
-- motion and particle implementations;
-- final design tokens and responsive visual language.
+- Contract verified: ReaderHost and Adapter contract tests.
+- Fixture verified: synthetic state and interaction tests.
+- Browser verified: desktop and 390px checks, pointer-driven motion, post-Continue focus landing, and console.
+- Production build verified: build succeeds without switcher or variant paths.
+- Live-host verified: not complete.
+- Production accepted: not claimed.
 
-Those concerns remain internal to `reader-ui`, so experimenting with them will not change `ReaderHost` or either host Adapter.
+See `docs/design/focus-reader-design-verdict.md`, `docs/design/focus-reader-ui-spec.md`, and `.scratch/focus-reader-formalization/` for the decision and staged acceptance work.

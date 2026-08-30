@@ -60,6 +60,7 @@ export interface ReadingWindow {
   status: ReaderStatus;
   source: ReaderSource;
   current: ReaderChunk | null;
+  /** Complete ordered Reading Chunks before `current`; the Reader UI does not cache a second history. */
   history: readonly ReaderChunk[];
   conversation: readonly ReaderMessage[];
 }

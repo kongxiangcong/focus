@@ -184,7 +184,9 @@ pnpm reader:test
 pnpm reader:build
 ~~~
 
-未设置 `VITE_FOCUS_READER_BASE_URL` 时，Standalone 使用不读取私人 Workspace 的合成 Fixture Adapter。当前只实现结构骨架和最小语义界面；多方案视觉 prototype、正式 Markdown 渲染、动画、粒子和设计系统属于下一独立 feature。
+未设置 `VITE_FOCUS_READER_BASE_URL` 时，Standalone 使用不读取私人 Workspace 的中文合成 Fixture Adapter。当前 `reader-ui` 已采用本会话弥散光场 prototype 的正式初步实现：单栏连续 Reading Chunk、完整历史深度、与 Reading Cursor 对应的光场、Continue Reading 交接、当前段落旁注、操作锁和 reduced-motion 均位于 `ReaderHost` seam 内侧。
+
+当前证据等级是 Contract verified、Fixture verified、Browser verified 和 Production build verified。真实 ReaderHost、真实中文 ReadingWindow、Workspace 重载恢复和部署环境尚未验收，因此不能称为 Live-host verified 或 Production accepted。设计结论与正式规格分别见 `docs/design/focus-reader-design-verdict.md` 和 `docs/design/focus-reader-ui-spec.md`。
 
 Skills 的脚本都从各自目录解析。Windows 下使用：
 

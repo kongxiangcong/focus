@@ -54,7 +54,7 @@ export class FixtureReaderHost implements ReaderHost {
       this.message(
         "assistant",
         input.receipt.chunkId,
-        "This is a synthetic Fixture Adapter response. A real host will supply the explanation without moving the Reading Cursor.",
+        "这是 Fixture Adapter 生成的合成回答。真实宿主应在不移动 Reading Cursor 的前提下提供回答。",
       ),
     );
     return readerSuccess(this.snapshot());
@@ -77,7 +77,7 @@ export class FixtureReaderHost implements ReaderHost {
       status: current === null ? "completed" : "reading",
       source: fixtureSource,
       current,
-      history: fixtureChunks.slice(Math.max(0, this.chunkIndex - 2), this.chunkIndex),
+      history: fixtureChunks.slice(0, this.chunkIndex),
       conversation:
         activeChunkId === undefined
           ? []

@@ -1,90 +1,27 @@
 import {
   cursorReceipt,
-  type ReaderChunk,
   type ReaderHost,
-  type ReaderMessage,
   type ReadingWindow,
 } from "@focus/reader-contracts";
 import {
   type CSSProperties,
   type FormEvent,
-  type ReactNode,
-  type Ref,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
 } from "react";
 
+import { ReaderConversation, ReadingChunk } from "./ReadingChunk";
+import { projectReaderFrame, type ReaderTransitionFrame } from "./reader-frame";
 import "./reader-shell.css";
+
+const CONTINUE_TRANSITION_MS = 280;
 
 type ReaderPhase = "loading" | "ready" | "continuing" | "sending" | "error";
 
-interface ReaderTransition {
-  next: ReadingWindow;
-  active: boolean;
-}
-
 export interface FocusReaderProps {
   host: ReaderHost;
-}
-
-interface ChunkContentProps {
-  chunk: ReaderChunk;
-  depth: number;
-  entering?: boolean;
-  headingRef?: Ref<HTMLHeadingElement>;
-  isCurrent?: boolean;
-  settling?: boolean;
-  children?: ReactNode;
-}
-
-function ChunkContent({
-  chunk,
-  depth,
-  entering = false,
-  headingRef,
-  isCurrent = false,
-  settling = false,
-  children,
-}: ChunkContentProps) {
-  return (
-    <article
-      className="focus-reader__chunk"
-      data-chunk-id={chunk.chunkId}
-      data-depth={Math.min(depth, 3)}
-      data-entering={entering || undefined}
-      data-settling={settling || undefined}
-    >
-      <h2 className="focus-reader__eyebrow" ref={headingRef} tabIndex={isCurrent ? -1 : undefined}>
-        {chunk.sectionPath.join(" / ")}
-      </h2>
-      <div className="focus-reader__prose">{chunk.sourceMarkdown}</div>
-      {chunk.translation !== null ? (
-        <section aria-label="Translation" className="focus-reader__translation">
-          {chunk.translation}
-        </section>
-      ) : null}
-      {children}
-    </article>
-  );
-}
-
-function Conversation({ messages }: { messages: readonly ReaderMessage[] }) {
-  if (messages.length === 0) {
-    return <p className="focus-reader__empty">No notes for this passage yet.</p>;
-  }
-
-  return (
-    <ol aria-label="Conversation" className="focus-reader__conversation">
-      {messages.map((message) => (
-        <li key={message.messageId} data-role={message.role}>
-          <span>{message.role === "user" ? "You" : "Focus"}</span>
-          <p>{message.content}</p>
-        </li>
-      ))}
-    </ol>
-  );
 }
 
 function prefersReducedMotion() {
@@ -92,27 +29,50 @@ function prefersReducedMotion() {
 }
 
 export function FocusReader({ host }: FocusReaderProps) {
-  const [readingWindow, setReadingWindow] = useState<ReadingWindow | null>(null);
-  const [transition, setTransition] = useState<ReaderTransition | null>(null);
+  const [settledWindow, setSettledWindow] = useState<ReadingWindow | null>(null);
+  const [transition, setTransition] = useState<ReaderTransitionFrame | null>(null);
   const [phase, setPhase] = useState<ReaderPhase>("loading");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [annotationOpen, setAnnotationOpen] = useState(false);
   const [glowTransform, setGlowTransform] = useState("translate3d(50vw, 55vh, 0) translate(-50%, -50%)");
   const currentHeadingRef = useRef<HTMLHeadingElement>(null);
+  const operationRef = useRef<AbortController | null>(null);
   const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameRef = useRef<number | null>(null);
 
-  async function reload(signal?: AbortSignal) {
-    const result = await host.getReadingWindow(signal);
+  function beginOperation() {
+    if (operationRef.current !== null) {
+      return null;
+    }
+    const controller = new AbortController();
+    operationRef.current = controller;
+    return controller;
+  }
+
+  function finishOperation(controller: AbortController) {
+    if (operationRef.current === controller) {
+      operationRef.current = null;
+    }
+  }
+
+  async function reload() {
+    const controller = beginOperation();
+    if (controller === null) {
+      return;
+    }
+    setError(null);
+    setPhase("loading");
+    const result = await host.getReadingWindow(controller.signal);
+    if (controller.signal.aborted) {
+      return;
+    }
+    finishOperation(controller);
     if (result.ok) {
-      setReadingWindow(result.value);
+      setSettledWindow(result.value);
       setTransition(null);
       setError(null);
       setPhase("ready");
-      return;
-    }
-    if (signal?.aborted) {
       return;
     }
     setError(result.error.message);
@@ -120,13 +80,47 @@ export function FocusReader({ host }: FocusReaderProps) {
   }
 
   useEffect(() => {
+    operationRef.current?.abort();
+    if (settleTimerRef.current !== null) {
+      clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    }
+    if (frameRef.current !== null) {
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
     const controller = new AbortController();
-    void reload(controller.signal);
-    return () => controller.abort();
+    operationRef.current = controller;
+    setSettledWindow(null);
+    setTransition(null);
+    setError(null);
+    setPhase("loading");
+
+    void host.getReadingWindow(controller.signal).then((result) => {
+      if (controller.signal.aborted) {
+        return;
+      }
+      finishOperation(controller);
+      if (result.ok) {
+        setSettledWindow(result.value);
+        setPhase("ready");
+        return;
+      }
+      setError(result.error.message);
+      setPhase("error");
+    });
+
+    return () => {
+      controller.abort();
+      if (operationRef.current === controller) {
+        operationRef.current = null;
+      }
+    };
   }, [host]);
 
   useEffect(
     () => () => {
+      operationRef.current?.abort();
       if (settleTimerRef.current !== null) {
         clearTimeout(settleTimerRef.current);
       }
@@ -137,8 +131,8 @@ export function FocusReader({ host }: FocusReaderProps) {
     [],
   );
 
-  const projectedWindow = transition?.next ?? readingWindow;
-  const current = projectedWindow?.current ?? null;
+  const readerFrame = settledWindow === null ? null : projectReaderFrame(settledWindow, transition);
+  const current = readerFrame?.current ?? null;
 
   useLayoutEffect(() => {
     if (current === null || currentHeadingRef.current === null) {
@@ -162,73 +156,89 @@ export function FocusReader({ host }: FocusReaderProps) {
   }, [current?.chunkId]);
 
   async function continueReading() {
-    if (readingWindow === null || phase !== "ready") {
+    if (settledWindow === null || phase !== "ready") {
       return;
     }
-    const receipt = cursorReceipt(readingWindow);
+    const receipt = cursorReceipt(settledWindow);
     if (receipt === null) {
+      return;
+    }
+    const controller = beginOperation();
+    if (controller === null) {
       return;
     }
 
     setPhase("continuing");
-    const result = await host.continueReading({ receipt });
-    if (result.ok) {
-      const reduceMotion = prefersReducedMotion();
-      setError(null);
-      setAnnotationOpen(false);
-      if (reduceMotion) {
-        setReadingWindow(result.value);
-        setTransition(null);
-        setPhase("ready");
-        frameRef.current = requestAnimationFrame(() => {
-          currentHeadingRef.current?.scrollIntoView?.({ behavior: "auto", block: "center" });
-          currentHeadingRef.current?.focus({ preventScroll: true });
-        });
+    const result = await host.continueReading({ receipt }, controller.signal);
+    if (controller.signal.aborted) {
+      return;
+    }
+    if (!result.ok) {
+      finishOperation(controller);
+      if (result.error.code === "cursor-changed") {
+        await reload();
         return;
       }
+      setError(result.error.message);
+      setPhase("error");
+      return;
+    }
 
-      setTransition({ next: result.value, active: false });
-
+    setError(null);
+    setAnnotationOpen(false);
+    if (prefersReducedMotion()) {
+      setSettledWindow(result.value);
+      setTransition(null);
+      setPhase("ready");
+      finishOperation(controller);
       frameRef.current = requestAnimationFrame(() => {
-        frameRef.current = requestAnimationFrame(() => {
-          setTransition({ next: result.value, active: true });
-          currentHeadingRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
-        });
+        currentHeadingRef.current?.scrollIntoView?.({ behavior: "auto", block: "center" });
+        currentHeadingRef.current?.focus({ preventScroll: true });
       });
+      return;
+    }
 
-      settleTimerRef.current = setTimeout(
-        () => {
-          setReadingWindow(result.value);
-          setTransition(null);
-          setPhase("ready");
-          currentHeadingRef.current?.focus({ preventScroll: true });
-        },
-        560,
-      );
-      return;
-    }
-    if (result.error.code === "cursor-changed") {
-      await reload();
-      return;
-    }
-    setError(result.error.message);
-    setPhase("error");
+    setTransition({ target: result.value, active: false });
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = requestAnimationFrame(() => {
+        setTransition({ target: result.value, active: true });
+        currentHeadingRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      });
+    });
+
+    settleTimerRef.current = setTimeout(() => {
+      setSettledWindow(result.value);
+      setTransition(null);
+      setPhase("ready");
+      finishOperation(controller);
+      currentHeadingRef.current?.focus({ preventScroll: true });
+    }, CONTINUE_TRANSITION_MS);
   }
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const content = message.trim();
-    if (readingWindow === null || phase !== "ready" || content.length === 0) {
+    if (settledWindow === null || phase !== "ready" || content.length === 0) {
       return;
     }
-    const receipt = cursorReceipt(readingWindow);
+    const receipt = cursorReceipt(settledWindow);
     if (receipt === null) {
       return;
     }
+    const controller = beginOperation();
+    if (controller === null) {
+      return;
+    }
+
     setPhase("sending");
-    const result = await host.sendMessage({ receipt, content });
+    const result = await host.sendMessage({ receipt, content }, controller.signal);
+    if (controller.signal.aborted) {
+      return;
+    }
+    finishOperation(controller);
     if (result.ok) {
-      setReadingWindow(result.value);
+      setSettledWindow(result.value);
+      setTransition(null);
       setMessage("");
       setAnnotationOpen(true);
       setError(null);
@@ -243,33 +253,33 @@ export function FocusReader({ host }: FocusReaderProps) {
     setPhase("error");
   }
 
-  if (readingWindow === null || projectedWindow === null) {
+  if (readerFrame === null) {
     return (
-      <main className="focus-reader" data-phase={phase}>
-        <p>{error ?? "Loading Focus Reader…"}</p>
-        {phase === "error" ? <button onClick={() => void reload()}>Retry</button> : null}
+      <main aria-busy={phase === "loading"} className="focus-reader" data-phase={phase}>
+        <p className="focus-reader__status" role={error === null ? undefined : "alert"}>
+          {error ?? "正在加载阅读内容…"}
+        </p>
+        {phase === "error" ? <button onClick={() => void reload()}>重试</button> : null}
       </main>
     );
   }
 
-  const busy = phase === "continuing" || phase === "sending";
-  const history = transition !== null && readingWindow.current !== null
-    ? [...readingWindow.history, readingWindow.current]
-    : readingWindow.history;
+  const busy = phase === "loading" || phase === "continuing" || phase === "sending";
   const progress = current === null ? 100 : (current.index / current.total) * 100;
+  const progressMax = current?.total ?? readerFrame.history.at(-1)?.total ?? 1;
   const progressStyle = { "--reader-progress": progress / 100 } as CSSProperties;
 
   return (
-    <main className="focus-reader" data-phase={phase}>
+    <main aria-busy={busy} className="focus-reader" data-phase={phase}>
       <div aria-hidden="true" className="focus-reader__glow" style={{ transform: glowTransform }} />
 
       <header className="focus-reader__header">
-        <h1>{projectedWindow.source.title}</h1>
+        <h1>{readerFrame.window.source.title}</h1>
         <div
-          aria-label={current === null ? "Reading complete" : `Reading position ${current.index} of ${current.total}`}
-          aria-valuemax={current?.total ?? 1}
+          aria-label={current === null ? "阅读完成" : `阅读位置：第 ${current.index} 段，共 ${current.total} 段`}
+          aria-valuemax={progressMax}
           aria-valuemin={0}
-          aria-valuenow={current?.index ?? 1}
+          aria-valuenow={current?.index ?? progressMax}
           className="focus-reader__progress"
           role="progressbar"
           style={progressStyle}
@@ -280,38 +290,38 @@ export function FocusReader({ host }: FocusReaderProps) {
 
       {error !== null ? (
         <div className="focus-reader__error" role="alert">
-          {error} <button onClick={() => void reload()}>Retry</button>
+          {error} <button onClick={() => void reload()}>重试</button>
         </div>
       ) : null}
 
-      <section aria-label="Reading passage" className="focus-reader__stream">
-        {history.map((chunk, index) => {
-          const depth = history.length - index;
+      <section aria-label="连续阅读内容" className="focus-reader__stream">
+        {readerFrame.history.map((chunk, index) => {
+          const depth = readerFrame.history.length - index;
           return (
-            <ChunkContent
+            <ReadingChunk
               chunk={chunk}
               depth={depth}
               key={chunk.chunkId}
-              settling={transition !== null && chunk.chunkId === readingWindow.current?.chunkId}
+              settling={chunk.chunkId === readerFrame.settlingChunkId}
             />
           );
         })}
 
         {current === null ? (
           <section className="focus-reader__complete">
-            <h2>Reading complete</h2>
-            <p>The host reports that no current Reading Chunk remains.</p>
+            <h2>阅读完成</h2>
+            <p>当前 Reading Plan 已经没有待阅读的 Reading Chunk。</p>
           </section>
         ) : (
-          <ChunkContent
+          <ReadingChunk
             chunk={current}
             depth={0}
-            entering={transition !== null && !transition.active}
+            entering={readerFrame.enteringCurrent}
             headingRef={currentHeadingRef}
             isCurrent
             key={current.chunkId}
           >
-            <aside aria-label="Notes for the current passage" className="focus-reader__marginalia">
+            <aside aria-label="当前段落旁注" className="focus-reader__marginalia">
               <button
                 aria-expanded={annotationOpen}
                 className="focus-reader__marginalia-toggle"
@@ -319,13 +329,13 @@ export function FocusReader({ host }: FocusReaderProps) {
                 onClick={() => setAnnotationOpen((open) => !open)}
                 type="button"
               >
-                {annotationOpen ? "Close notes" : "Ask about this passage…"}
+                {annotationOpen ? "收起旁注" : "针对这一段提问…"}
               </button>
               {annotationOpen ? (
                 <div className="focus-reader__marginalia-body">
-                  <Conversation messages={projectedWindow.conversation} />
+                  <ReaderConversation messages={readerFrame.window.conversation} />
                   <form onSubmit={(event) => void sendMessage(event)}>
-                    <label htmlFor="focus-reader-message">Ask about the current chunk</label>
+                    <label htmlFor="focus-reader-message">针对当前 Reading Chunk 提问</label>
                     <textarea
                       disabled={busy}
                       id="focus-reader-message"
@@ -334,13 +344,13 @@ export function FocusReader({ host }: FocusReaderProps) {
                       value={message}
                     />
                     <button disabled={busy || message.trim().length === 0} type="submit">
-                      {phase === "sending" ? "Sending…" : "Send"}
+                      {phase === "sending" ? "正在发送…" : "发送"}
                     </button>
                   </form>
                 </div>
               ) : null}
             </aside>
-          </ChunkContent>
+          </ReadingChunk>
         )}
       </section>
 
@@ -351,7 +361,7 @@ export function FocusReader({ host }: FocusReaderProps) {
           onClick={() => void continueReading()}
           type="button"
         >
-          {phase === "continuing" ? "Continuing…" : "Continue reading"}
+          {phase === "continuing" ? "正在继续…" : "继续阅读"}
         </button>
       </footer>
     </main>

@@ -1,14 +1,14 @@
 :root {
-  --paper: #f4f0ea;
-  --ink: #3d3830;
-  --ink-60: #6b6459;
-  --ink-40: #8a8378;
-  --ink-25: #a39d93;
-  --ease: cubic-bezier(0.22, 0.61, 0.21, 1);
-  --dur-move: 560ms;
-  --dur-ui: 240ms;
-  color: var(--ink);
-  background: var(--paper);
+  --reader-paper: #f4f0ea;
+  --reader-ink: #3d3830;
+  --reader-ink-near: #6b6459;
+  --reader-ink-middle: #8a8378;
+  --reader-ink-far: #a39d93;
+  --reader-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --reader-duration-move: 280ms;
+  --reader-duration-ui: 160ms;
+  color: var(--reader-ink);
+  background: var(--reader-paper);
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
@@ -17,7 +17,7 @@
 }
 
 html {
-  background: var(--paper);
+  background: var(--reader-paper);
 }
 
 body {
@@ -27,7 +27,7 @@ body {
   background:
     radial-gradient(circle at 88% 14%, rgba(203, 216, 228, 0.3) 0, rgba(203, 216, 228, 0) 42vw),
     radial-gradient(circle at 8% 78%, rgba(216, 206, 232, 0.28) 0, rgba(216, 206, 232, 0) 45vw),
-    var(--paper);
+    var(--reader-paper);
 }
 
 button,
@@ -64,7 +64,7 @@ textarea:focus-visible {
   pointer-events: none;
   background: radial-gradient(circle, rgba(244, 196, 170, 0.35) 0, rgba(244, 196, 170, 0.16) 30%, rgba(244, 196, 170, 0) 70%);
   opacity: 0.88;
-  transition: transform var(--dur-move) var(--ease), opacity var(--dur-move) var(--ease);
+  transition: transform var(--reader-duration-move) var(--reader-ease-out), opacity var(--reader-duration-move) var(--reader-ease-out);
   will-change: transform;
 }
 
@@ -101,10 +101,10 @@ textarea:focus-visible {
   display: block;
   width: 100%;
   height: 100%;
-  background: var(--ink-60);
+  background: var(--reader-ink-near);
   transform: scaleX(var(--reader-progress));
   transform-origin: left;
-  transition: transform var(--dur-move) var(--ease);
+  transition: transform var(--reader-duration-move) var(--reader-ease-out);
 }
 
 .focus-reader__stream {
@@ -115,12 +115,12 @@ textarea:focus-visible {
 }
 
 .focus-reader__chunk {
-  color: var(--ink);
+  color: var(--reader-ink);
   opacity: 1;
   transition:
-    color var(--dur-move) var(--ease),
-    opacity var(--dur-move) var(--ease),
-    transform var(--dur-move) var(--ease);
+    color var(--reader-duration-move) var(--reader-ease-out),
+    opacity var(--reader-duration-move) var(--reader-ease-out),
+    transform var(--reader-duration-move) var(--reader-ease-out);
 }
 
 .focus-reader__chunk[data-depth="0"] {
@@ -128,19 +128,19 @@ textarea:focus-visible {
 }
 
 .focus-reader__chunk[data-depth="1"] {
-  color: var(--ink-60);
+  color: var(--reader-ink-near);
   opacity: 0.52;
   font-weight: 400;
 }
 
 .focus-reader__chunk[data-depth="2"] {
-  color: var(--ink-40);
+  color: var(--reader-ink-middle);
   opacity: 0.34;
   font-weight: 350;
 }
 
 .focus-reader__chunk[data-depth="3"] {
-  color: var(--ink-25);
+  color: var(--reader-ink-far);
   opacity: 0.22;
   font-weight: 300;
 }
@@ -177,7 +177,7 @@ textarea:focus-visible {
 .focus-reader__marginalia {
   width: calc(100% - clamp(1rem, 5vw, 3rem));
   margin: 2rem 0 0 auto;
-  color: var(--ink-60);
+  color: var(--reader-ink-near);
   font-size: 0.9rem;
 }
 
@@ -187,7 +187,7 @@ textarea:focus-visible {
   color: inherit;
   background: transparent;
   cursor: pointer;
-  transition: color var(--dur-ui) ease;
+  transition: color var(--reader-duration-ui) ease;
 }
 
 .focus-reader__marginalia-toggle::before {
@@ -199,7 +199,7 @@ textarea:focus-visible {
 .focus-reader__marginalia-body {
   margin-top: 1rem;
   padding-left: 1.15rem;
-  border-left: 1px solid color-mix(in srgb, var(--ink-60) 24%, transparent);
+  border-left: 1px solid color-mix(in srgb, var(--reader-ink-near) 24%, transparent);
 }
 
 .focus-reader__conversation {
@@ -212,7 +212,7 @@ textarea:focus-visible {
 .focus-reader__conversation li > span {
   display: block;
   margin-bottom: 0.25rem;
-  color: var(--ink-40);
+  color: var(--reader-ink-middle);
   font-size: 0.75rem;
 }
 
@@ -238,26 +238,27 @@ textarea:focus-visible {
   resize: vertical;
   border: 1px solid rgba(107, 100, 89, 0.25);
   border-radius: 0.35rem;
-  color: var(--ink);
+  color: var(--reader-ink);
   background: rgba(244, 240, 234, 0.58);
 }
 
 .focus-reader__marginalia form button,
 .focus-reader__footer button,
-.focus-reader__error button {
+.focus-reader__error button,
+.focus-reader__status + button {
   width: fit-content;
   padding: 0.65rem 1rem;
   border: 1px solid rgba(61, 56, 48, 0.32);
   border-radius: 999px;
-  color: var(--ink);
+  color: var(--reader-ink);
   background: rgba(244, 240, 234, 0.64);
   cursor: pointer;
   transition:
-    color var(--dur-ui) ease,
-    background-color var(--dur-ui) ease,
-    border-color var(--dur-ui) ease,
-    opacity var(--dur-ui) ease,
-    transform var(--dur-ui) var(--ease);
+    color var(--reader-duration-ui) ease,
+    background-color var(--reader-duration-ui) ease,
+    border-color var(--reader-duration-ui) ease,
+    opacity var(--reader-duration-ui) ease,
+    transform var(--reader-duration-ui) var(--reader-ease-out);
 }
 
 .focus-reader__footer {
@@ -277,8 +278,19 @@ button:disabled {
 }
 
 .focus-reader__complete {
-  color: var(--ink-60);
+  color: var(--reader-ink-near);
   text-align: center;
+}
+
+.focus-reader__status {
+  max-width: 66ch;
+  margin: 20vh auto 1rem;
+  color: var(--reader-ink-near);
+}
+
+.focus-reader__status + button {
+  display: block;
+  margin: 0 auto;
 }
 
 .focus-reader__error {
@@ -291,17 +303,18 @@ button:disabled {
 }
 
 .focus-reader__empty {
-  color: var(--ink-40);
+  color: var(--reader-ink-middle);
 }
 
 @media (hover: hover) and (pointer: fine) {
   .focus-reader__marginalia-toggle:hover {
-    color: var(--ink);
+    color: var(--reader-ink);
   }
 
   .focus-reader__marginalia form button:hover:not(:disabled),
   .focus-reader__footer button:hover:not(:disabled),
-  .focus-reader__error button:hover:not(:disabled) {
+  .focus-reader__error button:hover:not(:disabled),
+  .focus-reader__status + button:hover:not(:disabled) {
     border-color: rgba(61, 56, 48, 0.58);
     background: rgba(255, 252, 247, 0.84);
   }
@@ -311,7 +324,7 @@ button:disabled {
   body {
     background:
       radial-gradient(circle at 88% 16%, rgba(203, 216, 228, 0.24) 0, rgba(203, 216, 228, 0) 55vw),
-      var(--paper);
+      var(--reader-paper);
   }
 
   .focus-reader {
@@ -364,7 +377,8 @@ button:disabled {
   .focus-reader__marginalia-toggle,
   .focus-reader__marginalia form button,
   .focus-reader__footer button,
-  .focus-reader__error button {
+  .focus-reader__error button,
+  .focus-reader__status + button {
     transition: opacity 120ms ease;
   }
 }
