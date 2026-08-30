@@ -1,0 +1,119 @@
+:root {
+  color: #20201e;
+  background: #f4f2ec;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+.focus-reader {
+  width: min(76rem, 100%);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.focus-reader__header,
+.focus-reader__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.focus-reader__header h1,
+.focus-reader__header p,
+.focus-reader__chunk p {
+  margin: 0;
+}
+
+.focus-reader__brand,
+.focus-reader__eyebrow {
+  color: #6d6a62;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.focus-reader__history {
+  margin-top: 3rem;
+  opacity: 0.48;
+}
+
+.focus-reader__chunk,
+.focus-reader__complete,
+.focus-reader__dialogue {
+  max-width: 72ch;
+  margin: 2rem auto;
+}
+
+.focus-reader__source {
+  overflow-x: auto;
+  white-space: pre-wrap;
+  font: 1rem/1.75 ui-serif, Georgia, serif;
+}
+
+.focus-reader__translation {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid #d5d1c8;
+  line-height: 1.75;
+}
+
+.focus-reader__conversation {
+  padding: 0;
+  list-style: none;
+}
+
+.focus-reader__conversation li {
+  margin: 1rem 0;
+}
+
+.focus-reader__dialogue form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.focus-reader__dialogue textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.focus-reader__dialogue button,
+.focus-reader__footer button,
+.focus-reader__error button {
+  width: fit-content;
+  padding: 0.65rem 1rem;
+}
+
+.focus-reader__error {
+  margin: 1rem 0;
+  padding: 1rem;
+  border: 1px solid #a13f35;
+  color: #7a241d;
+}
+
+.focus-reader__empty {
+  color: #6d6a62;
+}
+
+@media (max-width: 40rem) {
+  .focus-reader {
+    padding: 1rem;
+  }
+
+  .focus-reader__header {
+    align-items: flex-start;
+  }
+}

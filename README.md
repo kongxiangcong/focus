@@ -172,6 +172,20 @@ state.json 只保存当前 Reading Source、可选 current_topic_id 及每份 So
 
 ## 开发与验证
 
+### Host-agnostic Focus Reader
+
+独立 Reader 壳位于 `ui/`。`reader-ui` 只依赖 `ReaderHost` Interface；Standalone Fixture/HTTP Adapter 与后续 DSH Adapter 都位于这个 Seam 的宿主侧，不会把运输协议或宿主状态带进 Reader Module。
+
+~~~powershell
+pnpm install
+pnpm reader:dev
+pnpm reader:typecheck
+pnpm reader:test
+pnpm reader:build
+~~~
+
+未设置 `VITE_FOCUS_READER_BASE_URL` 时，Standalone 使用不读取私人 Workspace 的合成 Fixture Adapter。当前只实现结构骨架和最小语义界面；多方案视觉 prototype、正式 Markdown 渲染、动画、粒子和设计系统属于下一独立 feature。
+
 Skills 的脚本都从各自目录解析。Windows 下使用：
 
 ~~~powershell

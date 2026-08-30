@@ -1,0 +1,6 @@
+packages:
+  - ui/apps/*
+  - ui/packages/*
+
+allowBuilds:
+  esbuild: true
