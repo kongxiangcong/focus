@@ -44,6 +44,7 @@ python -B -X utf8 scripts/focus_map.py map `
 ## Plan rules
 
 - Chunks follow selected source order and cover the selected range continuously.
+- Each Chunk is the smallest continuous source range that completes one primary comprehension task: include the definitions, mechanism, derivation, or direct evidence needed for that task, and split before a separate task begins.
 - Keep formulas, tables, fenced code, images, and adjacent captions intact.
 - section_path must be evidenced by source headings.
 - source_lines use one-based inclusive line numbers.
