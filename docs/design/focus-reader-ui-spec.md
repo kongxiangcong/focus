@@ -1,105 +1,81 @@
 # Formal Focus Reader UI specification
 
-Status: initial implementation specification
+Status: 雾光 / Mist is the default, selected on 2026-08-31.
 
-This specification promotes the decisions proven by the current-session diffusion prototype. It defines the formal Reader Module presentation without changing the `ReaderHost` seam or claiming that a real host path is complete.
+This specification promotes the first retained Lightfield prototype into the formal Reader Module. It replaces the initial visual layout and collapsed-marginalia choice in ADR 0005. ADR 0004 and the existing ReaderHost authority remain unchanged. All five prototypes remain isolated references for later skin integration; the formal application has no prototype picker, variant URL, or production theme switcher.
 
 ## Module and authority
 
-`FocusReader` is the only public Reader UI entry point. Its Interface remains `FocusReader({ host: ReaderHost })`. Internal rendering and transition modules are implementation details and are not exported from `@focus/reader-ui`.
+`FocusReader({ host: ReaderHost })` remains the only public Reader UI Interface. ReaderChrome, ReadingChunk, and the transition projection are internal. No production Reader UI file imports the prototype host or its scripted replies.
 
-`ReadingWindow` is always supplied by the host. `ReadingWindow.history` is the complete ordered list of Reading Chunks before `current`. The Reader UI may hold a temporary visual transition frame containing two host-returned windows, but it must not synthesize, persist, or independently advance a Reading Cursor. While a Continue Reading operation is active, no second Continue Reading or message operation may start.
+The host supplies `ReadingWindow`, including complete ordered `history`, `current`, and `conversation`. Focus Core owns the Reading Cursor. The UI holds only the host projection, a temporary transition between returned windows, and local presentation state. Changing light, text size, particles, focus mode, or the reviewed historical chunk neither reloads the host nor moves the Cursor. An unsent question remains intact. Appearance preferences currently last for the mounted Reader, not across reloads.
 
-## Information hierarchy
+## Layout and hierarchy
 
-1. Source Title and a thin Reading Cursor position indicator.
-2. Complete historical Reading Chunks in source order.
-3. The current Reading Chunk at full contrast.
-4. Collapsed marginalia attached to the current Reading Chunk.
-5. Continue Reading as the only primary action.
+1. A quiet FOCUS header, actual Source Title, loaded-content directory, and focus control.
+2. A vertical dashed Chunk progress rail: dark for the completed portion, light ahead, with a current marker. The percentage represents reading position, not comprehension.
+3. A wide continuous reading area. The current chunk has a translucent warm card and full contrast; complete history remains above it, progressively gray.
+4. A desktop companion panel showing the current chunk's host-projected conversation, suggested questions, and composer.
+5. One Continue Reading action. Its subtitle makes the single-Chunk advance explicit.
+6. A quiet footer with Mist identity and reading-atmosphere controls.
 
-There is no brand eyebrow, numeric `index / total` label, phrase-level emphasis, standalone chat panel, prototype switcher, or variant URL.
+The directory and rail revisit only chunks already projected by the host. Plans larger than 24 chunks use the directory rather than overlapping rail buttons. Review highlights a historical chunk without moving the Cursor; “回到当前阅读位置” returns to the actual current chunk. Source dialogs show the actual `sourceMarkdown` and line anchors, without generating a summary.
 
-## Reading Chunk states
+## Visual system
 
-| State | Rule |
+- Paper `#f0eeef`, primary ink `#35414d`, muted slate, warm peach focus light, and cool blue/violet surroundings.
+- Low-saturation radial gradients supply diffusion without large blur filters. A bounded desktop companion surface uses backdrop blur; grain is decorative and static.
+- Light intensity starts at 65%, adjustable from 0–100%. Twenty-four slow ambient particles are optional and off by default.
+- Main text uses system serif fonts, roughly 17–20px with generous line height; the reading card is capped at 760px. Large-text mode increases body size without changing content.
+- Nearest, middle, and far history use opacity 0.4, 0.28, and 0.18 respectively. All full text remains selectable and available to assistive technology. Explicit review restores full contrast; fine-pointer hover also increases contrast.
+- No phrase-level emphasis or generated claims are inserted into source text.
+- Styles are scoped to `.focus-reader`; the standalone app owns its body reset.
+
+## Continue Reading and conversation
+
+Continue captures the settled window's Cursor Receipt, acquires one operation lock, and calls `ReaderHost.continueReading` with an AbortSignal. The returned current chunk enters from a short vertical offset while the same keyed previous chunk settles into history. Native interruptible scrolling brings a short chunk to the center; a chunk taller than the viewport lands near the top and stays scrollable. The warm field follows the current card geometry.
+
+The initial handoff is 280ms with `cubic-bezier(0.23, 1, 0.32, 1)`. After settling, focus moves to the new heading without another scroll. Resize observation updates geometry without cancelling the initial smooth handoff. Wheel and touch scrolling only review loaded content: they do not call Continue.
+
+Sending text or a suggested question calls `ReaderHost.sendMessage` with the current receipt and never calls Continue. The sidebar renders the returned current-chunk conversation rather than maintaining its own transcript. Sending a suggestion preserves an existing draft. Successful direct submission clears the submitted draft. No live AI or Codex conversation connection is introduced by this theme change.
+
+## State and recovery
+
+| State | Behavior |
 | --- | --- |
-| Current | `data-depth="0"`; full contrast; owns marginalia and focus target. |
-| Nearest history | `data-depth="1"`; nearest historical tone and strongest historical opacity. |
-| Middle history | `data-depth="2"`; lower contrast and lighter weight. |
-| Far history | `data-depth="3"`; all depths of three or more collapse to the faintest visual token but remain selectable in the DOM. |
-| Settling | `data-settling`; same keyed Reading Chunk remains mounted while it becomes history. |
-| Entering | `data-entering`; the new host-returned current Reading Chunk enters from a short vertical offset. |
+| Loading | Busy feedback; no stale reading action can start. |
+| Ready | Continue, composer, and suggestions available when a current chunk exists. |
+| Continuing | Single-operation lock; Continue is busy; all message actions disabled. |
+| Sending | Single-operation lock; composer, suggestions, and Continue disabled. |
+| Error | One alert and retry action; reading mutations remain disabled. Retry reloads the authoritative projection. |
+| Cursor changed | Reload the host projection through the same recovery path. |
+| Completed | Full history remains reviewable; completion replaces the current card; Continue and message actions disabled. |
+| Host replaced / unmounted | Abort the previous operation and clear transition callbacks; late results cannot replace the new host's content. |
 
-Depth is a presentation derivation from array position. It is not stored as product state.
+## Responsive and accessible interaction
 
-## Continue Reading
+- Wide desktop: progress, reader, and companion in three columns. Focus mode hides the companion without unmounting or clearing it.
+- At 850px and below: a compact progress rail, full reading area, persistent Continue action, and a toggleable conversation panel with close and Escape controls. Opening it focuses the composer; closing it restores trigger focus.
+- Space advances once outside interactive controls, dialogs, and the open narrow-screen conversation. Repeated keydown and IME composition are ignored. Enter sends in the composer; Shift+Enter inserts a newline; IME confirmation does not submit.
+- Native source/directory dialogs trap focus and restore the trigger on close. Buttons and atmosphere controls have keyboard focus styles and accessible names.
+- Reduced motion removes smooth scrolling, positional handoff, and particles. Reduced transparency replaces translucent materials; higher contrast raises historical visibility.
+- Hover effects apply only on fine pointers with hover support.
 
-1. Capture a Hot Cursor Receipt from the settled `ReadingWindow`.
-2. Acquire the single-operation lock, set `aria-busy`, and call `ReaderHost.continueReading` with an `AbortSignal`.
-3. On success, render the previous current Reading Chunk as settling history and the returned current Reading Chunk below it.
-4. Use CSS transitions limited to transform, opacity, and color. Smooth-scroll the new current Reading Chunk toward the visual center.
-5. Commit the returned `ReadingWindow`, release the lock, and move programmatic focus to the new section heading.
-6. On `cursor-changed`, discard the visual frame and reload the host's authoritative `ReadingWindow`.
-7. On other failure, expose one inline alert and one retry action without mutating the Reading Cursor.
+## Verification boundaries
 
-The initial duration is 280ms with `cubic-bezier(0.23, 1, 0.32, 1)`. These values remain subject to design review.
+Contract and fixture tests cover host-only advancement, stable history nodes, reduced motion, operation locks, error recovery, completion, appearance/draft isolation, suggested questions, keyboard isolation, and stale results after a host change. Browser checks use the existing Chinese synthetic Fixture Adapter; no private Workspace data is loaded.
 
-## Diffusion field
+Verified locally on 2026-08-31:
 
-- The warm field center follows the current Reading Chunk geometry.
-- Cool secondary fields remain low-saturation environmental color, not independent animation.
-- No large `filter: blur` surface is allowed; radial-gradient falloff provides softness.
-- Continue Reading may briefly lower the warm field opacity while its transform moves to the next Reading Chunk.
-- The field is decorative, ignores pointer input, and is hidden from assistive technology.
+- `pnpm reader:test`: 20 tests passed; `pnpm reader:typecheck` and `pnpm reader:build` passed.
+- Formal build output contains no Lightfield demo host, prototype picker, or other skin implementation.
+- In-app browser: 1600 × 960, 1280 × 720, and 390 × 844 layouts; no horizontal page overflow.
+- Continue and Space advance once; current landing measured within one CSS pixel of the reading viewport center. Four chunks end at 100%, preserve all four historical articles, disable mutations, and focus the completion heading.
+- History review, source/directory dialogs and focus return, question submission, mobile conversation open/close, light controls, optional particles, larger text, and focus mode exercised. Appearance changes and suggested questions preserve a typed draft and the current Cursor.
+- Browser warning/error log was empty during these checks.
 
-## Marginalia and conversation
+Desktop and narrow-screen screenshots below document this implementation, not a permanent visual regression baseline. Live-host projection, real model responses, physical-device acceptance, production Markdown/images/glossary rendering, and long-source performance remain separate work.
 
-- Marginalia belongs inside the current Reading Chunk and is collapsed by default.
-- Sending a message uses the current Hot Cursor Receipt but never invokes Continue Reading.
-- Host-returned conversation replaces the visible projection; the Reader UI does not persist a transcript.
-- Continue Reading closes the previous marginalia before the next Reading Chunk becomes current.
+![Mist desktop Reader](./assets/focus-reader-mist-desktop.jpg)
 
-## State matrix
-
-| State | Required behavior |
-| --- | --- |
-| Loading | `aria-busy`; no stale action can start. |
-| Ready | Current Reading Chunk, marginalia trigger, and Continue Reading are available. |
-| Continuing | Operation lock held; settling/entering handoff visible; Continue button busy and disabled. |
-| Sending | Operation lock held; message controls and Continue Reading disabled. |
-| Error | Inline `role="alert"`; retry reloads the host projection. |
-| Completed | Full history remains; completed copy replaces the current Reading Chunk; Continue Reading disabled. |
-
-## Responsive and accessibility rules
-
-- Desktop measure: 66ch; source body 17.5px/1.8.
-- Below 40rem: 16.5px/1.75, two diffusion fields, 110vw warm field, full-width sticky Continue action.
-- All controls must be keyboard reachable. Enter on the focused Continue button invokes one operation only.
-- After Continue Reading, focus moves to the new current heading with `tabIndex={-1}`.
-- `prefers-reduced-motion: reduce` removes positional animation and smooth scrolling, commits the returned window immediately, and retains a short opacity/color state change.
-- Hover styling is gated by `hover: hover` and `pointer: fine`.
-
-## Performance
-
-- No animation library is required.
-- No large-area blur filter or continuous animation is allowed.
-- Motion uses compositor-friendly transforms and opacity; the position bar uses `scaleX` rather than width animation.
-- Long-history and production Markdown performance remain a formal quality-gate item until measured against a live ReadingWindow.
-
-## Acceptance evidence levels
-
-- Contract verified: ReaderHost/ReadingWindow Interface and Adapter contract tests pass.
-- Fixture verified: state, operation locking, history depth, conversation, error recovery, and reduced motion pass with synthetic data.
-- Browser verified: desktop, 390px, keyboard, motion, and console checks pass.
-- Production build verified: the built application contains no switcher or variant path.
-- Live-host verified: a real host projects and mutates real ReadingWindow data correctly.
-- Production accepted: reserved for deployed-environment acceptance after Live-host verification.
-
-## Initial browser evidence
-
-The formal initial implementation was checked with the Chinese synthetic Fixture Adapter. Desktop and 390px screenshots are retained as implementation evidence, not as a permanent visual-regression baseline.
-
-![Formal initial desktop Reader](./assets/focus-reader-formal-initial-desktop.png)
-
-![Formal initial mobile Reader](./assets/focus-reader-formal-initial-mobile.png)
+![Mist mobile Reader](./assets/focus-reader-mist-mobile.jpg)

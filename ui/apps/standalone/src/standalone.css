@@ -1,0 +1,6 @@
+/* Host page reset; the embeddable Reader Module does not style the document. */
+body {
+  margin: 0;
+  min-width: 320px;
+  background: #f0eeef;
+}

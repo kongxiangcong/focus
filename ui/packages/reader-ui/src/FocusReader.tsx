@@ -1,19 +1,29 @@
 import {
   cursorReceipt,
+  type ReaderChunk,
   type ReaderHost,
   type ReadingWindow,
 } from "@focus/reader-contracts";
 import {
-  type CSSProperties,
   type FormEvent,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
+  useId,
 } from "react";
 
 import { ReaderConversation, ReadingChunk } from "./ReadingChunk";
 import { projectReaderFrame, type ReaderTransitionFrame } from "./reader-frame";
+import {
+  ReaderAppearance,
+  ReaderDialog,
+  ReaderIcon,
+  ReaderMark,
+  ReaderParticles,
+  ReaderProgress,
+  type ReaderDialogState,
+} from "./ReaderChrome";
 import "./reader-shell.css";
 
 const CONTINUE_TRANSITION_MS = 280;
@@ -25,16 +35,37 @@ export interface FocusReaderProps {
 }
 
 function prefersReducedMotion() {
-  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  return (
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false
+  );
 }
 
 export function FocusReader({ host }: FocusReaderProps) {
-  const [settledWindow, setSettledWindow] = useState<ReadingWindow | null>(null);
-  const [transition, setTransition] = useState<ReaderTransitionFrame | null>(null);
+  const [settledWindow, setSettledWindow] = useState<ReadingWindow | null>(
+    null,
+  );
+  const [transition, setTransition] = useState<ReaderTransitionFrame | null>(
+    null,
+  );
   const [phase, setPhase] = useState<ReaderPhase>("loading");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
-  const [annotationOpen, setAnnotationOpen] = useState(false);
+  const [intensity, setIntensity] = useState(65);
+  const [particles, setParticles] = useState(false);
+  const [largeText, setLargeText] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const [mobileChat, setMobileChat] = useState(false);
+  const [reviewing, setReviewing] = useState<string | null>(null);
+  const [dialogState, setDialogState] = useState<ReaderDialogState | null>(
+    null,
+  );
+  const appRef = useRef<HTMLDivElement>(null);
+  const streamRef = useRef<HTMLDivElement>(null);
+  const chatRef = useRef<HTMLDivElement>(null);
+  const questionRef = useRef<HTMLTextAreaElement>(null);
+  const chatTriggerRef = useRef<HTMLButtonElement>(null);
+  const firstLandingRef = useRef(true);
+  const messageId = useId();
   const currentHeadingRef = useRef<HTMLHeadingElement>(null);
   const glowRef = useRef<HTMLDivElement>(null);
   const operationRef = useRef<AbortController | null>(null);
@@ -56,7 +87,10 @@ export function FocusReader({ host }: FocusReaderProps) {
     }
   }
 
-  async function loadReadingWindow(controller: AbortController, resetView: boolean) {
+  async function loadReadingWindow(
+    controller: AbortController,
+    resetView: boolean,
+  ) {
     if (resetView) {
       setSettledWindow(null);
       setTransition(null);
@@ -88,6 +122,10 @@ export function FocusReader({ host }: FocusReaderProps) {
 
   useEffect(() => {
     operationRef.current?.abort();
+    firstLandingRef.current = true;
+    setReviewing(null);
+    setDialogState(null);
+    setMessage("");
     if (settleTimerRef.current !== null) {
       clearTimeout(settleTimerRef.current);
       settleTimerRef.current = null;
@@ -121,35 +159,122 @@ export function FocusReader({ host }: FocusReaderProps) {
     [],
   );
 
-  const readerFrame = settledWindow === null ? null : projectReaderFrame(settledWindow, transition);
+  const readerFrame =
+    settledWindow === null
+      ? null
+      : projectReaderFrame(settledWindow, transition);
   const current = readerFrame?.current ?? null;
 
+  function centerChunk(
+    chunkId: string | null = current?.chunkId ?? null,
+    smooth = true,
+  ) {
+    const pane = streamRef.current;
+    const element = chunkId
+      ? Array.from(
+          pane?.querySelectorAll<HTMLElement>("[data-chunk-id]") ?? [],
+        ).find((node) => node.dataset.chunkId === chunkId)
+      : pane?.querySelector<HTMLElement>(".focus-reader__complete");
+    if (!pane || !element) return;
+    pane.scrollTo?.({
+      top:
+        element.offsetTop -
+        Math.max(24, (pane.clientHeight - element.offsetHeight) / 2),
+      behavior: smooth && !prefersReducedMotion() ? "smooth" : "instant",
+    });
+  }
+
+  function review(chunk: ReaderChunk) {
+    setReviewing(chunk.chunkId === current?.chunkId ? null : chunk.chunkId);
+    centerChunk(chunk.chunkId);
+  }
+
   useLayoutEffect(() => {
-    if (current === null || currentHeadingRef.current === null) {
-      return;
-    }
+    if (!readerFrame) return;
+    const frame = requestAnimationFrame(() => {
+      centerChunk(current?.chunkId, !firstLandingRef.current);
+      firstLandingRef.current = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [current?.chunkId, readerFrame?.window.status]);
 
-    const placeGlow = () => {
-      const article = currentHeadingRef.current?.closest<HTMLElement>(".focus-reader__chunk");
-      if (article === null || article === undefined) {
-        return;
-      }
+  useLayoutEffect(() => {
+    const pane = streamRef.current;
+    if (!pane || !appRef.current) return;
+    let glowFrame = 0;
+    function placeGlow() {
+      const article = currentHeadingRef.current?.closest<HTMLElement>(
+        ".focus-reader__chunk",
+      );
+      const app = appRef.current;
+      if (!article || !app || !glowRef.current || !pane) return;
       const rect = article.getBoundingClientRect();
-      const x = rect.left + rect.width / 2;
-      const y = Math.min(rect.top + rect.height / 2, globalThis.innerHeight * 0.58);
-      if (glowRef.current !== null) {
-        glowRef.current.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%)`;
-      }
+      const bounds = app.getBoundingClientRect();
+      const viewport = pane.getBoundingClientRect();
+      const x = rect.left + rect.width / 2 - bounds.left;
+      const y =
+        Math.max(
+          viewport.top,
+          Math.min(rect.top + rect.height / 2, viewport.bottom),
+        ) - bounds.top;
+      glowRef.current.style.transform = `translate3d(${x}px, ${y}px, 0) translate(-50%, -50%)`;
+    }
+    const onScroll = () => {
+      cancelAnimationFrame(glowFrame);
+      glowFrame = requestAnimationFrame(placeGlow);
     };
-
+    const onResize = () => {
+      centerChunk(reviewing ?? current?.chunkId, false);
+      placeGlow();
+    };
+    const article = currentHeadingRef.current?.closest<HTMLElement>(
+      ".focus-reader__chunk",
+    );
+    const measure = () =>
+      `${pane.clientWidth}:${pane.clientHeight}:${article?.offsetWidth}:${article?.offsetHeight}`;
+    let size = measure();
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            const nextSize = measure();
+            // The observer's first delivery must not cancel a Continue or review scroll.
+            if (nextSize !== size) {
+              size = nextSize;
+              onResize();
+            }
+          });
+    observer?.observe(pane);
+    if (article) observer?.observe(article);
     placeGlow();
-    globalThis.addEventListener("resize", placeGlow);
-    globalThis.addEventListener("scroll", placeGlow, { passive: true });
+    pane.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onResize);
     return () => {
-      globalThis.removeEventListener("resize", placeGlow);
-      globalThis.removeEventListener("scroll", placeGlow);
+      cancelAnimationFrame(glowFrame);
+      observer?.disconnect();
+      pane.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
     };
-  }, [current?.chunkId]);
+  }, [
+    current?.chunkId,
+    largeText,
+    focusMode,
+    reviewing,
+    readerFrame?.window.status,
+  ]);
+
+  useLayoutEffect(() => {
+    centerChunk(reviewing ?? current?.chunkId ?? null, false);
+  }, [largeText, focusMode]);
+
+  useLayoutEffect(() => {
+    const element = chatRef.current;
+    if (element)
+      element.scrollTo?.({
+        top: element.scrollHeight,
+        behavior: prefersReducedMotion() ? "instant" : "smooth",
+      });
+  }, [readerFrame?.window.conversation, mobileChat]);
 
   async function continueReading() {
     if (settledWindow === null || phase !== "ready") {
@@ -181,14 +306,16 @@ export function FocusReader({ host }: FocusReaderProps) {
     }
 
     setError(null);
-    setAnnotationOpen(false);
+    setReviewing(null);
+    setDialogState(null);
+    setMobileChat(false);
     if (prefersReducedMotion()) {
       setSettledWindow(result.value);
       setTransition(null);
       setPhase("ready");
       finishOperation(controller);
       frameRef.current = requestAnimationFrame(() => {
-        currentHeadingRef.current?.scrollIntoView?.({ behavior: "auto", block: "center" });
+        centerChunk(result.value.current?.chunkId ?? null, false);
         currentHeadingRef.current?.focus({ preventScroll: true });
       });
       return;
@@ -198,7 +325,6 @@ export function FocusReader({ host }: FocusReaderProps) {
     frameRef.current = requestAnimationFrame(() => {
       frameRef.current = requestAnimationFrame(() => {
         setTransition({ target: result.value, active: true });
-        currentHeadingRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
       });
     });
 
@@ -211,9 +337,8 @@ export function FocusReader({ host }: FocusReaderProps) {
     }, CONTINUE_TRANSITION_MS);
   }
 
-  async function sendMessage(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const content = message.trim();
+  async function sendQuestion(value: string, clearDraft = false) {
+    const content = value.trim();
     if (settledWindow === null || phase !== "ready" || content.length === 0) {
       return;
     }
@@ -227,7 +352,10 @@ export function FocusReader({ host }: FocusReaderProps) {
     }
 
     setPhase("sending");
-    const result = await host.sendMessage({ receipt, content }, controller.signal);
+    const result = await host.sendMessage(
+      { receipt, content },
+      controller.signal,
+    );
     if (controller.signal.aborted) {
       return;
     }
@@ -235,8 +363,7 @@ export function FocusReader({ host }: FocusReaderProps) {
     if (result.ok) {
       setSettledWindow(result.value);
       setTransition(null);
-      setMessage("");
-      setAnnotationOpen(true);
+      if (clearDraft) setMessage("");
       setError(null);
       setPhase("ready");
       return;
@@ -249,118 +376,423 @@ export function FocusReader({ host }: FocusReaderProps) {
     setPhase("error");
   }
 
+  function submitQuestion(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void sendQuestion(message, true);
+  }
+
+  function closeMobileChat() {
+    setMobileChat(false);
+    chatTriggerRef.current?.focus({ preventScroll: true });
+  }
+
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement;
+      if (target !== document.body && !appRef.current?.contains(target)) return;
+      if (event.key === "Escape" && mobileChat) {
+        closeMobileChat();
+        return;
+      }
+      if (
+        event.repeat ||
+        event.isComposing ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        dialogState ||
+        mobileChat
+      )
+        return;
+      if (
+        /^(INPUT|TEXTAREA|SELECT|BUTTON|SUMMARY|A)$/.test(target.tagName) ||
+        target.isContentEditable
+      )
+        return;
+      if (event.code === "Space") {
+        event.preventDefault();
+        void continueReading();
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [settledWindow, phase, mobileChat, dialogState]);
+
   if (readerFrame === null) {
     return (
-      <main aria-busy={phase === "loading"} className="focus-reader" data-phase={phase}>
-        <p className="focus-reader__status" role={error === null ? undefined : "alert"}>
-          {error ?? "正在加载阅读内容…"}
-        </p>
-        {phase === "error" ? <button onClick={() => void reload()}>重试</button> : null}
-      </main>
+      <div
+        ref={appRef}
+        aria-busy={phase === "loading"}
+        className="focus-reader"
+        data-theme="mist"
+        data-phase={phase}
+      >
+        <div className="focus-reader__initial">
+          <ReaderMark />
+          <h1>留一点时间，给思考。</h1>
+          <p role={error === null ? "status" : "alert"}>
+            {error ?? "正在加载阅读内容…"}
+          </p>
+          {phase === "error" && (
+            <button
+              className="focus-reader__retry"
+              onClick={() => void reload()}
+            >
+              重试
+            </button>
+          )}
+        </div>
+      </div>
     );
   }
 
-  const busy = phase === "loading" || phase === "continuing" || phase === "sending";
+  const busy =
+    phase === "loading" || phase === "continuing" || phase === "sending";
   const controlsDisabled = busy || phase === "error";
-  const progress = current === null ? 100 : (current.index / current.total) * 100;
-  const progressMax = current?.total ?? readerFrame.history.at(-1)?.total ?? 1;
-  const progressStyle = { "--reader-progress": progress / 100 } as CSSProperties;
-  const streamChunks = current === null
-    ? readerFrame.history
-    : [...readerFrame.history, current];
+  const streamChunks = current
+    ? [...readerFrame.history, current]
+    : readerFrame.history;
+  const conversationChunk = current ?? readerFrame.history.at(-1);
+  const conversation = readerFrame.window.conversation.filter(
+    (item) => item.chunkId === conversationChunk?.chunkId,
+  );
+  const total = conversationChunk?.total ?? 0;
 
   return (
-    <main aria-busy={busy} className="focus-reader" data-phase={phase}>
-      <div aria-hidden="true" className="focus-reader__glow" ref={glowRef} />
+    <div
+      ref={appRef}
+      className="focus-reader"
+      data-theme="mist"
+      data-phase={phase}
+      data-large-text={largeText}
+      data-focus-mode={focusMode}
+      data-chat-open={mobileChat}
+      aria-busy={busy}
+    >
+      <div
+        className="focus-reader__atmosphere"
+        aria-hidden="true"
+        style={{ opacity: intensity / 100 }}
+      >
+        <div className="focus-reader__glow" ref={glowRef} />
+        <div className="focus-reader__cool-glow" />
+        <div className="focus-reader__violet-glow" />
+      </div>
+      <div className="focus-reader__grain" aria-hidden="true" />
+      {particles && <ReaderParticles />}
 
       <header className="focus-reader__header">
-        <h1>{readerFrame.window.source.title}</h1>
-        <div
-          aria-label={current === null ? "阅读完成" : `阅读位置：第 ${current.index} 段，共 ${current.total} 段`}
-          aria-valuemax={progressMax}
-          aria-valuemin={0}
-          aria-valuenow={current?.index ?? progressMax}
-          className="focus-reader__progress"
-          role="progressbar"
-          style={progressStyle}
+        <button
+          className="focus-reader__brand"
+          aria-label="FOCUS 回到当前阅读位置"
+          onClick={() => {
+            setReviewing(null);
+            centerChunk();
+          }}
         >
-          <span />
+          <ReaderMark />
+          <span>
+            focus<span>.</span>
+          </span>
+          <i />
+          <small>留一点时间，给思考</small>
+        </button>
+        <h1
+          className="focus-reader__source-title"
+          title={readerFrame.window.source.title}
+        >
+          {readerFrame.window.source.title}
+        </h1>
+        <div className="focus-reader__header-actions">
+          <span className="focus-reader__private">
+            <ReaderIcon name="book" size={13} />
+            私人阅读空间
+          </span>
+          <button
+            className="focus-reader__icon-button"
+            aria-label="阅读目录"
+            title="阅读目录"
+            onClick={() => setDialogState({ kind: "contents" })}
+          >
+            <ReaderIcon name="list" />
+          </button>
+          <button
+            className="focus-reader__icon-button"
+            aria-label={focusMode ? "退出专注模式" : "专注模式"}
+            title="专注模式"
+            aria-pressed={focusMode}
+            onClick={() => setFocusMode(!focusMode)}
+          >
+            <ReaderIcon name="focus" />
+          </button>
         </div>
       </header>
 
-      {error !== null ? (
+      {error !== null && (
         <div className="focus-reader__error" role="alert">
-          {error} <button onClick={() => void reload()}>重试</button>
+          {error}
+          <button onClick={() => void reload()}>重试</button>
         </div>
-      ) : null}
+      )}
 
-      <section aria-label="连续阅读内容" className="focus-reader__stream">
-        {streamChunks.map((chunk, index) => {
-          const isCurrent = chunk.chunkId === current?.chunkId;
-          const depth = isCurrent ? 0 : readerFrame.history.length - index;
-          return (
-            <ReadingChunk
-              chunk={chunk}
-              depth={depth}
-              entering={isCurrent && readerFrame.enteringCurrent}
-              headingRef={isCurrent ? currentHeadingRef : undefined}
-              isCurrent={isCurrent}
-              key={chunk.chunkId}
-              settling={chunk.chunkId === readerFrame.settlingChunkId}
+      <div className="focus-reader__workspace">
+        <ReaderProgress
+          chunks={streamChunks}
+          current={current}
+          onReview={review}
+        />
+        <main className="focus-reader__reading" aria-label="沉浸式阅读">
+          <div className="focus-reader__reading-header">
+            <span>
+              MIST <i /> 雾光
+            </span>
+            <span>让注意力，轻轻落在此刻。</span>
+          </div>
+          <div
+            className="focus-reader__stream"
+            role="region"
+            aria-label="连续阅读内容"
+            tabIndex={0}
+            ref={streamRef}
+          >
+            <div className="focus-reader__stream-inner">
+              {streamChunks.map((chunk, index) => {
+                const isCurrent = chunk.chunkId === current?.chunkId;
+                const depth = isCurrent
+                  ? 0
+                  : readerFrame.history.length - index;
+                return (
+                  <ReadingChunk
+                    key={chunk.chunkId}
+                    chunk={chunk}
+                    depth={depth}
+                    entering={isCurrent && readerFrame.enteringCurrent}
+                    isCurrent={isCurrent}
+                    headingRef={isCurrent ? currentHeadingRef : undefined}
+                    reviewing={chunk.chunkId === reviewing}
+                    settling={chunk.chunkId === readerFrame.settlingChunkId}
+                    onInspect={(selected) =>
+                      setDialogState({ kind: "source", chunk: selected })
+                    }
+                  />
+                );
+              })}
+              {current === null && (
+                <section className="focus-reader__complete">
+                  <ReaderMark />
+                  <span>END OF THIS READING</span>
+                  <h2 ref={currentHeadingRef} tabIndex={-1}>
+                    阅读完成
+                  </h2>
+                  <p>
+                    当前 Reading Plan 已经没有待阅读的 Reading Chunk。
+                    <br />
+                    你可以沿左侧轨迹回看，让想法再停留一会儿。
+                  </p>
+                </section>
+              )}
+            </div>
+          </div>
+          <div className="focus-reader__reading-bottom">
+            {reviewing ? (
+              <button
+                onClick={() => {
+                  setReviewing(null);
+                  centerChunk();
+                }}
+              >
+                <ReaderIcon name="return" size={14} />
+                回到当前阅读位置
+              </button>
+            ) : (
+              <span>
+                <i className="focus-reader__dot" />
+                {current ? "此刻，只需专注这一段" : "进度是位置，不是理解评价"}
+              </span>
+            )}
+            <span className="focus-reader__keyboard-hint">
+              滚动回看
+              <i />
+              <kbd>Space</kbd>继续一段
+            </span>
+          </div>
+        </main>
+
+        <aside className="focus-reader__companion" aria-label="阅读伙伴">
+          <div className="focus-reader__companion-header">
+            <ReaderMark />
+            <div>
+              <h2>阅读伙伴</h2>
+              <span>跟随你的思路，而非催促</span>
+            </div>
+            <i className="focus-reader__dot" />
+            <button
+              className="focus-reader__icon-button focus-reader__chat-close"
+              aria-label="收起对话"
+              onClick={closeMobileChat}
             >
-              {isCurrent ? (
-                <aside aria-label="当前段落旁注" className="focus-reader__marginalia">
-                  <button
-                    aria-expanded={annotationOpen}
-                    className="focus-reader__marginalia-toggle"
-                    disabled={controlsDisabled}
-                    onClick={() => setAnnotationOpen((open) => !open)}
-                    type="button"
-                  >
-                    {annotationOpen ? "收起旁注" : "针对这一段提问…"}
-                  </button>
-                  {annotationOpen ? (
-                    <div className="focus-reader__marginalia-body">
-                      <ReaderConversation messages={readerFrame.window.conversation} />
-                      <form onSubmit={(event) => void sendMessage(event)}>
-                        <label htmlFor="focus-reader-message">针对当前 Reading Chunk 提问</label>
-                        <textarea
-                          disabled={controlsDisabled}
-                          id="focus-reader-message"
-                          onChange={(event) => setMessage(event.target.value)}
-                          rows={2}
-                          value={message}
-                        />
-                        <button disabled={controlsDisabled || message.trim().length === 0} type="submit">
-                          {phase === "sending" ? "正在发送…" : "发送"}
-                        </button>
-                      </form>
-                    </div>
-                  ) : null}
-                </aside>
-              ) : null}
-            </ReadingChunk>
-          );
-        })}
-
-        {current === null ? (
-          <section className="focus-reader__complete">
-            <h2>阅读完成</h2>
-            <p>当前 Reading Plan 已经没有待阅读的 Reading Chunk。</p>
-          </section>
-        ) : null}
-      </section>
+              <ReaderIcon name="close" />
+            </button>
+          </div>
+          <div className="focus-reader__conversation-context">
+            <ReaderIcon name="book" size={13} />
+            {current
+              ? `围绕 Chunk ${String(current.index).padStart(2, "0")} 展开`
+              : "本篇阅读已完成"}
+            <span>同一阅读位置</span>
+          </div>
+          <div
+            className="focus-reader__chat-scroll"
+            ref={chatRef}
+            role="log"
+            aria-label="当前 Chunk 对话"
+            aria-live="polite"
+            aria-relevant="additions text"
+          >
+            <ReaderConversation messages={conversation} />
+          </div>
+          <div className="focus-reader__chat-bottom">
+            <div className="focus-reader__suggestions">
+              <span>换个角度想一想</span>
+              {[
+                "用一句话概括核心",
+                "给我一个具体例子",
+                "和前面的内容有什么联系？",
+              ].map((question, index) => (
+                <button
+                  type="button"
+                  key={question}
+                  disabled={controlsDisabled || !current}
+                  onClick={() => void sendQuestion(question)}
+                >
+                  <ReaderIcon
+                    name={
+                      index === 0 ? "sparkle" : index === 1 ? "book" : "chat"
+                    }
+                    size={14}
+                  />
+                  <span>{question}</span>
+                  <ReaderIcon name="chevron" size={12} />
+                </button>
+              ))}
+            </div>
+            <form className="focus-reader__composer" onSubmit={submitQuestion}>
+              <label className="focus-reader__sr-only" htmlFor={messageId}>
+                针对当前 Reading Chunk 提问
+              </label>
+              <textarea
+                id={messageId}
+                ref={questionRef}
+                disabled={controlsDisabled || !current}
+                rows={2}
+                value={message}
+                placeholder={
+                  current
+                    ? "关于这一段，你在想什么？"
+                    : "阅读已完成，可以回看原文"
+                }
+                onChange={(event) => setMessage(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    !event.shiftKey &&
+                    !event.nativeEvent.isComposing
+                  ) {
+                    event.preventDefault();
+                    void sendQuestion(message, true);
+                  }
+                }}
+              />
+              <div>
+                <span>追问，不会推进阅读</span>
+                <button
+                  type="submit"
+                  aria-label={phase === "sending" ? "正在发送…" : "发送"}
+                  disabled={controlsDisabled || !current || !message.trim()}
+                >
+                  <ReaderIcon name="up" size={17} />
+                </button>
+              </div>
+            </form>
+            <p className="focus-reader__host-note">对话由当前阅读宿主提供</p>
+          </div>
+        </aside>
+        <div className="focus-reader__action">
+          <button
+            className="focus-reader__continue"
+            type="button"
+            aria-label={phase === "continuing" ? "正在继续…" : "继续阅读"}
+            aria-busy={phase === "continuing"}
+            disabled={controlsDisabled || !current}
+            onClick={() => void continueReading()}
+          >
+            <span>
+              <strong>
+                {phase === "continuing"
+                  ? "正在继续…"
+                  : current
+                    ? "继续阅读"
+                    : "本篇阅读已完成"}
+              </strong>
+              <small>
+                {current
+                  ? `只前进一个 Chunk · ${String(current.index).padStart(2, "0")} → ${current.index === total ? "完成" : String(current.index + 1).padStart(2, "0")}`
+                  : "给思考一点余地"}
+              </small>
+            </span>
+            <i>
+              <ReaderIcon name={current ? "arrow" : "check"} size={21} />
+            </i>
+          </button>
+        </div>
+      </div>
 
       <footer className="focus-reader__footer">
+        <div className="focus-reader__ambience">
+          <ReaderAppearance
+            intensity={intensity}
+            onIntensity={setIntensity}
+            particles={particles}
+            onParticles={setParticles}
+            largeText={largeText}
+            onLargeText={setLargeText}
+          />
+          <span>
+            <ReaderIcon name="sun" size={13} />
+            {intensity}%
+          </span>
+        </div>
+        <span className="focus-reader__theme-label">
+          雾光
+          <i />
+          默认阅读主题
+        </span>
         <button
-          aria-busy={phase === "continuing"}
-          disabled={controlsDisabled || current === null}
-          onClick={() => void continueReading()}
-          type="button"
+          className="focus-reader__mobile-chat"
+          ref={chatTriggerRef}
+          aria-label="展开阅读对话"
+          aria-expanded={mobileChat}
+          onClick={() => {
+            setMobileChat(!mobileChat);
+            if (!mobileChat) {
+              setFocusMode(false);
+              requestAnimationFrame(() =>
+                questionRef.current?.focus({ preventScroll: true }),
+              );
+            }
+          }}
         >
-          {phase === "continuing" ? "正在继续…" : "继续阅读"}
+          <ReaderIcon name="chat" />
         </button>
       </footer>
-    </main>
+      <ReaderDialog
+        state={dialogState}
+        chunks={streamChunks}
+        current={current}
+        sourceTitle={readerFrame.window.source.title}
+        onClose={() => setDialogState(null)}
+        onReview={review}
+      />
+    </div>
   );
 }

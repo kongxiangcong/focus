@@ -23,7 +23,9 @@ Focus Core
 
 `FocusReader({ host })` is the only public Reader UI Interface. `reader-ui` may import `reader-contracts`, React, and its own internal implementation. It must not import the Standalone app, HTTP, filesystem code, Python scripts, Workspace paths, or DSH packages.
 
-The formal initial UI promotes the current-session diffusion prototype captured in commit `5dae3de`. It uses one continuous Reading Chunk stream, complete host-projected history, a Reading Cursor-anchored diffusion field, a settling/entering Continue Reading handoff, and current-chunk marginalia. It contains no A/B/C variants, prototype switcher, or variant URL.
+The formal default is **雾光 / Mist**: a wide floating reading card, complete host-projected history that progressively fades, a vertical dashed progress rail, and a desktop companion panel. Light intensity, optional particles, larger text, and focus mode affect presentation only. Continue advances one Chunk; questions preserve the Cursor. The companion becomes a toggleable panel on narrow screens.
+
+The five Lightfield prototypes remain under `apps/standalone/src/prototypes/lightfield/` as future skin references. They are available at `/prototypes/lightfield/?v=1` in the development server, but are not imported into the production build. There is no production theme switcher. Appearance changes in the formal UI preserve the current host projection and unsent input; the comparison picker's reset behavior is not used.
 
 ## Host Adapters
 
