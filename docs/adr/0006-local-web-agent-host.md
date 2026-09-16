@@ -48,3 +48,16 @@ visibly instead of silently starting a context-free conversation.
 Runtime/API compatibility is pinned to 0.154.0 and based on generated experimental
 JSON schema, not only on website examples. Dynamic tools are an experimental App
 Server interface; upgrades require protocol and local acceptance checks.
+
+## Session revision, 2026-09-16
+
+The Host now archives and resets its current conversation independently of Core.
+Session IDs, ordered message/paragraph references and fresh-session state are Host
+persistence. Reset stops and joins the active worker before replacing state. Resume
+Reading is a read-only projection of the preserved Cursor. Ordinary question receipts
+may reference historical paragraphs; only Continue requires the current Cursor receipt.
+
+Default loopback-only service access opens directly without a token screen. Explicit
+FOCUS_HOST_TOKEN and non-loopback/public-origin deployments retain authentication.
+Host/Origin checking still applies to all routes; remote exposure is not enabled by
+this change.

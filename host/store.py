@@ -2,6 +2,7 @@
 import json
 import sqlite3
 import threading
+import uuid
 from pathlib import Path
 
 
@@ -17,6 +18,10 @@ class Store:
             raise ValueError('Host data directory belongs to a different workspace')
         self.put('workspace', str(workspace))
         self.state = self.get('session') or {'threadId': None, 'conversation': [], 'run': None, 'requests': {}}
+        self.state.setdefault('sessionId', uuid.uuid4().hex)
+        self.state.setdefault('displayReading', True)
+        self.state.setdefault('timeline', [])
+        self.save()
         run = self.state['run']
         if run and run['status'] in ('running', 'stopping', 'approval'):
             run.update(status='interrupted', error='后台已重启；上次任务已中断，请检查已落盘的更改后再发送。', approvals=[])

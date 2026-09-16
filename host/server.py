@@ -21,6 +21,7 @@ class Server(ThreadingHTTPServer):
         self.service = service
         self.token = token or secrets.token_urlsafe(32)
         self.public_origin = public_origin
+        self.local_access = token is None and public_origin is None and address[0] in ('127.0.0.1', 'localhost')
         super().__init__(address, Handler)
 
 
@@ -46,6 +47,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _authorized(self):
+        if self.server.local_access and self.client_address[0] in ('127.0.0.1', '::1'):
+            return True
         cookie = dict(pair.strip().split('=', 1) for pair in self.headers.get('Cookie', '').split(';') if '=' in pair)
         credential = self.headers.get('Authorization', '').removeprefix('Bearer ') or cookie.get('focus_host', '')
         return hmac.compare_digest(credential, self.server.token)
@@ -154,6 +157,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if method == 'GET' and path == '/reader/window':
             result = service.snapshot()
+        elif method == 'POST' and path == '/reader/session':
+            result = service.new_session(self._body())
+        elif method == 'POST' and path == '/reader/resume':
+            result = service.resume_reading(self._body())
         elif method == 'POST' and path == '/reader/messages':
             result = service.start(self._body())
         elif method == 'POST' and path == '/reader/continue':

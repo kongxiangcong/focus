@@ -142,6 +142,14 @@ export class HttpReaderHost implements ReaderHost {
     });
   }
 
+  newSession(sessionId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request("/reader/session", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId }) });
+  }
+
+  resumeReading(sessionId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request("/reader/resume", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sessionId }) });
+  }
+
   stop(): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request("/reader/stop", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   }

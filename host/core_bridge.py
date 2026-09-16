@@ -6,7 +6,8 @@ from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / '.agents'))
-from core.reading_workspace import WorkspaceCore, WorkspaceError
+from core.reading_workspace import (WorkspaceCore, WorkspaceError, _identifier, _read_chunk_records,
+    _read_reading_record, _chunk_presentation, _validate_parser_bundle)
 from core.source_library import SourceLibrary
 
 ACTIONS = {
@@ -90,19 +91,11 @@ class CoreBridge:
                 raise
             return {'status': 'empty', 'source': {'sourceId': '', 'title': '选择论文，开始阅读', 'topicId': None},
                     'current': None, 'history': [], 'conversation': []}
-        def chunk(c):
-            return {'sourceId': c['source_id'], 'planId': c['plan_id'], 'chunkId': c['chunk_id'],
-                    'index': c['index'], 'total': c['total'], 'sectionPath': c['section_path'],
-                    'sourceLines': c['source_lines'], 'sourceMarkdown': c['source_text'], 'translation': c['translation'],
-                    'images': [{'src': '/reader/assets/' + quote(c['source_id'], safe='') + '/' +
-                                quote(str(Path(i['path']).relative_to(self.workspace / 'sources' / c['source_id'] / 'parser-bundle')).replace('\\', '/'), safe='/'),
-                                'caption': i['caption']} for i in c['images']],
-                    'relevantGlossary': c['relevant_glossary'], 'presentationStatus': c['status'].replace('_', '-')}
         return {'status': 'reading' if result['current'] else 'completed',
                 'source': {'sourceId': result['source']['source_id'], 'title': result['source']['title'],
                            'topicId': result['state']['topic_id']},
-                'current': chunk(result['current']) if result['current'] else None,
-                'history': [chunk(c) for c in result['history']], 'conversation': []}
+                'current': self.project_chunk(result['current']) if result['current'] else None,
+                'history': [self.project_chunk(c) for c in result['history']], 'conversation': []}
 
     def image(self, source_id, relative):
         SourceLibrary(self.workspace).get(source_id)
@@ -113,3 +106,28 @@ class CoreBridge:
         if not target.is_relative_to(root) or target.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.webp', '.gif') or not target.is_file():
             raise ValueError('Invalid image path')
         return target
+
+    def project_chunk(self, c):
+        return {'sourceId': c['source_id'], 'planId': c['plan_id'], 'chunkId': c['chunk_id'],
+                'index': c['index'], 'total': c['total'], 'sectionPath': c['section_path'],
+                'sourceLines': c['source_lines'], 'sourceMarkdown': c['source_text'], 'translation': c['translation'],
+                'images': [{'src': '/reader/assets/' + quote(c['source_id'], safe='') + '/' +
+                            quote(str(Path(i['path']).relative_to(self.workspace / 'sources' / c['source_id'] / 'parser-bundle')).replace('\\', '/'), safe='/'),
+                            'caption': i['caption']} for i in c['images']],
+                'relevantGlossary': c['relevant_glossary'], 'presentationStatus': c['status'].replace('_', '-')}
+
+    def reference(self, receipt):
+        source, plan, chunk_id = (_identifier(receipt[k], k) for k in ('sourceId', 'planId', 'chunkId'))
+        SourceLibrary(self.workspace).get(source)
+        bundle = self.workspace / 'sources' / source / 'parser-bundle'
+        root = bundle.parent / 'reading' / 'plans' / plan
+        metadata = _validate_parser_bundle(bundle)
+        chunks = _read_chunk_records(root / 'chunks.jsonl')
+        chunk = next((c for c in chunks if c['chunk_id'] == chunk_id), None)
+        if chunk is None:
+            raise ValueError('引用段落不存在')
+        record = _read_reading_record(root / 'records' / f'{chunk_id}.json', chunk_id)
+        item = _chunk_presentation(bundle, root, source_id=source, plan_id=plan,
+                                  chunk=chunk, reading_record=record, total=len(chunks))
+        item['status'] = 'source_ready' if metadata['language'] == 'zh' else 'presented' if record['translation'] else 'translation_required'
+        return self.project_chunk(item)

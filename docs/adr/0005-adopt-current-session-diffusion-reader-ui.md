@@ -2,7 +2,13 @@
 status: accepted
 ---
 
-# Adopt the current-session diffusion prototype as the formal Reader UI direction
+# Formal Reader visual direction
+
+Revision 2026-09-16: the explicitly requested unified central reading/conversation flow
+supersedes the desktop companion panel, fading history, atmosphere controls and
+Space-to-advance behavior below. The current specification is
+[unified Reader UI](../design/focus-reader-ui-spec.md). The following paragraphs record
+the historical decision only; ADR 0004 remains authoritative.
 
 Visual revision, 2026-08-31: the user selected the retained Lightfield **雾光 / Mist** prototype as the formal default. Its floating reading card, vertical dashed progress rail, and desktop companion panel replace the initial layout and collapsed-marginalia choice below. All five prototypes remain retained for later skin integration. This updates presentation only; the authority and acceptance boundaries in this ADR and ADR 0004 remain in force. See the [current UI specification](../design/focus-reader-ui-spec.md).
 

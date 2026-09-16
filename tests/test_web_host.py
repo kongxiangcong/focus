@@ -163,6 +163,69 @@ class WebHostTests(unittest.TestCase):
         self.assertEqual('interrupted', self.host.snapshot()['agent']['run']['status'])
         self.assertTrue(any(c.get('method') == 'turn/interrupt' for c in ProtocolDouble.instances[-1].calls))
 
+    def test_reset_keeps_core_assets_but_starts_new_thread_and_survives_restart(self):
+        self.start(); self.finish()
+        before = {str(p.relative_to(self.workspace)): p.read_bytes() for p in self.workspace.rglob('*') if p.is_file()}
+        old = self.host.state['sessionId']
+        window = self.host.new_session({'sessionId': old})
+        self.assertNotEqual(old, window['sessionId'])
+        self.assertTrue(window['sessionFresh'])
+        self.assertEqual([], window['timeline'])
+        self.assertEqual([], window['conversation'])
+        self.assertIsNone(self.host.state['threadId'])
+        self.assertIsNotNone(self.host.store.get('session:' + old))
+        self.assertEqual(before, {str(p.relative_to(self.workspace)): p.read_bytes() for p in self.workspace.rglob('*') if p.is_file()})
+        self.host.close()
+        self.host = HostService(self.workspace, self.data, runtime_factory=ProtocolDouble)
+        self.assertTrue(self.host.snapshot()['sessionFresh'])
+        new = self.host.state['sessionId']
+        self.assertEqual(new, self.host.new_session({'sessionId': old})['sessionId'])
+        with self.assertRaisesRegex(ValueError, '会话已更新'):
+            self.start(sessionId=old)
+        self.host.resume_reading({'sessionId': new})
+        self.assertEqual('reading', self.host.snapshot()['timeline'][0]['kind'])
+        self.start(sessionId=new); self.finish()
+        self.assertTrue(any(c.get('method') == 'thread/start' for c in ProtocolDouble.instances[-1].calls))
+        self.assertFalse(any(c.get('method') == 'thread/resume' for c in ProtocolDouble.instances[-1].calls))
+
+    def test_stop_and_reset_closes_approvals_and_isolates_old_events(self):
+        ProtocolDouble.mode = 'approval'
+        self.start()
+        self.wait(lambda: bool(self.host.state['run']['approvals']))
+        approval = self.host.state['run']['approvals'][0]['id']
+        old = self.host.state['sessionId']
+        old_rpc = ProtocolDouble.instances[-1]
+        result = self.host.new_session({'sessionId': old})
+        self.assertTrue(old_rpc.closed)
+        self.assertEqual([], result['conversation'])
+        old_rpc.events.put({'method': 'item/agentMessage/delta', 'params': {'itemId': 'late', 'delta': 'late answer'}})
+        self.host._notification('item/agentMessage/delta', {'threadId': 'old', 'itemId': 'late', 'delta': 'late answer'})
+        self.assertEqual([], self.host.snapshot()['conversation'])
+        with self.assertRaises(ValueError):
+            self.host.approve({'approvalId': approval, 'decision': 'accept'})
+
+    def test_historical_reference_is_passed_to_agent_without_advancing(self):
+        self.host.start({'requestId': 'advance-first', 'receipt': self.receipt}, continuing=True); self.finish()
+        self.start(requestId='review-old'); self.finish()
+        self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])
+        call = next(c for c in ProtocolDouble.instances[-1].calls if c.get('method') == 'turn/start')
+        self.assertIn('User question reference', call['params']['input'][0]['text'])
+        self.assertEqual(self.receipt, self.host.state['conversation'][-2]['reference'])
+        timeline = self.host.snapshot()['timeline']
+        self.assertEqual(['reading', 'message', 'reading', 'message', 'message', 'message'], [e['kind'] for e in timeline])
+
+    def test_loopback_direct_access_preserves_origin_checks(self):
+        server = Server(('127.0.0.1', 0), self.host)
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=3)
+        try:
+            connection.request('GET', '/reader/window')
+            response = connection.getresponse(); self.assertEqual(200, response.status); response.read()
+            connection.request('GET', '/reader/window', headers={'Origin': 'https://evil.example'})
+            response = connection.getresponse(); self.assertEqual(403, response.status); response.read()
+        finally:
+            connection.close(); server.shutdown(); server.server_close()
+
     def test_restart_marks_active_run_interrupted(self):
         self.host.state['run'] = {'runId': 'old', 'status': 'running', 'error': None, 'approvals': [], 'activity': []}
         self.host.store.save()

@@ -1,132 +1,28 @@
 import type { ReaderChunk, ReaderMessage } from "@focus/reader-contracts";
-import type { Ref } from "react";
-import { ReaderIcon, ReaderMark } from "./ReaderChrome";
+import { useState } from "react";
+import { MarkdownContent } from "./MarkdownContent";
 
-interface ReadingChunkProps {
-  chunk: ReaderChunk;
-  depth: number;
-  entering?: boolean;
-  headingRef?: Ref<HTMLHeadingElement>;
-  isCurrent?: boolean;
-  settling?: boolean;
-  reviewing?: boolean;
-  onInspect: (chunk: ReaderChunk) => void;
+export const chunkKey = (c: { sourceId: string; planId: string; chunkId: string }) => `${c.sourceId}/${c.planId}/${c.chunkId}`;
+
+export function ReadingChunk({ chunk, onReference }: { chunk: ReaderChunk; onReference: (chunk: ReaderChunk) => void }) {
+  const [original, setOriginal] = useState(false);
+  const translated = chunk.translation !== null && !original;
+  const text = translated ? chunk.translation! : chunk.sourceMarkdown;
+  return <article className="focus-reading" data-chunk-key={chunkKey(chunk)}>
+    <header className="focus-reading__meta"><span>{translated ? "译文" : "原文"}</span><span>第 {chunk.index} / {chunk.total} 段</span>
+      {chunk.translation !== null && <button aria-pressed={original} onClick={() => setOriginal(!original)}>{original ? "查看译文" : "查看原文"}</button>}
+    </header>
+    <h2>{chunk.sectionPath.at(-1)}</h2>
+    <MarkdownContent text={text} sourceId={chunk.sourceId} />
+    {chunk.images.filter(i => !text.includes(i.src) && !text.includes(decodeURIComponent(i.src.split('/').at(-1)!))).map(i =>
+      <figure key={i.src}><img src={i.src} alt={i.caption} loading="lazy" /><figcaption>{i.caption}</figcaption></figure>)}
+    <footer><button onClick={() => onReference(chunk)}>引用这段提问</button></footer>
+  </article>;
 }
 
-export function ReadingChunk({
-  chunk,
-  depth,
-  entering = false,
-  headingRef,
-  isCurrent = false,
-  settling = false,
-  reviewing = false,
-  onInspect,
-}: ReadingChunkProps) {
-  return (
-    <article
-      className="focus-reader__chunk"
-      data-chunk-id={chunk.chunkId}
-      data-depth={Math.min(depth, 3)}
-      data-current={isCurrent}
-      data-reviewing={reviewing}
-      data-entering={entering || undefined}
-      data-settling={settling || undefined}
-    >
-      <div className="focus-reader__chunk-body">
-        <div className="focus-reader__chunk-meta">
-          <span>
-            CHUNK {String(chunk.index).padStart(2, "0")} <i>/</i>{" "}
-            {String(chunk.total).padStart(2, "0")}
-          </span>
-          <span>
-            {isCurrent ? (
-              <>
-                <i className="focus-reader__dot" />
-                正在阅读
-              </>
-            ) : (
-              "已读 · 随时回看"
-            )}
-          </span>
-        </div>
-        <h2
-          className="focus-reader__eyebrow"
-          aria-label={chunk.sectionPath.join(" / ")}
-          ref={headingRef}
-          tabIndex={isCurrent ? -1 : undefined}
-        >
-          {chunk.sectionPath.at(-1)}
-        </h2>
-        <div className="focus-reader__prose">{chunk.sourceMarkdown}</div>
-        {chunk.translation !== null ? (
-          <section aria-label="译文" className="focus-reader__translation">
-            {chunk.translation}
-          </section>
-        ) : null}
-        {chunk.images.map(image => <figure className="focus-reader__figures" key={image.src}>
-          <img src={image.src} alt={image.caption} loading="lazy" /><figcaption>{image.caption}</figcaption>
-        </figure>)}
-        <footer className="focus-reader__chunk-footer">
-          <span>
-            <ReaderIcon name="book" size={13} />
-            来源原文 <i>·</i> L{chunk.sourceLines.join("—")}
-          </span>
-          <button
-            type="button"
-            aria-label={`查看第 ${chunk.index} 段原文`}
-            onClick={() => onInspect(chunk)}
-          >
-            原文锚点
-            <ReaderIcon name="chevron" size={12} />
-          </button>
-        </footer>
-      </div>
-      {isCurrent && (
-        <span className="focus-reader__card-spark" aria-hidden="true">
-          <ReaderIcon name="sparkle" size={20} />
-        </span>
-      )}
-    </article>
-  );
-}
-
-export function ReaderConversation({
-  messages,
-}: {
-  messages: readonly ReaderMessage[];
-}) {
-  if (messages.length === 0) {
-    return (
-      <div className="focus-reader__empty">
-        <ReaderIcon name="sparkle" size={29} />
-        <h3>把你的疑问，留在这里。</h3>
-        <p>
-          一个例子，一次追问，
-          <br />
-          让眼前的想法慢慢展开。
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <ol aria-label="当前段落对话" className="focus-reader__conversation">
-      {messages.map((message) => (
-        <li key={message.messageId} data-role={message.role}>
-          <span>
-            {message.role === "user" ? (
-              "你"
-            ) : (
-              <>
-                <ReaderMark />
-                FOCUS
-              </>
-            )}
-          </span>
-          <p>{message.content}</p>
-        </li>
-      ))}
-    </ol>
-  );
+export function ReaderConversation({ messages }: { messages: readonly ReaderMessage[] }) {
+  return <>{messages.map(message => <article className="focus-message" data-role={message.role} key={message.messageId}>
+    <header>{message.role === "user" ? "你" : "Codex"}</header>
+    <MarkdownContent text={message.content} />
+  </article>)}</>;
 }
