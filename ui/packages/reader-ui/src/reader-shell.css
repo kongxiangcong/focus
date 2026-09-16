@@ -49,6 +49,9 @@
 .focus-reader[data-large-text=true] .focus-markdown { font-size:20px; }
 .focus-bottom { position:relative; flex-shrink:0; background:linear-gradient(transparent,#fafaf6 14px); padding:10px 24px max(12px,env(safe-area-inset-bottom)); }
 .focus-composer-wrap { max-width:764px; margin:auto; }
+.focus-backend { display:flex; flex-wrap:wrap; align-items:center; gap:6px 12px; padding:4px 0 8px; font-size:14px; }
+.focus-backend select { max-width:100%; padding:6px; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:6px; }
+.focus-backend small { color:var(--muted); }
 .focus-composer { padding:12px 14px 10px; border:1px solid #cdd2c9; border-radius:14px; background:#fff; box-shadow:0 3px 15px #283c2710; }
 .focus-composer:focus-within { border-color:#7f9c8a; }
 .focus-composer textarea { border:0; padding:3px; width:100%; resize:none; min-height:58px; max-height:24dvh; outline:none!important; color:var(--ink); background:transparent; font-size:16px; }

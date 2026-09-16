@@ -1,4 +1,9 @@
-"""Host/Core integration with a protocol double. No model or MinerU calls."""
+"""Host/Core integration with a transport double. No model or MinerU calls.
+
+The double stands in for `host.runtime.AppServer`, so every test below drives the
+real Codex adapter: it asserts the app-server frames the adapter emits while the
+Host only ever sees the backend-neutral vocabulary.
+"""
 import http.client
 import json
 import queue
@@ -18,16 +23,18 @@ from host.runtime import AppServer
 
 
 class ProtocolDouble:
+    """Records every JSON-RPC frame a real AppServer would receive or emit."""
     instances = []
     mode = 'answer'
 
-    def __init__(self, command, cwd):
+    def __init__(self, command, cwd, *, env=None):
         self.events = queue.Queue()
         self.calls = []
         self.closed = False
         self.__class__.instances.append(self)
 
     def initialize(self):
+        self.calls.append({'method': 'initialize', 'params': {}})
         return {}
 
     def send(self, value):
@@ -69,6 +76,10 @@ class ProtocolDouble:
         self.events.put({'method': '_transport_error', 'params': {'message': 'closed'}})
 
 
+def first_thread_call(instance):
+    return next(c for c in instance.calls if str(c.get('method', '')).startswith('thread/'))
+
+
 class WebHostTests(unittest.TestCase):
     def setUp(self):
         self.fixture = test_focus_read.FocusReadTests()
@@ -77,14 +88,18 @@ class WebHostTests(unittest.TestCase):
         self.data = self.fixture.root / 'host'
         ProtocolDouble.instances = []
         ProtocolDouble.mode = 'answer'
-        self.patch = patch('host.service.codex_command', return_value=['protocol-double'])
-        self.patch.start()
-        self.host = HostService(self.workspace, self.data, runtime_factory=ProtocolDouble)
+        # Patch the seam below the adapter, so the real CodexBackend does the translating.
+        self.patches = [patch('host.backends.codex.codex_command', return_value=['protocol-double']),
+                        patch('host.backends.codex.AppServer', side_effect=ProtocolDouble)]
+        for item in self.patches:
+            item.start()
+        self.host = HostService(self.workspace, self.data)
         self.receipt = {'sourceId': 'fixture-paper', 'planId': 'plan-001', 'chunkId': 'chunk-001'}
 
     def tearDown(self):
         self.host.close()
-        self.patch.stop()
+        for item in self.patches:
+            item.stop()
         self.fixture.tearDown()
 
     def wait(self, predicate):
@@ -106,10 +121,45 @@ class WebHostTests(unittest.TestCase):
         self.assertEqual('chunk-001', self.host.snapshot()['current']['chunkId'])
         self.assertEqual('真实 Core，协议替身。', self.host.snapshot()['conversation'][-1]['content'])
         self.host.close()
-        self.host = HostService(self.workspace, self.data, runtime_factory=ProtocolDouble)
+        self.host = HostService(self.workspace, self.data)
         self.start(requestId='request-5678'); self.finish()
-        self.assertEqual('thread/resume', ProtocolDouble.instances[-1].calls[1]['method'])
+        self.assertEqual('thread/resume', first_thread_call(ProtocolDouble.instances[-1])['method'])
         self.assertEqual(4, len(self.host.snapshot()['conversation']))
+
+    def test_browser_backend_switch_archives_chat_preserves_core_and_survives_restart(self):
+        self.start(); self.finish()
+        old = self.host.snapshot()
+        with patch('host.service.check_backend', return_value='installed'):
+            switched = self.host.select_backend({'backend': 'workbuddy', 'sessionId': old['sessionId']})
+        self.assertEqual('workbuddy', switched['agent']['backend'])
+        self.assertNotEqual(old['sessionId'], switched['sessionId'])
+        self.assertEqual(old['current'], switched['current'])
+        self.assertEqual([], switched['conversation'])
+        self.assertIsNone(self.host._resume_key())
+        self.assertEqual(old['conversation'], self.host.store.get('session:' + old['sessionId'])['conversation'])
+        with self.assertRaisesRegex(ValueError, '会话已更新'):
+            self.host.start({'requestId': 'stale-1234', 'sessionId': old['sessionId'], 'content': 'old tab'})
+        self.host.close()
+        self.host = HostService(self.workspace, self.data)
+        self.assertEqual('workbuddy', self.host.snapshot()['agent']['backend'])
+        with patch('host.service.check_backend', return_value='installed'):
+            self.host.select_backend({'backend': 'codex', 'sessionId': switched['sessionId']})
+        self.start(requestId='return-1234'); self.finish()
+        self.assertEqual('thread/start', first_thread_call(ProtocolDouble.instances[-1])['method'])
+
+    def test_failed_or_busy_switch_leaves_session_untouched(self):
+        before = self.host.snapshot()
+        with patch('host.service.check_backend', side_effect=RuntimeError('SDK missing')):
+            with self.assertRaisesRegex(RuntimeError, 'SDK missing'):
+                self.host.select_backend({'backend': 'workbuddy', 'sessionId': before['sessionId']})
+        self.assertEqual(before, self.host.snapshot())
+        ProtocolDouble.mode = 'approval'
+        self.start()
+        self.wait(lambda: self.host.snapshot()['agent']['run']['status'] == 'approval')
+        with self.assertRaisesRegex(ValueError, '先停止'):
+            self.host.select_backend({'backend': 'workbuddy', 'sessionId': before['sessionId']})
+        self.assertEqual('codex', self.host.backend_name)
+        self.host.stop(); self.finish()
 
     def test_continue_is_idempotent_and_checks_source(self):
         p = {'requestId': 'continue-123', 'receipt': self.receipt}
@@ -236,7 +286,7 @@ class WebHostTests(unittest.TestCase):
         self.assertIsNotNone(self.host.store.get('session:' + old))
         self.assertEqual(before, {str(p.relative_to(self.workspace)): p.read_bytes() for p in self.workspace.rglob('*') if p.is_file()})
         self.host.close()
-        self.host = HostService(self.workspace, self.data, runtime_factory=ProtocolDouble)
+        self.host = HostService(self.workspace, self.data)
         self.assertTrue(self.host.snapshot()['sessionFresh'])
         new = self.host.state['sessionId']
         self.assertEqual(new, self.host.new_session({'sessionId': old})['sessionId'])
@@ -259,7 +309,7 @@ class WebHostTests(unittest.TestCase):
         self.assertTrue(old_rpc.closed)
         self.assertEqual([], result['conversation'])
         old_rpc.events.put({'method': 'item/agentMessage/delta', 'params': {'itemId': 'late', 'delta': 'late answer'}})
-        self.host._notification('item/agentMessage/delta', {'threadId': 'old', 'itemId': 'late', 'delta': 'late answer'})
+        self.host._notification('message/delta', {'itemId': 'late', 'delta': 'late answer'})
         self.assertEqual([], self.host.snapshot()['conversation'])
         with self.assertRaises(ValueError):
             self.host.approve({'approvalId': approval, 'decision': 'accept'})

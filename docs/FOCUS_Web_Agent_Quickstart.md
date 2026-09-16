@@ -3,9 +3,11 @@
 > now appear in the central reading flow. New Session preserves Core assets and Cursor.
 > See [current acceptance](FOCUS_Unified_Reader_Acceptance.md).
 
+> 2026-09-17 更正：国内 WorkBuddy 与 CodeBuddy SDK 不是同一个产品接入。Codex 已真机验证，国内 WorkBuddy 仍待开放平台注册与实现，不能通过 CodeBuddy CLI 登录替代。
+
 # FOCUS 网页 Agent：启动与本地验收
 
-目标：浏览器操作已有 Reader；Python Host 管理官方 Codex App Server。
+目标：浏览器操作已有 Reader；Python Host 管理一个可选后端的 Agent。
 后台机器就是文件执行机器。`--workspace` 可指向本地或服务器目录；浏览器选择的
 PDF/HTML 上传到该目录的 `uploads/`，不会把服务器路径映射成访问者电脑路径。
 
@@ -24,28 +26,32 @@ pnpm install --frozen-lockfile
 pnpm reader:build
 python -m host --check-runtime
 python -m host --workspace ./workspace --network
+# 国内 WorkBuddy 暂不可用，--backend workbuddy 会返回明确的未接入原因。
 ```
 
-打开 http://127.0.0.1:8765，输入后台打印的本机访问口令。
-此后输入、文件选择、阅读、追问、审批、停止均在网页完成，不需要打开 Codex 交互界面。
-`--network` 允许 Agent 的网络请求，供 MinerU 解析使用；不带时由 Codex 的网络/审批策略处理。
-不支持沙箱的平台/系统配置应报错；Host 不自动降级成无沙箱执行。
+`--check-runtime` 只验证所选后端的依赖与版本，打印一行状态后退出；依赖缺失时给出原因，
+不会带着半个后端启动。
 
-固定依赖 `openai-codex==0.154.0`，随包 `openai-codex-cli-bin==0.154.0`。
-Host 使用该包提供的可执行文件，通过 stdio JSON-RPC 直连 App Server，避免依赖 SDK
-尚未稳定封装的动态工具/审批签名。`--codex-bin` 可指定已有的 **0.154.0** 二进制；
-版本不匹配会在启动时拒绝。无需额外 `npm install -g codex`。
+## 网页 Agent 与国内 WorkBuddy
 
-模型认证任选其一：
+网页已有 Agent 选择入口。Codex 可用；国内 WorkBuddy 显示“待接入”并禁用，不能把安装 CodeBuddy SDK 视为已接入。
+切换机制已实现并通过协议替身测试：先检查目标运行时，忙碌时拒绝；成功后归档聊天、开启新会话，保留 Core 阅读资产。
+新会话会清空未发送草稿。归档保存在 Host SQLite，尚无归档浏览页面。
+`--backend` / `FOCUS_BACKEND` 覆盖启动选择；未指定则恢复上次选择，首次默认 Codex。
 
-- 复用 **运行 Host 的操作系统用户**已有的 Codex 登录状态。
-- 在该后台进程环境中设置 `OPENAI_API_KEY`；Host 通过官方 `account/login/start`
-  建立 API-key 认证。该操作沿用运行时自身的凭据保存策略，可能更新该用户的 Codex 登录。
+Codex 使用固定 0.154.0 App Server；`--codex-bin` 可指定同版本程序。
+复用运行 Host 的操作系统用户的 Codex 登录，或设置 `OPENAI_API_KEY`。
+API-key 登录沿用运行时凭据保存策略，可能更新该用户的 Codex 登录。
+`FOCUS_CODEX_MODEL` 设置 Codex 模型，省略使用运行时配置；`--model` / `FOCUS_MODEL` 仅作用于启动后端。
+`FOCUS_CODEX_PROXY` 可为 inherit（默认）、bypass 或代理 URL；代理仅写入子进程环境。
 
-`FOCUS_MODEL` 可选；省略时沿用 Codex 配置，不强制模型名称。
-新 PDF / HTML / URL 的解析需要 `MINERU_API_TOKEN`。直接导出到进程环境，或按现有
-Parser 规则放在 **Workspace 工作目录**下被忽略的 `.env`。已有解析 Source 的阅读
-不需要再次调用 MinerU。模型/Parser 凭据不要填进聊天或前端配置。
+用户选定的国内 WorkBuddy 路线是本机助理，必须先有开放平台第三方应用及用户授权。
+见 [WorkBuddy 接入前置配置](FOCUS_WorkBuddy_Local_Setup.md)、[官方调研](../research/workbuddy-codex-agent-integration.md)
+与 [当前结构与证据](FOCUS_Agent_Architecture.md)。此前 CodeBuddy SDK 实验保留在 `host/backends/codebuddy.py`，
+未注册为用户可选运行时。安装该 SDK 或将地区设为 internal 都不等于接入国内 WorkBuddy。
+
+新 PDF / HTML / URL 的解析需要 `MINERU_API_TOKEN`，在后台进程环境或 Workspace 被忽略的 `.env` 中配置。
+已有解析 Source 的阅读不需要再次调用 MinerU。模型/Parser 凭据不要填进聊天或前端配置。
 
 Linux / WSL 配置示例：
 
@@ -68,7 +74,7 @@ python -m host --workspace 'D:\Reading\workspace' --host-data 'D:\Reading\host-d
 
 默认聊天数据目录是 Workspace 同级的 `.focus-host-<路径标识>/`；包含会话数据库、
 运行状态和上传引用。Codex thread 历史由运行时自己的 Codex home 保存。
-恢复需保留 **Workspace、Host data 与该用户的 Codex home** 三者；仅复制 Workspace
+恢复需保留 **Workspace、Host data 与该运行时自己的会话状态**（Codex home / WorkBuddy session）三者；仅复制 Workspace
 只能恢复阅读资产，不能恢复聊天上下文。Host data 不允许放在 Workspace 内。
 默认只监听 loopback；浏览器访问口令与模型认证互相独立。
 
@@ -117,18 +123,21 @@ python -m host --workspace 'D:\Reading\workspace' --host-data 'D:\Reading\host-d
 较新页面的 `readOnlyAccess` 字段。不同操作系统的沙箱需在本地验收。此实现按单个
 可信用户设计，Core 资产与普通文件在同一 Workspace，模型通过协议约束只使用 Core
 修改阅读资产；这不是恶意代码的租户隔离边界。
+选 `workbuddy` 后端时没有等价的 OS 沙箱：每一次工具调用都回落到网页审批，需要强隔离时应自行上容器或 `--sandbox container`。
 
 ## 开发和已执行验证
 
 ```bash
 python -m unittest discover -s tests -p test_web_host.py -v
+python -m unittest discover -s tests -p test_agent_backends.py -v
 python -m unittest discover -s tests -v
 pnpm reader:typecheck
 pnpm reader:test
 pnpm reader:build
 ```
 
-- 新增后台测试使用 **真实 Core + App Server 协议替身**，验证持久化、去重、审批、停止、
+- 新增后台测试使用 **真实 Core + App Server 传输替身**（替身站在 `host.backends.codex`
+  之下，因此跑的是真实 Codex 适配器的协议翻译），验证持久化、去重、审批、停止、
   HTTP/SSE、上传和路径检查；不能据此声称模型已接通。
 - 前端测试覆盖无当前论文时输入/附件、流式更新、审批、停止和旧快照拒绝。
 - 已安装官方 0.154.0 运行时，`--version`、schema 导出与 `initialize` 握手通过。
@@ -148,6 +157,12 @@ pnpm reader:build
 
 - [Codex SDK 官方文档](https://learn.chatgpt.com/docs/codex-sdk)
 - [App Server 官方文档](https://learn.chatgpt.com/docs/app-server)
+- WorkBuddy/CodeBuddy Agent SDK：随 WorkBuddy 分发的官方文档
+  `...\cli\dist\web-ui\docs\cn\cli\` 下的 `sdk.md`、`sdk-python.md`、`sdk-custom-tools.md`、
+  `sdk-permissions.md`、`sdk-sessions.md`
 - 实施以固定二进制的 `codex app-server generate-json-schema --experimental --out <dir>`
   为准。例如 thread 的 sandbox 是 `workspace-write`，turn 的 policy 类型是 `workspaceWrite`。
   动态工具需要 `initialize.capabilities.experimentalApi=true` 和工具 `type=function`。
+- `codebuddy_agent_sdk` 是 Preview，Custom Tools 更早期；CLI 与桌面端会抢 daemon 端口，
+  真实验收请放在没有桌面端的机器上做。本机经 MITM 代理可安装（56 MB wheel，较慢）；
+  若 pip 长时间卡住，按 PyPI 上该版本的 sha256 直链下载后 `pip install <本地 whl>`。

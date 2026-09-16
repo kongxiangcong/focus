@@ -5,18 +5,20 @@ FOCUS 是一个本地、私有、以来源原文为锚点的极简阅读工作�
 ## 网页使用（本机 / 自托管）
 
 网页 Agent Host 已实现：浏览器发起阅读、上传 PDF/HTML、连续对话、流式回复、
-Core 阅读资产落盘、审批和停止。后台使用固定版本 Codex App Server；不需要打开
-Codex 交互界面。真实模型与 MinerU 链路需要在本地凭据环境验收。
+Core 阅读资产落盘、审批和停止。后台使用 **Codex App Server**（固定版本）；
+国内 **WorkBuddy 本地助理**尚待开放平台应用授权与接入，网页显示待接入状态。CodeBuddy SDK 不代表国内 WorkBuddy。
+不需要打开运行时交互界面。真实模型与 MinerU 链路需要在本地凭据环境验收。
 
 ```bash
 python -m pip install -r host/requirements.txt
 pnpm install --frozen-lockfile
 pnpm reader:build
 python -m host --workspace ./workspace --network
+# 国内 WorkBuddy 前置配置见 docs/FOCUS_WorkBuddy_Local_Setup.md
 ```
 
-打开 `http://127.0.0.1:8765` 并输入后台打印的访问口令。
-[完整配置、启动与本地验收](docs/FOCUS_Web_Agent_Quickstart.md)。
+打开 `http://127.0.0.1:8765`。默认回环访问无需口令；显式配置访问口令时在网页输入。
+[完整配置、后端选择与本地验收](docs/FOCUS_Web_Agent_Quickstart.md)。
 
 ## Skills 使用
 
@@ -210,6 +212,8 @@ Skills 的脚本都从各自目录解析。Windows 下使用：
 python -B -X utf8 scripts/<script>.py ...
 ~~~
 
+后端接入与切换的测试：`tests/test_agent_backends.py`（假 SDK 驱动保留的 CodeBuddy 实验适配器，真实 Core 校验落盘）。
+
 运行完整验证：
 
 ~~~powershell
@@ -217,3 +221,5 @@ python -B -X utf8 -m unittest discover -s tests -v
 ~~~
 
 整个 workspace/ 必须保持 Git 忽略。PDF、Parser Bundle、Blog Output、翻译、Notes、state.json、.env、Token 和签名 URL 都不能进入公开仓库。
+
+当前项目与代码结构见 [Agent 架构](docs/FOCUS_Agent_Architecture.md)，国内 WorkBuddy 的官方接入区别见 [调研](research/workbuddy-codex-agent-integration.md)。

@@ -21,6 +21,7 @@ class Store:
         self.state.setdefault('sessionId', uuid.uuid4().hex)
         self.state.setdefault('displayReading', True)
         self.state.setdefault('timeline', [])
+        self.state.setdefault('resumeBackend', None)
         self.save()
         run = self.state['run']
         if run and run['status'] in ('running', 'stopping', 'approval'):

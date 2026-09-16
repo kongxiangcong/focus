@@ -1,2 +1,3 @@
 # Bundles the matching official Codex app-server runtime. HTTP Host uses stdlib.
+# Only needed for the default `codex` backend; see requirements-workbuddy.txt.
 openai-codex==0.154.0

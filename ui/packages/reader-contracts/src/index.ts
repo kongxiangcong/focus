@@ -81,6 +81,8 @@ export interface ReaderApproval {
 }
 
 export interface ReaderAgentState {
+  backend?: string;
+  backends?: readonly { id: string; label: string; unavailableReason?: string | null }[];
   run: null | {
     runId: string;
     status: "running" | "approval" | "stopping" | "completed" | "failed" | "interrupted";
@@ -145,6 +147,7 @@ export type ReaderHostResult<T> =
   | { ok: false; error: ReaderFailure };
 
 export interface ReaderHost {
+  selectBackend?(backend: string, sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
   newSession?(sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
   resumeReading?(sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
   subscribe?(listener: (result: ReaderHostResult<ReadingWindow>) => void): () => void;

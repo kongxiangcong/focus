@@ -16,6 +16,8 @@ function setup() {
     continueReading: vi.fn(async () => readerSuccess(empty)),
     sendMessage: vi.fn(async () => readerSuccess(empty)),
     newSession: vi.fn(async () => readerSuccess({ ...empty, sessionId: "session-2", sessionFresh: true, revision: 10 })),
+    selectBackend: vi.fn(async () => readerSuccess({ ...empty, sessionId: "session-2", revision: 10,
+      agent: { ...empty.agent!, backend: "workbuddy", backends: [{ id: "codex", label: "Codex" }, { id: "workbuddy", label: "WorkBuddy" }] } })),
     stop: vi.fn(async () => readerSuccess(empty)),
     approve: vi.fn(async () => readerSuccess(empty)),
     subscribe: fn => { publish = fn; return () => {}; },
@@ -28,6 +30,28 @@ const running: ReadingWindow = { ...empty, revision: 3, conversation: [{ message
   agent: { ...empty.agent!, run: { runId: "run-1", status: "approval", error: null, activity: [],
     approvals: [{ id: "a", title: "命令审批", detail: "python demo.py", kind: "approval", questions: [], choices: ["accept", "decline"] }] } } };
 describe("Agent Reader", () => {
+  it("shows domestic WorkBuddy as unavailable without substituting CodeBuddy", async () => {
+    const { host, update } = setup(); await screen.findByText("从一份材料开始");
+    update({ ...empty, revision: 2, agent: { ...empty.agent!, backend: "codex", backends: [
+      { id: "codex", label: "Codex" }, { id: "workbuddy", label: "WorkBuddy（国内，待接入）", unavailableReason: "需要开放平台授权" },
+    ] } });
+    expect(screen.getByRole("option", { name: "WorkBuddy（国内，待接入）" })).toBeDisabled();
+    expect(host.selectBackend).not.toHaveBeenCalled();
+  });
+  it("switches agents through the host and retains the current selection on failure", async () => {
+    const { host, update } = setup(); await screen.findByText("从一份材料开始");
+    const agent = { ...empty.agent!, backend: "codex", backends: [{ id: "codex", label: "Codex" }, { id: "workbuddy", label: "WorkBuddy" }] };
+    update({ ...empty, revision: 2, agent });
+    vi.mocked(host.selectBackend!).mockResolvedValueOnce(readerFailure("unavailable", "SDK 未安装", false));
+    fireEvent.change(screen.getByLabelText("选择 Agent"), { target: { value: "workbuddy" } });
+    await screen.findByText("SDK 未安装");
+    expect(screen.getByLabelText("选择 Agent")).toHaveValue("codex");
+    fireEvent.click(screen.getByRole("button", { name: "重试切换 Agent" }));
+    await waitFor(() => expect(screen.getByLabelText("选择 Agent")).toHaveValue("workbuddy"));
+    expect(host.selectBackend).toHaveBeenCalledWith("workbuddy", "session-1");
+    update({ ...running, sessionId: "session-2", revision: 11, agent: { ...agent, backend: "workbuddy", run: running.agent!.run } });
+    expect(screen.getByLabelText("选择 Agent")).toBeDisabled();
+  });
   it("offers an executable attachment action and retries upload independently", async () => {
     const { host } = setup(); await screen.findByText("从一份材料开始");
     vi.mocked(host.upload!).mockResolvedValueOnce(readerFailure("unavailable", "network", true));

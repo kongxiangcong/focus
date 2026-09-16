@@ -1,0 +1,4 @@
+# Optional dependency for the preserved, unregistered CodeBuddy SDK experiment.
+# This is NOT a domestic WorkBuddy dependency or authentication method.
+# Protocol and options verified against this SDK; live account acceptance is separate.
+codebuddy-agent-sdk==0.3.258

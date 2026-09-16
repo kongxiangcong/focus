@@ -159,6 +159,8 @@ class Handler(BaseHTTPRequestHandler):
             result = service.snapshot()
         elif method == 'POST' and path == '/reader/session':
             result = service.new_session(self._body())
+        elif method == 'POST' and path == '/reader/backend':
+            result = service.select_backend(self._body())
         elif method == 'POST' and path == '/reader/resume':
             result = service.resume_reading(self._body())
         elif method == 'POST' and path == '/reader/messages':

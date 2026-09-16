@@ -195,6 +195,17 @@ export function FocusReader({ host }: FocusReaderProps) {
         follow.current = true; setNewContent(false); if (stream.current) stream.current.scrollTop = stream.current.scrollHeight;
       }}>有新内容 · 回到底部 ↓</button>}
       <div className="focus-composer-wrap">
+        {agent?.backend && agent.backends && host.selectBackend && view?.sessionId && <div className="focus-backend">
+          <label>Agent <select aria-label="选择 Agent" value={agent.backend} disabled={blocked || uploading}
+            onChange={e => { const name = e.target.value; const id = view.sessionId!;
+              void perform("切换 Agent", () => host.selectBackend!(name, id)); }}>
+            {agent.backends.map(b => <option key={b.id} value={b.id} disabled={!!b.unavailableReason}>{b.label}</option>)}
+          </select></label>
+          <small>切换将开启新对话，保留材料、笔记和阅读位置</small>
+          {agent.backends.filter(b => b.unavailableReason).map(b => <details key={b.id}>
+            <summary>{b.label}</summary><p>{b.unavailableReason}</p>
+          </details>)}
+        </div>}
         {connection && <div className="focus-error" role="alert">{connection}<button onClick={() => void reconnect()}>重新连接</button></div>}
         {failure && <div className="focus-error" role="alert">{failure.message}<button disabled={!!operation} onClick={failure.retry}>{failure.label}</button><button aria-label="关闭错误" onClick={() => setFailure(null)}>×</button></div>}
         {agent && <AgentControls agent={agent} onStop={() => void perform("停止", () => host.stop!())} onAnswer={async input => {
@@ -209,7 +220,7 @@ export function FocusReader({ host }: FocusReaderProps) {
         </li>)}</ul>}
         <form className="focus-composer" onSubmit={e => { e.preventDefault(); send(); }}>
           <label className="focus-sr-only" htmlFor="focus-question">输入问题或阅读需求</label>
-          <textarea id="focus-question" ref={composer} rows={2} value={draft} placeholder="输入问题，或告诉 Codex 你想读什么…"
+          <textarea id="focus-question" ref={composer} rows={2} value={draft} placeholder="输入问题，或告诉 Agent 你想读什么…"
             onChange={e => setDraft(e.target.value)} onKeyDown={e => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); }
             }} />

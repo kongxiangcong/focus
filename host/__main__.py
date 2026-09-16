@@ -1,12 +1,11 @@
-"""python -m host --workspace ./workspace"""
+"""python -m host --workspace ./workspace [--backend codex|workbuddy]"""
 import argparse
 import hashlib
 import os
-import subprocess
 import sys
 from pathlib import Path
 
-from .runtime import RUNTIME_VERSION, codex_command
+from .backends import DEFAULT_BACKEND, BackendError, backend_names, check_backend
 from .service import HostService
 from .server import Server
 
@@ -41,14 +40,14 @@ def main():
     parser.add_argument('--network', action='store_true', help='Allow Agent network access (needed for MinerU); default requires approval')
     parser.add_argument('--approval-policy', choices=['on-request', 'untrusted'], default='on-request')
     parser.add_argument('--public-origin', default=os.getenv('FOCUS_PUBLIC_ORIGIN'))
-    parser.add_argument('--check-runtime', action='store_true')
+    parser.add_argument('--backend', default=os.getenv('FOCUS_BACKEND'), choices=backend_names(),
+                        help='Agent runtime that serves reading turns; UI and Core stay identical')
+    parser.add_argument('--check-runtime', action='store_true', help='Verify the selected backend and exit')
     args = parser.parse_args()
-    command = codex_command(args.codex_bin)
-    version = subprocess.run([*command, '--version'], check=True, capture_output=True, text=True).stdout.strip()
-    if version != f'codex-cli {RUNTIME_VERSION}':
-        raise RuntimeError(f'Expected codex-cli {RUNTIME_VERSION}, got {version}; install host/requirements.txt')
     if args.check_runtime:
-        print(version)
+        args.backend = args.backend or DEFAULT_BACKEND
+        backend = check_backend(args.backend, args.codex_bin)
+        print(f'{args.backend}: {backend}')
         return
     workspace = args.workspace.resolve()
     workspace.mkdir(parents=True, exist_ok=True)
@@ -61,9 +60,10 @@ def main():
         raise ValueError('Non-loopback requires FOCUS_HOST_TOKEN and --public-origin; use a trusted private network or HTTPS proxy')
     lock = workspace_lock(workspace)
     service = HostService(workspace, data, model=args.model, codex_bin=args.codex_bin,
-                          network=args.network, approval_policy=args.approval_policy)
+                          backend=args.backend, network=args.network, approval_policy=args.approval_policy)
+    backend = check_backend(service.backend_name, args.codex_bin)
     server = Server((args.bind, args.port), service, token=token, public_origin=args.public_origin)
-    print(f'FOCUS http://{args.bind}:{args.port}\nWorkspace: {workspace}', flush=True)
+    print(f'FOCUS http://{args.bind}:{args.port}\nWorkspace: {workspace}\nBackend: {service.backend_name} ({backend})', flush=True)
     if not server.local_access and not token:
         print(f'访问口令: {server.token}', flush=True)
     try:
@@ -77,4 +77,9 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except BackendError as exc:
+        # Misconfiguration, not a crash: the hint is the whole message.
+        print(f'FOCUS 后端未就绪：{exc}', file=sys.stderr)
+        raise SystemExit(2)
