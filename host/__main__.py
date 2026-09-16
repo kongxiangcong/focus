@@ -64,8 +64,8 @@ def main():
                           network=args.network, approval_policy=args.approval_policy)
     server = Server((args.bind, args.port), service, token=token, public_origin=args.public_origin)
     print(f'FOCUS http://{args.bind}:{args.port}\nWorkspace: {workspace}', flush=True)
-    if not token:
-        print(f'本机访问口令（在网页输入）: {server.token}', flush=True)
+    if not server.local_access and not token:
+        print(f'访问口令: {server.token}', flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

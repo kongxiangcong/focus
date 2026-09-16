@@ -51,6 +51,7 @@ export type ReaderMessageRole = "user" | "assistant";
 
 export interface ReaderMessage {
   messageId: string;
+  reference?: CursorReceipt | null;
   chunkId: string;
   role: ReaderMessageRole;
   content: string;
@@ -58,6 +59,9 @@ export interface ReaderMessage {
 
 export interface ReadingWindow {
   revision?: number;
+  sessionId?: string;
+  sessionFresh?: boolean;
+  timeline?: readonly ({ kind: "reading"; chunk: ReaderChunk } | { kind: "message"; messageId: string })[];
   status: ReaderStatus;
   source: ReaderSource;
   current: ReaderChunk | null;
@@ -109,12 +113,14 @@ export interface ReaderNoteDraft {
 }
 
 export interface ContinueReadingInput {
+  sessionId?: string;
   receipt: CursorReceipt;
   requestId?: string;
   pendingNotes?: readonly ReaderNoteDraft[];
 }
 
 export interface SendReaderMessageInput {
+  sessionId?: string;
   receipt: CursorReceipt | null;
   content: string;
   requestId?: string;
@@ -139,6 +145,8 @@ export type ReaderHostResult<T> =
   | { ok: false; error: ReaderFailure };
 
 export interface ReaderHost {
+  newSession?(sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  resumeReading?(sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
   subscribe?(listener: (result: ReaderHostResult<ReadingWindow>) => void): () => void;
   stop?(): Promise<ReaderHostResult<ReadingWindow>>;
   approve?(input: ReaderApprovalResponse): Promise<ReaderHostResult<ReadingWindow>>;

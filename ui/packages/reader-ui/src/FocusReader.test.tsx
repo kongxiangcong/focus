@@ -14,7 +14,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FocusReader } from "./FocusReader";
 
@@ -55,463 +55,89 @@ const secondWindow: ReadingWindow = {
   history: [firstWindow.current!],
 };
 
-describe("FocusReader", () => {
-  it("loads and advances only through the injected ReaderHost", async () => {
-    const host: ReaderHost = {
-      getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(firstWindow)),
-      continueReading: vi.fn().mockResolvedValue(readerSuccess(secondWindow)),
-      sendMessage: vi.fn(),
-    };
-
-    render(<FocusReader host={host} />);
-
-    const firstArticle = (await screen.findByText("The first chunk.")).closest(
-      "article",
-    );
-    expect(firstArticle).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "继续阅读" }));
-
-    await waitFor(() =>
-      expect(screen.getByText("The second chunk.")).toBeInTheDocument(),
-    );
-    expect(screen.getByText("The first chunk.").closest("article")).toBe(
-      firstArticle,
-    );
-    expect(firstArticle).toHaveAttribute("data-depth", "1");
-    expect(firstArticle).toHaveAttribute("data-settling", "true");
-    expect(
-      screen.getByText("The second chunk.").closest("article"),
-    ).toHaveAttribute("data-depth", "0");
-    expect(screen.getByRole("button", { name: "正在继续…" })).toHaveAttribute(
-      "aria-busy",
-      "true",
-    );
-    expect(host.continueReading).toHaveBeenCalledWith(
-      {
-        receipt: {
-          sourceId: "fixture-paper",
-          planId: "plan-001",
-          chunkId: "chunk-001",
-        },
-      },
-      expect.any(AbortSignal),
-    );
-  });
-
-  it("sends questions without moving the cursor itself", async () => {
-    const withConversation: ReadingWindow = {
-      ...firstWindow,
-      conversation: [
-        {
-          messageId: "m-1",
-          chunkId: "chunk-001",
-          role: "user",
-          content: "Why?",
-        },
-        {
-          messageId: "m-2",
-          chunkId: "chunk-001",
-          role: "assistant",
-          content: "Because.",
-        },
-      ],
-    };
-    const host: ReaderHost = {
-      getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(firstWindow)),
-      continueReading: vi.fn(),
-      sendMessage: vi.fn().mockResolvedValue(readerSuccess(withConversation)),
-    };
-
-    render(<FocusReader host={host} />);
+beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+});
+function setup(value = firstWindow) {
+  const host: ReaderHost = {
+    getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(value)),
+    continueReading: vi.fn().mockResolvedValue(readerSuccess(secondWindow)),
+    sendMessage: vi.fn().mockResolvedValue(readerSuccess(value)),
+  };
+  render(<FocusReader host={host} />); return host;
+}
+describe("FocusReader unified flow", () => {
+  it("only advances from the explicit action and locks duplicate requests", async () => {
+    const host = setup();
     await screen.findByText("The first chunk.");
-    expect(
-      screen.getByLabelText("针对当前 Reading Chunk 提问"),
-    ).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("针对当前 Reading Chunk 提问"), {
-      target: { value: "Why?" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "发送" }));
-
-    expect(await screen.findByText("Because.")).toBeInTheDocument();
-    expect(host.sendMessage).toHaveBeenCalledWith(
-      {
-        receipt: {
-          sourceId: "fixture-paper",
-          planId: "plan-001",
-          chunkId: "chunk-001",
-        },
-        content: "Why?",
-      },
-      expect.any(AbortSignal),
-    );
+    fireEvent.keyDown(screen.getByRole("main"), { key: " ", code: "Space" });
     expect(host.continueReading).not.toHaveBeenCalled();
-  });
-
-  it("derives the three history depths from distance to the cursor", async () => {
-    const oldest = {
-      ...firstWindow.current!,
-      chunkId: "chunk-oldest",
-      sourceMarkdown: "Oldest.",
-    };
-    const middle = {
-      ...firstWindow.current!,
-      chunkId: "chunk-middle",
-      sourceMarkdown: "Middle.",
-    };
-    const nearest = {
-      ...firstWindow.current!,
-      chunkId: "chunk-nearest",
-      sourceMarkdown: "Nearest.",
-    };
-    const current = {
-      ...firstWindow.current!,
-      chunkId: "chunk-current",
-      sourceMarkdown: "Current.",
-    };
-    const host: ReaderHost = {
-      getReadingWindow: vi
-        .fn()
-        .mockResolvedValue(
-          readerSuccess({
-            ...firstWindow,
-            history: [oldest, middle, nearest],
-            current,
-          }),
-        ),
-      continueReading: vi.fn(),
-      sendMessage: vi.fn(),
-    };
-
-    render(<FocusReader host={host} />);
-
-    expect(
-      (await screen.findByText("Oldest.")).closest("article"),
-    ).toHaveAttribute("data-depth", "3");
-    expect(screen.getByText("Middle.").closest("article")).toHaveAttribute(
-      "data-depth",
-      "2",
-    );
-    expect(screen.getByText("Nearest.").closest("article")).toHaveAttribute(
-      "data-depth",
-      "1",
-    );
-    expect(screen.getByText("Current.").closest("article")).toHaveAttribute(
-      "data-depth",
-      "0",
-    );
-  });
-
-  it("commits Continue Reading immediately when reduced motion is requested", async () => {
-    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
-    const host: ReaderHost = {
-      getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(firstWindow)),
-      continueReading: vi.fn().mockResolvedValue(readerSuccess(secondWindow)),
-      sendMessage: vi.fn(),
-    };
-
-    render(<FocusReader host={host} />);
-    await screen.findByText("The first chunk.");
-    fireEvent.click(screen.getByRole("button", { name: "继续阅读" }));
-
-    expect(await screen.findByText("The second chunk.")).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "继续阅读" })).toBeEnabled(),
-    );
-    expect(
-      screen.getByText("The first chunk.").closest("article"),
-    ).not.toHaveAttribute("data-settling");
-  });
-
-  it("locks duplicate Continue Reading operations", async () => {
-    let resolveContinue:
-      | ((value: ReturnType<typeof readerSuccess<ReadingWindow>>) => void)
-      | undefined;
-    const pending = new Promise<
-      ReturnType<typeof readerSuccess<ReadingWindow>>
-    >((resolve) => {
-      resolveContinue = resolve;
-    });
-    const host: ReaderHost = {
-      getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(firstWindow)),
-      continueReading: vi.fn().mockReturnValue(pending),
-      sendMessage: vi.fn(),
-    };
-
-    render(<FocusReader host={host} />);
-    await screen.findByText("The first chunk.");
-    const button = screen.getByRole("button", { name: "继续阅读" });
-    fireEvent.click(button);
-    fireEvent.click(button);
-
+    let resolve!: (v: ReturnType<typeof readerSuccess<ReadingWindow>>) => void;
+    vi.mocked(host.continueReading).mockReturnValue(new Promise(r => { resolve = r; }));
+    const next = screen.getByRole("button", { name: "下一段 →" });
+    fireEvent.click(next); fireEvent.click(next);
     expect(host.continueReading).toHaveBeenCalledTimes(1);
-    resolveContinue?.(readerSuccess(secondWindow));
-    expect(await screen.findByText("The second chunk.")).toBeInTheDocument();
-  });
-
-  it("reloads the authoritative window after a stale cursor receipt", async () => {
-    const host: ReaderHost = {
-      getReadingWindow: vi
-        .fn()
-        .mockResolvedValueOnce(readerSuccess(firstWindow))
-        .mockResolvedValueOnce(readerSuccess(secondWindow)),
-      continueReading: vi
-        .fn()
-        .mockResolvedValue(
-          readerFailure("cursor-changed", "The Reading Cursor changed."),
-        ),
-      sendMessage: vi.fn(),
-    };
-
-    render(<FocusReader host={host} />);
-    await screen.findByText("The first chunk.");
-    fireEvent.click(screen.getByRole("button", { name: "继续阅读" }));
-
-    expect(await screen.findByText("The second chunk.")).toBeInTheDocument();
-    expect(host.getReadingWindow).toHaveBeenCalledTimes(2);
-  });
-
-  it("recovers from an initial host error through the single retry path", async () => {
-    const host: ReaderHost = {
-      getReadingWindow: vi
-        .fn()
-        .mockResolvedValueOnce(
-          readerFailure("unavailable", "阅读宿主暂时不可用。", true),
-        )
-        .mockResolvedValueOnce(readerSuccess(firstWindow)),
-      continueReading: vi.fn(),
-      sendMessage: vi.fn(),
-    };
-
-    render(<FocusReader host={host} />);
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "阅读宿主暂时不可用。",
-    );
-    fireEvent.click(screen.getByRole("button", { name: "重试" }));
-    expect(await screen.findByText("The first chunk.")).toBeInTheDocument();
-  });
-
-  it("keeps complete history visible when the host reports completion", async () => {
-    const completed: ReadingWindow = {
-      ...firstWindow,
-      status: "completed",
-      current: null,
-      history: [firstWindow.current!],
-      conversation: [],
-    };
-    const host: ReaderHost = {
-      getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(completed)),
-      continueReading: vi.fn(),
-      sendMessage: vi.fn(),
-    };
-
-    render(<FocusReader host={host} />);
-
-    expect(
-      await screen.findByRole("heading", { name: "阅读完成" }),
-    ).toBeInTheDocument();
+    await act(async () => resolve(readerSuccess(secondWindow)));
     expect(screen.getByText("The first chunk.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "继续阅读" })).toBeDisabled();
+    expect(screen.getByText("The second chunk.")).toBeInTheDocument();
   });
-
-  it("leaves only recovery available after an operation error", async () => {
-    const host: ReaderHost = {
-      getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(firstWindow)),
-      continueReading: vi
-        .fn()
-        .mockResolvedValue(
-          readerFailure("unavailable", "继续阅读暂时不可用。", true),
-        ),
-      sendMessage: vi.fn(),
-    };
-
-    render(<FocusReader host={host} />);
-    await screen.findByText("The first chunk.");
-    fireEvent.click(screen.getByRole("button", { name: "继续阅读" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "继续阅读暂时不可用。",
-    );
-    expect(screen.getByRole("button", { name: "继续阅读" })).toBeDisabled();
-    expect(screen.getByLabelText("针对当前 Reading Chunk 提问")).toBeDisabled();
-    expect(screen.getByRole("button", { name: "重试" })).toBeEnabled();
+  it("references a historical paragraph independently of the cursor", async () => {
+    const host = setup(secondWindow);
+    await screen.findByText("The second chunk.");
+    fireEvent.click(screen.getAllByRole("button", { name: "引用这段提问" })[0]);
+    expect(screen.getByText(/引用第 1 段/)).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "解释这段" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+    await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ chunkId: "chunk-001" }) })));
+    expect(host.continueReading).not.toHaveBeenCalled();
   });
-
-  it("locks the companion and Continue Reading while a message is in flight", async () => {
-    let resolveMessage:
-      | ((value: ReturnType<typeof readerSuccess<ReadingWindow>>) => void)
-      | undefined;
-    const pending = new Promise<
-      ReturnType<typeof readerSuccess<ReadingWindow>>
-    >((resolve) => {
-      resolveMessage = resolve;
-    });
-    const host: ReaderHost = {
-      getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(firstWindow)),
-      continueReading: vi.fn(),
-      sendMessage: vi.fn().mockReturnValue(pending),
-    };
-
-    render(<FocusReader host={host} />);
-    await screen.findByText("The first chunk.");
-    fireEvent.change(screen.getByLabelText("针对当前 Reading Chunk 提问"), {
-      target: { value: "Why?" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "发送" }));
-
-    expect(screen.getByLabelText("针对当前 Reading Chunk 提问")).toBeDisabled();
-    expect(
-      screen.getByRole("button", { name: "给我一个具体例子" }),
-    ).toBeDisabled();
-    expect(screen.getByRole("button", { name: "继续阅读" })).toBeDisabled();
-    resolveMessage?.(readerSuccess(firstWindow));
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "继续阅读" })).toBeEnabled(),
-    );
-  });
-
-  it("preserves the host projection and draft while adjusting the Mist presentation", async () => {
-    const host: ReaderHost = {
-      getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(secondWindow)),
-      continueReading: vi.fn(),
-      sendMessage: vi.fn(),
-    };
-    const { container } = render(<FocusReader host={host} />);
-    const currentArticle = (
-      await screen.findByText("The second chunk.")
-    ).closest("article");
-    fireEvent.change(screen.getByLabelText("针对当前 Reading Chunk 提问"), {
-      target: { value: "Unsent thought" },
-    });
-    expect(container.firstChild).toHaveAttribute("data-theme", "mist");
-    fireEvent.keyDown(screen.getByLabelText("光场强度"), { key: "End" });
-    fireEvent.click(screen.getByLabelText("大字阅读"));
-    fireEvent.click(screen.getByLabelText("微光粒子"));
-    fireEvent.click(screen.getByRole("button", { name: "专注模式" }));
-    fireEvent.click(screen.getByRole("button", { name: "退出专注模式" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "回看第 1 段：Method" }),
-    );
-    expect(
-      screen.getByText("The first chunk.").closest("article"),
-    ).toHaveAttribute("data-reviewing", "true");
-    expect(screen.getByText("The second chunk.").closest("article")).toBe(
-      currentArticle,
-    );
-    expect(currentArticle).toHaveAttribute("data-current", "true");
-    expect(screen.getByLabelText("针对当前 Reading Chunk 提问")).toHaveValue(
-      "Unsent thought",
-    );
+  it("keeps drafts editable in flight and retries the exact failed operation", async () => {
+    const host = setup(); await screen.findByText("The first chunk.");
+    vi.mocked(host.sendMessage).mockResolvedValueOnce(readerFailure("unavailable", "发送未确认", true));
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "问题一" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+    await screen.findByText("发送未确认");
+    expect(input).toHaveValue("问题一"); expect(input).toBeEnabled();
+    fireEvent.change(input, { target: { value: "问题二草稿" } });
+    fireEvent.click(screen.getByRole("button", { name: "重试发送" }));
+    await waitFor(() => expect(host.sendMessage).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(host.sendMessage).mock.calls[0][0]).toEqual(vi.mocked(host.sendMessage).mock.calls[1][0]);
+    expect(input).toHaveValue("问题二草稿");
     expect(host.getReadingWindow).toHaveBeenCalledTimes(1);
-    expect(host.continueReading).not.toHaveBeenCalled();
-    expect(host.sendMessage).not.toHaveBeenCalled();
   });
-
-  it("sends a suggested question without overwriting the unsent draft", async () => {
-    const host: ReaderHost = {
-      getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(firstWindow)),
-      continueReading: vi.fn(),
-      sendMessage: vi
-        .fn()
-        .mockResolvedValue(
-          readerSuccess({
-            ...firstWindow,
-            conversation: [
-              {
-                messageId: "suggestion",
-                chunkId: "chunk-001",
-                role: "assistant",
-                content: "Host example.",
-              },
-            ],
-          }),
-        ),
-    };
-    render(<FocusReader host={host} />);
-    await screen.findByText("The first chunk.");
-    fireEvent.change(screen.getByLabelText("针对当前 Reading Chunk 提问"), {
-      target: { value: "My draft" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "给我一个具体例子" }));
-    await screen.findByText("Host example.");
-    expect(host.sendMessage).toHaveBeenCalledWith(
-      {
-        receipt: {
-          sourceId: "fixture-paper",
-          planId: "plan-001",
-          chunkId: "chunk-001",
-        },
-        content: "给我一个具体例子",
-      },
-      expect.any(AbortSignal),
-    );
-    expect(screen.getByLabelText("针对当前 Reading Chunk 提问")).toHaveValue(
-      "My draft",
-    );
-    expect(host.continueReading).not.toHaveBeenCalled();
+  it("reconnects an unavailable initial host without a fake resend", async () => {
+    const host: ReaderHost = { getReadingWindow: vi.fn().mockResolvedValueOnce(readerFailure("unavailable", "断线", true)).mockResolvedValue(readerSuccess(firstWindow)), continueReading: vi.fn(), sendMessage: vi.fn() };
+    render(<FocusReader host={host} />); await screen.findByText("断线");
+    fireEvent.click(screen.getByRole("button", { name: "重新连接" }));
+    await screen.findByText("The first chunk."); expect(host.sendMessage).not.toHaveBeenCalled();
   });
-
-  it("ignores Space while typing or composing and locks repeated keyboard advances", async () => {
-    const host: ReaderHost = {
-      getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(firstWindow)),
-      continueReading: vi.fn().mockReturnValue(new Promise(() => {})),
-      sendMessage: vi.fn(),
-    };
-    render(<FocusReader host={host} />);
-    await screen.findByText("The first chunk.");
-    fireEvent.keyDown(screen.getByLabelText("针对当前 Reading Chunk 提问"), {
-      code: "Space",
-      key: " ",
-    });
-    fireEvent.keyDown(document.body, {
-      code: "Space",
-      key: " ",
-      isComposing: true,
-    });
-    fireEvent.keyDown(document.body, { code: "Space", key: " ", repeat: true });
-    expect(host.continueReading).not.toHaveBeenCalled();
-    fireEvent.keyDown(document.body, { code: "Space", key: " " });
-    fireEvent.keyDown(document.body, { code: "Space", key: " " });
-    expect(host.continueReading).toHaveBeenCalledTimes(1);
-    expect(host.sendMessage).not.toHaveBeenCalled();
+  it("toggles source/translation without duplicating text or losing the draft", async () => {
+    setup({ ...firstWindow, current: { ...firstWindow.current!, translation: "中文译文" } });
+    await screen.findByText("中文译文"); expect(screen.queryByText("The first chunk.")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "待发送" } });
+    fireEvent.click(screen.getByRole("button", { name: "查看原文" }));
+    expect(screen.getByText("The first chunk.")).toBeInTheDocument();
+    expect(screen.queryByText("中文译文")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toHaveValue("待发送");
   });
-
-  it("aborts a pending advance when the host changes and ignores its late result", async () => {
-    let resolveContinue!: (
-      value: ReturnType<typeof readerSuccess<ReadingWindow>>,
-    ) => void;
-    const host: ReaderHost = {
-      getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(firstWindow)),
-      continueReading: vi.fn().mockReturnValue(
-        new Promise((resolve) => {
-          resolveContinue = resolve;
-        }),
-      ),
-      sendMessage: vi.fn(),
-    };
-    const replacement: ReaderHost = {
-      getReadingWindow: vi.fn().mockResolvedValue(
-        readerSuccess({
-          ...firstWindow,
-          current: {
-            ...firstWindow.current!,
-            chunkId: "replacement",
-            sourceMarkdown: "Replacement host.",
-          },
-        }),
-      ),
-      continueReading: vi.fn(),
-      sendMessage: vi.fn(),
-    };
-    const { rerender } = render(<FocusReader host={host} />);
-    await screen.findByText("The first chunk.");
-    fireEvent.click(screen.getByRole("button", { name: "继续阅读" }));
-    const signal = vi.mocked(host.continueReading).mock.calls[0][1];
-    rerender(<FocusReader host={replacement} />);
-    await screen.findByText("Replacement host.");
-    expect(signal?.aborted).toBe(true);
-    await act(async () => resolveContinue(readerSuccess(secondWindow)));
-    expect(screen.queryByText("The second chunk.")).not.toBeInTheDocument();
-    expect(screen.getByText("Replacement host.")).toBeInTheDocument();
+  it("renders technical markdown in the main flow with safe links and no raw HTML", async () => {
+    setup({ ...firstWindow, conversation: [{ messageId: "md", chunkId: "chunk-001", role: "assistant", content: "## 解释\n\n| A | B |\n| - | - |\n| 1 | 2 |\n\n```py\nprint(1)\n```\n\n$x^2$\n\n<script>alert(1)</script>\n\n[unsafe](javascript:alert(1))" }] });
+    expect(await screen.findByRole("heading", { name: "解释" })).toBeInTheDocument();
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(document.querySelector(".katex")).not.toBeNull();
+    expect(document.querySelector("main script")).toBeNull();
+    expect(screen.getByText("unsafe").getAttribute("href")).not.toContain("javascript:");
+    expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+  });
+  it("keeps completed reading visible and allows questions", async () => {
+    const host = setup({ ...secondWindow, status: "completed", current: null, history: [firstWindow.current!, secondWindow.current!] });
+    await screen.findByText("The second chunk.");
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "总结全文" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+    await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: null })));
+    expect(screen.queryByRole("button", { name: "下一段 →" })).not.toBeInTheDocument();
   });
 });

@@ -1,3 +1,8 @@
+> UI update (2026-09-16): default local access opens directly; no access token is
+> requested on loopback unless `FOCUS_HOST_TOKEN` is explicitly configured. Answers
+> now appear in the central reading flow. New Session preserves Core assets and Cursor.
+> See [current acceptance](FOCUS_Unified_Reader_Acceptance.md).
+
 # FOCUS 网页 Agent：启动与本地验收
 
 目标：浏览器操作已有 Reader；Python Host 管理官方 Codex App Server。

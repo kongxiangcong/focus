@@ -7,13 +7,16 @@ const readerHost = createStandaloneReaderHost(baseUrl);
 
 export function App() {
   const [ready, setReady] = useState(baseUrl === "fixture");
+  const [checking, setChecking] = useState(baseUrl !== "fixture");
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
     if (baseUrl !== "fixture") void fetch(`${baseUrl}/reader/window`).then(r => {
       if (r.status !== 401) setReady(true);
-    }).catch(() => setError("后台不可达，请先启动 FOCUS Host。"));
+      setChecking(false);
+    }).catch(() => { setChecking(false); setReady(true); });
   }, []);
+  if (checking) return <main className="focus-login"><h1>FOCUS</h1><p role="status">正在打开…</p></main>;
   if (ready) return <FocusReader host={readerHost} />;
   return <main className="focus-login"><h1>focus.</h1><p>输入 FOCUS 后台启动时显示的访问口令。</p>
     <form onSubmit={async e => {
