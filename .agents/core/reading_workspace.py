@@ -1010,6 +1010,33 @@ class WorkspaceCore:
     def _cursor_changed(self) -> dict[str, Any]:
         return {**self.get_reading_state(), "status": "cursor_changed"}
 
+    def reading_window(self) -> dict[str, Any]:
+        """Read the authoritative window without advancing or loading Notes."""
+        from .source_library import SourceLibrary
+
+        state = self.get_reading_state()
+        source_id, plan_id = state["source_id"], state["plan_id"]
+        bundle = self.workspace / "sources" / source_id / "parser-bundle"
+        metadata = _validate_parser_bundle(bundle)
+        direct = metadata["source_kind"] == "article_html" and metadata["language"] == "zh"
+        root = bundle.parent / "reading" / "plans" / plan_id
+        chunks = _read_chunk_records(root / "chunks.jsonl")
+        history = []
+        current = None
+        for chunk in chunks:
+            record = _read_reading_record(root / "records" / f'{chunk["chunk_id"]}.json', chunk["chunk_id"])
+            if direct and record["translation"] is not None:
+                raise WorkspaceError("reading_record_invalid", "Chinese source translation must remain null")
+            item = _chunk_presentation(bundle, root, source_id=source_id, plan_id=plan_id,
+                                       chunk=chunk, reading_record=record, total=len(chunks))
+            item["status"] = "source_ready" if direct else "presented" if record["translation"] else "translation_required"
+            if chunk["chunk_id"] == state["chunk_id"]:
+                current = item
+                break
+            history.append(item)
+        return {"state": state, "source": SourceLibrary(self.workspace).get(source_id),
+                "current": current, "history": history}
+
     @staticmethod
     def _note(*, kind: str, origin: str, content: str, anchor: dict[str, Any] | None) -> dict[str, Any]:
         note: dict[str, Any] = {

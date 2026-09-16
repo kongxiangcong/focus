@@ -44,7 +44,7 @@ pnpm reader:test
 pnpm reader:build
 ```
 
-Set `VITE_FOCUS_READER_BASE_URL` to select the HTTP Adapter. Without it, Standalone uses the synthetic Fixture Adapter.
+The default is the same-origin HTTP Adapter. Set `VITE_FOCUS_READER_BASE_URL=fixture` explicitly for the synthetic Fixture Adapter.
 
 ## Evidence status
 
@@ -56,3 +56,9 @@ Set `VITE_FOCUS_READER_BASE_URL` to select the HTTP Adapter. Without it, Standal
 - Production accepted: not claimed.
 
 See `docs/design/focus-reader-design-verdict.md`, `docs/design/focus-reader-ui-spec.md`, and `.scratch/focus-reader-formalization/` for the decision and staged acceptance work.
+
+## Real Agent Host
+
+The standalone default is now the same-origin Python Host. Build with `pnpm reader:build`,
+then start `python -m host --workspace ./workspace`. Explicit fixture mode is
+`VITE_FOCUS_READER_BASE_URL=fixture`. See [Host quickstart](../docs/FOCUS_Web_Agent_Quickstart.md).

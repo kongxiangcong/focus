@@ -4,3 +4,7 @@ body {
   min-width: 320px;
   background: #f0eeef;
 }
+.focus-login { max-width: 540px; margin: 15vh auto; padding: 32px; font-family: sans-serif; }
+.focus-login form { display: grid; gap: 16px; }
+.focus-login input { padding: 10px; width: 100%; }
+.focus-login button { padding: 12px; }
