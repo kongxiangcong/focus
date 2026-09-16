@@ -1,4 +1,4 @@
-export type ReaderStatus = "reading" | "completed";
+export type ReaderStatus = "empty" | "reading" | "completed";
 
 export type ChunkPresentationStatus =
   | "source-ready"
@@ -57,13 +57,46 @@ export interface ReaderMessage {
 }
 
 export interface ReadingWindow {
+  revision?: number;
   status: ReaderStatus;
   source: ReaderSource;
   current: ReaderChunk | null;
   /** Complete ordered Reading Chunks before `current`; the Reader UI does not cache a second history. */
   history: readonly ReaderChunk[];
   conversation: readonly ReaderMessage[];
+  agent?: ReaderAgentState;
 }
+
+export interface ReaderApproval {
+  id: string;
+  title: string;
+  detail: string;
+  kind: "approval" | "continue" | "input";
+  choices: readonly string[];
+  questions: readonly { id: string; question: string; options?: readonly { label: string; description: string }[] }[];
+}
+
+export interface ReaderAgentState {
+  run: null | {
+    runId: string;
+    status: "running" | "approval" | "stopping" | "completed" | "failed" | "interrupted";
+    error: string | null;
+    approvals: readonly ReaderApproval[];
+    activity: readonly { id: string; title: string; status: string; detail: string }[];
+  };
+  catalog: {
+    sources: readonly { sourceId: string; title: string }[];
+    topics: readonly { topicId: string; title: string }[];
+  };
+}
+
+export interface ReaderApprovalResponse {
+  approvalId: string;
+  decision?: string;
+  answers?: Record<string, { answers: string[] }>;
+}
+
+export interface ReaderAttachment { attachmentId: string; name: string }
 
 export type ReaderNoteKind = "thought" | "emphasis" | "question" | "clarification";
 export type ReaderNoteOrigin = "user" | "dialogue";
@@ -77,12 +110,15 @@ export interface ReaderNoteDraft {
 
 export interface ContinueReadingInput {
   receipt: CursorReceipt;
+  requestId?: string;
   pendingNotes?: readonly ReaderNoteDraft[];
 }
 
 export interface SendReaderMessageInput {
-  receipt: CursorReceipt;
+  receipt: CursorReceipt | null;
   content: string;
+  requestId?: string;
+  attachmentIds?: readonly string[];
 }
 
 export type ReaderFailureCode =
@@ -103,6 +139,10 @@ export type ReaderHostResult<T> =
   | { ok: false; error: ReaderFailure };
 
 export interface ReaderHost {
+  subscribe?(listener: (result: ReaderHostResult<ReadingWindow>) => void): () => void;
+  stop?(): Promise<ReaderHostResult<ReadingWindow>>;
+  approve?(input: ReaderApprovalResponse): Promise<ReaderHostResult<ReadingWindow>>;
+  upload?(file: File): Promise<ReaderHostResult<ReaderAttachment>>;
   getReadingWindow(signal?: AbortSignal): Promise<ReaderHostResult<ReadingWindow>>;
   continueReading(
     input: ContinueReadingInput,

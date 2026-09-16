@@ -1,6 +1,8 @@
 import {
   cursorReceipt,
   type ReaderChunk,
+  type ReaderAttachment,
+  type ReaderApprovalResponse,
   type ReaderHost,
   type ReadingWindow,
 } from "@focus/reader-contracts";
@@ -13,6 +15,7 @@ import {
   useId,
 } from "react";
 
+import { AgentControls } from "./AgentControls";
 import { ReaderConversation, ReadingChunk } from "./ReadingChunk";
 import { projectReaderFrame, type ReaderTransitionFrame } from "./reader-frame";
 import {
@@ -50,6 +53,14 @@ export function FocusReader({ host }: FocusReaderProps) {
   const [phase, setPhase] = useState<ReaderPhase>("loading");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [attachments, setAttachments] = useState<ReaderAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const revisionRef = useRef(-1);
+  function acceptWindow(value: ReadingWindow) {
+    if (value.revision !== undefined && value.revision < revisionRef.current) return;
+    revisionRef.current = value.revision ?? revisionRef.current;
+    setSettledWindow(value);
+  }
   const [intensity, setIntensity] = useState(65);
   const [particles, setParticles] = useState(false);
   const [largeText, setLargeText] = useState(false);
@@ -103,7 +114,7 @@ export function FocusReader({ host }: FocusReaderProps) {
     }
     finishOperation(controller);
     if (result.ok) {
-      setSettledWindow(result.value);
+      acceptWindow(result.value);
       setTransition(null);
       setError(null);
       setPhase("ready");
@@ -122,6 +133,7 @@ export function FocusReader({ host }: FocusReaderProps) {
 
   useEffect(() => {
     operationRef.current?.abort();
+    revisionRef.current = -1;
     firstLandingRef.current = true;
     setReviewing(null);
     setDialogState(null);
@@ -159,11 +171,44 @@ export function FocusReader({ host }: FocusReaderProps) {
     [],
   );
 
+  useEffect(() => {
+    return host.subscribe?.((result) => {
+      if (result.ok) {
+        acceptWindow(result.value);
+        setTransition(null);
+        setError(null);
+        setPhase("ready");
+      } else { setError(result.error.message); }
+    });
+  }, [host]);
+
+  async function answerApproval(input: ReaderApprovalResponse) {
+    const result = await host.approve?.(input);
+    if (result && !result.ok) setError(result.error.message);
+  }
+
+  async function stopAgent() {
+    const result = await host.stop?.();
+    if (result?.ok) acceptWindow(result.value);
+    else if (result) setError(result.error.message);
+  }
+
+  async function uploadFile(file?: File) {
+    if (!file || !host.upload) return;
+    setUploading(true);
+    const result = await host.upload(file);
+    setUploading(false);
+    if (result.ok) setAttachments(previous => [...previous, result.value]);
+    else setError(result.error.message);
+  }
+
   const readerFrame =
     settledWindow === null
       ? null
       : projectReaderFrame(settledWindow, transition);
   const current = readerFrame?.current ?? null;
+  const agent = readerFrame?.window.agent;
+  const agentBusy = !!agent?.run && ["running", "approval", "stopping"].includes(agent.run.status);
 
   function centerChunk(
     chunkId: string | null = current?.chunkId ?? null,
@@ -277,7 +322,7 @@ export function FocusReader({ host }: FocusReaderProps) {
   }, [readerFrame?.window.conversation, mobileChat]);
 
   async function continueReading() {
-    if (settledWindow === null || phase !== "ready") {
+    if (settledWindow === null || phase !== "ready" || agentBusy || uploading) {
       return;
     }
     const receipt = cursorReceipt(settledWindow);
@@ -310,7 +355,7 @@ export function FocusReader({ host }: FocusReaderProps) {
     setDialogState(null);
     setMobileChat(false);
     if (prefersReducedMotion()) {
-      setSettledWindow(result.value);
+      acceptWindow(result.value);
       setTransition(null);
       setPhase("ready");
       finishOperation(controller);
@@ -329,7 +374,7 @@ export function FocusReader({ host }: FocusReaderProps) {
     });
 
     settleTimerRef.current = setTimeout(() => {
-      setSettledWindow(result.value);
+      acceptWindow(result.value);
       setTransition(null);
       setPhase("ready");
       finishOperation(controller);
@@ -339,11 +384,11 @@ export function FocusReader({ host }: FocusReaderProps) {
 
   async function sendQuestion(value: string, clearDraft = false) {
     const content = value.trim();
-    if (settledWindow === null || phase !== "ready" || content.length === 0) {
+    if (settledWindow === null || phase !== "ready" || agentBusy || uploading || content.length === 0) {
       return;
     }
     const receipt = cursorReceipt(settledWindow);
-    if (receipt === null) {
+    if (receipt === null && !host.subscribe) {
       return;
     }
     const controller = beginOperation();
@@ -353,7 +398,7 @@ export function FocusReader({ host }: FocusReaderProps) {
 
     setPhase("sending");
     const result = await host.sendMessage(
-      { receipt, content },
+      { receipt, content, ...(attachments.length ? { attachmentIds: attachments.map(a => a.attachmentId) } : {}) },
       controller.signal,
     );
     if (controller.signal.aborted) {
@@ -361,9 +406,9 @@ export function FocusReader({ host }: FocusReaderProps) {
     }
     finishOperation(controller);
     if (result.ok) {
-      setSettledWindow(result.value);
+      acceptWindow(result.value);
       setTransition(null);
-      if (clearDraft) setMessage("");
+      if (clearDraft) { setMessage(""); setAttachments([]); }
       setError(null);
       setPhase("ready");
       return;
@@ -448,12 +493,12 @@ export function FocusReader({ host }: FocusReaderProps) {
 
   const busy =
     phase === "loading" || phase === "continuing" || phase === "sending";
-  const controlsDisabled = busy || phase === "error";
+  const controlsDisabled = agentBusy || uploading || busy || phase === "error";
   const streamChunks = current
     ? [...readerFrame.history, current]
     : readerFrame.history;
   const conversationChunk = current ?? readerFrame.history.at(-1);
-  const conversation = readerFrame.window.conversation.filter(
+  const conversation = agent ? readerFrame.window.conversation : readerFrame.window.conversation.filter(
     (item) => item.chunkId === conversationChunk?.chunkId,
   );
   const total = conversationChunk?.total ?? 0;
@@ -582,12 +627,10 @@ export function FocusReader({ host }: FocusReaderProps) {
                   <ReaderMark />
                   <span>END OF THIS READING</span>
                   <h2 ref={currentHeadingRef} tabIndex={-1}>
-                    阅读完成
+                    {readerFrame.window.status === "empty" ? "从一篇论文开始" : "阅读完成"}
                   </h2>
                   <p>
-                    当前 Reading Plan 已经没有待阅读的 Reading Chunk。
-                    <br />
-                    你可以沿左侧轨迹回看，让想法再停留一会儿。
+                    {readerFrame.window.status === "empty" ? "在对话框输入阅读需求，选择 PDF / HTML，或选择已有来源。" : "可以回看原文、继续提问，或开始阅读另一份来源。"}
                   </p>
                 </section>
               )}
@@ -638,7 +681,7 @@ export function FocusReader({ host }: FocusReaderProps) {
             <ReaderIcon name="book" size={13} />
             {current
               ? `围绕 Chunk ${String(current.index).padStart(2, "0")} 展开`
-              : "本篇阅读已完成"}
+              : readerFrame.window.status === "empty" ? "开始新的阅读" : "本篇阅读已完成"}
             <span>同一阅读位置</span>
           </div>
           <div
@@ -652,6 +695,21 @@ export function FocusReader({ host }: FocusReaderProps) {
             <ReaderConversation messages={conversation} />
           </div>
           <div className="focus-reader__chat-bottom">
+            {agent && <AgentControls agent={agent} onStop={() => void stopAgent()} onAnswer={input => void answerApproval(input)} />}
+            {agent && <label className="focus-agent__source">已有来源 / Topic
+              <select aria-label="选择阅读来源" disabled={controlsDisabled} value="" onChange={e => {
+                if (e.target.value) void sendQuestion(`开始阅读 ${e.target.value}`);
+              }}><option value="">选择…</option>
+                {agent.catalog.sources.map(s => <option key={s.sourceId} value={`Source ${s.sourceId}`}>{s.title}</option>)}
+                {agent.catalog.topics.map(t => <option key={t.topicId} value={`Topic ${t.topicId}`}>Topic · {t.title}</option>)}
+              </select>
+            </label>}
+            {host.upload && <label className="focus-agent__upload">{uploading ? "正在上传…" : "选择 PDF / HTML"}
+              <input aria-label="选择论文文件" type="file" accept=".pdf,.html" disabled={controlsDisabled} onChange={e => {
+                void uploadFile(e.target.files?.[0]); e.target.value = "";
+              }} />
+            </label>}
+            {attachments.map(a => <div key={a.attachmentId}>{a.name} <button disabled={controlsDisabled} onClick={() => setAttachments(old => old.filter(v => v.attachmentId !== a.attachmentId))}>移除</button></div>)}
             <div className="focus-reader__suggestions">
               <span>换个角度想一想</span>
               {[
@@ -662,7 +720,7 @@ export function FocusReader({ host }: FocusReaderProps) {
                 <button
                   type="button"
                   key={question}
-                  disabled={controlsDisabled || !current}
+                  disabled={controlsDisabled || (!current && !agent)}
                   onClick={() => void sendQuestion(question)}
                 >
                   <ReaderIcon
@@ -683,13 +741,13 @@ export function FocusReader({ host }: FocusReaderProps) {
               <textarea
                 id={messageId}
                 ref={questionRef}
-                disabled={controlsDisabled || !current}
+                disabled={controlsDisabled || (!current && !agent)}
                 rows={2}
                 value={message}
                 placeholder={
                   current
                     ? "关于这一段，你在想什么？"
-                    : "阅读已完成，可以回看原文"
+                    : "我要阅读…（可选择 PDF / HTML）"
                 }
                 onChange={(event) => setMessage(event.target.value)}
                 onKeyDown={(event) => {
@@ -708,7 +766,7 @@ export function FocusReader({ host }: FocusReaderProps) {
                 <button
                   type="submit"
                   aria-label={phase === "sending" ? "正在发送…" : "发送"}
-                  disabled={controlsDisabled || !current || !message.trim()}
+                  disabled={controlsDisabled || (!current && !agent) || !message.trim()}
                 >
                   <ReaderIcon name="up" size={17} />
                 </button>
@@ -732,7 +790,7 @@ export function FocusReader({ host }: FocusReaderProps) {
                   ? "正在继续…"
                   : current
                     ? "继续阅读"
-                    : "本篇阅读已完成"}
+                    : readerFrame.window.status === "empty" ? "开始新的阅读" : "本篇阅读已完成"}
               </strong>
               <small>
                 {current

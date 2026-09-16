@@ -105,6 +105,7 @@ export class LightfieldDemoHost implements ReaderHost {
   }
 
   async sendMessage(input: SendReaderMessageInput) {
+    if (!input.receipt) return readerFailure("invalid-request", "Select a chunk first.");
     if (demoChunks[this.position]?.chunkId !== input.receipt.chunkId) {
       return readerFailure("cursor-changed", "请回到当前阅读位置再追问。");
     }

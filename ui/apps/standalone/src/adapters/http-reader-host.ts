@@ -1,5 +1,7 @@
 import {
   type ContinueReadingInput,
+  type ReaderApprovalResponse,
+  type ReaderAttachment,
   type ReaderFailureCode,
   type ReaderHost,
   type ReaderHostResult,
@@ -47,7 +49,7 @@ function isReadingWindow(value: unknown): value is ReadingWindow {
   }
   const candidate = value as Partial<ReadingWindow>;
   return (
-    (candidate.status === "reading" || candidate.status === "completed") &&
+    (["empty", "reading", "completed"].includes(String(candidate.status))) &&
     typeof candidate.source === "object" &&
     candidate.source !== null &&
     typeof candidate.source.sourceId === "string" &&
@@ -66,7 +68,7 @@ function isReadingWindow(value: unknown): value is ReadingWindow {
         typeof message.content === "string",
     ) &&
     (candidate.current === null || isReaderChunk(candidate.current)) &&
-    ((candidate.status === "completed" && candidate.current === null) ||
+    (((candidate.status === "completed" || candidate.status === "empty") && candidate.current === null) ||
       (candidate.status === "reading" && candidate.current !== null))
   );
 }
@@ -123,7 +125,7 @@ export class HttpReaderHost implements ReaderHost {
     return this.request("/reader/continue", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ ...input, requestId: input.requestId ?? crypto.randomUUID() }),
       signal,
     });
   }
@@ -135,15 +137,48 @@ export class HttpReaderHost implements ReaderHost {
     return this.request("/reader/messages", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ ...input, requestId: input.requestId ?? crypto.randomUUID() }),
       signal,
     });
+  }
+
+  stop(): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request("/reader/stop", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  }
+
+  approve(input: ReaderApprovalResponse): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request("/reader/approval", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input) });
+  }
+
+  async upload(file: File): Promise<ReaderHostResult<ReaderAttachment>> {
+    try {
+      const response = await this.fetch(`${this.baseUrl}/reader/upload?name=${encodeURIComponent(file.name)}`, {
+        method: "POST", body: file,
+      });
+      const result = await response.json();
+      if (result.ok && typeof result.value?.attachmentId === "string" && typeof result.value?.name === "string") return result;
+      return { ok: false, error: { code: "invalid-request", message: result.error?.message ?? "上传失败", retryable: false } };
+    } catch (error) {
+      return { ok: false, error: { code: "unavailable", message: String(error), retryable: true } };
+    }
+  }
+
+  subscribe(listener: (result: ReaderHostResult<ReadingWindow>) => void): () => void {
+    const stream = new EventSource(`${this.baseUrl}/reader/events`);
+    stream.addEventListener("snapshot", (event) => {
+      try { listener(decodeResult(JSON.parse((event as MessageEvent).data))); }
+      catch { listener({ ok: false, error: { code: "invalid-response", message: "任务状态流格式错误", retryable: true } }); }
+    });
+    stream.onerror = () => listener({ ok: false, error: { code: "unavailable", message: "连接中断，正在恢复；后台任务可能仍在运行。", retryable: true } });
+    return () => stream.close();
   }
 
   private async request(path: string, init: RequestInit): Promise<ReaderHostResult<ReadingWindow>> {
     try {
       const response = await this.fetch(`${this.baseUrl}${path}`, init);
       if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        if (body?.ok === false) return decodeResult(body);
         return {
           ok: false,
           error: {

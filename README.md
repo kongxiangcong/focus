@@ -2,7 +2,23 @@
 
 FOCUS 是一个本地、私有、以来源原文为锚点的极简阅读工作台。它把长期资产收敛为固定 Reading Plan、极小 Cursor State 和按 Chunk 隔离的 Reading Record；用户在一个自然会话中阅读、追问、检索、记录与继续，不需要切换交互模式。
 
-## 怎么使用
+## 网页使用（本机 / 自托管）
+
+网页 Agent Host 已实现：浏览器发起阅读、上传 PDF/HTML、连续对话、流式回复、
+Core 阅读资产落盘、审批和停止。后台使用固定版本 Codex App Server；不需要打开
+Codex 交互界面。真实模型与 MinerU 链路需要在本地凭据环境验收。
+
+```bash
+python -m pip install -r host/requirements.txt
+pnpm install --frozen-lockfile
+pnpm reader:build
+python -m host --workspace ./workspace --network
+```
+
+打开 `http://127.0.0.1:8765` 并输入后台打印的访问口令。
+[完整配置、启动与本地验收](docs/FOCUS_Web_Agent_Quickstart.md)。
+
+## Skills 使用
 
 FOCUS 主要通过 Codex Skills 使用。一次完整流程只有四步：注册 Source、创建 Reading Plan、开始阅读、按需综合 Topic。
 
@@ -184,9 +200,9 @@ pnpm reader:test
 pnpm reader:build
 ~~~
 
-未设置 `VITE_FOCUS_READER_BASE_URL` 时，Standalone 使用不读取私人 Workspace 的中文合成 Fixture Adapter。当前 `reader-ui` 已采用本会话弥散光场 prototype 的正式初步实现：单栏连续 Reading Chunk、完整历史深度、与 Reading Cursor 对应的光场、Continue Reading 交接、当前段落旁注、操作锁和 reduced-motion 均位于 `ReaderHost` seam 内侧。
+Standalone 默认使用同源真实 HTTP Host。只有显式设置 `VITE_FOCUS_READER_BASE_URL=fixture` 时才使用不读取私人 Workspace 的中文合成 Fixture Adapter。当前 `reader-ui` 已采用本会话弥散光场 prototype 的正式初步实现：单栏连续 Reading Chunk、完整历史深度、与 Reading Cursor 对应的光场、Continue Reading 交接、当前段落旁注、操作锁和 reduced-motion 均位于 `ReaderHost` seam 内侧。
 
-当前证据等级是 Contract verified、Fixture verified、Browser verified 和 Production build verified。真实 ReaderHost、真实中文 ReadingWindow、Workspace 重载恢复和部署环境尚未验收，因此不能称为 Live-host verified 或 Production accepted。设计结论与正式规格分别见 `docs/design/focus-reader-design-verdict.md` 和 `docs/design/focus-reader-ui-spec.md`。
+原 UI 的证据等级是 Contract verified、Fixture verified、Browser verified 和 Production build verified。新 Host 的离线集成验证与真实链路待验收项见网页启动文档；不声称 Live-agent verified 或 Production accepted。设计结论与正式规格分别见 `docs/design/focus-reader-design-verdict.md` 和 `docs/design/focus-reader-ui-spec.md`。
 
 Skills 的脚本都从各自目录解析。Windows 下使用：
 

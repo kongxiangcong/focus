@@ -64,6 +64,9 @@ export function ReadingChunk({
             {chunk.translation}
           </section>
         ) : null}
+        {chunk.images.map(image => <figure className="focus-reader__figures" key={image.src}>
+          <img src={image.src} alt={image.caption} loading="lazy" /><figcaption>{image.caption}</figcaption>
+        </figure>)}
         <footer className="focus-reader__chunk-footer">
           <span>
             <ReaderIcon name="book" size={13} />

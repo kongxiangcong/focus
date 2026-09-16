@@ -33,7 +33,7 @@ export class FixtureReaderHost implements ReaderHost {
 
   async continueReading(input: ContinueReadingInput): Promise<ReaderHostResult<ReadingWindow>> {
     const current = this.snapshot();
-    if (!sameReceipt(cursorReceipt(current), input.receipt)) {
+    if (input.receipt === null || !sameReceipt(cursorReceipt(current), input.receipt)) {
       return readerFailure("cursor-changed", "The Reading Cursor changed before Continue Reading completed.");
     }
     this.chunkIndex += 1;
@@ -42,7 +42,7 @@ export class FixtureReaderHost implements ReaderHost {
 
   async sendMessage(input: SendReaderMessageInput): Promise<ReaderHostResult<ReadingWindow>> {
     const current = this.snapshot();
-    if (!sameReceipt(cursorReceipt(current), input.receipt)) {
+    if (input.receipt === null || !sameReceipt(cursorReceipt(current), input.receipt)) {
       return readerFailure("cursor-changed", "The Reading Cursor changed before the message was sent.");
     }
     const content = input.content.trim();

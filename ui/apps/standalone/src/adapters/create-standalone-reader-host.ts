@@ -5,5 +5,5 @@ import { HttpReaderHost } from "./http-reader-host";
 
 export function createStandaloneReaderHost(baseUrl?: string): ReaderHost {
   const normalized = baseUrl?.trim();
-  return normalized ? new HttpReaderHost({ baseUrl: normalized }) : new FixtureReaderHost();
+  return normalized === "fixture" ? new FixtureReaderHost() : new HttpReaderHost({ baseUrl: normalized ?? "" });
 }

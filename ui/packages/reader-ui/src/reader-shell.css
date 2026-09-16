@@ -1578,3 +1578,15 @@
     border-color: var(--reader-ink);
   }
 }
+
+.focus-reader .focus-agent { max-height: 230px; overflow: auto; padding: 10px; font-size: 12px; border-top: 1px solid #ded8ce; }
+.focus-reader .focus-agent pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; }
+.focus-reader .focus-agent button { padding: 6px 10px; margin: 4px; border: 1px solid #d5c6b1; border-radius: 8px; background: #fff9ef; cursor: pointer; }
+.focus-reader .focus-agent__approval { padding: 8px; background: #fff7df; border-radius: 8px; }
+.focus-reader .focus-agent__approval label { display: grid; gap: 4px; }
+.focus-reader .focus-agent__source, .focus-reader .focus-agent__upload { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; margin-bottom: 6px; }
+.focus-reader .focus-agent__source select { max-width: 210px; }
+.focus-reader .focus-agent__upload input { max-width: 220px; font-size: 11px; }
+.focus-reader .focus-reader__figures img { max-width: 100%; height: auto; }
+.focus-reader .focus-reader__figures { margin: 20px 0; }
+.focus-reader .focus-reader__prose, .focus-reader .focus-reader__translation, .focus-reader .focus-reader__conversation p { white-space: pre-wrap; overflow-wrap: anywhere; }
