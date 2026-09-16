@@ -217,7 +217,7 @@ export function FocusReader({ host }: FocusReaderProps) {
             <div>{host.upload && <><input ref={fileInput} className="focus-sr-only" aria-label="选择论文文件" type="file" accept=".pdf,.html" multiple onChange={e => {
               Array.from(e.target.files ?? []).forEach(f => void upload(f)); e.target.value = "";
             }} /><button type="button" onClick={() => fileInput.current?.click()} aria-label="添加附件">＋ 附件</button></>}
-              {uploads.some(u => u.state === "ready") && <button type="button" disabled={blocked || uploading} onClick={() => send("请阅读附件并开始讲解", false)}>开始阅读附件</button>}
+              {uploads.some(u => u.state === "ready") && <button type="button" disabled={blocked || uploading} onClick={() => send("请阅读附件", false)}>开始阅读附件</button>}
             </div>
             <button type="submit" className="focus-primary" disabled={!view || blocked || uploading || !draft.trim()}>{operation === "发送" ? "发送中…" : "发送 ↑"}</button>
           </div>

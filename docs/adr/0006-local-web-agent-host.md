@@ -61,3 +61,20 @@ Default loopback-only service access opens directly without a token screen. Expl
 FOCUS_HOST_TOKEN and non-loopback/public-origin deployments retain authentication.
 Host/Origin checking still applies to all routes; remote exposure is not enabled by
 this change.
+
+## Web reading output contract
+
+The attachment start action requests reading only. For ordinary start/open/next/
+continue operations, the Agent prepares or reuses the source and plan, selects the
+current paragraph and saves any required translation through Core. The reading
+card owns source/translation presentation and its toggle; the Agent then waits
+instead of duplicating that content or adding an unsolicited explanation in chat.
+The Host supplies this contract on both thread creation and resume, and reinforces
+it after a Host-managed advance. Earlier explanation requests do not authorize
+automatic explanation on a later standalone reading action.
+
+Explicit explanation, summary and retranslation requests remain normal Agent tasks;
+they do not independently advance the Cursor. Progress, necessary questions and
+errors remain visible. No response filtering or separate reading mode is involved.
+Protocol tests verify instruction delivery, Core translation projection and chat
+passthrough; they do not establish live model compliance with these instructions.
