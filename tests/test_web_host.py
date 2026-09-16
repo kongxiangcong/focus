@@ -32,7 +32,7 @@ class ProtocolDouble:
 
     def send(self, value):
         self.calls.append(value)
-        if 'result' in value and self.mode in ('approval', 'tool', 'advance'):
+        if 'result' in value and self.mode in ('approval', 'tool', 'advance', 'translate'):
             self.complete()
 
     def request(self, method, params, timeout=60):
@@ -49,11 +49,14 @@ class ProtocolDouble:
             elif self.mode == 'approval':
                 self.events.put({'id': 700, 'method': 'item/commandExecution/requestApproval',
                                  'params': {'command': 'python demo.py', 'reason': 'test'}})
-            elif self.mode in ('tool', 'advance'):
+            elif self.mode in ('tool', 'advance', 'translate'):
                 args = {'action': 'append_note', 'arguments': json.dumps({'expected_plan_id': 'plan-001', 'expected_chunk_id': 'chunk-001',
                     'kind': 'clarification', 'origin': 'dialogue', 'content': '固定别名维持源顺序。'})}
                 if self.mode == 'advance':
                     args = {'action': 'continue', 'arguments': json.dumps({'source_id': 'fixture-paper', 'expected_plan_id': 'plan-001', 'expected_chunk_id': 'chunk-001'})}
+                elif self.mode == 'translate':
+                    args = {'action': 'translate', 'arguments': json.dumps({'expected_plan_id': 'plan-001',
+                        'expected_chunk_id': 'chunk-001', 'translation': '保存给阅读卡片的译文。'})}
                 self.events.put({'id': 701, 'method': 'item/tool/call', 'params': {'tool': 'focus', 'arguments': args}})
             return {'turn': {'id': 'turn-fixture'}}
         raise AssertionError(method)
@@ -121,6 +124,63 @@ class WebHostTests(unittest.TestCase):
     def test_explicit_continue_in_chat_advances_once(self):
         self.start(content='继续阅读'); self.finish()
         self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])
+
+    def assert_web_presentation_contract(self, method):
+        calls = ProtocolDouble.instances[-1].calls
+        params = next(c['params'] for c in calls if c.get('method') == method)
+        instructions = params['developerInstructions']
+        for rule in (
+            'The card, not chat, presents ordinary reading content.',
+            'then stop and wait for the user.',
+            'Do not repeat source or translation in chat',
+            'An earlier request to explain does not authorize automatic explanation',
+            'If the current user request explicitly asks for explanation, summary, interpretation or retranslation, fulfill that request normally.',
+            'Necessary parsing progress, questions needed to proceed, and failure messages are allowed.',
+        ):
+            self.assertIn(rule, instructions)
+        return next(c['params']['input'][0]['text'] for c in calls if c.get('method') == 'turn/start')
+
+    def test_attachment_start_delivers_card_contract_and_projects_saved_translation(self):
+        # Scripted tool call verifies real Core/card projection, not model compliance.
+        ProtocolDouble.mode = 'translate'
+        self.host.store.put('upload:paper', {'name': 'paper.pdf', 'path': str(self.workspace / 'paper.pdf')})
+        self.start(content='请阅读附件', receipt=None, attachmentIds=['paper']); self.finish()
+        prompt = self.assert_web_presentation_contract('thread/start')
+        self.assertTrue(prompt.startswith('请阅读附件\n'))
+        self.assertIn('paper.pdf', prompt)
+        self.assertNotIn('开始讲解', prompt)
+        window = self.host.snapshot()
+        self.assertEqual('chunk-001', window['current']['chunkId'])
+        self.assertEqual('保存给阅读卡片的译文。', window['current']['translation'])
+        self.assertEqual('completed', window['agent']['run']['status'])
+        self.assertFalse(any(m['role'] == 'assistant' for m in window['conversation']))
+
+    def test_continue_overrides_previous_explanation_on_resume(self):
+        self.start(content='请阅读附件并开始讲解'); self.finish()
+        self.host.start({'requestId': 'continue-after-explanation', 'receipt': self.receipt}, continuing=True)
+        self.finish()
+        prompt = self.assert_web_presentation_contract('thread/resume')
+        self.assertTrue(prompt.startswith('继续阅读\n'))
+        self.assertIn('由阅读卡片展示原文／译文，然后停止并等待用户操作', prompt)
+        self.assertIn('之前的讲解请求不是本轮继续讲解的授权', prompt)
+        self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])
+
+    def test_chat_next_delivers_same_card_contract(self):
+        self.start(content='下一段'); self.finish()
+        prompt = self.assert_web_presentation_contract('thread/start')
+        self.assertIn('不要在聊天中重复原文或译文，也不要自动讲解', prompt)
+        self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])
+
+    def test_explicit_explanation_summary_and_retranslation_are_not_suppressed(self):
+        for index, content in enumerate(('请讲解这段', '总结这段', '解释这个公式', '请重新翻译这段')):
+            with self.subTest(content=content):
+                self.start(content=content, requestId=f'explicit-request-{index}'); self.finish()
+                prompt = self.assert_web_presentation_contract('thread/start' if index == 0 else 'thread/resume')
+                self.assertTrue(prompt.startswith(content + '\n'))
+                self.assertNotIn('然后停止并等待用户操作', prompt)
+                window = self.host.snapshot()
+                self.assertEqual('chunk-001', window['current']['chunkId'])
+                self.assertEqual('真实 Core，协议替身。', window['conversation'][-1]['content'])
 
     def test_core_note_written_without_chat_or_cursor(self):
         ProtocolDouble.mode = 'tool'

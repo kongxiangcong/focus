@@ -35,7 +35,7 @@ describe("Agent Reader", () => {
     fireEvent.click(await screen.findByRole("button", { name: "重试上传" }));
     await screen.findByText("已上传");
     fireEvent.click(screen.getByRole("button", { name: "开始阅读附件" }));
-    await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: null, attachmentIds: ["upload-1"] })));
+    await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ content: "请阅读附件", receipt: null, attachmentIds: ["upload-1"] })));
     expect(host.continueReading).not.toHaveBeenCalled();
   });
   it("keeps drafts editable while running, allows approval retry, and rejects stale snapshots", async () => {
@@ -51,6 +51,15 @@ describe("Agent Reader", () => {
     update({ ...empty, revision: 2 });
     expect(screen.getByText("正在解析")).toBeInTheDocument();
     expect(screen.getByRole("textbox")).toHaveValue("下一条草稿");
+  });
+  it("sends explicit explanations unchanged and displays the requested answer", async () => {
+    const { host, update } = setup(); await screen.findByText("从一份材料开始");
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "请讲解这段" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+    await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ content: "请讲解这段" })));
+    update({ ...empty, revision: 2, conversation: [{ messageId: "answer", chunkId: "", role: "assistant", content: "这是用户请求的讲解。" }] });
+    expect(screen.getByText("这是用户请求的讲解。")).toBeInTheDocument();
+    expect(host.continueReading).not.toHaveBeenCalled();
   });
   it("resets the real host session and clears draft, attachments and stale events", async () => {
     const { host, update } = setup(); await screen.findByText("从一份材料开始"); update(running);
