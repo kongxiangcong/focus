@@ -129,6 +129,9 @@ def main(argv: list[str] | None = None) -> int:
             result = core.get_reading_state()
         elif args.command == "current":
             result = core.get_current_chunk()
+            if result.get('source_id'):
+                from core.source_library import SourceLibrary
+                SourceLibrary(args.workspace).start_reading(result['source_id'])
         elif args.command == "continue":
             pending_notes = [] if args.pending_notes is None else _read_json(
                 args.pending_notes, error_id="note_invalid", label="Pending Notes"

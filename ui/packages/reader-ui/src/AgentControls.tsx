@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ReaderAgentState, ReaderApproval, ReaderApprovalResponse } from "@focus/reader-contracts";
+import { TaskProgress } from "./TaskProgress";
 
 function Approval({ approval, onAnswer }: { approval: ReaderApproval; onAnswer: (input: ReaderApprovalResponse) => Promise<boolean> }) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -31,8 +32,8 @@ export function AgentControls({ agent, onStop, onAnswer }: { agent: ReaderAgentS
   if (!run) return null;
   const active = ["running", "approval", "stopping"].includes(run.status);
   return <div className="focus-agent" aria-label="后台任务">
-    {active && <div role="status">{run.status === "stopping" ? "正在停止" : run.status === "approval" ? "等待你的操作" : "正在回答"}
-      <button onClick={onStop} disabled={run.status === "stopping"}>停止</button></div>}
+    <div className="focus-agent__status"><TaskProgress run={run} />
+      {active && <button onClick={onStop} disabled={run.status === "stopping"}>停止</button>}</div>
     {run.error && <p role="alert">{run.error}</p>}
     {run.approvals.map(a => <Approval key={a.id} approval={a} onAnswer={onAnswer} />)}
   </div>;

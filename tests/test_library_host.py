@@ -40,7 +40,7 @@ class LibraryHostTests(unittest.TestCase):
         self.assertEqual('缓存译文', value['translation'])
         self.assertEqual(bundle, {str(p.relative_to(root)): p.read_bytes() for p in (root / 'parser-bundle').rglob('*') if p.is_file()})
         self.assertIsNone(json.loads((self.workspace / 'state.json').read_text())['sources']['fixture-paper']['current_plan_id'])
-        self.assertIn('focus-map', self.host.state['conversation'][0]['content'])
+        self.assertIn('重新规划', self.host.state['conversation'][0]['content'])
         # Agent plan creation still uses Core, and chooses the next unused ID.
         draft = {'chunks': [{'section_path': ['Fixture Paper'], 'source_lines': [1, 12], 'images': ['images/image-001.png']}], 'glossary': []}
         new = core.map_reading_plan('fixture-paper', draft=draft)
@@ -83,10 +83,10 @@ class LibraryHostTests(unittest.TestCase):
             conn.request('POST', '/library/sources?name=test.html', b'html')
             response = conn.getresponse(); self.assertEqual(400, response.status); response.read()
             conn.close(); conn = http.client.HTTPConnection('127.0.0.1', server.server_port)
-            conn.request('POST', '/library/sources?name=test.pdf', b'%PDF test')
+            conn.request('POST', '/library/sources?name=test.pdf&topic=Test', b'%PDF test')
             response = conn.getresponse(); self.assertEqual(202, response.status); response.read()
             self.finish()
-            self.assertIn('paper-parser', self.host.state['conversation'][-2]['content'])
+            self.assertIn('paper-parser', json.dumps(test_web_host.ProtocolDouble.instances[-1].calls, ensure_ascii=False))
             conn.request('GET', '/library/topics', headers={'Origin': 'https://evil.example'})
             response = conn.getresponse(); self.assertEqual(403, response.status); response.read()
             conn.close()

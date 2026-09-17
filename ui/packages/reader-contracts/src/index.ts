@@ -88,6 +88,7 @@ export interface ReaderAgentState {
     runId: string;
     status: "running" | "approval" | "stopping" | "completed" | "failed" | "interrupted";
     error: string | null;
+    progress?: { label: string; startedAt: number; updatedAt: number; finishedAt?: number };
     approvals: readonly ReaderApproval[];
     activity: readonly { id: string; title: string; status: string; detail: string }[];
   };
@@ -153,7 +154,15 @@ export interface LibraryTopic {
   sourceIds: readonly string[];
 }
 
+export interface LibraryUpload { topic: string; uploader: string }
+
 export interface LibrarySource {
+  shortName?: string;
+  format?: "PDF" | "HTML" | "Markdown";
+  publishedAt?: string | null;
+  venue?: string | null;
+  uploader?: string | null;
+  readingStatus?: "unplanned" | "ready" | "reading" | "completed";
   sourceId: string;
   title: string;
   kind: "paper" | "article";
@@ -168,7 +177,7 @@ export interface LibrarySource {
 export interface ReaderHost {
   listTopics?(): Promise<ReaderHostResult<readonly LibraryTopic[]>>;
   listSources?(): Promise<ReaderHostResult<readonly LibrarySource[]>>;
-  uploadSource?(file: File): Promise<ReaderHostResult<ReadingWindow>>;
+  uploadSource?(file: File, fields: LibraryUpload): Promise<ReaderHostResult<ReadingWindow>>;
   deleteSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   openSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;

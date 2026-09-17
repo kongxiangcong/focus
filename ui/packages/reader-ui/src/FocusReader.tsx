@@ -219,7 +219,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
           <span className="focus-start__label" aria-hidden="true">▤</span>
           <h1>打开一份材料</h1>
           <div><button className="focus-primary" onClick={() => setPanel("materials")}>打开材料</button>
-            {host.upload && <button onClick={() => fileInput.current?.click()}>上传</button>}
+            {!mist && host.upload && <button onClick={() => fileInput.current?.click()}>上传</button>}
             {(current || view.history.length > 0) && host.resumeReading && <button onClick={resume} disabled={blocked}>恢复阅读</button>}</div>
         </section>}
         {entries.map((e, index) => {
@@ -231,13 +231,13 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         {view?.status === "completed" && !view.sessionFresh && !displayEmpty && <p className="focus-finished">已读完 · 可以继续提问，或<button onClick={() => setPanel("materials")}>打开其他材料</button></p>}
       </div>
     </main>
+    {mist && <nav className="mist-history-rail" aria-label="历史提问">{view?.conversation.filter(m => m.role === "user").map(m => <button key={m.messageId} aria-label={m.content} onClick={() => {
+      follow.current = false;
+      const target = Array.from(stream.current?.querySelectorAll<HTMLElement>("[data-message-id]") ?? []).find(el => el.dataset.messageId === m.messageId);
+      target?.scrollIntoView({ block: "center", behavior: "instant" });
+    }}><span className="mist-history-line" /><span className="mist-history-label">{m.content}</span></button>)}</nav>}
     <div className="focus-bottom" role={mist ? "complementary" : undefined} aria-label={mist ? "阅读助手" : undefined}>
-      {mist && <><header className="mist-agent-status"><span className="mist-status-dot" data-active={active} /><strong>{agent?.backends?.find(b => b.id === agent.backend)?.label ?? "Agent"}</strong><span>{connection ? "离线" : active ? "处理中" : "就绪"}</span></header>
-      <nav className="mist-prompts" aria-label="历史提问">{view?.conversation.filter(m => m.role === "user").map(m => <button key={m.messageId} title={m.content} onClick={() => {
-        follow.current = false;
-        const target = Array.from(stream.current?.querySelectorAll<HTMLElement>("[data-message-id]") ?? []).find(el => el.dataset.messageId === m.messageId);
-        target?.scrollIntoView({ block: "center", behavior: "instant" });
-      }}>{m.content}</button>)}</nav></>}
+
 
       {newContent && <button className="focus-new-content" onClick={() => {
         follow.current = true; setNewContent(false); settle();
@@ -269,12 +269,12 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         </li>)}</ul>}
         <form hidden={mist && collapsed} className="focus-composer" onSubmit={e => { e.preventDefault(); send(); }}>
           <label className="focus-sr-only" htmlFor="focus-question">输入问题或阅读需求</label>
-          <textarea id="focus-question" ref={composer} rows={2} value={draft} placeholder="问问这段原文…"
+          <textarea id="focus-question" ref={composer} rows={mist ? 1 : 2} value={draft} placeholder="问问这段原文…"
             onChange={e => setDraft(e.target.value)} onKeyDown={e => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); }
             }} />
           <div className="focus-composer__actions">
-            <div>{host.upload && <><input ref={fileInput} className="focus-sr-only" aria-label="选择论文文件" type="file" accept=".pdf,.html" multiple onChange={e => {
+            <div>{!mist && host.upload && <><input ref={fileInput} className="focus-sr-only" aria-label="选择论文文件" type="file" accept=".pdf,.html" multiple onChange={e => {
               Array.from(e.target.files ?? []).forEach(f => void upload(f)); e.target.value = "";
             }} /><button type="button" onClick={() => fileInput.current?.click()} aria-label="添加附件">＋ 附件</button></>}
               {uploads.some(u => u.state === "ready") && <button type="button" disabled={blocked || uploading} onClick={() => send("请阅读附件", false)}>阅读附件</button>}
@@ -290,7 +290,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       <header><h2>{panel === "materials" ? "材料" : panel === "contents" ? "已加载段落" : "阅读设置"}</h2><button aria-label="关闭" onClick={() => setPanel(null)}>×</button></header>
       {panel === "materials" && <>
         {view?.source.sourceId && <p className="focus-full-title">{view.source.title}</p>}
-        {host.upload && <button onClick={() => { setPanel(null); fileInput.current?.click(); }}>上传</button>}
+        {!mist && host.upload && <button onClick={() => { setPanel(null); fileInput.current?.click(); }}>上传</button>}
         {agent?.catalog.sources.length ? <section><h3>来源</h3>{agent.catalog.sources.map(s => <button className="focus-material" disabled={blocked} key={s.sourceId} onClick={() => { follow.current = true; if (host.openSource) void perform("加载材料", () => host.openSource!(s.sourceId), () => setPanel(null)); else send(`开始阅读 Source ${s.sourceId}`, false, false); }}>{s.title}</button>)}</section> : <p>暂无已保存的材料。</p>}
         {!!agent?.catalog.topics.length && <section><h3>专题</h3>{agent.catalog.topics.map(t => <button className="focus-material" disabled={blocked} key={t.topicId} onClick={() => send(`开始阅读 Topic ${t.topicId}`, false, false)}>{t.title}</button>)}</section>}
       </>}

@@ -132,7 +132,7 @@ class FocusMapTests(unittest.TestCase):
             self.assertEqual({"chunk_id": chunk["chunk_id"], "translation": None, "notes": []}, record)
         state = json.loads((workspace / "state.json").read_text(encoding="utf-8"))
         self.assertEqual(
-            {"current_plan_id": "plan-001", "current_chunk_id": "chunk-001"},
+            {"current_plan_id": "plan-001", "current_chunk_id": "chunk-001", "reading_started": False},
             state["sources"]["Fixture-paper"],
         )
 

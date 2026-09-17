@@ -174,6 +174,9 @@ class CodexBackend(Backend):
         if item.get('type') == 'agentMessage':
             if method == 'item/completed':
                 self.emit(MESSAGE_COMPLETED, {'itemId': item['id'], 'text': item.get('text', '')})
+        elif item.get('type') in ('reasoning', 'webSearch'):
+            self.emit(ACTIVITY, {'id': item['id'], 'title': item['type'],
+                                 'status': 'completed' if method == 'item/completed' else 'inProgress', 'detail': ''})
         elif item.get('type') in ACTIVITY_ITEM_TYPES:
             detail = item.get('command') or item.get('tool') or '文件更改'
             if item.get('changes'):
@@ -181,4 +184,4 @@ class CodexBackend(Backend):
             if item.get('aggregatedOutput'):
                 detail += '\n' + item['aggregatedOutput']
             self.emit(ACTIVITY, {'id': item['id'], 'title': item['type'],
-                                 'status': item.get('status', 'inProgress'), 'detail': detail[-16000:]})
+                                 'status': item.get('status', 'completed' if method == 'item/completed' else 'inProgress'), 'detail': detail[-16000:]})

@@ -76,19 +76,22 @@ class SourceLibrary:
     @staticmethod
     def _validate_source(source: dict[str, Any], expected_source_id: str) -> None:
         required = {"source_id", "source_kind", "title", "short_name", "identity"}
-        optional = {"published_at", "source_url"}
+        optional = {"published_at", "source_url", "uploader", "venue"}
         if (
             not required.issubset(source)
             or not set(source).issubset(required | optional)
             or source.get("source_id") != expected_source_id
-            or source.get("source_kind") not in {"paper_pdf", "article_html"}
+            or source.get("source_kind") not in {"paper_pdf", "article_html", "article_markdown"}
             or any(not isinstance(source.get(key), str) or not source[key].strip() for key in required - {"source_id", "source_kind"})
         ):
             raise WorkspaceError("source_invalid", f"Reading Source is invalid: {expected_source_id}")
         validate_source_id(expected_source_id)
         normalize_short_name(source["short_name"])
-        if "published_at" in source and not re.fullmatch(r"\d{4}(?:-\d{2}-\d{2})?", source["published_at"]):
+        if "published_at" in source and not re.fullmatch(r"\d{4}(?:-\d{2}(?:-\d{2})?)?", source["published_at"]):
             raise WorkspaceError("source_invalid", f"Reading Source is invalid: {expected_source_id}")
+        for key in ("venue", "uploader"):
+            if key in source and (not isinstance(source[key], str) or not source[key].strip() or len(source[key]) > 200):
+                raise WorkspaceError("source_invalid", f"Invalid {key}")
         if "source_url" in source:
             canonical_article_url(source["source_url"])
 
@@ -110,7 +113,7 @@ class SourceLibrary:
         return matches[0] if matches else None
 
     def find_original(self, source: Path, *, source_kind: str) -> dict[str, Any] | None:
-        original_name = {"paper_pdf": "source.pdf", "article_html": "source.html"}.get(source_kind)
+        original_name = {"paper_pdf": "source.pdf", "article_html": "source.html", "article_markdown": "source.md"}.get(source_kind)
         if original_name is None or not source.is_file():
             raise WorkspaceError("source_identity_invalid", "Source identity is invalid")
         for registered in self._sources():
@@ -155,13 +158,13 @@ class SourceLibrary:
     ) -> dict[str, Any]:
         parser_bundle = parser_bundle.resolve()
         metadata = _validate_parser_bundle(parser_bundle)
-        if source_kind not in {"paper_pdf", "article_html"} or metadata.get("source_kind") != source_kind:
+        if source_kind not in {"paper_pdf", "article_html", "article_markdown"} or metadata.get("source_kind") != source_kind:
             raise WorkspaceError("parser_bundle_invalid", "Parser Bundle source kind does not match registration")
         if not isinstance(title, str) or not title.strip():
             raise WorkspaceError("source_title_missing", "A trustworthy Source Title is required")
         title = title.strip()
         short_name = normalize_short_name(short_name)
-        if published_at is not None and (not isinstance(published_at, str) or not re.fullmatch(r"\d{4}(?:-\d{2}-\d{2})?", published_at)):
+        if published_at is not None and (not isinstance(published_at, str) or not re.fullmatch(r"\d{4}(?:-\d{2}(?:-\d{2})?)?", published_at)):
             raise WorkspaceError("source_published_at_invalid", "Source publication date is invalid")
         if source_url is not None:
             source_url = canonical_article_url(source_url)
@@ -251,7 +254,17 @@ class SourceLibrary:
         else:
             if not isinstance(topic_title, str) or not topic_title.strip():
                 raise WorkspaceError("topic_invalid", "Topic title is empty or invalid")
-            resolved = validate_topic_id(topic_id) if topic_id else _slug(topic_title, "topic")
+            title = topic_title.strip()
+            if not topic_id:
+                for candidate in (self.workspace / 'topics').glob('*/topic.yaml'):
+                    if _read_document(candidate).get('title', '').casefold() == title.casefold():
+                        return self._prepare_topic(existing_topic_id=candidate.parent.name)
+            resolved = validate_topic_id(topic_id) if topic_id else _slug(title, "topic")
+            if not topic_id:
+                base, number = resolved, 2
+                while (self.workspace / 'topics' / resolved / 'topic.yaml').exists():
+                    resolved = f'{base}-{number}'
+                    number += 1
             path = self.workspace / "topics" / resolved / "topic.yaml"
             topic = _read_document(path, {"topic_id": resolved, "title": topic_title.strip(), "description": "", "sources": []})
         if topic.get("topic_id") != resolved or not isinstance(topic.get("sources"), list):
@@ -332,10 +345,37 @@ class SourceLibrary:
                         for p in (root / 'reading/plans').glob('*/records/*.json'))
             result.append({'sourceId': sid, 'title': source['title'],
                            'kind': 'paper' if source['source_kind'] == 'paper_pdf' else 'article',
+                           'format': {'paper_pdf': 'PDF', 'article_html': 'HTML', 'article_markdown': 'Markdown'}[source['source_kind']],
+                           'shortName': source['short_name'], 'publishedAt': source.get('published_at'),
+                           'venue': source.get('venue'), 'uploader': source.get('uploader'),
+                           'readingStatus': ('completed' if plan and cursor is None else 'reading' if selected.get('reading_started', completed > 0) else 'ready' if plan else 'unplanned'),
                            'parseStatus': 'invalid' if error else 'ready', 'error': error,
                            'progress': {'completed': completed, 'total': total, 'planId': plan, 'chunkId': cursor},
                            'noteCount': notes, 'topicIds': [t['topicId'] for t in topics if sid in t['sourceIds']]})
         return result
+
+    def describe(self, source_id: str, *, uploader: str | None = None,
+                 venue: str | None = None, published_at: str | None = None) -> None:
+        """Update descriptive metadata without changing identity or reading assets."""
+        root = self._safe_root(source_id)
+        source = self.get(source_id)
+        for key, value in {"uploader": uploader, "venue": venue, "published_at": published_at}.items():
+            if value is not None:
+                if not isinstance(value, str) or not value.strip() or len(value) > 200:
+                    raise WorkspaceError("source_metadata_invalid", f"Invalid {key}")
+                source[key] = value.strip()
+        self._validate_source(source, source_id)
+        _write_document(root / "source.yaml", source)
+
+    def start_reading(self, source_id: str) -> None:
+        self._safe_root(source_id)
+        path = self.workspace / "state.json"
+        state = _read_document(path)
+        selected = state['sources'][source_id]
+        if not selected['current_plan_id']:
+            raise WorkspaceError('reading_plan_missing', 'Source has no Reading Plan')
+        selected['reading_started'] = True
+        _write_document(path, state)
 
     def reset_reading(self, source_id: str) -> None:
         """Explicit Library reread: preserve Bundle/translations, erase all Notes and selection."""

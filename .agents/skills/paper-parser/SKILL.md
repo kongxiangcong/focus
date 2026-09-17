@@ -37,3 +37,5 @@ python -B -X utf8 scripts/mineru_precision.py reuse `
 ```
 
 Discard result ZIPs, extraction trees, successful task staging, request archives, polling history, receipts, and alternate representations. Parser operations never modify Reading Plans, Records, Notes, or Synthesis.
+
+For Library uploads, follow [the shared Library workflow](../../../docs/library-workflow.md) after parsing: preserve evidenced publication precision and venue, then plan without beginning reading. This parser handles PDF; HTML uses article-parser, Markdown uses the local import command in that workflow.

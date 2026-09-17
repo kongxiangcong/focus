@@ -1,5 +1,6 @@
 import {
   type LibrarySource,
+  type LibraryUpload,
   type LibraryTopic,
   type ContinueReadingInput,
   type ReaderApprovalResponse,
@@ -143,8 +144,8 @@ export class HttpReaderHost implements ReaderHost {
     } catch (e) { return { ok: false, error: { code: "unavailable", message: String(e), retryable: true } }; }
   }
 
-  uploadSource(file: File): Promise<ReaderHostResult<ReadingWindow>> {
-    return this.request(`/library/sources?name=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
+  uploadSource(file: File, fields: LibraryUpload): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources?${new URLSearchParams({ name: file.name, topic: fields.topic, uploader: fields.uploader })}`, { method: "POST", body: file });
   }
   deleteSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}`, { method: "DELETE" });

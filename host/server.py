@@ -191,10 +191,13 @@ class Handler(BaseHTTPRequestHandler):
             result = service.approve(self._body())
         elif method == 'POST' and path in ('/reader/upload', '/library/sources'):
             name = parse_qs(urlsplit(self.path).query).get('name', [''])[0]
-            if Path(name).name != name or '\\' in name or len(name) > 180 or Path(name).suffix.lower() not in ('.pdf', '.html'):
-                raise ValueError('选择 PDF 或单文件 HTML。')
-            if path == '/library/sources' and Path(name).suffix.lower() != '.pdf':
-                raise ValueError('知识库上传只接受 PDF。')
+            if Path(name).name != name or '\\' in name or len(name) > 180 or Path(name).suffix.lower() not in ('.pdf', '.html', '.md', '.markdown'):
+                raise ValueError('选择 PDF、单文件 HTML 或 Markdown。')
+            fields = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+            topic = fields.get('topic', [''])[0].strip()
+            uploader = fields.get('uploader', ['孔祥聪'])[0].strip()
+            if path == '/library/sources' and (not topic or len(topic) > 120 or not uploader or len(uploader) > 100):
+                raise ValueError('请填写专题和上传者。')
             length = int(self.headers.get('Content-Length', '0'))
             if length < 1 or length > 200 * 1024 * 1024:
                 raise ValueError('文件大小须为 1 字节到 200 MB。')
@@ -214,7 +217,7 @@ class Handler(BaseHTTPRequestHandler):
                             raise ValueError('Upload interrupted')
                         out.write(data)
                         remaining -= len(data)
-                if path == '/library/sources':
+                if path == '/library/sources' and target.suffix.lower() == '.pdf':
                     with target.open('rb') as uploaded:
                         if uploaded.read(4) != b'%PDF':
                             raise ValueError('文件内容不是 PDF。')
@@ -225,7 +228,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise
             if path == '/library/sources':
                 try:
-                    result = service.library_upload(upload_id)
+                    result = service.library_upload(upload_id, topic=topic, uploader=uploader)
                 except Exception:
                     target.unlink(missing_ok=True)
                     root.rmdir()

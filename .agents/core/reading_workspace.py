@@ -118,11 +118,13 @@ def _current_source_state(
         raise WorkspaceError("source_missing", "No current Reading Source is selected")
     source_id = validate_source_id(source_id)
     source_state = source_states.get(source_id)
-    if not isinstance(source_state, dict) or set(source_state) != {
+    if not isinstance(source_state, dict) or (set(source_state) - {"reading_started"}) != {
         "current_plan_id",
         "current_chunk_id",
     }:
         raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
+    if "reading_started" in source_state and not isinstance(source_state["reading_started"], bool):
+        raise WorkspaceError("workspace_state_invalid", "Reading start marker must be boolean")
     return state_path, state, source_state, source_id, workspace / "sources" / source_id
 
 
@@ -192,24 +194,24 @@ def _validate_parser_bundle(bundle: Path) -> dict[str, Any]:
     errors: list[str] = []
     metadata = _read_document(bundle / "metadata.json", {})
     source_kind = metadata.get("source_kind")
-    original_name = {"paper_pdf": "source.pdf", "article_html": "source.html"}.get(source_kind)
+    original_name = {"paper_pdf": "source.pdf", "article_html": "source.html", "article_markdown": "source.md"}.get(source_kind)
     original = bundle / original_name if original_name else None
     content = bundle / "content.md"
     images = bundle / "images"
-    if source_kind not in {"paper_pdf", "article_html"}:
+    if source_kind not in {"paper_pdf", "article_html", "article_markdown"}:
         errors.append("metadata source kind is invalid")
     elif original is None or not original.is_file():
         errors.append(f"{original_name} is missing")
-    other_original = bundle / ("source.html" if source_kind == "paper_pdf" else "source.pdf")
-    if source_kind in {"paper_pdf", "article_html"} and other_original.exists():
+    originals = {'source.pdf', 'source.html', 'source.md'}
+    if any((bundle / name).exists() for name in originals - {original_name}):
         errors.append("Parser Bundle must contain exactly one source representation")
     if not content.is_file() or not content.read_text(encoding="utf-8", errors="replace").strip():
         errors.append("content.md is missing or empty")
     if not images.is_dir():
         errors.append("images directory is missing")
-    if metadata.get("parser") not in {"paper-parser", "article-parser"}:
+    if metadata.get("parser") not in {"paper-parser", "article-parser", "markdown-import"}:
         errors.append("metadata parser provenance is invalid")
-    elif metadata.get("parser") != {"paper_pdf": "paper-parser", "article_html": "article-parser"}.get(source_kind):
+    elif metadata.get("parser") != {"paper_pdf": "paper-parser", "article_html": "article-parser", "article_markdown": "markdown-import"}.get(source_kind):
         errors.append("metadata parser does not match source kind")
     if not isinstance(metadata.get("language"), str) or not metadata["language"].strip():
         errors.append("metadata language is invalid")
@@ -831,7 +833,7 @@ class WorkspaceCore:
         if not isinstance(source_states, dict) or not isinstance(source_states.get(source_id), dict):
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         source_state = source_states[source_id]
-        if set(source_state) != {"current_plan_id", "current_chunk_id"}:
+        if (set(source_state) - {"reading_started"}) != {"current_plan_id", "current_chunk_id"}:
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         current_plan_id = source_state.get("current_plan_id")
         current_chunk_id = source_state.get("current_chunk_id")
@@ -893,6 +895,7 @@ class WorkspaceCore:
             installed = True
             source_state["current_plan_id"] = plan_id
             source_state["current_chunk_id"] = records[0]["chunk_id"]
+            source_state["reading_started"] = False
             _write_document(state_path, state)
         except Exception:
             _restore(state_path, state_snapshot)
@@ -985,7 +988,7 @@ class WorkspaceCore:
             raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {source_id}")
         metadata = _validate_parser_bundle(bundle)
         reading_record = _read_reading_record(plan_root / "records" / f"{chunk_id}.json", chunk_id)
-        direct_chinese = metadata["source_kind"] == "article_html" and metadata["language"] == "zh"
+        direct_chinese = metadata["source_kind"] in {"article_html", "article_markdown"} and metadata["language"] == "zh"
         if direct_chinese and reading_record["translation"] is not None:
             raise WorkspaceError("reading_record_invalid", "Chinese source translation must remain null")
         presentation = _chunk_presentation(
@@ -1018,7 +1021,7 @@ class WorkspaceCore:
         source_id, plan_id = state["source_id"], state["plan_id"]
         bundle = self.workspace / "sources" / source_id / "parser-bundle"
         metadata = _validate_parser_bundle(bundle)
-        direct = metadata["source_kind"] == "article_html" and metadata["language"] == "zh"
+        direct = metadata["source_kind"] in {"article_html", "article_markdown"} and metadata["language"] == "zh"
         root = bundle.parent / "reading" / "plans" / plan_id
         chunks = _read_chunk_records(root / "chunks.jsonl")
         history = []
@@ -1160,7 +1163,7 @@ class WorkspaceCore:
         if plan_id != expected_plan_id or chunk_id != expected_chunk_id:
             return self._cursor_changed()
         metadata = _validate_parser_bundle(self.workspace / "sources" / source_id / "parser-bundle")
-        if metadata["source_kind"] == "article_html" and metadata["language"] == "zh":
+        if metadata["source_kind"] in {"article_html", "article_markdown"} and metadata["language"] == "zh":
             raise WorkspaceError("translation_not_applicable", "Chinese source text is displayed directly")
         record_path = plan_root / "records" / f"{chunk_id}.json"
         record = _read_reading_record(record_path, chunk_id)
@@ -1223,6 +1226,7 @@ class WorkspaceCore:
                     raise WorkspaceError("reading_record_write_failed", "Pending Notes could not be saved") from exc
         next_chunk_id = chunks[index + 1]["chunk_id"] if index + 1 < len(chunks) else None
         source_state["current_chunk_id"] = next_chunk_id
+        source_state["reading_started"] = True
         topic_advanced = False
         if next_chunk_id is None and state.get("current_topic_id") is not None:
             topic_id = validate_topic_id(state["current_topic_id"])
@@ -1335,7 +1339,7 @@ class WorkspaceCore:
         if not isinstance(source_states, dict) or not isinstance(source_states.get(source_id), dict):
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         source_state = source_states[source_id]
-        if set(source_state) != {"current_plan_id", "current_chunk_id"}:
+        if (set(source_state) - {"reading_started"}) != {"current_plan_id", "current_chunk_id"}:
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         state["current_source_id"] = source_id
         try:
@@ -1395,7 +1399,7 @@ class WorkspaceCore:
                     found_after = True
                 continue
             source_state = source_states.get(source_id)
-            if not isinstance(source_state, dict) or set(source_state) != {"current_plan_id", "current_chunk_id"}:
+            if not isinstance(source_state, dict) or (set(source_state) - {"reading_started"}) != {"current_plan_id", "current_chunk_id"}:
                 raise WorkspaceError("workspace_state_invalid", f"Workspace state is invalid for Source: {source_id}")
             if source_state["current_plan_id"] is None:
                 raise WorkspaceError("reading_plan_missing", f"Topic Source has no Reading Plan: {source_id}")

@@ -79,7 +79,10 @@ class CoreBridge:
             raise ValueError('Unexpected Core arguments')
         if action == 'map':
             args.setdefault('draft', None)
-        return getattr(self.core, method)(**args)
+        result = getattr(self.core, method)(**args)
+        if action == 'current' and result.get('source_id'):
+            SourceLibrary(self.workspace).start_reading(result['source_id'])
+        return result
 
     def window(self):
         try:

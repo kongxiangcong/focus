@@ -1,0 +1,11 @@
+.task-progress{min-width:0;width:100%;font:12px/1.6 var(--reader-ui,system-ui);color:var(--reader-ink,#35414d)}
+.task-progress__line{display:flex;align-items:center;gap:14px;min-width:0}
+.task-progress__elapsed,.task-progress small{color:var(--reader-muted,#747d86);font-size:11px;font-variant-numeric:tabular-nums}
+.task-progress__elapsed{margin-left:auto;white-space:nowrap}
+.task-progress progress{display:block;width:100%;height:2px;margin:7px 0 4px;accent-color:var(--reader-accent,#778b97)}
+.task-progress[data-status=failed]{color:#975b50}
+.focus-agent__status{display:flex;align-items:start;gap:14px;margin-bottom:8px}
+.focus-agent__status>button{flex-shrink:0;font-size:11px!important;min-height:30px!important;padding:4px 10px!important}
+.library-run .task-progress{padding-block:10px}
+.library-run{gap:16px}.library-run>button{flex-shrink:0;white-space:nowrap}
+@media(prefers-reduced-motion:reduce){.task-progress progress{visibility:hidden}.task-progress__line{border-bottom:2px solid var(--reader-line,#ccc)}}

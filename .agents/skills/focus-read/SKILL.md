@@ -112,3 +112,5 @@ python -B -X utf8 scripts/focus_read.py synthesize-topic <topic-id> --workspace 
 ```
 
 Every claim must carry at least one Source ID and Source Anchor that exactly matches an anchored Reading Note or selected range. The installed `topics/<topic-id>/synthesis/synthesis-NNN.json` contains only concise claims and anchors. It is explicit derived output: never copy Bundles, Records, dialogue, or source text, and never rewrite it automatically when reading or attaching Sources.
+
+The explicit `current` command also marks the selected source as started in the existing Cursor State, without advancing it. Read-only state/window projections do not mark it. See [Library workflow](../../../docs/library-workflow.md).

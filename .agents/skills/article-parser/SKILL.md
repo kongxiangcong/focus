@@ -30,3 +30,5 @@ python -B -X utf8 scripts/article_parser.py resume <task-id-or-batch-id> --works
 ```
 
 Completion requires `content.md`, `source.html`, sequential referenced images, metadata, and validation to install atomically under `sources/<source-id>/parser-bundle/`. An identical canonical URL reuses the existing Source and may attach it to another Topic. Successful registration removes task staging; no receipts, polling history, alternate capture, Topic-owned copy, or compatibility artifact remains.
+
+For Library uploads and selected Markdown files, follow [the shared Library workflow](../../../docs/library-workflow.md). HTML retains MinerU-HTML provenance; Markdown uses local text import, then the same Source Library and Reading Plan.

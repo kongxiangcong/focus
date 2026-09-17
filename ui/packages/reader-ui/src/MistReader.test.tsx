@@ -50,6 +50,20 @@ it("renders bundle images and preserves the draft when collapsing the composer",
   fireEvent.click(screen.getByRole("button", { name: "展开" }));
   expect(screen.getByRole("textbox")).toHaveValue("草稿");
 });
+it("keeps upload and attachment actions out of the Mist reading workspace", async () => {
+  const host: ReaderHost = {
+    getReadingWindow: vi.fn(async () => readerSuccess(first)),
+    continueReading: vi.fn(async () => readerSuccess(first)),
+    sendMessage: vi.fn(async () => readerSuccess(first)),
+    upload: vi.fn(),
+  };
+  render(<FocusReader host={host} appearance="mist" />);
+  await screen.findByRole("heading", { name: "Method" });
+  expect(screen.queryByRole("button", { name: /附件|上传/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "材料" }));
+  expect(screen.queryByRole("button", { name: /附件|上传/ })).not.toBeInTheDocument();
+  expect(host.upload).not.toHaveBeenCalled();
+});
 it("streams one assistant card into the central timeline and keeps only prompts in Companion", async () => {
   let emit!: Parameters<NonNullable<ReaderHost["subscribe"]>>[0];
   const unsubscribe = vi.fn();
@@ -67,7 +81,7 @@ it("streams one assistant card into the central timeline and keeps only prompts 
   fireEvent.change(screen.getByRole("textbox"), { target: { value: prompt.content } });
   fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
   const companion = screen.getByRole("complementary", { name: "阅读助手" });
-  await within(companion).findByRole("button", { name: prompt.content });
+  await within(screen.getByRole("navigation", { name: "历史提问" })).findByRole("button", { name: prompt.content });
   // Partial timeline deliberately omits the streaming message reference.
   act(() => emit(readerSuccess({ ...pending, revision: 3, conversation: [prompt, answer] })));
   const stream = screen.getByRole("main", { name: "阅读与对话" });

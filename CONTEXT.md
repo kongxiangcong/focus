@@ -5,8 +5,8 @@ FOCUS 是一个以来源原文为锚点的私人阅读工作台。它保存可�
 ## Language
 
 **Topic**:
-按阅读意图组织 Reading Source ID 的命名有序集合；顺序就是 Topic Reading 顺序，不拥有或复制来源资产。
-_Avoid_: Course, tag directory, physical asset owner, knowledge domain
+按阅读意图组织 Reading Source ID 的命名有序集合；顺序就是 Topic Reading 顺序；同时作为来源的专题标签。一份来源可属于多个专题，不拥有或复制来源资产。
+_Avoid_: Course, physical asset owner, knowledge domain
 
 **Source Library**:
 Workspace 内唯一的 `sources/` 权威集合；每份 Reading Source 及其 Parser Bundle、Reading Plans、Records 与 Notes 只保存一次。
@@ -21,7 +21,7 @@ _Avoid_: Learning object, assessment subject, knowledge item
 _Avoid_: Article Source, generic document
 
 **Article Source**:
-以公开 URL 或用户手动保存的单文件 HTML 提供并由 MinerU-HTML 解析的中文文章或博客，不按发布平台细分。
+以 URL、单文件 HTML 或 Markdown 提供的文章或博客，不按发布平台细分。
 _Avoid_: Zhihu Source, WeChat Source, Paper Source
 
 **Source Title**:
@@ -41,7 +41,7 @@ _Avoid_: Source Title, source hash, mutable display name
 _Avoid_: Source ID, directory name, display title
 
 **Parser Bundle**:
-由 Paper Parser 或 Article Parser 直接生成在 Reading Source 目录中的规范来源表示、Markdown、引用图片、最小元数据与结构验证结果。
+由来源解析或 Markdown 导入得到的规范来源表示、Markdown、引用图片、最小元数据与结构验证结果。
 _Avoid_: Temporary extraction, duplicate source tree, Reading Plan
 
 **Blog Output**:
@@ -61,7 +61,7 @@ Reading Plan 中一个稳定、连续、可整体展示的原文单元。
 _Avoid_: Lesson, checkpoint, mastery node
 
 **Cursor State**:
-workspace/state.json 中保存当前 Reading Source、可选当前 Topic，以及每份 Source 当前 Plan/Chunk 引用的极小持久化对象。
+workspace/state.json 中保存当前 Reading Source、可选当前 Topic，以及每份 Source 当前 Plan/Chunk 引用及是否已开始阅读的极小持久化对象。
 _Avoid_: Session state, event log, per-Topic progress matrix
 
 **Reading Cursor**:
@@ -103,3 +103,7 @@ _Avoid_: Full glossary projection, global vocabulary
 **Private Reading Data**:
 留在本地 Workspace 的 Cursor State、翻译、Reading Notes 和其他读者特定资产。
 _Avoid_: Public fixture, reusable project asset, user profile
+
+**Reading Status**:
+来源的待规划、待阅读、阅读中或已完成状态；规划与开始阅读是不同事件，完成表示已经读过最后一个 Chunk。
+_Avoid_: Understanding score, per-Topic progress copy

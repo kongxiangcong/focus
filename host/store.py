@@ -2,6 +2,7 @@
 import json
 import sqlite3
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -26,6 +27,8 @@ class Store:
         run = self.state['run']
         if run and run['status'] in ('running', 'stopping', 'approval'):
             run.update(status='interrupted', error='后台已重启；上次任务已中断，请检查已落盘的更改后再发送。', approvals=[])
+            if run.get('progress'):
+                run['progress']['finishedAt'] = int(time.time() * 1000)
             self.save()
 
     def get(self, key):

@@ -69,3 +69,5 @@ A successful reinitialization creates the next plan-NNN directory, fully install
 Phase 1 intentionally has no compatibility conversion, locks, revisions, event log, or multi-writer recovery.
 
 The JSON is transport only. Never persist it under `tmp/`, emit its path as a receipt, or retain internal staging after success or failure.
+
+Library upload and reread call planning only: a new Plan is ready but not started. Do not automatically call focus-read. The next explicit reading action starts it. See [Library workflow](../../../docs/library-workflow.md).
