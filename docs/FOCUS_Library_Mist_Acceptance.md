@@ -1,6 +1,7 @@
 # Library / Reading / Settings — 2026-09-17 delivery
 
-Base: `ee8e0ff`. Changes are local only; no push or remote branch update.
+Base: `ee8e0ff`. This report describes the Library / Mist delivery now published
+to the repository's `main` branch.
 
 ## Delivered
 
