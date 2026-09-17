@@ -65,3 +65,20 @@ ReaderHost optionally, preserving fixture/DSH adapters. Settings persist appeara
 locally and backend selection through the existing Host setting; backend switches
 create a fresh conversation without touching reading assets. WorkBuddy remains
 unavailable as specified by ADR 0007 until its integration is implemented.
+
+## Visual revision, 2026-09-17 (Mist shell)
+
+The subsequent user request restores the 86px application rail and desktop
+Companion alongside the central flow. This supersedes the small bottom-only
+composer placement above and the Companion prohibition in ADR 0005's earlier
+revision. Companion contains backend status, prompt navigation and the composer;
+Agent answers remain in the central, source-anchored timeline. On narrow windows,
+Companion moves below the flow. ReaderHost, Core authority and conversation
+persistence remain unchanged. Shared Mist tokens govern all three routes.
+
+HTML upload, recent-reading timestamps and runtime network control were requested,
+but this revision's backend accepts only PDF library uploads, exposes no recent
+reading timestamp, and has no network-settings endpoint. With backend/protocol
+changes excluded, the UI submits selected PDF/HTML through the existing adapter
+and surfaces upload errors; missing times are not invented; network control is
+visibly unavailable. WorkBuddy remains disabled regardless of backend metadata.

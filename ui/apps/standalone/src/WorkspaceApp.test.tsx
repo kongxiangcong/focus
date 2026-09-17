@@ -25,17 +25,17 @@ it("lands in Library and persists the chosen font across remounts", async () => 
   const app = setup(); await screen.findByText("A Paper");
   expect(location.pathname).toBe("/library");
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
-  fireEvent.click(screen.getByRole("button", { name: "特大" }));
+  fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
   expect(screen.getByRole("radio", { name: /WorkBuddy/ })).toBeDisabled();
   app.unmount(); setup();
-  expect(await screen.findByRole("button", { name: "特大" })).toHaveAttribute("aria-pressed", "true");
+  expect(await screen.findByRole("slider", { name: "字号" })).toHaveValue("3");
   fireEvent.click(screen.getByRole("link", { name: "阅读" }));
   expect(screen.getByRole("complementary", { name: "阅读进度与操作" })).toBeVisible();
 });
 it("uploads a PDF automatically and dispatches explicit destructive operations only after confirmation", async () => {
   const { host } = setup(); await screen.findByText("A Paper");
   const pdf = new File(["%PDF test"], "test.pdf", { type: "application/pdf" });
-  fireEvent.change(screen.getByLabelText("上传论文 PDF"), { target: { files: [pdf] } });
+  fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [pdf] } });
   await waitFor(() => expect(host.uploadSource).toHaveBeenCalledWith(pdf));
   await waitFor(() => expect(screen.getByRole("button", { name: "删除" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "删除" }));
@@ -44,7 +44,30 @@ it("uploads a PDF automatically and dispatches explicit destructive operations o
   await waitFor(() => expect(host.deleteSource).toHaveBeenCalledWith("a-paper"));
   await waitFor(() => expect(screen.getByRole("button", { name: "重读" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "重读" }));
-  fireEvent.click(screen.getByRole("button", { name: "清除并重读" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认重读" }));
   await waitFor(() => expect(host.rereadSource).toHaveBeenCalledWith("a-paper"));
   await waitFor(() => expect(location.pathname).toBe("/reading"));
+});
+it("filters source cards and supports HTML drop while rejecting unsupported files", async () => {
+  const { host } = setup(); await screen.findByText("A Paper");
+  expect(screen.getByText("PDF").closest("article")).toBeInTheDocument();
+  expect(screen.getByRole("progressbar", { name: "A Paper 阅读进度" })).toHaveAttribute("value", "1");
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "missing" } });
+  expect(screen.getByText("暂无匹配材料")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "重置" }));
+  const page = screen.getByRole("main");
+  const html = new File(["<p>Article</p>"], "article.html", { type: "text/html" });
+  fireEvent.drop(page, { dataTransfer: { files: [html] } });
+  await waitFor(() => expect(host.uploadSource).toHaveBeenCalledWith(html));
+  await waitFor(() => expect(screen.getByRole("button", { name: "上传" })).toBeEnabled());
+  fireEvent.drop(page, { dataTransfer: { files: [new File(["text"], "file.txt")] } });
+  expect(host.uploadSource).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("alert")).toHaveTextContent("请选择 PDF 或 HTML");
+});
+it("persists brightness and leaves unsupported network control disabled", async () => {
+  setup(); await screen.findByText("A Paper");
+  fireEvent.click(screen.getByRole("link", { name: "设置" }));
+  fireEvent.change(screen.getByRole("slider", { name: "亮度" }), { target: { value: "90" } });
+  expect(localStorage.getItem("focus.brightness")).toBe("90");
+  expect(screen.getByRole("switch", { name: "网络" })).toBeDisabled();
 });

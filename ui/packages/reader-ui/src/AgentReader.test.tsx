@@ -31,7 +31,7 @@ const running: ReadingWindow = { ...empty, revision: 3, conversation: [{ message
     approvals: [{ id: "a", title: "命令审批", detail: "python demo.py", kind: "approval", questions: [], choices: ["accept", "decline"] }] } } };
 describe("Agent Reader", () => {
   it("shows domestic WorkBuddy as unavailable without substituting CodeBuddy", async () => {
-    const { host, update } = setup(); await screen.findByText("从一份材料开始");
+    const { host, update } = setup(); await screen.findByText("打开一份材料");
     update({ ...empty, revision: 2, agent: { ...empty.agent!, backend: "codex", backends: [
       { id: "codex", label: "Codex" }, { id: "workbuddy", label: "WorkBuddy（国内，待接入）", unavailableReason: "需要开放平台授权" },
     ] } });
@@ -39,7 +39,7 @@ describe("Agent Reader", () => {
     expect(host.selectBackend).not.toHaveBeenCalled();
   });
   it("switches agents through the host and retains the current selection on failure", async () => {
-    const { host, update } = setup(); await screen.findByText("从一份材料开始");
+    const { host, update } = setup(); await screen.findByText("打开一份材料");
     const agent = { ...empty.agent!, backend: "codex", backends: [{ id: "codex", label: "Codex" }, { id: "workbuddy", label: "WorkBuddy" }] };
     update({ ...empty, revision: 2, agent });
     vi.mocked(host.selectBackend!).mockResolvedValueOnce(readerFailure("unavailable", "SDK 未安装", false));
@@ -53,17 +53,17 @@ describe("Agent Reader", () => {
     expect(screen.getByLabelText("选择 Agent")).toBeDisabled();
   });
   it("offers an executable attachment action and retries upload independently", async () => {
-    const { host } = setup(); await screen.findByText("从一份材料开始");
+    const { host } = setup(); await screen.findByText("打开一份材料");
     vi.mocked(host.upload!).mockResolvedValueOnce(readerFailure("unavailable", "network", true));
     fireEvent.change(screen.getByLabelText("选择论文文件"), { target: { files: [new File(["pdf"], "paper.pdf")] } });
     fireEvent.click(await screen.findByRole("button", { name: "重试上传" }));
     await screen.findByText("已上传");
-    fireEvent.click(screen.getByRole("button", { name: "开始阅读附件" }));
+    fireEvent.click(screen.getByRole("button", { name: "阅读附件" }));
     await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ content: "请阅读附件", receipt: null, attachmentIds: ["upload-1"] })));
     expect(host.continueReading).not.toHaveBeenCalled();
   });
   it("keeps drafts editable while running, allows approval retry, and rejects stale snapshots", async () => {
-    const { host, update } = setup(); await screen.findByText("从一份材料开始"); update(running);
+    const { host, update } = setup(); await screen.findByText("打开一份材料"); update(running);
     expect(screen.getByRole("textbox")).toBeEnabled();
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "下一条草稿" } });
     vi.mocked(host.approve!).mockResolvedValueOnce(readerFailure("unavailable", "failed", true));
@@ -77,7 +77,7 @@ describe("Agent Reader", () => {
     expect(screen.getByRole("textbox")).toHaveValue("下一条草稿");
   });
   it("sends explicit explanations unchanged and displays the requested answer", async () => {
-    const { host, update } = setup(); await screen.findByText("从一份材料开始");
+    const { host, update } = setup(); await screen.findByText("打开一份材料");
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "请讲解这段" } });
     fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
     await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ content: "请讲解这段" })));
@@ -86,7 +86,7 @@ describe("Agent Reader", () => {
     expect(host.continueReading).not.toHaveBeenCalled();
   });
   it("resets the real host session and clears draft, attachments and stale events", async () => {
-    const { host, update } = setup(); await screen.findByText("从一份材料开始"); update(running);
+    const { host, update } = setup(); await screen.findByText("打开一份材料"); update(running);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "old draft" } });
     fireEvent.click(screen.getByRole("button", { name: "停止并新建" }));
     await waitFor(() => expect(host.newSession).toHaveBeenCalledWith("session-1"));
@@ -100,7 +100,7 @@ describe("Agent Reader", () => {
     await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session-2" })));
   });
   it("ignores a late upload after reset and sends a fresh question without the saved cursor", async () => {
-    const { host, update } = setup(); await screen.findByText("从一份材料开始");
+    const { host, update } = setup(); await screen.findByText("打开一份材料");
     let resolve!: (v: ReaderHostResult<{ attachmentId: string; name: string }>) => void;
     vi.mocked(host.upload!).mockReturnValue(new Promise(r => { resolve = r; }));
     fireEvent.change(screen.getByLabelText("选择论文文件"), { target: { files: [new File(["pdf"], "late.pdf")] } });
@@ -115,7 +115,7 @@ describe("Agent Reader", () => {
     await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: null, attachmentIds: [] })));
   });
   it("does not pull an upward reader to streaming output", async () => {
-    const { update } = setup(); await screen.findByText("从一份材料开始"); update(running);
+    const { update } = setup(); await screen.findByText("打开一份材料"); update(running);
     const pane = screen.getByRole("main");
     Object.defineProperties(pane, { scrollHeight: { value: 2000 }, clientHeight: { value: 500 } });
     pane.scrollTop = 150; fireEvent.scroll(pane);

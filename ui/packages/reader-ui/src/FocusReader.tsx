@@ -81,12 +81,15 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     ...chunks.map(chunk => ({ kind: "reading" as const, chunk })),
     ...(view?.conversation ?? []).map(m => ({ kind: "message" as const, messageId: m.messageId })),
   ];
+  const orderedEntries = [...hostEntries, ...(view?.conversation ?? [])
+    .filter(m => !hostEntries.some(e => e.kind === "message" && e.messageId === m.messageId))
+    .map(m => ({ kind: "message" as const, messageId: m.messageId }))];
   // Mist can revisit Core-projected history across new conversations without moving Cursor.
   const entries = mist ? [
     ...chunks.filter(c => !hostEntries.some(e => e.kind === "reading" && chunkKey(e.chunk) === chunkKey(c)))
       .map(chunk => ({ kind: "reading" as const, chunk })),
-    ...hostEntries,
-  ] : hostEntries;
+    ...orderedEntries,
+  ] : orderedEntries;
   const visibleChunks = entries.flatMap(e => e.kind === "reading" ? [e.chunk] : []);
   const displayEmpty = entries.length === 0;
   const contentVersion = `${view?.sessionId}:${entries.length}:${view?.conversation.map(m => m.content).join('\n')}:${current?.translation?.length}`;
@@ -187,22 +190,12 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const outline = view?.outline ?? Array.from({ length: current?.total ?? chunks.at(-1)?.total ?? 0 }, (_, i) => ({ chunkId: `chunk-${String(i + 1).padStart(3, "0")}`, index: i + 1, sectionPath: [] as string[] }));
   return <div className={`focus-reader${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}>
     {mist && <aside className="mist-sidebar" aria-label="阅读进度与操作">
-      <span className="mist-eyebrow">READING / 阅读</span>
-      <h1>{view?.source.sourceId ? view.source.title : "在这里，慢慢读。"}</h1>
-      <div className="mist-shortcuts">
-        <button onClick={() => setPanel("materials")}>＋ 加载材料</button>
-        <button disabled={!host.newSession || !view || !!operation} onClick={reset}>{active ? "停止并新建" : "新会话"}</button>
-        <button className="focus-primary" disabled={!current || blocked} onClick={() => { follow.current = true; next(); }}>下一段 →</button>
-        <button disabled={!current} onClick={() => current && referenceChunk(current)}>引用这段提问</button>
-        {!!current && view?.sessionFresh && host.resumeReading && <button onClick={resume}>恢复阅读</button>}
-      </div>
       <div className="mist-progress-label"><span>阅读进度</span><span>{view?.status === "completed" ? "已读完" : `${current?.index ?? 0} / ${current?.total ?? 0}`}</span></div>
       <nav className="mist-outline" aria-label="段落目录">{outline.map(item => {
         const loaded = chunks.find(c => c.chunkId === item.chunkId);
         return <button key={item.chunkId} disabled={!loaded} aria-current={current?.chunkId === item.chunkId ? "step" : undefined}
-          onClick={() => loaded && review(loaded)}><span>{String(item.index).padStart(2, "0")}</span><span>{loaded?.sectionPath.at(-1) ?? item.sectionPath.at(-1) ?? "未读段落"}</span></button>;
+          onClick={() => loaded && review(loaded)}><span>{String(item.index).padStart(2, "0")}</span><span className="focus-sr-only">{loaded?.sectionPath.at(-1) ?? item.sectionPath.at(-1) ?? "未读段落"}</span></button>;
       })}</nav>
-      <p className="mist-sidebar-hint">回看不改变阅读位置<br />一次，只往前一段。</p>
     </aside>}
     {!mist && <header className="focus-header">
       <span className="focus-brand">FOCUS<span>.</span></span>
@@ -223,12 +216,11 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       <div className="focus-content">
         {!view && <p role="status">{connection ? "暂时无法连接" : "正在打开…"}</p>}
         {view && displayEmpty && <section className="focus-start">
-          <span className="focus-start__label">FOCUS / READING</span>
-          <h1>从一份材料开始</h1>
-          <p>打开材料，或在下方输入阅读需求。</p>
+          <span className="focus-start__label" aria-hidden="true">▤</span>
+          <h1>打开一份材料</h1>
           <div><button className="focus-primary" onClick={() => setPanel("materials")}>打开材料</button>
-            {host.upload && <button onClick={() => fileInput.current?.click()}>上传 PDF / HTML</button>}
-            {(current || view.history.length > 0) && host.resumeReading && <button onClick={resume} disabled={blocked}>继续上次阅读</button>}</div>
+            {host.upload && <button onClick={() => fileInput.current?.click()}>上传</button>}
+            {(current || view.history.length > 0) && host.resumeReading && <button onClick={resume} disabled={blocked}>恢复阅读</button>}</div>
         </section>}
         {entries.map((e, index) => {
           const message = e.kind === "message" ? view?.conversation.find(m => m.messageId === e.messageId) : null;
@@ -239,12 +231,19 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         {view?.status === "completed" && !view.sessionFresh && !displayEmpty && <p className="focus-finished">已读完 · 可以继续提问，或<button onClick={() => setPanel("materials")}>打开其他材料</button></p>}
       </div>
     </main>
-    <div className="focus-bottom">
+    <div className="focus-bottom" role={mist ? "complementary" : undefined} aria-label={mist ? "阅读助手" : undefined}>
+      {mist && <><header className="mist-agent-status"><span className="mist-status-dot" data-active={active} /><strong>{agent?.backends?.find(b => b.id === agent.backend)?.label ?? "Agent"}</strong><span>{connection ? "离线" : active ? "处理中" : "就绪"}</span></header>
+      <nav className="mist-prompts" aria-label="历史提问">{view?.conversation.filter(m => m.role === "user").map(m => <button key={m.messageId} title={m.content} onClick={() => {
+        follow.current = false;
+        const target = Array.from(stream.current?.querySelectorAll<HTMLElement>("[data-message-id]") ?? []).find(el => el.dataset.messageId === m.messageId);
+        target?.scrollIntoView({ block: "center", behavior: "instant" });
+      }}>{m.content}</button>)}</nav></>}
+
       {newContent && <button className="focus-new-content" onClick={() => {
         follow.current = true; setNewContent(false); settle();
-      }}>{mist ? "有新内容 · 回到当前输出 ↓" : "有新内容 · 回到底部 ↓"}</button>}
+      }}>{mist ? "查看新内容" : "有新内容 · 回到底部 ↓"}</button>}
       <div className="focus-composer-wrap">
-        {mist && <button className="mist-composer-toggle" aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>{collapsed ? "提问 / 展开对话 ＋" : "对话 · 收起 −"}</button>}
+        {mist && <button className="mist-composer-toggle" aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>{collapsed ? "展开" : "收起"}</button>}
         {!mist && agent?.backend && agent.backends && host.selectBackend && view?.sessionId && <div className="focus-backend">
           <label>Agent <select aria-label="选择 Agent" value={agent.backend} disabled={blocked || uploading}
             onChange={e => { const name = e.target.value; const id = view.sessionId!;
@@ -270,7 +269,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         </li>)}</ul>}
         <form hidden={mist && collapsed} className="focus-composer" onSubmit={e => { e.preventDefault(); send(); }}>
           <label className="focus-sr-only" htmlFor="focus-question">输入问题或阅读需求</label>
-          <textarea id="focus-question" ref={composer} rows={2} value={draft} placeholder="输入问题，或告诉 Agent 你想读什么…"
+          <textarea id="focus-question" ref={composer} rows={2} value={draft} placeholder="问问这段原文…"
             onChange={e => setDraft(e.target.value)} onKeyDown={e => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); }
             }} />
@@ -278,7 +277,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
             <div>{host.upload && <><input ref={fileInput} className="focus-sr-only" aria-label="选择论文文件" type="file" accept=".pdf,.html" multiple onChange={e => {
               Array.from(e.target.files ?? []).forEach(f => void upload(f)); e.target.value = "";
             }} /><button type="button" onClick={() => fileInput.current?.click()} aria-label="添加附件">＋ 附件</button></>}
-              {uploads.some(u => u.state === "ready") && <button type="button" disabled={blocked || uploading} onClick={() => send("请阅读附件", false)}>开始阅读附件</button>}
+              {uploads.some(u => u.state === "ready") && <button type="button" disabled={blocked || uploading} onClick={() => send("请阅读附件", false)}>阅读附件</button>}
             </div>
             <button type="submit" className="focus-primary" disabled={!view || blocked || uploading || !draft.trim()}>{operation === "发送" ? "发送中…" : "发送 ↑"}</button>
           </div>
@@ -286,11 +285,12 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         {!mist && current && visibleChunks.some(c => chunkKey(c) === chunkKey(current)) && <div className="focus-next"><button disabled={blocked} onClick={next}>{operation === "下一段" ? "正在打开…" : "下一段 →"}</button></div>}
       </div>
     </div>
+    {mist && <footer className="mist-reading-actions"><span title={view?.source.title}>{view?.source.title || "阅读工作台"}</span><button onClick={() => setPanel("materials")}>材料</button><button disabled={!host.newSession || !view || !!operation} onClick={reset}>新会话</button>{view?.sessionFresh && host.resumeReading && <button disabled={blocked} onClick={resume}>恢复</button>}<button className="focus-reader__continue" disabled={!current || blocked} onClick={() => { follow.current = true; next(); }}>{operation === "下一段" ? "打开中" : "继续"}</button></footer>}
     <dialog ref={dialog} className="focus-dialog" onCancel={() => setPanel(null)} onClick={e => { if (e.target === dialog.current) setPanel(null); }}>
       <header><h2>{panel === "materials" ? "材料" : panel === "contents" ? "已加载段落" : "阅读设置"}</h2><button aria-label="关闭" onClick={() => setPanel(null)}>×</button></header>
       {panel === "materials" && <>
         {view?.source.sourceId && <p className="focus-full-title">{view.source.title}</p>}
-        {host.upload && <button onClick={() => { setPanel(null); fileInput.current?.click(); }}>上传 PDF / HTML</button>}
+        {host.upload && <button onClick={() => { setPanel(null); fileInput.current?.click(); }}>上传</button>}
         {agent?.catalog.sources.length ? <section><h3>来源</h3>{agent.catalog.sources.map(s => <button className="focus-material" disabled={blocked} key={s.sourceId} onClick={() => { follow.current = true; if (host.openSource) void perform("加载材料", () => host.openSource!(s.sourceId), () => setPanel(null)); else send(`开始阅读 Source ${s.sourceId}`, false, false); }}>{s.title}</button>)}</section> : <p>暂无已保存的材料。</p>}
         {!!agent?.catalog.topics.length && <section><h3>专题</h3>{agent.catalog.topics.map(t => <button className="focus-material" disabled={blocked} key={t.topicId} onClick={() => send(`开始阅读 Topic ${t.topicId}`, false, false)}>{t.title}</button>)}</section>}
       </>}

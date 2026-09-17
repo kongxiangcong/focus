@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { readerSuccess, type ReaderHost, type ReadingWindow } from "@focus/reader-contracts";
 import { FocusReader } from "./FocusReader";
@@ -30,7 +30,7 @@ it("disables unread navigation, advances once, and reviews history without movin
   const host = setup();
   const nav = await screen.findByRole("navigation", { name: "段落目录" });
   await waitFor(() => expect(within(nav).getByRole("button", { name: /02/ })).toBeDisabled());
-  fireEvent.click(screen.getByRole("button", { name: "下一段 →" }));
+  fireEvent.click(screen.getByRole("button", { name: "继续" }));
   await screen.findByRole("heading", { name: "Results" });
   expect(host.continueReading).toHaveBeenCalledTimes(1);
   fireEvent.click(within(nav).getByRole("button", { name: /01.*Method/ }));
@@ -45,8 +45,40 @@ it("renders bundle images and preserves the draft when collapsing the composer",
   const image = await screen.findByRole("img", { name: "Figure" });
   expect(image).toHaveAttribute("src", "/reader/assets/demo-paper/images/image-001.png");
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "草稿" } });
-  fireEvent.click(screen.getByRole("button", { name: "对话 · 收起 −" }));
+  fireEvent.click(screen.getByRole("button", { name: "收起" }));
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "提问 / 展开对话 ＋" }));
+  fireEvent.click(screen.getByRole("button", { name: "展开" }));
   expect(screen.getByRole("textbox")).toHaveValue("草稿");
+});
+it("streams one assistant card into the central timeline and keeps only prompts in Companion", async () => {
+  let emit!: Parameters<NonNullable<ReaderHost["subscribe"]>>[0];
+  const unsubscribe = vi.fn();
+  const prompt = { messageId: "u1", chunkId: current.chunkId, role: "user" as const, content: "解释共享存储" };
+  const answer = { messageId: "a1", chunkId: current.chunkId, role: "assistant" as const, content: "先确定 **生命周期**。" };
+  const pending: ReadingWindow = { ...first, revision: 2, conversation: [prompt], timeline: [{ kind: "reading", chunk: current }, { kind: "message", messageId: "u1" }] };
+  const host: ReaderHost = {
+    getReadingWindow: vi.fn(async () => readerSuccess({ ...first, revision: 1 })),
+    continueReading: vi.fn(async () => readerSuccess(first)),
+    sendMessage: vi.fn(async () => readerSuccess(pending)),
+    subscribe: callback => { emit = callback; return unsubscribe; },
+  };
+  const app = render(<FocusReader host={host} appearance="mist" />);
+  await screen.findByRole("heading", { name: "Method" });
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: prompt.content } });
+  fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+  const companion = screen.getByRole("complementary", { name: "阅读助手" });
+  await within(companion).findByRole("button", { name: prompt.content });
+  // Partial timeline deliberately omits the streaming message reference.
+  act(() => emit(readerSuccess({ ...pending, revision: 3, conversation: [prompt, answer] })));
+  const stream = screen.getByRole("main", { name: "阅读与对话" });
+  expect(within(stream).getByText("生命周期").tagName).toBe("STRONG");
+  expect(within(companion).queryByText("生命周期")).not.toBeInTheDocument();
+  expect(stream.querySelectorAll(".focus-reader__chunk")).toHaveLength(2);
+  expect([...stream.querySelectorAll("article")].map(el => el.getAttribute("data-role"))).toEqual([null, "user", "assistant"]);
+  act(() => emit(readerSuccess({ ...pending, revision: 4, conversation: [prompt, { ...answer, content: "完成后的唯一回复" }] })));
+  expect(within(stream).getAllByText("完成后的唯一回复")).toHaveLength(1);
+  act(() => emit(readerSuccess({ ...pending, revision: 3, conversation: [prompt, answer] })));
+  expect(within(stream).queryByText("生命周期")).not.toBeInTheDocument();
+  expect(host.continueReading).not.toHaveBeenCalled();
+  app.unmount(); expect(unsubscribe).toHaveBeenCalledOnce();
 });
