@@ -86,7 +86,7 @@ describe("FocusReader unified flow", () => {
   it("references a historical paragraph independently of the cursor", async () => {
     const host = setup(secondWindow);
     await screen.findByText("The second chunk.");
-    fireEvent.click(screen.getAllByRole("button", { name: "引用这段提问" })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: "引用提问" })[0]);
     expect(screen.getByText(/引用第 1 段/)).toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "解释这段" } });
     fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));

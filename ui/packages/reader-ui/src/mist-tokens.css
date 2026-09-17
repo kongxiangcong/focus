@@ -1,0 +1,16 @@
+/* Shared Mist values supplied by the visual baseline. */
+:root, .focus-mist {
+  --reader-paper:#f0eeef;
+  --reader-ink:#35414d;
+  --reader-muted:#747d86;
+  --reader-faint:#9ba0a7;
+  --reader-accent:#778b97;
+  --reader-line:rgb(73 85 99 / 13%);
+  --reader-serif:"Iowan Old Style","Palatino Linotype","Noto Serif CJK SC","Songti SC","SimSun",Georgia,serif;
+  --reader-ui:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  --reader-ease-out:cubic-bezier(.23,1,.32,1);
+  --reader-duration-move:.28s;
+  --reader-duration-ui:.16s;
+  --reader-shadow:0 16px 46px -18px #7b615242;
+  --reader-radius:17px;
+}

@@ -35,8 +35,5 @@ export function AgentControls({ agent, onStop, onAnswer }: { agent: ReaderAgentS
       <button onClick={onStop} disabled={run.status === "stopping"}>停止</button></div>}
     {run.error && <p role="alert">{run.error}</p>}
     {run.approvals.map(a => <Approval key={a.id} approval={a} onAnswer={onAnswer} />)}
-    {run.activity.length > 0 && <details><summary>执行记录</summary>
-      {run.activity.map(a => <details key={a.id}><summary>{a.title} · {a.status}</summary><pre>{a.detail}</pre></details>)}
-    </details>}
   </div>;
 }
