@@ -282,3 +282,110 @@ class SourceLibrary:
             topic["sources"].append(source_id)
             _write_document(topic_path, topic)
         return resolved
+
+    def _safe_root(self, source_id: str) -> Path:
+        self.get(source_id)
+        root = self.workspace / 'sources' / source_id
+        if root.is_symlink() or root.resolve().parent != (self.workspace / 'sources').resolve() or not root.resolve().is_relative_to(self.workspace):
+            raise WorkspaceError('source_invalid', 'Source directory escapes the Workspace')
+        if any(p.is_symlink() for p in root.rglob('*')):
+            raise WorkspaceError('source_invalid', 'Source contains symbolic links')
+        return root
+
+    def topics(self) -> list[dict[str, Any]]:
+        result = []
+        for path in sorted((self.workspace / 'topics').glob('*/topic.yaml')):
+            _, _, topic = self._prepare_topic(existing_topic_id=path.parent.name)
+            result.append({'topicId': topic['topic_id'], 'title': topic['title'], 'sourceIds': topic['sources']})
+        return result
+
+    def overview(self) -> list[dict[str, Any]]:
+        from .reading_workspace import _read_chunk_records, _read_reading_record
+        if any((self.workspace / 'papers').glob('*/parser-bundle')):
+            raise WorkspaceError('legacy_workspace_layout', '旧 papers/ 目录需要先迁移到 sources/；未自动移动或复制资产。')
+        state = _read_document(self.workspace / 'state.json', {'sources': {}})
+        topics = self.topics()
+        result = []
+        for source in self._sources():
+            sid = source['source_id']
+            root = self._safe_root(sid)
+            error = None
+            try:
+                _validate_parser_bundle(root / 'parser-bundle')
+            except WorkspaceError as exc:
+                error = str(exc)
+            selected = state.get('sources', {}).get(sid, {})
+            plan, cursor = selected.get('current_plan_id'), selected.get('current_chunk_id')
+            total = completed = 0
+            if plan:
+                from .reading_workspace import _identifier
+                chunks = _read_chunk_records(root / 'reading/plans' / _identifier(plan, 'reading_plan') / 'chunks.jsonl')
+                total = len(chunks)
+                if cursor is None:
+                    completed = total
+                else:
+                    ids = [c['chunk_id'] for c in chunks]
+                    if cursor not in ids:
+                        raise WorkspaceError('workspace_state_invalid', 'Cursor is absent from its Plan')
+                    completed = ids.index(cursor)
+            notes = sum(len(_read_reading_record(p, p.stem)['notes'])
+                        for p in (root / 'reading/plans').glob('*/records/*.json'))
+            result.append({'sourceId': sid, 'title': source['title'],
+                           'kind': 'paper' if source['source_kind'] == 'paper_pdf' else 'article',
+                           'parseStatus': 'invalid' if error else 'ready', 'error': error,
+                           'progress': {'completed': completed, 'total': total, 'planId': plan, 'chunkId': cursor},
+                           'noteCount': notes, 'topicIds': [t['topicId'] for t in topics if sid in t['sourceIds']]})
+        return result
+
+    def reset_reading(self, source_id: str) -> None:
+        """Explicit Library reread: preserve Bundle/translations, erase all Notes and selection."""
+        from .reading_workspace import _read_reading_record
+        root = self._safe_root(source_id)
+        state_path = self.workspace / 'state.json'
+        state = _read_document(state_path)
+        state.setdefault('current_topic_id', None)
+        state['sources'][source_id] = {'current_plan_id': None, 'current_chunk_id': None}
+        state['current_source_id'] = source_id
+        state['current_topic_id'] = None
+        updates = {state_path: state}
+        for path in (root / 'reading/plans').glob('*/records/*.json'):
+            record = _read_reading_record(path, path.stem)
+            record['notes'] = []
+            updates[path] = record
+        snapshots = {p: p.read_bytes() for p in updates}
+        try:
+            for path, value in updates.items():
+                _write_document(path, value)
+        except Exception:
+            for path, snapshot in snapshots.items():
+                _restore(path, snapshot)
+            raise
+
+    def delete(self, source_id: str) -> None:
+        """Detach references before permanently removing the one authoritative directory."""
+        root = self._safe_root(source_id)
+        state_path = self.workspace / 'state.json'
+        state = _read_document(state_path)
+        state.setdefault('current_topic_id', None)
+        state['sources'].pop(source_id, None)
+        if state.get('current_source_id') == source_id:
+            state['current_source_id'] = None
+            state['current_topic_id'] = None
+        updates = {state_path: state}
+        for topic in self.topics():
+            path = self.workspace / 'topics' / topic['topicId'] / 'topic.yaml'
+            value = _read_document(path)
+            value['sources'] = [s for s in value['sources'] if s != source_id]
+            updates[path] = value
+        snapshots = {p: p.read_bytes() for p in updates}
+        removing = root.with_name(f'.{root.name}.{uuid.uuid4().hex}.deleting')
+        root.replace(removing)
+        try:
+            for path, value in updates.items():
+                _write_document(path, value)
+        except Exception:
+            removing.replace(root)
+            for path, snapshot in snapshots.items():
+                _restore(path, snapshot)
+            raise
+        shutil.rmtree(removing)

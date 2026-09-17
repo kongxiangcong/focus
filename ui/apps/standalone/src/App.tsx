@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FocusReader } from "@focus/reader-ui";
+import { WorkspaceApp } from "./WorkspaceApp";
 import { createStandaloneReaderHost } from "./adapters/create-standalone-reader-host";
 
 const baseUrl = import.meta.env.VITE_FOCUS_READER_BASE_URL?.trim() ?? "";
@@ -17,7 +17,7 @@ export function App() {
     }).catch(() => { setChecking(false); setReady(true); });
   }, []);
   if (checking) return <main className="focus-login"><h1>FOCUS</h1><p role="status">正在打开…</p></main>;
-  if (ready) return <FocusReader host={readerHost} />;
+  if (ready) return <WorkspaceApp host={readerHost} />;
   return <main className="focus-login"><h1>focus.</h1><p>输入 FOCUS 后台启动时显示的访问口令。</p>
     <form onSubmit={async e => {
       e.preventDefault();

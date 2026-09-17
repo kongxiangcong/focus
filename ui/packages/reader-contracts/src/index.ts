@@ -58,6 +58,7 @@ export interface ReaderMessage {
 }
 
 export interface ReadingWindow {
+  outline?: readonly { chunkId: string; index: number; sectionPath: readonly string[] }[];
   revision?: number;
   sessionId?: string;
   sessionFresh?: boolean;
@@ -146,7 +147,31 @@ export type ReaderHostResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: ReaderFailure };
 
+export interface LibraryTopic {
+  topicId: string;
+  title: string;
+  sourceIds: readonly string[];
+}
+
+export interface LibrarySource {
+  sourceId: string;
+  title: string;
+  kind: "paper" | "article";
+  parseStatus: "ready" | "invalid";
+  error: string | null;
+  progress: { completed: number; total: number; planId: string | null; chunkId: string | null };
+  /** Total saved Notes across this Source's Plans; records have no timestamps. */
+  noteCount: number;
+  topicIds: readonly string[];
+}
+
 export interface ReaderHost {
+  listTopics?(): Promise<ReaderHostResult<readonly LibraryTopic[]>>;
+  listSources?(): Promise<ReaderHostResult<readonly LibrarySource[]>>;
+  uploadSource?(file: File): Promise<ReaderHostResult<ReadingWindow>>;
+  deleteSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  openSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   selectBackend?(backend: string, sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
   newSession?(sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
   resumeReading?(sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;

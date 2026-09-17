@@ -1,5 +1,13 @@
 # Formal Focus Reader UI specification
 
+Status 2026-09-17: [ADR 0008](../adr/0008-library-navigation-and-mist.md)
+supersedes the presentation and navigation rules below. Production Standalone uses
+Library / Reading / Settings, defaulting to Library, with Mist in Reading.
+The earlier specification below is retained as historical context.
+See [current acceptance](../FOCUS_Library_Mist_Acceptance.md).
+
+## Historical unified-flow specification
+
 Status: unified reading flow, 2026-09-16. Supersedes the Mist companion panel,
 diffusion field, historical text fading and global Space action. ADR 0004 remains in force.
 

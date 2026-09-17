@@ -1,4 +1,6 @@
 import {
+  type LibrarySource,
+  type LibraryTopic,
   type ContinueReadingInput,
   type ReaderApprovalResponse,
   type ReaderAttachment,
@@ -55,6 +57,8 @@ function isReadingWindow(value: unknown): value is ReadingWindow {
     typeof candidate.source.sourceId === "string" &&
     typeof candidate.source.title === "string" &&
     (candidate.source.topicId === null || typeof candidate.source.topicId === "string") &&
+    (candidate.outline === undefined || (Array.isArray(candidate.outline) && candidate.outline.every(item =>
+      item && typeof item.chunkId === "string" && typeof item.index === "number" && isStringArray(item.sectionPath)))) &&
     Array.isArray(candidate.history) &&
     candidate.history.every(isReaderChunk) &&
     Array.isArray(candidate.conversation) &&
@@ -112,6 +116,44 @@ export class HttpReaderHost implements ReaderHost {
   constructor(options: HttpReaderHostOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
     this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+  }
+
+  async listTopics(): Promise<ReaderHostResult<readonly LibraryTopic[]>> {
+    return this.libraryList<LibraryTopic>("/library/topics", item => typeof item.topicId === "string" && typeof item.title === "string" && isStringArray(item.sourceIds));
+  }
+
+  async listSources(): Promise<ReaderHostResult<readonly LibrarySource[]>> {
+    return this.libraryList<LibrarySource>("/library/sources", item => {
+      const progress = item.progress as LibrarySource["progress"] | undefined;
+      return typeof item.sourceId === "string" && typeof item.title === "string" &&
+        ["paper", "article"].includes(String(item.kind)) && ["ready", "invalid"].includes(String(item.parseStatus)) &&
+        (item.error === null || typeof item.error === "string") && typeof item.noteCount === "number" &&
+        isStringArray(item.topicIds) && !!progress && typeof progress.completed === "number" && typeof progress.total === "number" &&
+        (progress.planId === null || typeof progress.planId === "string") && (progress.chunkId === null || typeof progress.chunkId === "string");
+    });
+  }
+
+  private async libraryList<T>(path: string, validate: (item: Record<string, unknown>) => boolean): Promise<ReaderHostResult<readonly T[]>> {
+    try {
+      const response = await this.fetch(`${this.baseUrl}${path}`);
+      const body = await response.json();
+      if (response.ok && body.ok === true && Array.isArray(body.value) && body.value.every((x: unknown) =>
+        x !== null && typeof x === "object" && validate(x as Record<string, unknown>))) return { ok: true, value: body.value };
+      return { ok: false, error: { code: "invalid-response", message: body.error?.message ?? "知识库响应格式错误", retryable: false } };
+    } catch (e) { return { ok: false, error: { code: "unavailable", message: String(e), retryable: true } }; }
+  }
+
+  uploadSource(file: File): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources?name=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
+  }
+  deleteSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}`, { method: "DELETE" });
+  }
+  rereadSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/reread`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  }
+  openSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/open`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   }
 
   getReadingWindow(signal?: AbortSignal): Promise<ReaderHostResult<ReadingWindow>> {

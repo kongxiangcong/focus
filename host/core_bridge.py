@@ -91,7 +91,11 @@ class CoreBridge:
                 raise
             return {'status': 'empty', 'source': {'sourceId': '', 'title': '选择论文，开始阅读', 'topicId': None},
                     'current': None, 'history': [], 'conversation': []}
-        return {'status': 'reading' if result['current'] else 'completed',
+        state = result['state']
+        plan_root = self.workspace / 'sources' / result['source']['source_id'] / 'reading/plans' / state['plan_id']
+        outline = [{'chunkId': c['chunk_id'], 'index': c['index'], 'sectionPath': c['section_path']}
+                   for c in _read_chunk_records(plan_root / 'chunks.jsonl')]
+        return {'outline': outline, 'status': 'reading' if result['current'] else 'completed',
                 'source': {'sourceId': result['source']['source_id'], 'title': result['source']['title'],
                            'topicId': result['state']['topic_id']},
                 'current': self.project_chunk(result['current']) if result['current'] else None,
