@@ -1,4 +1,4 @@
-import { cursorReceipt, type ReaderChunk, type ReaderAttachment, type ReaderHost, type ReadingWindow,
+import { createReaderId, cursorReceipt, type ReaderChunk, type ReaderAttachment, type ReaderHost, type ReadingWindow,
   type ReaderHostResult, type SendReaderMessageInput, type ContinueReadingInput } from "@focus/reader-contracts";
 import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentControls } from "./AgentControls";
@@ -142,9 +142,12 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     const sentUploads = (includeAttachments ? uploads : []).filter(u => u.state === "ready").map(u => u.id);
     const input: SendReaderMessageInput = {
       sessionId: view.sessionId, receipt: selected ? { sourceId: selected.sourceId, planId: selected.planId, chunkId: selected.chunkId } : visibleChunks.some(c => current && chunkKey(c) === chunkKey(current)) ? cursorReceipt(view) : null,
-      content: content.trim(), requestId: crypto.randomUUID(), attachmentIds,
+      content: content.trim(), attachmentIds,
     };
-    void perform("发送", () => host.sendMessage(input), () => {
+    void perform("发送", () => {
+      input.requestId ??= createReaderId();
+      return host.sendMessage(input);
+    }, () => {
       if (clear && draftRef.current === content) setDraft("");
       setUploads(old => old.filter(u => !sentUploads.includes(u.id)));
       setReference(null); setPanel(null);
@@ -152,8 +155,11 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   }
   function next() {
     if (!view || !current || blocked) return;
-    const input: ContinueReadingInput = { receipt: cursorReceipt(view)!, requestId: crypto.randomUUID(), sessionId: view.sessionId };
-    void perform("下一段", () => host.continueReading(input), () => setReference(null));
+    const input: ContinueReadingInput = { receipt: cursorReceipt(view)!, sessionId: view.sessionId };
+    void perform("下一段", () => {
+      input.requestId ??= createReaderId();
+      return host.continueReading(input);
+    }, () => setReference(null));
   }
   function reset() {
     if (!host.newSession || !view?.sessionId || blocked) return;
@@ -168,7 +174,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     if (!host.resumeReading || !view?.sessionId) return;
     void perform("恢复阅读", () => host.resumeReading!(view.sessionId!), () => { follow.current = true; });
   }
-  async function upload(file: File, id: string = crypto.randomUUID()) {
+  async function upload(file: File, id: string = createReaderId()) {
     if (!host.upload) return;
     const started = epoch.current;
     setUploads(old => [...old.filter(u => u.id !== id), { id, file, state: "uploading" }]);

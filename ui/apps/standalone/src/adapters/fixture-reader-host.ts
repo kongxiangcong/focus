@@ -1,4 +1,4 @@
-import {
+import { createReaderId,
   cursorReceipt,
   readerFailure,
   readerSuccess,
@@ -24,14 +24,14 @@ function sameReceipt(left: CursorReceipt | null, right: CursorReceipt): boolean 
 
 export class FixtureReaderHost implements ReaderHost {
   private chunkIndex = 0;
-  private sessionId = crypto.randomUUID();
+  private sessionId = createReaderId();
   private fresh = false;
   private timeline: NonNullable<ReadingWindow["timeline"]>[number][] = [{ kind: "reading", chunk: fixtureChunks[0] }];
   private readonly messages: ReaderMessage[] = [];
   private messageSequence = 0;
 
   async newSession(): Promise<ReaderHostResult<ReadingWindow>> {
-    this.sessionId = crypto.randomUUID(); this.fresh = true; this.messages.length = 0; this.timeline = [];
+    this.sessionId = createReaderId(); this.fresh = true; this.messages.length = 0; this.timeline = [];
     return readerSuccess(this.snapshot());
   }
   async resumeReading(): Promise<ReaderHostResult<ReadingWindow>> {

@@ -141,3 +141,35 @@ describe("FocusReader unified flow", () => {
     expect(screen.queryByRole("button", { name: "下一段 →" })).not.toBeInTheDocument();
   });
 });
+
+describe("HTTP browser without crypto.randomUUID", () => {
+  beforeEach(() => {
+    const getRandomValues = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
+    vi.stubGlobal("crypto", { getRandomValues });
+  });
+  it("starts Continue without the secure-context UUID API", async () => {
+    const host = setup();
+    await screen.findByText("The first chunk.");
+    fireEvent.click(screen.getByRole("button", { name: "下一段 →" }));
+    await waitFor(() => expect(host.continueReading).toHaveBeenCalledOnce());
+  });
+  it("sends a prompt on Enter without the secure-context UUID API", async () => {
+    const host = setup();
+    await screen.findByText("The first chunk.");
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "解释这段" } });
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+    await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ content: "解释这段", requestId: expect.stringMatching(/^[a-f0-9-]{36}$/) })));
+  });
+});
+
+it("surfaces request preparation errors and unlocks the composer", async () => {
+  vi.stubGlobal("crypto", { getRandomValues: () => { throw new Error("随机数不可用"); } });
+  const host = setup();
+  await screen.findByText("The first chunk.");
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "解释这段" } });
+  fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
+  expect(await screen.findByRole("alert")).toHaveTextContent("随机数不可用");
+  expect(screen.getByRole("textbox")).toBeEnabled();
+  expect(screen.getByRole("textbox")).toHaveValue("解释这段");
+  expect(host.sendMessage).not.toHaveBeenCalled();
+});
