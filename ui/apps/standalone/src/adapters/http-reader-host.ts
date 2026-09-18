@@ -150,6 +150,9 @@ export class HttpReaderHost implements ReaderHost {
   deleteSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}`, { method: "DELETE" });
   }
+  replanSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/replan`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  }
   rereadSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/reread`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   }

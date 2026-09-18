@@ -158,7 +158,7 @@ class FocusReadTests(unittest.TestCase):
         self.assertNotIn("unused term", json.dumps(chunk, ensure_ascii=False))
         self.assertLess(len(json.dumps(state, ensure_ascii=False)), 300)
 
-    def test_chinese_paper_source_keeps_existing_translation_behavior(self):
+    def test_chinese_paper_source_is_ready_without_translation(self):
         workspace, source_root, _ = self._workspace()
         metadata_path = source_root / "parser-bundle" / "metadata.json"
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
@@ -168,7 +168,7 @@ class FocusReadTests(unittest.TestCase):
         code, chunk = self._run("current", "--workspace", str(workspace))
 
         self.assertEqual(0, code)
-        self.assertEqual("translation_required", chunk["status"])
+        self.assertEqual("source_ready", chunk["status"])
         self.assertIsNone(chunk["translation"])
 
     def test_translation_and_notes_change_only_the_current_reading_record(self):

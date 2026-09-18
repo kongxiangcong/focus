@@ -11,6 +11,7 @@ from host.core_bridge import SourceLibrary, WorkspaceError
 
 
 class LibraryHostTests(unittest.TestCase):
+    prepare_all = test_web_host.WebHostTests.prepare_all
     setUp = test_web_host.WebHostTests.setUp
     tearDown = test_web_host.WebHostTests.tearDown
     finish = test_web_host.WebHostTests.finish
@@ -23,28 +24,16 @@ class LibraryHostTests(unittest.TestCase):
         self.assertEqual('ready', sources[0]['parseStatus'])
         self.assertEqual(state, (self.workspace / 'state.json').read_bytes())
 
-    def test_reread_erases_notes_preserves_bundle_translation_and_other_plans(self):
-        root = self.workspace / 'sources/fixture-paper'
-        bundle = {str(p.relative_to(root)): p.read_bytes() for p in (root / 'parser-bundle').rglob('*') if p.is_file()}
-        record = root / 'reading/plans/plan-001/records/chunk-001.json'
+    def test_reread_keeps_notes_and_translation_and_plan(self):
+        self.prepare_all()
         core = self.host.core.core
-        core.retranslate_current_chunk(expected_plan_id='plan-001', expected_chunk_id='chunk-001', translation='缓存译文')
-        core.append_note(expected_plan_id='plan-001', expected_chunk_id='chunk-001', kind='thought', origin='user', content='待清除的笔记')
-        old_session = self.host.state['sessionId']
-        with patch('host.service.check_backend', return_value='test'):
-            self.host.library_read('fixture-paper', reread=True)
-        self.finish()
-        self.assertNotEqual(old_session, self.host.state['sessionId'])
-        value = json.loads(record.read_text())
-        self.assertEqual([], value['notes'])
-        self.assertEqual('缓存译文', value['translation'])
-        self.assertEqual(bundle, {str(p.relative_to(root)): p.read_bytes() for p in (root / 'parser-bundle').rglob('*') if p.is_file()})
-        self.assertIsNone(json.loads((self.workspace / 'state.json').read_text())['sources']['fixture-paper']['current_plan_id'])
-        self.assertIn('重新规划', self.host.state['conversation'][0]['content'])
-        # Agent plan creation still uses Core, and chooses the next unused ID.
-        draft = {'chunks': [{'section_path': ['Fixture Paper'], 'source_lines': [1, 12], 'images': ['images/image-001.png']}], 'glossary': []}
-        new = core.map_reading_plan('fixture-paper', draft=draft)
-        self.assertEqual('plan-002', new['plan_id'])
+        core.append_note(expected_plan_id='plan-001', expected_chunk_id='chunk-001', kind='thought', origin='user', content='保留笔记')
+        root = self.workspace / 'sources/fixture-paper'
+        records = {str(p): p.read_bytes() for p in (root / 'reading/plans').rglob('*') if p.is_file()}
+        core.continue_reading(expected_plan_id='plan-001', expected_chunk_id='chunk-001')
+        self.host.library_read('fixture-paper', reread=True)
+        self.assertEqual('chunk-001', self.host.snapshot()['current']['chunkId'])
+        self.assertEqual(records, {str(p): p.read_bytes() for p in (root / 'reading/plans').rglob('*') if p.is_file()})
 
     def test_delete_detaches_topics_and_clears_timeline(self):
         lib = SourceLibrary(self.workspace)
@@ -103,6 +92,7 @@ class LibraryHostTests(unittest.TestCase):
         self.assertEqual('reading', self.host.snapshot()['status'])
 
     def test_upload_success_reuses_original_and_removes_temporary_copy(self):
+        self.prepare_all()
         root = self.workspace / 'uploads/upload-fixture'
         root.mkdir(parents=True)
         original = root / 'selected.pdf'

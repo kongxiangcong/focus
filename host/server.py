@@ -167,9 +167,9 @@ class Handler(BaseHTTPRequestHandler):
             source_id = unquote(parts[0])
             if method == 'DELETE' and len(parts) == 1:
                 result = service.library_delete(source_id)
-            elif method == 'POST' and len(parts) == 2 and parts[1] in ('reread', 'open'):
+            elif method == 'POST' and len(parts) == 2 and parts[1] in ('reread', 'replan', 'open'):
                 self._body()
-                result = service.library_read(source_id, reread=parts[1] == 'reread')
+                result = service.library_read(source_id, reread=parts[1] == 'reread', replan=parts[1] == 'replan')
             else:
                 raise ValueError('Unknown Library operation')
         elif method == 'GET' and path == '/reader/window':

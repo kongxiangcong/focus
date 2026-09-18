@@ -21,7 +21,7 @@ Use the latest returned `source_id`, `plan_id`, and `chunk_id` as the conversati
 python -B -X utf8 scripts/focus_read.py current --workspace <workspace>
 ```
 
-Present the source location and bound images with their original captions. If `status=translation_required`, translate only the returned `source_text`, applying `relevant_glossary`, then cache it with `retranslate` using the returned Plan and Chunk IDs. If `status=source_ready`, display the Chinese `source_text` directly; do not call `retranslate`, and keep `translation=null`. Do not add an unsolicited summary, key-point list, diagram, image-mechanism explanation, or importance judgment.
+Present the source location and bound images with their original captions. If `status=translation_required`, the Plan is not fully prepared: use focus-map preparation operations to fill missing translations without moving the Cursor, then display the saved translation. Ordinary reading uses cached translations. If `status=source_ready`, display Chinese `source_text` directly (paper or article); do not call `retranslate`, and keep `translation=null`. Do not add an unsolicited summary, key-point list, diagram, image-mechanism explanation, or importance judgment.
 
 The current Chunk is the default evidence. For a question, first identify the actual distinction the reader needs, then answer directly at their level. Use the smallest concrete example that preserves the mechanism. Add a diagram only when three or more relationships would otherwise be hard to follow. Distinguish current source evidence, documented intent, inference, and missing evidence; do not blend them. If reliable support is missing, say so instead of guessing.
 

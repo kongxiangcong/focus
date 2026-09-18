@@ -331,8 +331,10 @@ def _reading_plan_records(bundle: Path, draft: dict[str, Any]) -> tuple[list[dic
     records: list[dict[str, Any]] = []
     previous_end: int | None = None
     for index, chunk in enumerate(chunks, 1):
-        if not isinstance(chunk, dict) or set(chunk) != {"section_path", "source_lines", "images"}:
+        if not isinstance(chunk, dict) or (set(chunk) - {"language"}) != {"section_path", "source_lines", "images"}:
             raise WorkspaceError("reading_plan_invalid", "Reading Chunk draft is invalid")
+        if "language" in chunk and chunk["language"] not in ("zh", "en", "mixed"):
+            raise WorkspaceError("reading_plan_invalid", "Chunk language must be zh, en or mixed")
         section_path = chunk["section_path"]
         source_lines = chunk["source_lines"]
         images = chunk["images"]
@@ -370,6 +372,7 @@ def _reading_plan_records(bundle: Path, draft: dict[str, Any]) -> tuple[list[dic
                 "section_path": section_path,
                 "source_lines": [start, end],
                 "images": images,
+                **({"language": chunk["language"]} if "language" in chunk else {}),
             }
         )
         previous_end = end
@@ -389,6 +392,11 @@ def _reading_plan_records(bundle: Path, draft: dict[str, Any]) -> tuple[list[dic
     return records, normalized_glossary
 
 
+def _needs_translation(metadata: dict, chunk: dict) -> bool:
+    # Existing plans inherit bundle language; new mixed sources specify it per chunk.
+    return chunk.get("language", metadata["language"]).lower().replace("_", "-").split("-")[0] not in ("zh", "ch")
+
+
 def _read_chunk_records(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
         raise WorkspaceError("reading_plan_missing", f"Reading Plan does not exist: {path.parent.name}")
@@ -397,7 +405,9 @@ def _read_chunk_records(path: Path) -> list[dict[str, Any]]:
         lines = path.read_text(encoding="utf-8").splitlines()
         for line in lines:
             value = json.loads(line)
-            if not isinstance(value, dict) or set(value) != CHUNK_KEYS:
+            if not isinstance(value, dict) or (set(value) - {"language"}) != CHUNK_KEYS:
+                raise ValueError
+            if "language" in value and value["language"] not in ("zh", "en", "mixed"):
                 raise ValueError
             records.append(value)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
@@ -988,7 +998,7 @@ class WorkspaceCore:
             raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {source_id}")
         metadata = _validate_parser_bundle(bundle)
         reading_record = _read_reading_record(plan_root / "records" / f"{chunk_id}.json", chunk_id)
-        direct_chinese = metadata["source_kind"] in {"article_html", "article_markdown"} and metadata["language"] == "zh"
+        direct_chinese = not _needs_translation(metadata, chunks[index])
         if direct_chinese and reading_record["translation"] is not None:
             raise WorkspaceError("reading_record_invalid", "Chinese source translation must remain null")
         presentation = _chunk_presentation(
@@ -1021,12 +1031,12 @@ class WorkspaceCore:
         source_id, plan_id = state["source_id"], state["plan_id"]
         bundle = self.workspace / "sources" / source_id / "parser-bundle"
         metadata = _validate_parser_bundle(bundle)
-        direct = metadata["source_kind"] in {"article_html", "article_markdown"} and metadata["language"] == "zh"
         root = bundle.parent / "reading" / "plans" / plan_id
         chunks = _read_chunk_records(root / "chunks.jsonl")
         history = []
         current = None
         for chunk in chunks:
+            direct = not _needs_translation(metadata, chunk)
             record = _read_reading_record(root / "records" / f'{chunk["chunk_id"]}.json', chunk["chunk_id"])
             if direct and record["translation"] is not None:
                 raise WorkspaceError("reading_record_invalid", "Chinese source translation must remain null")
@@ -1064,7 +1074,7 @@ class WorkspaceCore:
         content: str,
         anchor: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        _, _, _, source_id, plan_id, chunk_id, plan_root, _, _ = self._current_chunk_context()
+        _, _, _, source_id, plan_id, chunk_id, plan_root, chunks, index = self._current_chunk_context()
         if plan_id != expected_plan_id or chunk_id != expected_chunk_id:
             return self._cursor_changed()
         note = self._note(kind=kind, origin=origin, content=content, anchor=anchor)
@@ -1154,16 +1164,77 @@ class WorkspaceCore:
             "term": {"source": source, "translation": translation},
         }
 
+    def preparation_chunk(self, *, source_id: str, plan_id: str, chunk_id: str) -> dict:
+        """Read any planned chunk without selecting/starting/advancing reading."""
+        from .source_library import SourceLibrary
+        SourceLibrary(self.workspace).get(source_id)
+        source_id, plan_id, chunk_id = (_identifier(v, k) for v, k in
+            ((source_id, 'source_id'), (plan_id, 'plan_id'), (chunk_id, 'chunk_id')))
+        bundle = self.workspace / 'sources' / source_id / 'parser-bundle'
+        metadata = _validate_parser_bundle(bundle)
+        root = bundle.parent / 'reading/plans' / plan_id
+        chunks = _read_chunk_records(root / 'chunks.jsonl')
+        chunk = next((c for c in chunks if c['chunk_id'] == chunk_id), None)
+        if chunk is None:
+            raise WorkspaceError('reading_chunk_missing', 'Chunk does not exist in this Plan')
+        record = _read_reading_record(root / 'records' / f'{chunk_id}.json', chunk_id)
+        direct = not _needs_translation(metadata, chunk)
+        if direct and record['translation'] is not None:
+            raise WorkspaceError('reading_record_invalid', 'Chinese source translation must remain null')
+        return {**_chunk_presentation(bundle, root, source_id=source_id, plan_id=plan_id,
+                    chunk=chunk, reading_record=record, total=len(chunks)),
+                'status': 'source_ready' if direct else 'presented' if record['translation'] else 'translation_required'}
+
+    def preparation_status(self, *, source_id: str) -> dict:
+        """Derived readiness, never a second reading cursor or mutable progress counter."""
+        from .source_library import SourceLibrary
+        SourceLibrary(self.workspace).get(source_id)
+        selected = _read_document(self.workspace / 'state.json')['sources'].get(source_id, {})
+        plan_id = selected.get('current_plan_id')
+        if not plan_id:
+            return {'source_id': source_id, 'plan_id': None, 'ready': False,
+                    'completed': 0, 'total': 0, 'pending': []}
+        root = self.workspace / 'sources' / source_id / 'reading/plans' / _identifier(plan_id, 'plan_id')
+        chunks = _read_chunk_records(root / 'chunks.jsonl')
+        metadata = _validate_parser_bundle(root.parents[2] / 'parser-bundle')
+        pending = []
+        for chunk in chunks:
+            record = _read_reading_record(root / 'records' / f"{chunk['chunk_id']}.json", chunk['chunk_id'])
+            if not _needs_translation(metadata, chunk):
+                if record['translation'] is not None:
+                    raise WorkspaceError('reading_record_invalid', 'Chinese source translation must remain null')
+            elif not record['translation']:
+                pending.append(chunk['chunk_id'])
+        return {'source_id': source_id, 'plan_id': plan_id, 'ready': not pending,
+                'completed': len(chunks) - len(pending), 'total': len(chunks), 'pending': pending}
+
+    def save_prepared_translation(self, *, source_id: str, plan_id: str, chunk_id: str, translation: str) -> dict:
+        if not isinstance(translation, str) or not translation.strip():
+            raise WorkspaceError('translation_invalid', 'Translation is empty or invalid')
+        status = self.preparation_status(source_id=source_id)
+        if status['plan_id'] != plan_id:
+            raise WorkspaceError('reading_plan_changed', 'Selected Plan changed; discard this preparation result')
+        chunk = self.preparation_chunk(source_id=source_id, plan_id=plan_id, chunk_id=chunk_id)
+        if chunk['status'] == 'source_ready':
+            raise WorkspaceError('translation_not_applicable', 'Chinese content does not need translation')
+        # Preparation fills missing translations only; explicit retranslation is separate.
+        if chunk['translation'] is None:
+            path = self.workspace / 'sources' / source_id / 'reading/plans' / plan_id / 'records' / f'{chunk_id}.json'
+            record = _read_reading_record(path, chunk_id)
+            record['translation'] = translation.strip()
+            _write_document(path, record)
+        return self.preparation_status(source_id=source_id)
+
     def retranslate_current_chunk(
         self, *, expected_plan_id: str, expected_chunk_id: str, translation: str
     ) -> dict[str, Any]:
         if not isinstance(translation, str) or not translation.strip():
             raise WorkspaceError("translation_invalid", "Translation is empty or invalid")
-        _, _, _, source_id, plan_id, chunk_id, plan_root, _, _ = self._current_chunk_context()
+        _, _, _, source_id, plan_id, chunk_id, plan_root, chunks, index = self._current_chunk_context()
         if plan_id != expected_plan_id or chunk_id != expected_chunk_id:
             return self._cursor_changed()
         metadata = _validate_parser_bundle(self.workspace / "sources" / source_id / "parser-bundle")
-        if metadata["source_kind"] in {"article_html", "article_markdown"} and metadata["language"] == "zh":
+        if not _needs_translation(metadata, chunks[index]):
             raise WorkspaceError("translation_not_applicable", "Chinese source text is displayed directly")
         record_path = plan_root / "records" / f"{chunk_id}.json"
         record = _read_reading_record(record_path, chunk_id)

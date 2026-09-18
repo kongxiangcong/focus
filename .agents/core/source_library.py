@@ -313,7 +313,7 @@ class SourceLibrary:
         return result
 
     def overview(self) -> list[dict[str, Any]]:
-        from .reading_workspace import _read_chunk_records, _read_reading_record
+        from .reading_workspace import WorkspaceCore, _read_chunk_records, _read_reading_record
         if any((self.workspace / 'papers').glob('*/parser-bundle')):
             raise WorkspaceError('legacy_workspace_layout', '旧 papers/ 目录需要先迁移到 sources/；未自动移动或复制资产。')
         state = _read_document(self.workspace / 'state.json', {'sources': {}})
@@ -351,6 +351,7 @@ class SourceLibrary:
                            'readingStatus': ('completed' if plan and cursor is None else 'reading' if selected.get('reading_started', completed > 0) else 'ready' if plan else 'unplanned'),
                            'parseStatus': 'invalid' if error else 'ready', 'error': error,
                            'progress': {'completed': completed, 'total': total, 'planId': plan, 'chunkId': cursor},
+                           'preparation': (WorkspaceCore(self.workspace).preparation_status(source_id=sid) if not error else None),
                            'noteCount': notes, 'topicIds': [t['topicId'] for t in topics if sid in t['sourceIds']]})
         return result
 
@@ -375,6 +376,31 @@ class SourceLibrary:
         if not selected['current_plan_id']:
             raise WorkspaceError('reading_plan_missing', 'Source has no Reading Plan')
         selected['reading_started'] = True
+        _write_document(path, state)
+
+    def restart_reading(self, source_id: str) -> None:
+        """Start again using the same Plan, translations and Notes."""
+        from .reading_workspace import _read_chunk_records, _identifier
+        root = self._safe_root(source_id)
+        path = self.workspace / 'state.json'
+        state = _read_document(path)
+        selected = state['sources'][source_id]
+        if selected.get('current_plan_id'):
+            chunks = _read_chunk_records(root / 'reading/plans' / _identifier(selected['current_plan_id'], 'plan_id') / 'chunks.jsonl')
+            selected['current_chunk_id'] = chunks[0]['chunk_id']
+            selected['reading_started'] = False
+        state['current_source_id'] = source_id
+        state['current_topic_id'] = None
+        _write_document(path, state)
+
+    def unselect_plan(self, source_id: str) -> None:
+        """Explicit replan preserves old Plans, translations and Notes."""
+        self._safe_root(source_id)
+        path = self.workspace / 'state.json'
+        state = _read_document(path)
+        state['sources'][source_id] = {'current_plan_id': None, 'current_chunk_id': None}
+        state['current_source_id'] = source_id
+        state['current_topic_id'] = None
         _write_document(path, state)
 
     def reset_reading(self, source_id: str) -> None:

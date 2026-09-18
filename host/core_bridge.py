@@ -7,10 +7,13 @@ from urllib.parse import quote
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / '.agents'))
 from core.reading_workspace import (WorkspaceCore, WorkspaceError, _identifier, _read_chunk_records,
-    _read_reading_record, _chunk_presentation, _validate_parser_bundle)
+    _read_reading_record, _chunk_presentation, _validate_parser_bundle, _needs_translation)
 from core.source_library import SourceLibrary
 
 ACTIONS = {
+    'preparation': ('preparation_status', {'source_id': 'string'}),
+    'prepare_chunk': ('preparation_chunk', {'source_id': 'string', 'plan_id': 'string', 'chunk_id': 'string'}),
+    'prepare_translation': ('save_prepared_translation', {'source_id': 'string', 'plan_id': 'string', 'chunk_id': 'string', 'translation': 'string'}),
     'state': ('get_reading_state', {}),
     'current': ('get_current_chunk', {}),
     'map': ('map_reading_plan', {'source_id': 'string', 'draft': 'object|null', 'scope': 'string|null'}),
@@ -136,5 +139,5 @@ class CoreBridge:
         record = _read_reading_record(root / 'records' / f'{chunk_id}.json', chunk_id)
         item = _chunk_presentation(bundle, root, source_id=source, plan_id=plan,
                                   chunk=chunk, reading_record=record, total=len(chunks))
-        item['status'] = 'source_ready' if metadata['language'] == 'zh' else 'presented' if record['translation'] else 'translation_required'
+        item['status'] = 'source_ready' if not _needs_translation(metadata, chunk) else 'presented' if record['translation'] else 'translation_required'
         return self.project_chunk(item)

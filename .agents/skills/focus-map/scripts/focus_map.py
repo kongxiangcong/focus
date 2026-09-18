@@ -36,6 +36,12 @@ def _build_parser() -> argparse.ArgumentParser:
     mapping.add_argument("--source-id", required=True)
     mapping.add_argument("--scope")
     mapping.add_argument("--reinitialize", action="store_true")
+    prepare = subparsers.add_parser("prepare")
+    prepare.add_argument("--workspace", type=Path, required=True)
+    prepare.add_argument("--source-id", required=True)
+    prepare.add_argument("--plan-id")
+    prepare.add_argument("--chunk-id")
+    prepare.add_argument("--translation-stdin", action="store_true")
     return parser
 
 
@@ -43,6 +49,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args = _build_parser().parse_args(argv)
         core = WorkspaceCore(args.workspace)
+        if args.command == "prepare":
+            if args.translation_stdin:
+                result = core.save_prepared_translation(source_id=args.source_id, plan_id=args.plan_id,
+                    chunk_id=args.chunk_id, translation=sys.stdin.read())
+            elif args.chunk_id:
+                result = core.preparation_chunk(source_id=args.source_id, plan_id=args.plan_id, chunk_id=args.chunk_id)
+            else:
+                result = core.preparation_status(source_id=args.source_id)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            return 0
         result = core.map_reading_plan(
             args.source_id,
             draft=_read_draft(),

@@ -45,7 +45,7 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
 .library-card .library-title:hover:not(:disabled) { background:transparent; color:var(--reader-accent); }
 .library-progress { display:flex; align-items:center; gap:12px; font-size:11px; color:var(--reader-muted); margin-bottom:18px; }
 .library-progress span { white-space:nowrap; } progress { width:100%; height:3px; border:0; background:#929db724; border-radius:4px; accent-color:var(--reader-accent); } progress::-webkit-progress-bar{background:#929db724;border-radius:4px}progress::-webkit-progress-value{background:var(--reader-accent);border-radius:4px}progress::-moz-progress-bar{background:var(--reader-accent)}
-.library-card-bottom{flex-wrap:wrap}.library-row-actions{display:flex;margin-left:auto}.library-row-actions button{font-size:11px;padding:6px 8px;min-height:32px}
+.library-card-bottom{flex-wrap:wrap}.library-row-actions{display:flex;flex-wrap:wrap;margin-left:auto}.library-row-actions button{font-size:11px;padding:6px 8px;min-height:32px}
 .library-empty { text-align:center; padding:70px 20px; color:var(--reader-muted); }.library-empty>span{font-size:36px;color:var(--reader-accent)}.library-empty p{font-family:var(--reader-serif)}
 .library-page[data-dragging=true] { outline:2px dashed var(--reader-accent); outline-offset:-16px; background:#929db714; }
 .library-run { display:flex; align-items:center; justify-content:space-between; font-size:12px; color:var(--reader-muted); border-bottom:1px solid var(--reader-line); margin-bottom:24px; }
