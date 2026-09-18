@@ -38,7 +38,7 @@ const firstWindow: ReadingWindow = {
     translation: null,
     images: [],
     relevantGlossary: [],
-    presentationStatus: "translation-required",
+    presentationStatus: "source-ready",
   },
   history: [],
   conversation: [],

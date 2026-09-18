@@ -107,3 +107,8 @@ _Avoid_: Public fixture, reusable project asset, user profile
 **Reading Status**:
 来源的待规划、待阅读、阅读中或已完成状态；规划与开始阅读是不同事件，完成表示已经读过最后一个 Chunk。
 _Avoid_: Understanding score, per-Topic progress copy
+
+**Reading Preparation**:
+对固定 Reading Plan 逐 Chunk 准备阅读内容；中文直接就绪，外文／混合内容保存译文后就绪。
+就绪进度由 Chunks 和 Records 推导，既不移动 Reading Cursor，也不标记已开始或已读完。
+_Avoid_: Reading progress, second cursor, automatic explanation

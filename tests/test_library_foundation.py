@@ -106,6 +106,7 @@ class UploadVerificationTests(unittest.TestCase):
             thread.join()
 
     def test_bound_form_is_applied_and_existing_topic_is_reused(self):
+        test_library_host.test_web_host.WebHostTests.prepare_all(self)
         library = SourceLibrary(self.workspace)
         library.attach('fixture-paper', topic_title='已有专题', topic_id='custom-topic')
         root = self.workspace / 'uploads/test'

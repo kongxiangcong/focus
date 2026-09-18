@@ -162,6 +162,7 @@ export interface LibrarySource {
   publishedAt?: string | null;
   venue?: string | null;
   uploader?: string | null;
+  preparation?: { ready: boolean; completed: number; total: number } | null;
   readingStatus?: "unplanned" | "ready" | "reading" | "completed";
   sourceId: string;
   title: string;
@@ -179,6 +180,7 @@ export interface ReaderHost {
   listSources?(): Promise<ReaderHostResult<readonly LibrarySource[]>>;
   uploadSource?(file: File, fields: LibraryUpload): Promise<ReaderHostResult<ReadingWindow>>;
   deleteSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  replanSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   openSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   selectBackend?(backend: string, sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;

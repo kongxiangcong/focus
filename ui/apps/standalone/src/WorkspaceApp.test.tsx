@@ -46,11 +46,11 @@ it("uploads a PDF automatically and dispatches explicit destructive operations o
   expect(host.deleteSource).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "永久删除" }));
   await waitFor(() => expect(host.deleteSource).toHaveBeenCalledWith("a-paper"));
-  await waitFor(() => expect(screen.getByRole("button", { name: "重读" })).toBeEnabled());
-  fireEvent.click(screen.getByRole("button", { name: "重读" }));
-  fireEvent.click(screen.getByRole("button", { name: "确认重读" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "从头阅读" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "从头阅读" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认从头阅读" }));
   await waitFor(() => expect(host.rereadSource).toHaveBeenCalledWith("a-paper"));
-  await waitFor(() => expect(location.pathname).toBe("/library"));
+  await waitFor(() => expect(location.pathname).toBe("/reading"));
 });
 it("filters source cards and supports HTML drop while rejecting unsupported files", async () => {
   const { host } = setup(); await screen.findByRole("button", { name: "A Paper" });

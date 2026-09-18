@@ -110,11 +110,19 @@ class WebHostTests(unittest.TestCase):
             time.sleep(.01)
 
     def finish(self):
+        if self.host.worker is None:
+            return
         self.host.worker.join(3)
         self.assertFalse(self.host.worker.is_alive())
 
     def start(self, **extra):
         return self.host.start({'requestId': 'request-1234', 'receipt': self.receipt, 'content': '解释一下', **extra})
+
+    def prepare_all(self):
+        status = self.host.core.core.preparation_status(source_id='fixture-paper')
+        for chunk_id in status['pending']:
+            self.host.core.core.save_prepared_translation(source_id='fixture-paper', plan_id=status['plan_id'],
+                chunk_id=chunk_id, translation='缓存译文')
 
     def test_question_stream_persistence_and_resume_never_advance(self):
         self.start(); self.finish()
@@ -162,6 +170,7 @@ class WebHostTests(unittest.TestCase):
         self.host.stop(); self.finish()
 
     def test_continue_is_idempotent_and_checks_source(self):
+        self.prepare_all()
         p = {'requestId': 'continue-123', 'receipt': self.receipt}
         self.host.start(p, continuing=True); self.finish()
         self.host.start(p, continuing=True)
@@ -171,48 +180,20 @@ class WebHostTests(unittest.TestCase):
         with self.assertRaises(Exception):
             self.host.core.check_receipt({**self.receipt, 'sourceId': 'other-paper', 'chunkId': 'chunk-002'})
 
-    def test_continue_publishes_before_slow_session_opens(self):
-        entered, release = threading.Event(), threading.Event()
-        original = ProtocolDouble.request
-
-        def slow_open(runtime, method, params, timeout=60):
-            if method.startswith('thread/'):
-                entered.set()
-                if not release.wait(3):
-                    raise TimeoutError('test session gate')
-            return original(runtime, method, params, timeout)
-
-        payload = {'requestId': 'slow-continue-123', 'receipt': self.receipt}
-        with patch.object(ProtocolDouble, 'request', slow_open):
-            try:
-                self.host.start(payload, continuing=True)
-                self.assertTrue(entered.wait(3))
-                snapshot = self.host.snapshot()
-                self.assertEqual('chunk-002', snapshot['current']['chunkId'])
-                self.assertEqual('running', snapshot['agent']['run']['status'])
-                self.assertEqual('连接助手', snapshot['agent']['run']['progress']['label'])
-                self.assertEqual('chunk-002', self.host.start(payload, continuing=True)['current']['chunkId'])
-                with self.assertRaisesRegex(ValueError, '已有任务'):
-                    self.host.start({**payload, 'requestId': 'duplicate-continue'}, continuing=True)
-                self.host.stop()
-            finally:
-                release.set()
-                self.finish()
-        self.assertEqual('interrupted', self.host.snapshot()['agent']['run']['status'])
+    def test_continue_does_not_open_a_session(self):
+        self.prepare_all()
+        with patch.object(self.host, '_build_backend', side_effect=AssertionError('No runtime needed')):
+            self.host.start({'requestId': 'continue-cached-123', 'receipt': self.receipt}, continuing=True)
         self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])
-        self.assertFalse(any(c.get('method') == 'turn/start' for c in ProtocolDouble.instances[-1].calls))
+        self.assertEqual([], ProtocolDouble.instances)
 
-    def test_continue_keeps_cursor_when_backend_startup_fails(self):
-        payload = {'requestId': 'failed-start-continue', 'receipt': self.receipt}
-        with patch.object(self.host, '_build_backend', side_effect=RuntimeError('startup failed')):
-            self.host.start(payload, continuing=True)
-            self.finish()
-        snapshot = self.host.snapshot()
-        self.assertEqual('failed', snapshot['agent']['run']['status'])
-        self.assertEqual('chunk-002', snapshot['current']['chunkId'])
-        self.assertEqual('chunk-002', self.host.start(payload, continuing=True)['current']['chunkId'])
+    def test_continue_requires_preparation_before_moving(self):
+        with self.assertRaisesRegex(ValueError, '尚未准备完成'):
+            self.host.start({'requestId': 'continue-missing-123', 'receipt': self.receipt}, continuing=True)
+        self.assertEqual('chunk-001', self.host.snapshot()['current']['chunkId'])
 
     def test_explicit_continue_in_chat_advances_once(self):
+        self.prepare_all()
         self.start(content='继续阅读'); self.finish()
         self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])
 
@@ -246,21 +227,21 @@ class WebHostTests(unittest.TestCase):
         self.assertEqual('completed', window['agent']['run']['status'])
         self.assertFalse(any(m['role'] == 'assistant' for m in window['conversation']))
 
-    def test_continue_overrides_previous_explanation_on_resume(self):
-        self.start(content='请阅读附件并开始讲解'); self.finish()
+    def test_continue_does_not_resume_previous_explanation(self):
+        self.prepare_all()
+        self.start(content='请讲解这段'); self.finish()
+        before = list(self.host.state['conversation'])
+        count = len(ProtocolDouble.instances)
         self.host.start({'requestId': 'continue-after-explanation', 'receipt': self.receipt}, continuing=True)
-        self.finish()
-        prompt = self.assert_web_presentation_contract('thread/resume')
-        self.assertTrue(prompt.startswith('继续阅读\n'))
-        self.assertIn('由阅读卡片展示原文／译文，然后停止并等待用户操作', prompt)
-        self.assertIn('之前的讲解请求不是本轮继续讲解的授权', prompt)
+        self.assertEqual(count, len(ProtocolDouble.instances))
+        self.assertEqual(before, self.host.state['conversation'])
         self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])
 
-    def test_chat_next_delivers_same_card_contract(self):
-        self.start(content='下一段'); self.finish()
-        prompt = self.assert_web_presentation_contract('thread/start')
-        self.assertIn('不要在聊天中重复原文或译文，也不要自动讲解', prompt)
+    def test_chat_next_uses_cached_reading(self):
+        self.prepare_all()
+        self.start(content='下一段')
         self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])
+        self.assertEqual([], ProtocolDouble.instances)
 
     def test_explicit_explanation_summary_and_retranslation_are_not_suppressed(self):
         for index, content in enumerate(('请讲解这段', '总结这段', '解释这个公式', '请重新翻译这段')):
@@ -356,6 +337,7 @@ class WebHostTests(unittest.TestCase):
             self.host.approve({'approvalId': approval, 'decision': 'accept'})
 
     def test_historical_reference_is_passed_to_agent_without_advancing(self):
+        self.prepare_all()
         self.host.start({'requestId': 'advance-first', 'receipt': self.receipt}, continuing=True); self.finish()
         self.start(requestId='review-old'); self.finish()
         self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])
@@ -363,7 +345,7 @@ class WebHostTests(unittest.TestCase):
         self.assertIn('User question reference', call['params']['input'][0]['text'])
         self.assertEqual(self.receipt, self.host.state['conversation'][-2]['reference'])
         timeline = self.host.snapshot()['timeline']
-        self.assertEqual(['reading', 'message', 'reading', 'message', 'message', 'message'], [e['kind'] for e in timeline])
+        self.assertEqual(['reading', 'reading', 'message', 'message'], [e['kind'] for e in timeline])
 
     def test_loopback_direct_access_preserves_origin_checks(self):
         server = Server(('127.0.0.1', 0), self.host)

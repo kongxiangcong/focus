@@ -76,13 +76,16 @@ browser/runtime acceptance limits. Historical Mist screenshots describe the prev
 implementation and are not evidence for this revision. Retained prototypes remain
 isolated reference material.
 
-## Continue responsiveness (2026-09-18)
+## Prepared reading (2026-09-18)
 
-Explicit Continue advances through Core and publishes the next source paragraph
-before opening the Agent session. The Agent then prepares any missing translation.
-A startup failure or subsequent Stop preserves the already advanced Cursor; retries
-with the same request ID never advance twice. Stop does not discard the conversation.
+All sources are chunked. Chinese chunks display source text without duplicate
+translations; foreign/mixed chunks display cached translations by default. A missing
+translation shows preparation status instead of the original. Original text remains
+available through an explicit toggle after preparation.
 
-The standalone reader fills the remaining height below the material picker, rather
-than claiming another viewport height. The reading stream scrolls independently;
-the Continue footer and composer occupy their own grid rows.
+Open and Continue on a ready Plan call Core without an Agent. Missing translations
+are prepared for the entire Plan before opening. From-start reading preserves Plan,
+translations and Notes; explicit replan creates a new Plan and preserves old assets.
+
+The standalone reader fills the remaining height below the material picker. The
+stream scrolls independently; Continue and composer occupy their own grid rows.
