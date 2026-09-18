@@ -62,10 +62,11 @@ describe("Agent Reader", () => {
     await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ content: "请阅读附件", receipt: null, attachmentIds: ["upload-1"] })));
     expect(host.continueReading).not.toHaveBeenCalled();
   });
-  it("keeps drafts editable while running, allows approval retry, and rejects stale snapshots", async () => {
-    const { host, update } = setup(); await screen.findByText("打开一份材料"); update(running);
-    expect(screen.getByRole("textbox")).toBeEnabled();
+  it("preserves locked drafts while running, allows approval retry, and rejects stale snapshots", async () => {
+    const { host, update } = setup(); await screen.findByText("打开一份材料");
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "下一条草稿" } });
+    update(running);
+    expect(screen.getByRole("textbox")).toBeDisabled();
     vi.mocked(host.approve!).mockResolvedValueOnce(readerFailure("unavailable", "failed", true));
     fireEvent.click(screen.getByRole("button", { name: "拒绝" }));
     await screen.findByText("提交失败，请重试。");
@@ -86,9 +87,12 @@ describe("Agent Reader", () => {
     expect(host.continueReading).not.toHaveBeenCalled();
   });
   it("resets the real host session and clears draft, attachments and stale events", async () => {
-    const { host, update } = setup(); await screen.findByText("打开一份材料"); update(running);
+    const { host, update } = setup(); await screen.findByText("打开一份材料");
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "old draft" } });
-    fireEvent.click(screen.getByRole("button", { name: "停止并新建" }));
+    update(running);
+    expect(screen.getByRole("button", { name: "新建会话" })).toBeDisabled();
+    update({ ...empty, revision: 4 });
+    fireEvent.click(screen.getByRole("button", { name: "新建会话" }));
     await waitFor(() => expect(host.newSession).toHaveBeenCalledWith("session-1"));
     await screen.findByRole("button", { name: "新建会话" });
     expect(screen.queryByText("正在解析")).not.toBeInTheDocument();

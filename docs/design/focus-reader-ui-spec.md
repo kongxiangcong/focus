@@ -44,15 +44,19 @@ New events are recorded in arrival order, including cross-source references.
 New Session archives the old Host session and creates a blank one. Source Library,
 Plans, Records, Notes and Cursor remain untouched. A fresh page offers Resume Last
 Reading, which projects the saved paragraph without advancing. Refresh restores this
-fresh session. The next send starts a new Codex thread. During active work, the action
-reads Stop and New; Host interrupts and joins the old worker before switching. If it
-cannot stop, reset fails visibly without switching state. Old responses are excluded
+fresh session. The next send starts a new Codex thread. During active work, New Session is disabled. Stop interrupts only the current
+task; after it ends, the reader can explicitly create a new session. Host still
+interrupts and joins an old worker before any session reset. If it cannot stop,
+reset fails visibly without switching state. Old responses are excluded
 by monotonic snapshot revision and UI session epochs; uploads also carry an epoch.
 
 ## Input and recovery
 
-The draft is always editable, including during generation, upload and errors. Send
-and Continue are disabled only during conflicting operations. Successful send clears
+The draft is preserved but disabled during a submitted operation or active Agent
+task (including approval and stopping). Send, Continue and New Session are also
+disabled during conflicting operations. Read-only navigation and necessary Agent
+approval answers remain available. Submission immediately shows local status until
+the Host task status arrives; task status remains visible with a collapsed composer. Successful send clears
 only the submitted draft if it has not been edited meanwhile. Transport retries reuse
 the captured request ID and input; reconnect only reloads state. A stale Cursor offers
 Update Reading Position, not replay of an invalid Continue. Upload failures retain the
@@ -71,3 +75,14 @@ See `docs/FOCUS_Unified_Reader_Acceptance.md` for automated evidence and remaini
 browser/runtime acceptance limits. Historical Mist screenshots describe the previous
 implementation and are not evidence for this revision. Retained prototypes remain
 isolated reference material.
+
+## Continue responsiveness (2026-09-18)
+
+Explicit Continue advances through Core and publishes the next source paragraph
+before opening the Agent session. The Agent then prepares any missing translation.
+A startup failure or subsequent Stop preserves the already advanced Cursor; retries
+with the same request ID never advance twice. Stop does not discard the conversation.
+
+The standalone reader fills the remaining height below the material picker, rather
+than claiming another viewport height. The reading stream scrolls independently;
+the Continue footer and composer occupy their own grid rows.
