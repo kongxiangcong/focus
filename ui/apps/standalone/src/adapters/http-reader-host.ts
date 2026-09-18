@@ -1,4 +1,4 @@
-import {
+import { createReaderId,
   type LibrarySource,
   type LibraryUpload,
   type LibraryTopic,
@@ -168,7 +168,7 @@ export class HttpReaderHost implements ReaderHost {
     return this.request("/reader/continue", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...input, requestId: input.requestId ?? crypto.randomUUID() }),
+      body: JSON.stringify({ ...input, requestId: input.requestId ?? createReaderId() }),
       signal,
     });
   }
@@ -180,7 +180,7 @@ export class HttpReaderHost implements ReaderHost {
     return this.request("/reader/messages", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...input, requestId: input.requestId ?? crypto.randomUUID() }),
+      body: JSON.stringify({ ...input, requestId: input.requestId ?? createReaderId() }),
       signal,
     });
   }
