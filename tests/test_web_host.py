@@ -171,6 +171,47 @@ class WebHostTests(unittest.TestCase):
         with self.assertRaises(Exception):
             self.host.core.check_receipt({**self.receipt, 'sourceId': 'other-paper', 'chunkId': 'chunk-002'})
 
+    def test_continue_publishes_before_slow_session_opens(self):
+        entered, release = threading.Event(), threading.Event()
+        original = ProtocolDouble.request
+
+        def slow_open(runtime, method, params, timeout=60):
+            if method.startswith('thread/'):
+                entered.set()
+                if not release.wait(3):
+                    raise TimeoutError('test session gate')
+            return original(runtime, method, params, timeout)
+
+        payload = {'requestId': 'slow-continue-123', 'receipt': self.receipt}
+        with patch.object(ProtocolDouble, 'request', slow_open):
+            try:
+                self.host.start(payload, continuing=True)
+                self.assertTrue(entered.wait(3))
+                snapshot = self.host.snapshot()
+                self.assertEqual('chunk-002', snapshot['current']['chunkId'])
+                self.assertEqual('running', snapshot['agent']['run']['status'])
+                self.assertEqual('连接助手', snapshot['agent']['run']['progress']['label'])
+                self.assertEqual('chunk-002', self.host.start(payload, continuing=True)['current']['chunkId'])
+                with self.assertRaisesRegex(ValueError, '已有任务'):
+                    self.host.start({**payload, 'requestId': 'duplicate-continue'}, continuing=True)
+                self.host.stop()
+            finally:
+                release.set()
+                self.finish()
+        self.assertEqual('interrupted', self.host.snapshot()['agent']['run']['status'])
+        self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])
+        self.assertFalse(any(c.get('method') == 'turn/start' for c in ProtocolDouble.instances[-1].calls))
+
+    def test_continue_keeps_cursor_when_backend_startup_fails(self):
+        payload = {'requestId': 'failed-start-continue', 'receipt': self.receipt}
+        with patch.object(self.host, '_build_backend', side_effect=RuntimeError('startup failed')):
+            self.host.start(payload, continuing=True)
+            self.finish()
+        snapshot = self.host.snapshot()
+        self.assertEqual('failed', snapshot['agent']['run']['status'])
+        self.assertEqual('chunk-002', snapshot['current']['chunkId'])
+        self.assertEqual('chunk-002', self.host.start(payload, continuing=True)['current']['chunkId'])
+
     def test_explicit_continue_in_chat_advances_once(self):
         self.start(content='继续阅读'); self.finish()
         self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])

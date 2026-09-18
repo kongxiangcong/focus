@@ -156,7 +156,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     void perform("下一段", () => host.continueReading(input), () => setReference(null));
   }
   function reset() {
-    if (!host.newSession || !view?.sessionId) return;
+    if (!host.newSession || !view?.sessionId || blocked) return;
     const id = view.sessionId;
     void perform("新建会话", () => host.newSession!(id), () => {
       clearSessionUI();
@@ -204,7 +204,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         <button onClick={() => setPanel("materials")}>材料</button>
         <button onClick={() => setPanel("contents")}>目录</button>
         <button onClick={() => setPanel("settings")}>设置</button>
-        <button className="focus-new" disabled={!host.newSession || !view || !!operation} onClick={reset}>{active ? "停止并新建" : "新建会话"}</button>
+        <button className="focus-new" disabled={!host.newSession || !view || blocked} onClick={reset}>新建会话</button>
       </nav>
     </header>}
     <main className="focus-stream" ref={stream} aria-label="阅读与对话" tabIndex={0} onWheel={() => { if (mist) follow.current = false; }} onTouchStart={() => { if (mist) follow.current = false; }} onKeyDown={e => { if (mist && ["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown"].includes(e.key)) follow.current = false; }} onScroll={() => {
@@ -257,6 +257,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         </div>}
         {connection && <div className="focus-error" role="alert">{connection}<button onClick={() => void reconnect()}>重新连接</button></div>}
         {failure && <div className="focus-error" role="alert">{failure.message}<button disabled={!!operation} onClick={failure.retry}>{failure.label}</button><button aria-label="关闭错误" onClick={() => setFailure(null)}>×</button></div>}
+        {operation && !active && <p className="focus-operation" role="status">{operation === "下一段" ? "正在打开下一段…" : `${operation}中…`}</p>}
         {agent && <AgentControls agent={agent} onStop={() => void perform("停止", () => host.stop!())} onAnswer={async input => {
           const result = await host.approve?.(input);
           if (result?.ok) { accept(result.value); return true; } return false;
@@ -269,7 +270,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         </li>)}</ul>}
         <form hidden={mist && collapsed} className="focus-composer" onSubmit={e => { e.preventDefault(); send(); }}>
           <label className="focus-sr-only" htmlFor="focus-question">输入问题或阅读需求</label>
-          <textarea id="focus-question" ref={composer} rows={mist ? 1 : 2} value={draft} placeholder="问问这段原文…"
+          <textarea id="focus-question" ref={composer} rows={mist ? 1 : 2} disabled={blocked} value={draft} placeholder="问问这段原文…"
             onChange={e => setDraft(e.target.value)} onKeyDown={e => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); }
             }} />
@@ -285,7 +286,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         {!mist && current && visibleChunks.some(c => chunkKey(c) === chunkKey(current)) && <div className="focus-next"><button disabled={blocked} onClick={next}>{operation === "下一段" ? "正在打开…" : "下一段 →"}</button></div>}
       </div>
     </div>
-    {mist && <footer className="mist-reading-actions"><span title={view?.source.title}>{view?.source.title || "阅读工作台"}</span><button onClick={() => setPanel("materials")}>材料</button><button disabled={!host.newSession || !view || !!operation} onClick={reset}>新会话</button>{view?.sessionFresh && host.resumeReading && <button disabled={blocked} onClick={resume}>恢复</button>}<button className="focus-reader__continue" disabled={!current || blocked} onClick={() => { follow.current = true; next(); }}>{operation === "下一段" ? "打开中" : "继续"}</button></footer>}
+    {mist && <footer className="mist-reading-actions"><span title={view?.source.title}>{view?.source.title || "阅读工作台"}</span><button onClick={() => setPanel("materials")}>材料</button><button disabled={!host.newSession || !view || blocked} onClick={reset}>新会话</button>{view?.sessionFresh && host.resumeReading && <button disabled={blocked} onClick={resume}>恢复</button>}<button className="focus-reader__continue" disabled={!current || blocked} onClick={() => { follow.current = true; next(); }}>{operation === "下一段" ? "打开中" : "继续"}</button></footer>}
     <dialog ref={dialog} className="focus-dialog" onCancel={() => setPanel(null)} onClick={e => { if (e.target === dialog.current) setPanel(null); }}>
       <header><h2>{panel === "materials" ? "材料" : panel === "contents" ? "已加载段落" : "阅读设置"}</h2><button aria-label="关闭" onClick={() => setPanel(null)}>×</button></header>
       {panel === "materials" && <>

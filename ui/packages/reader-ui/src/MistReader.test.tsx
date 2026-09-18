@@ -96,3 +96,42 @@ it("streams one assistant card into the central timeline and keeps only prompts 
   expect(host.continueReading).not.toHaveBeenCalled();
   app.unmount(); expect(unsubscribe).toHaveBeenCalledOnce();
 });
+it("shows immediate feedback and locks task-changing actions through startup and streaming", async () => {
+  let emit!: Parameters<NonNullable<ReaderHost["subscribe"]>>[0];
+  let resolve!: (value: ReturnType<typeof readerSuccess<ReadingWindow>>) => void;
+  const running: ReadingWindow = { ...first, agent: {
+    catalog: { sources: [], topics: [] },
+    run: { runId: "run1", status: "running", error: null, approvals: [], activity: [],
+      progress: { label: "连接助手", startedAt: Date.now(), updatedAt: Date.now() } },
+  } };
+  const host: ReaderHost = {
+    getReadingWindow: vi.fn(async () => readerSuccess(first)),
+    continueReading: vi.fn(() => new Promise<ReturnType<typeof readerSuccess<ReadingWindow>>>(r => { resolve = r; })),
+    sendMessage: vi.fn(), newSession: vi.fn(),
+    stop: vi.fn(async () => readerSuccess({ ...running, agent: { ...running.agent!, run: { ...running.agent!.run!, status: "stopping" as const } } })),
+    subscribe: callback => { emit = callback; return () => {}; },
+  };
+  render(<FocusReader host={host} appearance="mist" />);
+  await screen.findByRole("heading", { name: "Method" });
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "保留草稿" } });
+  fireEvent.click(screen.getByRole("button", { name: "继续" }));
+  expect(screen.getByRole("status")).toHaveTextContent("正在打开下一段");
+  expect(screen.getByRole("textbox")).toBeDisabled();
+  expect(screen.getByRole("button", { name: "新会话" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "打开中" }));
+  expect(host.continueReading).toHaveBeenCalledTimes(1);
+  await act(async () => resolve(readerSuccess(running)));
+  expect(screen.getByRole("status")).toHaveTextContent("连接助手");
+  expect(screen.getByRole("textbox")).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "收起" }));
+  expect(screen.getByRole("status")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "停止" }));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("正在停止"));
+  expect(host.stop).toHaveBeenCalledOnce();
+  act(() => emit(readerSuccess({ ...running, agent: { ...running.agent!, run: { ...running.agent!.run!, status: "interrupted" } } })));
+  fireEvent.click(screen.getByRole("button", { name: "展开" }));
+  expect(screen.getByRole("textbox")).toBeEnabled();
+  expect(screen.getByRole("textbox")).toHaveValue("保留草稿");
+  expect(host.sendMessage).not.toHaveBeenCalled();
+  expect(host.newSession).not.toHaveBeenCalled();
+});

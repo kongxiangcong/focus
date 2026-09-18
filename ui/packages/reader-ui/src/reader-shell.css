@@ -96,3 +96,8 @@
  .focus-composer__actions button{min-height:44px}.focus-dialog{padding:20px}.focus-next button{min-height:40px}
 }
 @media(prefers-reduced-motion:reduce) { .focus-reader * { scroll-behavior:auto!important; animation:none!important; transition:none!important; } }
+
+/* Keep task feedback visible even when the composer is collapsed. */
+.focus-operation { margin:8px 0; padding:10px 14px; border:1px solid var(--accent); border-radius:12px; color:var(--ink); }
+.focus-agent:has(.task-progress[data-active=true]) { padding:10px 14px; border:1px solid var(--accent); border-radius:12px; background:var(--reader-glass,#f0f3ef); }
+.focus-composer textarea:disabled { opacity:.6; cursor:wait; }
