@@ -152,7 +152,12 @@ def _identifier(value: str, kind: str) -> str:
 
 
 def validate_source_id(value: str) -> str:
-    """Validate and return one public Source ID."""
+    """Validate an existing Source ID without normalizing or renaming it.
+
+    Source IDs allow spaces, Unicode and filesystem-safe punctuation. Keep
+    _identifier for strict plan/chunk/topic IDs; only registration normalizes
+    a Source Short Name before allocating its stable ID.
+    """
     if (
         not isinstance(value, str)
         or not value
@@ -1168,8 +1173,9 @@ class WorkspaceCore:
         """Read any planned chunk without selecting/starting/advancing reading."""
         from .source_library import SourceLibrary
         SourceLibrary(self.workspace).get(source_id)
-        source_id, plan_id, chunk_id = (_identifier(v, k) for v, k in
-            ((source_id, 'source_id'), (plan_id, 'plan_id'), (chunk_id, 'chunk_id')))
+        source_id = validate_source_id(source_id)
+        plan_id = _identifier(plan_id, 'plan_id')
+        chunk_id = _identifier(chunk_id, 'chunk_id')
         bundle = self.workspace / 'sources' / source_id / 'parser-bundle'
         metadata = _validate_parser_bundle(bundle)
         root = bundle.parent / 'reading/plans' / plan_id

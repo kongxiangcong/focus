@@ -6,7 +6,7 @@ from urllib.parse import quote
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / '.agents'))
-from core.reading_workspace import (WorkspaceCore, WorkspaceError, _identifier, _read_chunk_records,
+from core.reading_workspace import (WorkspaceCore, WorkspaceError, validate_source_id, _identifier, _read_chunk_records,
     _read_reading_record, _chunk_presentation, _validate_parser_bundle, _needs_translation)
 from core.source_library import SourceLibrary
 
@@ -127,7 +127,8 @@ class CoreBridge:
                 'relevantGlossary': c['relevant_glossary'], 'presentationStatus': c['status'].replace('_', '-')}
 
     def reference(self, receipt):
-        source, plan, chunk_id = (_identifier(receipt[k], k) for k in ('sourceId', 'planId', 'chunkId'))
+        source = validate_source_id(receipt['sourceId'])
+        plan, chunk_id = (_identifier(receipt[k], k) for k in ('planId', 'chunkId'))
         SourceLibrary(self.workspace).get(source)
         bundle = self.workspace / 'sources' / source / 'parser-bundle'
         root = bundle.parent / 'reading' / 'plans' / plan
