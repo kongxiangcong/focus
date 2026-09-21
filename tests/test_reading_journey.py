@@ -58,7 +58,7 @@ class ReadingJourneyTests(unittest.TestCase):
             "## Result\nThe program uses the resolved address.\n",
             encoding="utf-8",
         )
-        (bundle / "metadata.json").write_text('{"source_kind":"paper_pdf","language":"en","parser":"paper-parser","batch_id":"fixture-batch"}\n', encoding="utf-8")
+        (bundle / "metadata.json").write_text('{"source_kind":"paper_pdf","language":"en","parser":"article-parser","batch_id":"fixture-batch"}\n', encoding="utf-8")
         (bundle / "validation.json").write_text('{"ok":true}\n', encoding="utf-8")
         (workspace / "state.json").write_text(
             json.dumps(

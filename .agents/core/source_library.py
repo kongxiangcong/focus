@@ -37,8 +37,8 @@ def normalize_short_name(value: str) -> str:
     value = re.sub(r"\s+", " ", value).strip(" .")
     if not value or value.casefold() in GENERIC_SHORT_NAMES:
         raise WorkspaceError("source_short_name_invalid", "Source Short Name is empty or too generic")
-    if len(value) > 140:
-        value = value[:140].rstrip(" .")
+    if len(value) > 80:
+        value = value[:80].rstrip(" .")
     if not value:
         raise WorkspaceError("source_short_name_invalid", "Source Short Name is invalid")
     return value
@@ -222,13 +222,14 @@ class SourceLibrary:
         installed = False
         try:
             registration.mkdir()
-            parser_bundle.replace(registration / "parser-bundle")
+            shutil.copytree(parser_bundle, registration / "parser-bundle")
             _write_document(registration / "source.yaml", source)
             registration.replace(source_root)
             installed = True
             _write_document(state_path, state)
             if topic_path is not None and topic is not None:
                 _write_document(topic_path, topic)
+            shutil.rmtree(parser_bundle)
         except Exception:
             for path, snapshot in snapshots.items():
                 _restore(path, snapshot)
@@ -295,6 +296,13 @@ class SourceLibrary:
             topic["sources"].append(source_id)
             _write_document(topic_path, topic)
         return resolved
+
+    def create_topic(self, title: str, *, topic_id: str | None = None) -> dict[str, Any]:
+        """Create or reuse the minimal Topic manifest without copying Source assets."""
+        resolved, path, topic = self._prepare_topic(topic_title=title, topic_id=topic_id)
+        if not path.is_file():
+            _write_document(path, topic)
+        return {"topicId": resolved, "title": topic["title"], "sourceIds": list(topic["sources"])}
 
     def _safe_root(self, source_id: str) -> Path:
         self.get(source_id)

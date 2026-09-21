@@ -54,10 +54,10 @@ def _prepare(input_dir: Path, output: Path) -> dict:
         raise BlogError(f"Parser bundle is missing: {', '.join(missing)}")
     metadata = _read_json(input_dir / "metadata.json")
     validation = _read_json(input_dir / "validation.json")
-    if metadata.get("source_kind") != "paper_pdf" or metadata.get("parser") != "paper-parser":
-        raise BlogError("metadata.json is not from paper-parser")
+    if metadata.get("source_kind") != "paper_pdf" or metadata.get("parser") != "article-parser":
+        raise BlogError("metadata.json is not from article-parser")
     if validation.get("ok") is not True:
-        raise BlogError("paper-parser validation did not pass")
+        raise BlogError("article-parser validation did not pass")
     if output.exists() and any(output.iterdir()):
         raise BlogError(f"Output directory is not empty: {output}")
     output.mkdir(parents=True, exist_ok=True)
@@ -147,7 +147,7 @@ def _prepare_registered(workspace: Path, source_id: str) -> dict:
         raise BlogError("parser_bundle_invalid", str(exc)) from exc
     if (
         metadata.get("source_kind") != "paper_pdf"
-        or metadata.get("parser") != "paper-parser"
+        or metadata.get("parser") != "article-parser"
         or validation.get("ok") is not True
     ):
         raise BlogError("parser_bundle_invalid", f"Parser Bundle is invalid: {source_id}")

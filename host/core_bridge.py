@@ -117,6 +117,24 @@ class CoreBridge:
             raise ValueError('Invalid image path')
         return target
 
+    def source_resource(self, source_id, resource):
+        source = SourceLibrary(self.workspace).get(source_id)
+        root = (self.workspace / 'sources' / source_id / 'parser-bundle').resolve()
+        if resource == 'content':
+            target = root / 'content.md'
+        elif resource == 'original':
+            name = {'paper_pdf': 'source.pdf', 'article_html': 'source.html',
+                    'article_markdown': 'source.md'}.get(source['source_kind'])
+            if name is None:
+                raise ValueError('Unsupported Source original')
+            target = root / name
+        else:
+            raise ValueError('Unknown Source resource')
+        target = target.resolve()
+        if not target.is_relative_to(root) or not target.is_file():
+            raise ValueError('Source resource is unavailable')
+        return target
+
     def project_chunk(self, c):
         return {'sourceId': c['source_id'], 'planId': c['plan_id'], 'chunkId': c['chunk_id'],
                 'index': c['index'], 'total': c['total'], 'sectionPath': c['section_path'],

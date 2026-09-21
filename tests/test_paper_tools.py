@@ -26,10 +26,7 @@ def load_module(name: str, path: Path):
     return module
 
 
-PARSER = load_module(
-    "focus_mineru_precision",
-    ROOT / ".agents" / "skills" / "paper-parser" / "scripts" / "mineru_precision.py",
-)
+PARSER = importlib.import_module("core.mineru")
 WORKSPACE_CORE = importlib.import_module("core.reading_workspace")
 SOURCE_LIBRARY = importlib.import_module("core.source_library")
 BLOG = load_module(
@@ -38,327 +35,15 @@ BLOG = load_module(
 )
 
 
-class PaperParserTests(unittest.TestCase):
+class MinerUTransportTests(unittest.TestCase):
     def setUp(self):
         test_runs = ROOT / "tmp" / "test-runs"
         test_runs.mkdir(parents=True, exist_ok=True)
-        self.root = test_runs / f"paper-tools-{uuid.uuid4().hex}"
+        self.root = test_runs / f"mineru-transport-{uuid.uuid4().hex}"
         self.root.mkdir()
 
     def tearDown(self):
         shutil.rmtree(self.root)
-
-    def test_authorized_parse_registers_paper_only_after_valid_bundle(self):
-        source = self.root / "fixture.pdf"
-        source.write_bytes(b"%PDF-1.4\nfixture\n")
-        workspace = self.root / "workspace"
-        workspace.mkdir()
-
-        class HostedParserFixture:
-            def start(self, source, *, model, language, ocr):
-                return "batch-fixture"
-
-            def complete(self, source, output, *, batch_id, model, language, timeout, interval):
-                (output / "images").mkdir(parents=True)
-                shutil.copy2(source, output / "source.pdf")
-                (output / "content.md").write_text(
-                    "# Fixture Paper\n\n![Figure](images/image-001.png)\n", encoding="utf-8"
-                )
-                (output / "images" / "image-001.png").write_bytes(b"image")
-                (output / "metadata.json").write_text(
-                    json.dumps({"source_kind": "paper_pdf", "language": "en", "parser": "paper-parser", "batch_id": batch_id}),
-                    encoding="utf-8",
-                )
-                (output / "validation.json").write_text('{"ok": true}\n', encoding="utf-8")
-
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout):
-            result = PARSER.main(
-                [
-                    "parse",
-                    str(source),
-                    "--workspace",
-                    str(workspace),
-                    "--title",
-                    "Fixture Paper",
-                    "--short-name",
-                    "Fixture",
-                    "--topic",
-                    "Accelerator Architecture",
-                ],
-                hosted=HostedParserFixture(),
-            )
-
-        self.assertEqual(0, result)
-        response = json.loads(stdout.getvalue().splitlines()[-1])
-        self.assertEqual("Fixture-paper", response["source_id"])
-        source_root = workspace / "sources" / "Fixture-paper"
-        self.assertTrue((source_root / "parser-bundle" / "source.pdf").is_file())
-        paper = json.loads((source_root / "source.yaml").read_text(encoding="utf-8"))
-        self.assertNotIn("topics", paper)
-        topic = json.loads(
-            (workspace / "topics" / "accelerator-architecture" / "topic.yaml").read_text(encoding="utf-8")
-        )
-        self.assertEqual(["Fixture-paper"], topic["sources"])
-        pointers = json.loads((workspace / "state.json").read_text(encoding="utf-8"))
-        self.assertEqual("Fixture-paper", pointers["current_source_id"])
-        self.assertEqual(
-            {
-                "current_plan_id": None,
-                "current_chunk_id": None,
-            },
-            pointers["sources"]["Fixture-paper"],
-        )
-
-    def test_invalid_parse_result_leaves_no_registered_paper_or_topic(self):
-        source = self.root / "fixture.pdf"
-        source.write_bytes(b"%PDF-1.4\nfixture\n")
-        workspace = self.root / "workspace"
-        workspace.mkdir()
-
-        class InvalidHostedParserFixture:
-            def start(self, source, *, model, language, ocr):
-                return "batch-invalid"
-
-            def complete(self, source, output, **kwargs):
-                (output / "images").mkdir(parents=True)
-                shutil.copy2(source, output / "source.pdf")
-                (output / "content.md").write_text("# Incomplete\n", encoding="utf-8")
-                (output / "metadata.json").write_text(
-                    '{"source_kind": "paper_pdf", "language": "en", "parser": "paper-parser", "batch_id": "fixture-batch"}\n', encoding="utf-8"
-                )
-                (output / "validation.json").write_text('{"ok": false}\n', encoding="utf-8")
-
-        stderr = io.StringIO()
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(stderr):
-            result = PARSER.main(
-                [
-                    "parse",
-                    str(source),
-                    "--workspace",
-                    str(workspace),
-                    "--title",
-                    "Incomplete",
-                    "--topic",
-                    "Parsing",
-                ],
-                hosted=InvalidHostedParserFixture(),
-            )
-
-        self.assertEqual(1, result)
-        self.assertEqual("parser_bundle_invalid", json.loads(stderr.getvalue())["error_id"])
-        self.assertFalse((workspace / "sources" / "incomplete" / "source.yaml").exists())
-        self.assertFalse((workspace / "topics" / "parsing" / "topic.yaml").exists())
-        self.assertFalse((workspace / "state.json").exists())
-
-    def test_registration_write_failure_rolls_back_bundle_and_membership(self):
-        source = self.root / "fixture.pdf"
-        source.write_bytes(b"%PDF-1.4\nfixture\n")
-        workspace = self.root / "workspace"
-        workspace.mkdir()
-
-        class HostedParserFixture:
-            def start(self, source, **kwargs):
-                return "batch-write-failure"
-
-            def complete(self, source, output, *, batch_id, **kwargs):
-                (output / "images").mkdir(parents=True)
-                shutil.copy2(source, output / "source.pdf")
-                (output / "content.md").write_text("# Rollback\n", encoding="utf-8")
-                (output / "metadata.json").write_text(
-                    json.dumps({"source_kind": "paper_pdf", "language": "en", "parser": "paper-parser", "batch_id": batch_id}), encoding="utf-8"
-                )
-                (output / "validation.json").write_text('{"ok": true}\n', encoding="utf-8")
-
-        write_document = SOURCE_LIBRARY._write_document
-
-        def fail_pointer_write(path, value):
-            if path.name == "state.json":
-                raise OSError("controlled pointer write failure")
-            write_document(path, value)
-
-        with mock.patch.object(SOURCE_LIBRARY, "_write_document", side_effect=fail_pointer_write):
-            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                result = PARSER.main(
-                    [
-                        "parse",
-                        str(source),
-                        "--workspace",
-                        str(workspace),
-                        "--title",
-                        "Rollback Paper",
-                        "--topic",
-                        "Failure Safety",
-                    ],
-                    hosted=HostedParserFixture(),
-                )
-
-        self.assertEqual(1, result)
-        self.assertFalse((workspace / "sources" / "Rollback Paper-paper").exists())
-        self.assertFalse((workspace / "topics" / "failure-safety" / "topic.yaml").exists())
-        self.assertFalse((workspace / "state.json").exists())
-        self.assertTrue((workspace / "parser-tasks" / "batch-write-failure" / "task.json").is_file())
-
-    def test_timed_out_parse_resumes_by_batch_reference_without_reupload(self):
-        source = self.root / "fixture.pdf"
-        source.write_bytes(b"%PDF-1.4\nfixture\n")
-        workspace = self.root / "workspace"
-        workspace.mkdir()
-
-        class InterruptibleHostedParserFixture:
-            def __init__(self):
-                self.starts = 0
-                self.completions = 0
-
-            def start(self, source, *, model, language, ocr):
-                self.starts += 1
-                return "batch-resumable"
-
-            def complete(self, source, output, *, batch_id, **kwargs):
-                self.completions += 1
-                if self.completions == 1:
-                    raise PARSER.ParserError(f"Polling timed out; resume with batch_id {batch_id}")
-                (output / "images").mkdir(parents=True)
-                shutil.copy2(source, output / "source.pdf")
-                (output / "content.md").write_text("# Resumed\n", encoding="utf-8")
-                (output / "metadata.json").write_text(
-                    json.dumps({"source_kind": "paper_pdf", "language": "en", "parser": "paper-parser", "batch_id": batch_id}),
-                    encoding="utf-8",
-                )
-                (output / "validation.json").write_text('{"ok": true}\n', encoding="utf-8")
-
-        hosted = InterruptibleHostedParserFixture()
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            first = PARSER.main(
-                [
-                    "parse",
-                    str(source),
-                    "--workspace",
-                    str(workspace),
-                    "--title",
-                    "Resumed Paper",
-                    "--topic",
-                    "Recovery",
-                ],
-                hosted=hosted,
-            )
-        self.assertEqual(1, first)
-        task_root = workspace / "parser-tasks" / "batch-resumable"
-        task_path = task_root / "task.json"
-        self.assertTrue(task_path.is_file())
-        self.assertEqual(source.read_bytes(), (task_root / "source.pdf").read_bytes())
-        task_text = task_path.read_text(encoding="utf-8").lower()
-        self.assertNotIn("hash", task_text)
-        self.assertNotIn("token", task_text)
-        self.assertNotIn("url", task_text)
-        self.assertFalse((workspace / "sources" / "Resumed Paper-paper" / "source.yaml").exists())
-        source.write_bytes(b"%PDF replacement that was not uploaded")
-
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            resumed = PARSER.main(
-                [
-                    "resume",
-                    "batch-resumable",
-                    "--workspace",
-                    str(workspace),
-                ],
-                hosted=hosted,
-            )
-
-        self.assertEqual(0, resumed)
-        self.assertEqual(1, hosted.starts)
-        self.assertEqual(2, hosted.completions)
-        self.assertTrue((workspace / "sources" / "Resumed Paper-paper" / "source.yaml").is_file())
-        self.assertEqual(
-            b"%PDF-1.4\nfixture\n",
-            (workspace / "sources" / "Resumed Paper-paper" / "parser-bundle" / "source.pdf").read_bytes(),
-        )
-        self.assertFalse(task_root.exists())
-
-    def test_reparse_of_identical_paper_reuses_without_uploading_again(self):
-        source = self.root / "fixture.pdf"
-        source.write_bytes(b"%PDF-1.4\nfixture\n")
-        workspace = self.root / "workspace"
-        workspace.mkdir()
-
-        class HostedParserFixture:
-            def __init__(self):
-                self.number = 0
-
-            def start(self, source, **kwargs):
-                self.number += 1
-                return f"batch-{self.number}"
-
-            def complete(self, source, output, *, batch_id, **kwargs):
-                (output / "images").mkdir(parents=True)
-                shutil.copy2(source, output / "source.pdf")
-                (output / "content.md").write_text(f"# Version {batch_id}\n", encoding="utf-8")
-                (output / "metadata.json").write_text(
-                    json.dumps({"source_kind": "paper_pdf", "language": "en", "parser": "paper-parser", "batch_id": batch_id}),
-                    encoding="utf-8",
-                )
-                (output / "validation.json").write_text('{"ok": true}\n', encoding="utf-8")
-
-        hosted = HostedParserFixture()
-        command = [
-            "parse",
-            str(source),
-            "--workspace",
-            str(workspace),
-            "--title",
-            "Collision Paper",
-            "--topic",
-            "Identity",
-        ]
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(0, PARSER.main(command, hosted=hosted))
-        original = (workspace / "sources" / "Collision Paper-paper" / "parser-bundle" / "content.md").read_bytes()
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(0, PARSER.main(command, hosted=hosted))
-
-        self.assertEqual(
-            original,
-            (workspace / "sources" / "Collision Paper-paper" / "parser-bundle" / "content.md").read_bytes(),
-        )
-        self.assertEqual(1, hosted.number)
-        topic = json.loads((workspace / "topics" / "identity" / "topic.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(["Collision Paper-paper"], topic["sources"])
-
-    def test_existing_paper_is_reused_only_by_explicit_selection(self):
-        workspace = self.root / "workspace"
-        bundle = workspace / "sources" / "Existing-paper" / "parser-bundle"
-        (bundle / "images").mkdir(parents=True)
-        (bundle / "source.pdf").write_bytes(b"%PDF fixture")
-        (bundle / "content.md").write_text("# Existing\n", encoding="utf-8")
-        (bundle / "metadata.json").write_text(
-            '{"source_kind": "paper_pdf", "language": "en", "parser": "paper-parser", "batch_id": "fixture-batch"}\n', encoding="utf-8"
-        )
-        (bundle / "validation.json").write_text('{"ok": true}\n', encoding="utf-8")
-        (bundle.parent / "source.yaml").write_text(
-            json.dumps({"source_kind": "paper_pdf", "source_id": "Existing-paper", "title": "Existing Paper", "short_name": "Existing", "identity": "fixture:existing"}),
-            encoding="utf-8",
-        )
-        before = (bundle / "content.md").read_bytes()
-
-        with contextlib.redirect_stdout(io.StringIO()):
-            result = PARSER.main(
-                [
-                    "reuse",
-                    "--workspace",
-                    str(workspace),
-                    "--source-id",
-                    "Existing-paper",
-                    "--topic",
-                    "Second Topic",
-                ]
-            )
-
-        self.assertEqual(0, result)
-        paper = json.loads((bundle.parent / "source.yaml").read_text(encoding="utf-8"))
-        self.assertNotIn("topics", paper)
-        topic = json.loads((workspace / "topics" / "second-topic" / "topic.yaml").read_text(encoding="utf-8"))
-        self.assertEqual(["Existing-paper"], topic["sources"])
-        self.assertEqual(before, (bundle / "content.md").read_bytes())
 
     def test_normalize_builds_compact_bundle_and_rewrites_images_in_reference_order(self):
         source = self.root / "input.pdf"
@@ -386,7 +71,7 @@ class PaperParserTests(unittest.TestCase):
         self.assertFalse((output / "raw").exists())
         self.assertFalse((output / "images" / "unreferenced.png").exists())
         metadata = json.loads((output / "metadata.json").read_text(encoding="utf-8"))
-        self.assertEqual("paper-parser", metadata["parser"])
+        self.assertEqual("article-parser", metadata["parser"])
         self.assertEqual("source-reference-order", metadata["image_naming"])
         self.assertNotIn("token", json.dumps(metadata).lower())
         self.assertNotIn("hash", json.dumps(metadata).lower())
@@ -394,77 +79,36 @@ class PaperParserTests(unittest.TestCase):
         self.assertTrue(validation["ok"])
         self.assertNotIn("hash", json.dumps(validation).lower())
 
-    def test_missing_workspace_paper_and_parser_bundle_return_structured_errors(self):
-        missing_workspace = self.root / "missing"
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
-            result = PARSER.main(
-                [
-                    "reuse",
-                    "--workspace",
-                    str(missing_workspace),
-                    "--source-id",
-                    "Missing-paper",
-                    "--topic",
-                    "Topic",
-                ]
-            )
-        self.assertEqual(1, result)
-        self.assertEqual("workspace_missing", json.loads(stderr.getvalue())["error_id"])
+    def test_ingestion_adapter_persists_reference_and_uses_evidenced_deepstack_short_name(self):
+        source = self.root / "input.pdf"
+        source.write_bytes(b"%PDF fixture")
+        candidate = self.root / "candidate"
 
-        workspace = self.root / "workspace-errors"
-        workspace.mkdir()
-        for source_id, expected in (("Missing-paper", "source_missing"), ("No Bundle-paper", "parser_bundle_missing")):
-            if source_id == "No Bundle-paper":
-                source_root = workspace / "sources" / source_id
-                source_root.mkdir(parents=True)
-                (source_root / "source.yaml").write_text(
-                    json.dumps({"source_kind": "paper_pdf", "source_id": source_id, "title": "No Bundle", "short_name": "No Bundle", "identity": "fixture:no-bundle"}),
+        class Hosted:
+            def start(self, source, *, model, language, ocr, on_reference):
+                on_reference("batch-fixture")
+                return "batch-fixture"
+
+            def complete(self, source, output, **kwargs):
+                (output / "images").mkdir(parents=True)
+                shutil.copy2(source, output / "source.pdf")
+                (output / "content.md").write_text(
+                    "# DeepStack: Scalable Design Space Exploration\n", encoding="utf-8"
+                )
+                (output / "metadata.json").write_text(
+                    '{"source_kind":"paper_pdf","language":"en","parser":"article-parser","batch_id":"batch-fixture"}',
                     encoding="utf-8",
                 )
-            stderr = io.StringIO()
-            with contextlib.redirect_stderr(stderr):
-                result = PARSER.main(
-                    [
-                        "reuse",
-                        "--workspace",
-                        str(workspace),
-                        "--source-id",
-                        source_id,
-                        "--topic",
-                        "Topic",
-                    ]
-                )
-            self.assertEqual(1, result)
-            self.assertEqual(expected, json.loads(stderr.getvalue())["error_id"])
+                (output / "validation.json").write_text('{"ok":true,"warnings":[]}', encoding="utf-8")
 
-        source_root = workspace / "sources" / "Valid-paper"
-        bundle = source_root / "parser-bundle"
-        (bundle / "images").mkdir(parents=True)
-        (bundle / "source.pdf").write_bytes(b"%PDF fixture")
-        (bundle / "content.md").write_text("# Valid\n", encoding="utf-8")
-        (bundle / "metadata.json").write_text(
-            '{"source_kind": "paper_pdf", "language": "en", "parser": "paper-parser", "batch_id": "fixture-batch"}\n', encoding="utf-8"
+        checkpoints = []
+        result = PARSER.MinerUIngestionParser(hosted=Hosted()).parse(
+            source, candidate, checkpoint=checkpoints.append
         )
-        (bundle / "validation.json").write_text('{"ok": true}\n', encoding="utf-8")
-        (source_root / "source.yaml").write_text(
-            json.dumps({"source_kind": "paper_pdf", "source_id": "Valid-paper", "title": "Valid", "short_name": "Valid", "identity": "fixture:valid"}), encoding="utf-8"
+        self.assertEqual("DeepStack", result["short_name"])
+        self.assertEqual(
+            [{"reference_kind": "batch_id", "reference_id": "batch-fixture"}], checkpoints
         )
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
-            result = PARSER.main(
-                [
-                    "reuse",
-                    "--workspace",
-                    str(workspace),
-                    "--source-id",
-                    "Valid-paper",
-                    "--existing-topic-id",
-                    "missing-topic",
-                ]
-            )
-        self.assertEqual(1, result)
-        self.assertEqual("topic_missing", json.loads(stderr.getvalue())["error_id"])
 
     def test_safe_extract_rejects_path_traversal(self):
         archive = self.root / "bad.zip"
@@ -544,7 +188,7 @@ class PaperToBlogTests(unittest.TestCase):
             encoding="utf-8",
         )
         (bundle / "metadata.json").write_text(
-            '{"title": "Fixture Paper", "source_kind": "paper_pdf", "language": "en", "parser": "paper-parser", "batch_id": "fixture-batch"}\n',
+            '{"title": "Fixture Paper", "source_kind": "paper_pdf", "language": "en", "parser": "article-parser", "batch_id": "fixture-batch"}\n',
             encoding="utf-8",
         )
         (bundle / "validation.json").write_text(
@@ -634,7 +278,7 @@ class PaperToBlogTests(unittest.TestCase):
             encoding="utf-8",
         )
         (bundle / "metadata.json").write_text(
-            '{"title": "A Paper", "source_kind": "paper_pdf", "language": "en", "parser": "paper-parser", "batch_id": "fixture-batch"}\n',
+            '{"title": "A Paper", "source_kind": "paper_pdf", "language": "en", "parser": "article-parser", "batch_id": "fixture-batch"}\n',
             encoding="utf-8",
         )
         (bundle / "validation.json").write_text('{"ok": true}\n', encoding="utf-8")

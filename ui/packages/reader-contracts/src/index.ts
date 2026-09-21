@@ -154,7 +154,34 @@ export interface LibraryTopic {
   sourceIds: readonly string[];
 }
 
-export interface LibraryUpload { topic: string; uploader: string }
+export interface IngestionTarget { topicTitle?: string; topicId?: string }
+
+export type IngestionStatus =
+  | "awaiting_confirmation"
+  | "confirmed"
+  | "processing"
+  | "status_check_required"
+  | "retry_waiting"
+  | "failed"
+  | "commit_conflict"
+  | "topic_attachment_pending"
+  | "cancelled"
+  | "interrupted"
+  | "completed";
+
+export interface IngestionItem {
+  item_id: string;
+  file_name: string;
+  status: IngestionStatus;
+  topic_title: string | null;
+  topic_id: string | null;
+  source_id: string | null;
+  document_status: string;
+  topic_status: string;
+  confirmation?: { services: readonly string[]; purpose: string; scope: string } | null;
+  error?: { error_id: string; message: string };
+  topic_error?: { error_id: string; message: string };
+}
 
 export interface LibrarySource {
   shortName?: string;
@@ -178,7 +205,14 @@ export interface LibrarySource {
 export interface ReaderHost {
   listTopics?(): Promise<ReaderHostResult<readonly LibraryTopic[]>>;
   listSources?(): Promise<ReaderHostResult<readonly LibrarySource[]>>;
-  uploadSource?(file: File, fields: LibraryUpload): Promise<ReaderHostResult<ReadingWindow>>;
+  listInbox?(): Promise<ReaderHostResult<readonly IngestionItem[]>>;
+  stageIngestion?(file: File, target: IngestionTarget): Promise<ReaderHostResult<IngestionItem>>;
+  confirmIngestion?(itemId: string): Promise<ReaderHostResult<IngestionItem>>;
+  processIngestion?(itemId: string, requestId: string): Promise<ReaderHostResult<IngestionItem>>;
+  continueIngestion?(itemId: string, requestId: string): Promise<ReaderHostResult<IngestionItem>>;
+  cancelIngestion?(itemId: string): Promise<ReaderHostResult<IngestionItem>>;
+  sourceOriginalUrl?(sourceId: string): string;
+  sourceContentUrl?(sourceId: string): string;
   deleteSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   replanSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;

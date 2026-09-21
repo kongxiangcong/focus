@@ -71,7 +71,7 @@ Phase 1 intentionally has no compatibility conversion, locks, revisions, event l
 
 The JSON is transport only. Never persist it under `tmp/`, emit its path as a receipt, or retain internal staging after success or failure.
 
-Library upload and replan prepare the entire Plan but do not start reading. Do not call current/continue to translate chunks. The next explicit reading action starts it. See [Library workflow](../../../docs/library-workflow.md).
+Library replan prepares the entire Plan but does not start reading. Ingestion itself creates no Plan. Do not call current/continue to translate chunks. The next explicit reading action starts it. See [Library workflow](../../../docs/library-workflow.md).
 
 ## Prepare reading without moving the Cursor
 

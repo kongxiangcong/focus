@@ -160,12 +160,59 @@ class Handler(BaseHTTPRequestHandler):
             return
         if method == 'GET' and path == '/library/topics':
             result = service.library_topics()
+        elif method == 'GET' and path == '/library/inbox':
+            result = service.inbox_items()
         elif method == 'GET' and path == '/library/sources':
             result = service.library_sources()
+        elif method == 'POST' and path == '/library/inbox':
+            name = parse_qs(urlsplit(self.path).query).get('name', [''])[0]
+            if Path(name).name != name or '\\' in name or len(name) > 180 or Path(name).suffix.lower() != '.pdf':
+                raise ValueError('请选择 PDF。')
+            fields = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
+            topic = fields.get('topic', [None])[0]
+            topic_id = fields.get('topicId', [None])[0]
+            if topic is not None and (not topic.strip() or len(topic) > 120):
+                raise ValueError('专题名称无效。')
+            length = int(self.headers.get('Content-Length', '0'))
+            if length < 4 or length > 200 * 1024 * 1024:
+                raise ValueError('文件大小须为 4 字节到 200 MB。')
+            upload_id = uuid.uuid4().hex
+            root = (service.workspace / 'uploads' / upload_id).resolve()
+            if not root.is_relative_to(service.workspace):
+                raise ValueError('Upload directory is outside the Workspace')
+            root.mkdir(parents=True)
+            target = root / name
+            try:
+                with target.open('xb') as out:
+                    remaining = length
+                    while remaining:
+                        data = self.rfile.read(min(remaining, 65536))
+                        if not data:
+                            raise ValueError('Upload interrupted')
+                        out.write(data)
+                        remaining -= len(data)
+                if target.read_bytes()[:4] != b'%PDF':
+                    raise ValueError('文件内容不是 PDF。')
+                result = service.ingestion.stage_pdf(target, topic_title=topic, topic_id=topic_id)
+            finally:
+                target.unlink(missing_ok=True)
+                root.rmdir()
+            self._send(201, {'ok': True, 'value': result})
+            return
         elif path.startswith('/library/sources/'):
             parts = path[len('/library/sources/'):].split('/')
             source_id = unquote(parts[0])
-            if method == 'DELETE' and len(parts) == 1:
+            if method == 'GET' and len(parts) >= 3 and parts[1] == 'images':
+                target = service.core.image(source_id, unquote('/'.join(parts[1:])))
+                self._send(200, target.read_bytes(), content_type=mimetypes.guess_type(target)[0] or 'image/png')
+                return
+            elif method == 'GET' and len(parts) == 2 and parts[1] in ('original', 'content'):
+                target = service.core.source_resource(source_id, parts[1])
+                content_type = 'text/markdown; charset=utf-8' if parts[1] == 'content' else mimetypes.guess_type(target)[0] or 'application/octet-stream'
+                self._send(200, target.read_bytes(), content_type=content_type,
+                           headers={'Content-Disposition': ('inline; filename="' + target.name.replace('"', '') + '"')})
+                return
+            elif method == 'DELETE' and len(parts) == 1:
                 result = service.library_delete(source_id)
             elif method == 'POST' and len(parts) == 2 and parts[1] in ('reread', 'replan', 'open'):
                 self._body()
@@ -189,15 +236,30 @@ class Handler(BaseHTTPRequestHandler):
             result = service.stop()
         elif method == 'POST' and path == '/reader/approval':
             result = service.approve(self._body())
-        elif method == 'POST' and path in ('/reader/upload', '/library/sources'):
+        elif path.startswith('/library/inbox/'):
+            parts = path[len('/library/inbox/'):].split('/')
+            item_id = unquote(parts[0])
+            if len(parts) != 2 or method != 'POST' or parts[1] not in ('confirm', 'process', 'continue', 'cancel'):
+                raise ValueError('Unknown Inbox operation')
+            if parts[1] == 'confirm':
+                self._body(); result = service.inbox_confirm(item_id)
+            elif parts[1] == 'cancel':
+                self._body(); result = service.inbox_cancel(item_id)
+            else:
+                payload = self._body()
+                request_id = payload.get('requestId')
+                if not isinstance(request_id, str):
+                    raise ValueError('A requestId is required')
+                result = service.inbox_start_process(item_id, request_id=request_id, continuing=parts[1] == 'continue')
+            self._send(202 if parts[1] in ('process', 'continue') else 200, {'ok': True, 'value': result})
+            return
+        elif method == 'POST' and path == '/reader/upload':
             name = parse_qs(urlsplit(self.path).query).get('name', [''])[0]
             if Path(name).name != name or '\\' in name or len(name) > 180 or Path(name).suffix.lower() not in ('.pdf', '.html', '.md', '.markdown'):
                 raise ValueError('选择 PDF、单文件 HTML 或 Markdown。')
             fields = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
             topic = fields.get('topic', [''])[0].strip()
             uploader = fields.get('uploader', ['孔祥聪'])[0].strip()
-            if path == '/library/sources' and (not topic or len(topic) > 120 or not uploader or len(uploader) > 100):
-                raise ValueError('请填写专题和上传者。')
             length = int(self.headers.get('Content-Length', '0'))
             if length < 1 or length > 200 * 1024 * 1024:
                 raise ValueError('文件大小须为 1 字节到 200 MB。')
@@ -217,25 +279,11 @@ class Handler(BaseHTTPRequestHandler):
                             raise ValueError('Upload interrupted')
                         out.write(data)
                         remaining -= len(data)
-                if path == '/library/sources' and target.suffix.lower() == '.pdf':
-                    with target.open('rb') as uploaded:
-                        if uploaded.read(4) != b'%PDF':
-                            raise ValueError('文件内容不是 PDF。')
                 service.store.put('upload:' + upload_id, {'name': name, 'path': str(target)})
             except Exception:
                 target.unlink(missing_ok=True)
                 root.rmdir()
                 raise
-            if path == '/library/sources':
-                try:
-                    result = service.library_upload(upload_id, topic=topic, uploader=uploader)
-                except Exception:
-                    target.unlink(missing_ok=True)
-                    root.rmdir()
-                    service.store.put('upload:' + upload_id, None)
-                    raise
-                self._send(202, {'ok': True, 'value': result})
-                return
             self._send(200, {'ok': True, 'value': {'attachmentId': upload_id, 'name': name}})
             return
         else:

@@ -8,7 +8,7 @@ FOCUS stores every registered Reading Source exactly once under `sources/<source
 
 Source Title, Source Short Name, Source ID, Source Identity, and MinerU Parser Task ID are separate. Registration resolves the exact title and stable semantic short name after parsing, then allocates `<short-name>-paper` or `<short-name>-article`. A genuine name collision uses a trustworthy publication year first and a numeric suffix otherwise. Identical canonical article URLs and identical Paper originals reuse the installed Source.
 
-Invoking `article-parser` or `paper-parser` with a URL or selected file is the authorization for the required MinerU request. This decision supersedes ADR-0002's requirement for a second explicit fetch/upload authorization. Network, credential, publisher access, MinerU, polling, and Bundle validation failures return direct typed errors; Article parsing never bypasses access controls or adds publisher-specific adapters.
+Invoking `article-parser` with a URL or selected PDF/HTML file is the authorization for the required MinerU request. This decision supersedes ADR-0002's requirement for a second explicit fetch/upload authorization. Network, credential, publisher access, MinerU, polling, and Bundle validation failures return direct typed errors; Article parsing never bypasses access controls or adds publisher-specific adapters.
 
 `focus-map` keeps installed Plans under their Source and accepts private draft transport only through stdin; it exposes no temporary draft path or receipt. `focus-read topic <topic-id>` traverses the Topic's ordered Sources using only `current_topic_id` plus the existing per-Source cursors. A Source completed anywhere is complete in every Topic unless explicitly reinitialized for rereading.
 

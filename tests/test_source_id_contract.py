@@ -120,7 +120,7 @@ class SourceIdHostTests(unittest.TestCase):
     tearDown = test_web_host.WebHostTests.tearDown
     finish = test_web_host.WebHostTests.finish
 
-    def test_upload_prepare_open_and_reference_preserve_registered_ids(self):
+    def test_prepare_open_and_reference_preserve_registered_ids(self):
         import test_source_library_topic as fixtures
         fixture = fixtures.SourceLibraryTopicTests()
         fixture.root = self.fixture.root
@@ -134,11 +134,7 @@ class SourceIdHostTests(unittest.TestCase):
                 (bundle / 'source.pdf').write_bytes(original_bytes)
                 fixture.library.register(bundle, source_kind='paper_pdf', title=name.strip(), short_name=name, identity=f'paper:upload-{index}')
                 fixture._map(sid)
-                root = self.workspace / 'uploads' / f'upload-{index}'
-                root.mkdir(parents=True)
-                original = root / 'selected.pdf'
-                original.write_bytes(original_bytes)
-                self.host.store.put(f'upload:upload-{index}', {'name': original.name, 'path': str(original)})
+                fixture.library.attach(sid, topic_title='Upload Topic')
                 bridge = self.host.core
 
                 class PreparingDouble(test_web_host.ProtocolDouble):
@@ -152,12 +148,10 @@ class SourceIdHostTests(unittest.TestCase):
                         return super().request(method, params, timeout)
 
                 with patch('host.backends.codex.AppServer', side_effect=PreparingDouble):
-                    self.host.library_upload(f'upload-{index}', topic='Upload Topic')
+                    self.host.library_read(sid)
                     self.finish()
                 self.assertEqual('completed', self.host.state['run']['status'])
-                self.assertFalse(root.exists())
                 self.assertIn(sid, next(t for t in self.host.library_topics() if t['topicId'] == 'upload-topic')['sourceIds'])
-                self.host.library_read(sid)
                 current = self.host.snapshot()['current']
                 self.assertEqual(sid, current['sourceId'])
                 receipt = {k: current[k] for k in ('sourceId', 'planId', 'chunkId')}

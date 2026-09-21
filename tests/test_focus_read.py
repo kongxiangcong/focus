@@ -68,7 +68,7 @@ class FocusReadTests(unittest.TestCase):
         ]
         (bundle / "source.pdf").write_bytes(b"%PDF fixture")
         (bundle / "content.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-        (bundle / "metadata.json").write_text('{"source_kind":"paper_pdf","language":"en","parser":"paper-parser","batch_id":"fixture-batch"}\n', encoding="utf-8")
+        (bundle / "metadata.json").write_text('{"source_kind":"paper_pdf","language":"en","parser":"article-parser","batch_id":"fixture-batch"}\n', encoding="utf-8")
         (bundle / "validation.json").write_text('{"ok":true}\n', encoding="utf-8")
         (bundle / "images" / "image-001.png").write_bytes(b"image")
         chunks = [
@@ -358,7 +358,7 @@ class FocusReadTests(unittest.TestCase):
         (other_bundle / "images").mkdir(parents=True)
         (other_bundle / "source.pdf").write_bytes(b"%PDF fixture")
         (other_bundle / "content.md").write_text("# Other\n", encoding="utf-8")
-        (other_bundle / "metadata.json").write_text('{"source_kind":"paper_pdf","language":"en","parser":"paper-parser","batch_id":"fixture-batch"}\n', encoding="utf-8")
+        (other_bundle / "metadata.json").write_text('{"source_kind":"paper_pdf","language":"en","parser":"article-parser","batch_id":"fixture-batch"}\n', encoding="utf-8")
         (other_bundle / "validation.json").write_text('{"ok":true}\n', encoding="utf-8")
         (other_root / "source.yaml").write_text(
             json.dumps({"source_kind": "paper_pdf", "source_id": "other-paper", "title": "Other", "short_name": "other", "identity": "fixture:other"}),

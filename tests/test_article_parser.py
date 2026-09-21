@@ -4,6 +4,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -58,6 +59,42 @@ class Hosted:
         (output / "validation.json").write_text(json.dumps({"ok": True, "warnings": []}), encoding="utf-8")
 
 
+class HostedPdf:
+    def __init__(self, *, timeout_once: bool = False):
+        self.starts = 0
+        self.completions = 0
+        self.timeout_once = timeout_once
+
+    def start_pdf(self, source, *, model, language, ocr):
+        self.starts += 1
+        return "pdf-batch"
+
+    def complete_pdf(self, task, source, output, *, timeout, interval):
+        self.completions += 1
+        if self.timeout_once and self.completions == 1:
+            raise ARTICLE.ParserError("Polling timed out; resume with batch_id pdf-batch")
+        (output / "images").mkdir(parents=True)
+        shutil.copy2(source, output / "source.pdf")
+        (output / "content.md").write_text(
+            "# Unified Paper\n\n![Figure](images/image-001.png)\n", encoding="utf-8"
+        )
+        (output / "images" / "image-001.png").write_bytes(b"image")
+        (output / "metadata.json").write_text(
+            json.dumps(
+                {
+                    "source_kind": "paper_pdf",
+                    "language": task.language,
+                    "parser": "article-parser",
+                    "batch_id": task.batch_id,
+                }
+            ),
+            encoding="utf-8",
+        )
+        (output / "validation.json").write_text(
+            json.dumps({"ok": True, "warnings": []}), encoding="utf-8"
+        )
+
+
 class ArticleParserTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -103,6 +140,76 @@ class ArticleParserTests(unittest.TestCase):
         self.assertEqual("文章工作名-article", output[-1]["source_id"])
         topic = json.loads((self.workspace / "topics" / "ai-systems" / "topic.yaml").read_text(encoding="utf-8"))
         self.assertEqual(["文章工作名-article"], topic["sources"])
+
+    def test_pdf_uses_the_same_parse_file_operation_and_article_parser_provenance(self):
+        source = self.root / "selected.pdf"
+        source.write_bytes(b"%PDF-1.4\nselected bytes\n")
+        hosted = HostedPdf()
+        code, output, error = self.run_parser(
+            [
+                "parse-file",
+                str(source),
+                "--workspace",
+                str(self.workspace),
+                "--short-name",
+                "Unified",
+            ],
+            hosted,
+        )
+
+        self.assertEqual((0, None, 1), (code, error, hosted.starts))
+        self.assertEqual("Unified-paper", output[-1]["source_id"])
+        bundle = self.workspace / "sources" / "Unified-paper" / "parser-bundle"
+        self.assertEqual(source.read_bytes(), (bundle / "source.pdf").read_bytes())
+        self.assertEqual(
+            "article-parser",
+            json.loads((bundle / "metadata.json").read_text(encoding="utf-8"))["parser"],
+        )
+        state = json.loads((self.workspace / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            {"current_plan_id": None, "current_chunk_id": None},
+            state["sources"]["Unified-paper"],
+        )
+
+    def test_identical_pdf_reuses_the_bundle_without_resubmission(self):
+        source = self.root / "selected.pdf"
+        source.write_bytes(b"%PDF-1.4\nsame bytes\n")
+        hosted = HostedPdf()
+        first = ["parse-file", str(source), "--workspace", str(self.workspace), "--short-name", "Reuse"]
+        self.assertEqual(0, self.run_parser(first, hosted)[0])
+        original = (self.workspace / "sources" / "Reuse-paper" / "parser-bundle" / "content.md").read_bytes()
+        renamed = self.root / "renamed.pdf"
+        renamed.write_bytes(source.read_bytes())
+        code, output, error = self.run_parser(
+            [
+                "parse-file",
+                str(renamed),
+                "--workspace",
+                str(self.workspace),
+                "--topic",
+                "Second Topic",
+            ],
+            hosted,
+        )
+        self.assertEqual((0, None, 1), (code, error, hosted.starts))
+        self.assertEqual("reused", output[-1]["status"])
+        self.assertEqual(original, (self.workspace / "sources" / "Reuse-paper" / "parser-bundle" / "content.md").read_bytes())
+
+    def test_pdf_resume_uses_the_persisted_original_without_reupload(self):
+        source = self.root / "selected.pdf"
+        original = b"%PDF-1.4\noriginal bytes\n"
+        source.write_bytes(original)
+        hosted = HostedPdf(timeout_once=True)
+        first = self.run_parser(
+            ["parse-file", str(source), "--workspace", str(self.workspace), "--short-name", "Resume"], hosted
+        )
+        self.assertEqual(1, first[0])
+        source.write_bytes(b"replacement")
+        code, output, error = self.run_parser(
+            ["resume", "pdf-batch", "--workspace", str(self.workspace)], hosted
+        )
+        self.assertEqual((0, None, 1, 2), (code, error, hosted.starts, hosted.completions))
+        self.assertEqual(original, (self.workspace / "sources" / "Resume-paper" / "parser-bundle" / "source.pdf").read_bytes())
 
     def test_identical_canonical_url_reuses_without_resubmission(self):
         self.run_parser(

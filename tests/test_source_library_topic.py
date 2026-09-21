@@ -34,7 +34,7 @@ class SourceLibraryTopicTests(unittest.TestCase):
                 {
                     "source_kind": kind,
                     "language": "en" if kind == "paper_pdf" else "zh",
-                    "parser": "paper-parser" if kind == "paper_pdf" else "article-parser",
+                    "parser": "article-parser" if kind == "paper_pdf" else "article-parser",
                     **reference,
                 }
             ),

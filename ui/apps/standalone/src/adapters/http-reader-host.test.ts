@@ -47,6 +47,21 @@ describe("HttpReaderHost", () => {
       },
     });
   });
+
+  it("uses the Inbox API and keeps staging separate from confirmation and processing", async () => {
+    const item = { item_id: "abc", file_name: "paper.pdf", status: "awaiting_confirmation", topic_title: null, topic_id: "systems", source_id: null, document_status: "not_started", topic_status: "not_started" };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({ ok: true, value: item })));
+    const host = new HttpReaderHost({ baseUrl: "http://127.0.0.1:4317", fetch });
+    const pdf = new File(["%PDF"], "paper.pdf", { type: "application/pdf" });
+    await host.stageIngestion(pdf, { topicId: "systems" });
+    await host.confirmIngestion("abc");
+    await host.processIngestion("abc", "request-1");
+    expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+      "http://127.0.0.1:4317/library/inbox?name=paper.pdf&topicId=systems",
+      "http://127.0.0.1:4317/library/inbox/abc/confirm",
+      "http://127.0.0.1:4317/library/inbox/abc/process",
+    ]);
+  });
 });
 
 

@@ -24,7 +24,7 @@ python -m host --workspace ./workspace --network
 
 FOCUS 主要通过 Codex Skills 使用。一次完整流程只有四步：注册 Source、创建 Reading Plan、开始阅读、按需综合 Topic。
 
-1. 用 `paper-parser` 或 `article-parser` 注册来源。调用 Parser 本身即授权本次 MinerU 获取或上传，不会再要求二次确认。
+1. 用唯一的 `article-parser` 注册 PDF 或 HTML 来源。直接调用 Parser 本身即授权本次 MinerU 获取或上传，不会再要求二次确认。
 2. 用 `focus-map` 为返回的 Source ID 创建 Reading Plan。重复调用会复用现有 Plan，只有明确要求重建时才会 reinitialize。
 3. 用 `focus-read` 阅读单个 Source，或按 Topic manifest 中的 Source ID 顺序连续阅读。
 4. 只有明确请求时，才用 `focus-read` 生成带 Source ID 与原文行号锚点的 Topic Synthesis。
@@ -32,7 +32,7 @@ FOCUS 主要通过 Codex Skills 使用。一次完整流程只有四步：注册
 最小对话示例：
 
 ~~~text
-用户：用 $paper-parser 解析 D:\papers\DeepStack.pdf，short name 用 DeepStack，加入 Topic“AI Systems”（topic id: ai-systems）。
+用户：用 $article-parser 解析 D:\papers\DeepStack.pdf，short name 用 DeepStack，加入 Topic“AI Systems”（topic id: ai-systems）。
 用户：用 $focus-map 为 DeepStack-paper 创建阅读计划。
 用户：用 $focus-read 按 Topic ai-systems 开始阅读。
 用户：继续阅读。
@@ -60,7 +60,7 @@ $workspace = Join-Path $PWD "workspace"
 下面的例子注册一篇 Paper，同时创建 `ai-systems` Topic 并把 Source 放入其有序列表：
 
 ~~~powershell
-$paper = python -B -X utf8 .agents/skills/paper-parser/scripts/mineru_precision.py parse `
+$paper = python -B -X utf8 .agents/skills/article-parser/scripts/article_parser.py parse-file `
   D:\papers\DeepStack.pdf `
   --workspace $workspace `
   --short-name "DeepStack" `
@@ -145,8 +145,7 @@ $draft | python -B -X utf8 .agents/skills/focus-read/scripts/focus_read.py synth
 
 ## 公开 Skills
 
-- paper-parser：选定 PDF 并调用即授权本次 MinerU 上传，解析后注册或复用 canonical Paper Source。
-- article-parser：提供 URL 或选定单文件 HTML 并调用即授权本次 MinerU 获取/上传，注册或复用 Article Source；不绕过访问控制或适配发布平台。
+- article-parser：提供 PDF、URL 或选定单文件 HTML 并调用即授权本次 MinerU 获取/上传；统一注册或复用 Paper Source / Article Source，不混淆来源类型，也不绕过访问控制或适配发布平台。
 - paper2blog：从 Parser Bundle 生成独立 Blog Output，不读取或修改私人阅读数据。
 - focus-map：为已注册 Reading Source 创建、复用或显式重建固定 Reading Plan。
 - focus-read：展示当前 Chunk；按 Topic 有序跨 Source 阅读；执行有界 Source/Topic 搜索、Notes、Cursor 推进与显式 Source-anchored Topic Synthesis。

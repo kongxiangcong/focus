@@ -214,9 +214,9 @@ def _validate_parser_bundle(bundle: Path) -> dict[str, Any]:
         errors.append("content.md is missing or empty")
     if not images.is_dir():
         errors.append("images directory is missing")
-    if metadata.get("parser") not in {"paper-parser", "article-parser", "markdown-import"}:
+    if metadata.get("parser") not in {"article-parser", "markdown-import"}:
         errors.append("metadata parser provenance is invalid")
-    elif metadata.get("parser") != {"paper_pdf": "paper-parser", "article_html": "article-parser", "article_markdown": "markdown-import"}.get(source_kind):
+    elif metadata.get("parser") != {"paper_pdf": "article-parser", "article_html": "article-parser", "article_markdown": "markdown-import"}.get(source_kind):
         errors.append("metadata parser does not match source kind")
     if not isinstance(metadata.get("language"), str) or not metadata["language"].strip():
         errors.append("metadata language is invalid")

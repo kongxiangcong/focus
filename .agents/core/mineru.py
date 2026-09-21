@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Parse a PDF with MinerU's hosted precision API.
+"""Shared MinerU precision transport and PDF bundle normalization.
 
 Uses only the Python standard library. Credentials are read from MINERU_API_TOKEN
 and are never serialized. MinerU's ZIP is normalized into one compact bundle and
@@ -16,7 +16,6 @@ import re
 import shutil
 import ssl
 import subprocess
-import sys
 import time
 import urllib.error
 import urllib.parse
@@ -26,10 +25,6 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-
-from core import ParserTask, SourceLibrary, WorkspaceCore, WorkspaceError, validate_topic_id
 
 BASE_URL = "https://mineru.net"
 TOKEN_ENV = "MINERU_API_TOKEN"
@@ -48,9 +43,13 @@ PENDING_STATES = {"waiting-file", "pending", "running", "converting"}
 class ParserError(RuntimeError):
     error_id = "parser_failed"
 
-    def __init__(self, message: str, *, recoverable: bool = True):
+    def __init__(self, message: str, *, recoverable: bool = True, error_id: str | None = None):
         super().__init__(message)
         self.recoverable = recoverable
+        self.transient = recoverable
+        self.acceptance_unknown = False
+        if error_id is not None:
+            self.error_id = error_id
 
 
 def _dotenv_token(path: Path) -> str:
@@ -81,7 +80,11 @@ def _token() -> str:
     if not value:
         value = _dotenv_token(Path.cwd() / DOTENV_NAME)
     if not value:
-        raise ParserError(f"{TOKEN_ENV} is not configured in the process environment or {Path.cwd() / DOTENV_NAME}")
+        raise ParserError(
+            f"{TOKEN_ENV} is not configured in the process environment or {Path.cwd() / DOTENV_NAME}",
+            recoverable=False,
+            error_id="authentication_required",
+        )
     return value
 
 
@@ -95,7 +98,7 @@ def _request(
 ) -> bytes:
     if not url.startswith("https://"):
         raise ParserError("Refusing a non-HTTPS MinerU URL")
-    headers = {"Accept": "application/json", "User-Agent": "focus-paper-parser/1"}
+    headers = {"Accept": "application/json", "User-Agent": "focus-article-parser/2"}
     data: bytes | Any | None = None
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -110,7 +113,11 @@ def _request(
                 raise ParserError("MinerU response exceeded the safety limit")
             return payload
     except urllib.error.HTTPError as exc:
-        raise ParserError(f"MinerU HTTP {exc.code}") from exc
+        raise ParserError(
+            f"MinerU HTTP {exc.code}",
+            recoverable=exc.code not in {400, 401, 403},
+            error_id="authentication_failed" if exc.code in {401, 403} else "mineru_http_error",
+        ) from exc
     except urllib.error.URLError as exc:
         raise ParserError(f"MinerU network error: {exc.reason}") from exc
 
@@ -301,7 +308,7 @@ def _normalize(source: Path, archive: Path, output: Path, batch_id: str, model: 
     metadata = {
         "source_kind": "paper_pdf",
         "source_file": source.name,
-        "parser": "paper-parser",
+        "parser": "article-parser",
         "api_version": "v4",
         "model_version": model,
         "language": language,
@@ -377,7 +384,7 @@ def _complete(source: Path, output: Path, batch_id: str, model: str, language: s
 
 
 class MinerUHostedParser:
-    def start(self, source: Path, *, model: str, language: str, ocr: bool) -> str:
+    def start(self, source: Path, *, model: str, language: str, ocr: bool, on_reference=None) -> str:
         token = _token()
         data_id = f"focus-{uuid.uuid4().hex}"
         payload = {
@@ -393,6 +400,8 @@ class MinerUHostedParser:
         urls = data.get("file_urls")
         if not isinstance(batch_id, str) or not isinstance(urls, list) or len(urls) != 1:
             raise ParserError("MinerU upload-link response is incomplete")
+        if on_reference is not None:
+            on_reference(batch_id)
         _upload(urls[0], source)
         return batch_id
 
@@ -410,140 +419,93 @@ class MinerUHostedParser:
         _complete(source, output, batch_id, model, language, timeout, interval)
 
 
-def _finish_task(
-    core: WorkspaceCore,
-    task: ParserTask,
-    hosted: Any,
-    *,
-    timeout: float,
-    interval: float,
-) -> dict[str, Any]:
-    staging = core.prepare_parser_bundle(task)
-    try:
-        hosted.complete(
-            core.parser_task_source(task),
-            staging,
-            batch_id=task.batch_id,
-            model=task.model,
-            language=task.language,
-            timeout=timeout,
-            interval=interval,
-        )
-        return core.install_parser_bundle(task, staging)
-    except Exception as exc:
-        core.discard_parser_bundle(task)
-        if isinstance(exc, ParserError) and not exc.recoverable:
-            core.discard_parser_task(task)
-        raise
+class MinerUIngestionParser:
+    """Produce a validated PDF candidate; Core remains the only publisher."""
 
+    def __init__(
+        self,
+        hosted: Any | None = None,
+        *,
+        model: str = "vlm",
+        language: str = "en",
+        ocr: bool = False,
+        timeout: float = 1800.0,
+        interval: float = 5.0,
+    ) -> None:
+        self.hosted = hosted or MinerUHostedParser()
+        self.model = model
+        self.language = language
+        self.ocr = ocr
+        self.timeout = timeout
+        self.interval = interval
 
-def _parse(args: argparse.Namespace, hosted: Any) -> None:
-    source = args.source.resolve()
-    if not source.is_file() or source.suffix.lower() != ".pdf":
-        raise ParserError("Source must be an existing PDF file")
-    if source.stat().st_size > MAX_SOURCE_BYTES:
-        raise ParserError("Source exceeds MinerU's 200 MB precision-API limit")
-    core = WorkspaceCore(args.workspace)
-    if args.title is not None and not args.title.strip():
-        raise WorkspaceError("source_title_invalid", "Reading Source title is empty or invalid")
-    if args.short_name is not None and not args.short_name.strip():
-        raise WorkspaceError("source_short_name_invalid", "Source Short Name is empty or invalid")
-    if args.topic is not None and not args.topic.strip():
-        raise WorkspaceError("topic_invalid", "Topic title is empty or invalid")
-    if args.topic_id is not None:
-        validate_topic_id(args.topic_id)
-    existing = SourceLibrary(args.workspace).find_original(source, source_kind="paper_pdf")
-    if existing is not None:
-        topic_id = None
-        if args.topic is not None or args.topic_id is not None:
-            topic_id = SourceLibrary(args.workspace).attach(
-                existing["source_id"], topic_title=args.topic, topic_id=args.topic_id
+    def parse(self, source: Path, candidate: Path, *, checkpoint: Any | None = None) -> dict[str, Any]:
+        source = Path(source).resolve()
+        if not source.is_file() or source.suffix.lower() != ".pdf":
+            raise ParserError("Source must be an existing PDF file", recoverable=False)
+        if source.stat().st_size > MAX_SOURCE_BYTES:
+            raise ParserError("Source exceeds MinerU's 200 MB precision-API limit", recoverable=False)
+        reference: dict[str, str] = {}
+
+        def save_reference(batch_id: str) -> None:
+            reference["batch_id"] = batch_id
+            if checkpoint is not None:
+                checkpoint({"reference_kind": "batch_id", "reference_id": batch_id})
+
+        try:
+            batch_id = self.hosted.start(
+                source,
+                model=self.model,
+                language=self.language,
+                ocr=self.ocr,
+                on_reference=save_reference,
             )
-        print(json.dumps({"status": "reused", "source_id": existing["source_id"], "topic_id": topic_id}, ensure_ascii=False))
-        return
-    batch_id = hosted.start(source, model=args.model, language=args.language, ocr=args.ocr)
-    task = core.create_parser_task(
-        batch_id,
-        source,
-        title=args.title or "",
-        short_name=args.short_name or "",
-        topic_title=args.topic,
-        topic_id=args.topic_id,
-        published_at=args.published_at,
-        model=args.model,
-        language=args.language,
-    )
-    print(json.dumps({"status": "uploaded", "batch_id": batch_id}, ensure_ascii=False), flush=True)
-    result = _finish_task(core, task, hosted, timeout=args.timeout, interval=args.poll_interval)
-    print(json.dumps({**result, "status": "done", "batch_id": batch_id}, ensure_ascii=False))
+        except ParserError as exc:
+            if reference:
+                from .ingestion import IngestionExternalError
 
+                raise IngestionExternalError(
+                    "upload_acceptance_unknown",
+                    str(exc),
+                    acceptance_unknown=True,
+                ) from exc
+            raise
+        return self._complete_candidate(source, candidate, batch_id)
 
-def _resume(args: argparse.Namespace, hosted: Any) -> None:
-    core = WorkspaceCore(args.workspace)
-    task = core.load_parser_task(args.batch_id)
-    result = _finish_task(core, task, hosted, timeout=args.timeout, interval=args.poll_interval)
-    print(json.dumps({**result, "status": "done", "batch_id": args.batch_id}, ensure_ascii=False))
+    def _complete_candidate(self, source: Path, candidate: Path, batch_id: str) -> dict[str, Any]:
+        try:
+            self.hosted.complete(
+                source,
+                candidate,
+                batch_id=batch_id,
+                model=self.model,
+                language=self.language,
+                timeout=self.timeout,
+                interval=self.interval,
+            )
+        except ParserError as exc:
+            from .ingestion import IngestionExternalError
 
-
-def _reuse(args: argparse.Namespace, hosted: Any) -> None:
-    del hosted
-    core = WorkspaceCore(args.workspace)
-    topic_id = core.reuse_source(
-        args.source_id,
-        topic_title=args.topic,
-        topic_id=args.topic_id,
-        existing_topic_id=args.existing_topic_id,
-    )
-    print(json.dumps({"status": "reused", "source_id": args.source_id, "topic_id": topic_id}, ensure_ascii=False))
-
-
-def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description=__doc__)
-    subparsers = parser.add_subparsers(dest="command", required=True)
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--workspace", type=Path, required=True)
-    common.add_argument("--timeout", type=float, default=1800.0)
-    common.add_argument("--poll-interval", type=float, default=5.0)
-    parse = subparsers.add_parser("parse", parents=[common])
-    parse.add_argument("source", type=Path)
-    parse.add_argument("--title")
-    parse.add_argument("--short-name")
-    parse.add_argument("--topic")
-    parse.add_argument("--topic-id")
-    parse.add_argument("--published-at")
-    parse.add_argument("--model", choices=("vlm", "pipeline"), default="vlm")
-    parse.add_argument("--language", default="en")
-    parse.add_argument("--ocr", action="store_true")
-    parse.set_defaults(func=_parse)
-    resume = subparsers.add_parser("resume", parents=[common])
-    resume.add_argument("batch_id")
-    resume.set_defaults(func=_resume)
-    reuse = subparsers.add_parser("reuse")
-    reuse.add_argument("--workspace", type=Path, required=True)
-    reuse.add_argument("--source-id", required=True)
-    reuse_topic = reuse.add_mutually_exclusive_group(required=True)
-    reuse_topic.add_argument("--topic")
-    reuse_topic.add_argument("--existing-topic-id")
-    reuse.add_argument("--topic-id")
-    reuse.set_defaults(func=_reuse)
-    return parser
-
-
-def main(argv: list[str] | None = None, *, hosted: Any | None = None) -> int:
-    try:
-        args = _build_parser().parse_args(argv)
-        args.func(args, hosted or MinerUHostedParser())
-        return 0
-    except (ParserError, WorkspaceError, OSError, zipfile.BadZipFile) as exc:
-        print(
-            json.dumps(
-                {"ok": False, "error_id": getattr(exc, "error_id", "parser_failed"), "message": str(exc)},
-                ensure_ascii=False,
-            ),
-            file=sys.stderr,
+            raise IngestionExternalError(
+                exc.error_id,
+                str(exc),
+                transient=exc.recoverable,
+            ) from exc
+        content = (candidate / "content.md").read_text(encoding="utf-8", errors="replace")
+        title = next(
+            (match.group(1).strip() for line in content.splitlines() if (match := re.match(r"^#\s+(.+?)\s*$", line))),
+            source.stem,
         )
-        return 1
+        short_name = "DeepStack" if "deepstack" in title.casefold() else title
+        return {"title": title, "short_name": short_name, "batch_id": batch_id}
 
+    def resume(self, source: Path, candidate: Path, *, checkpoint: dict[str, Any]) -> dict[str, Any]:
+        if checkpoint.get("reference_kind") != "batch_id" or not isinstance(checkpoint.get("reference_id"), str):
+            raise ParserError("MinerU checkpoint is invalid", recoverable=False)
+        return self._complete_candidate(source, candidate, checkpoint["reference_id"])
 
-if __name__ == "__main__":
-    raise SystemExit(main())
+    @staticmethod
+    def cancel(checkpoint: dict[str, Any]) -> bool:
+        del checkpoint
+        # MinerU precision v4 documents submit and query operations but no cancel endpoint.
+        return False

@@ -56,7 +56,7 @@ The user's no-backend/no-protocol-change boundary was honored:
 
 | Requested behavior | Actual boundary and UI behavior |
 | --- | --- |
-| HTML Library upload | `host/server.py` rejects non-PDF Library uploads. Picker/drop accepts HTML and submits through the existing adapter; the returned error is visible. Successful HTML registration is not claimed. |
+| Library ingestion | The picker/drop accepts one PDF into the persistent Inbox. Staging is local-only; a separate confirmation starts the shared ingestion Application. HTML and Markdown are outside the Stage 1 web-ingestion scope. |
 | Recent reading time | `LibrarySource` has no timestamp. Cards display “最近阅读 · 暂无记录”; no timestamp is invented or inferred from progress. |
 | Network switch | Network access is a Host CLI setting (`--network`), with no settings API. The switch is disabled and marked “待接入”. |
 | Live Codex acceptance | The normal Host entrypoint cannot start here because `openai-codex==0.154.0` is unavailable. The HTTP/static/SSE smoke service does not execute a model, parser or real Workspace mutations. |

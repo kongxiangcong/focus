@@ -16,7 +16,7 @@ workspace/
 
 ## 上传与本地导入
 
-网页填写专题、用户（默认孔祥聪），选择文件再确认。PDF 走 paper-parser，HTML 走 article-parser；两者保留既有 MinerU 路径。Markdown 已是文本，使用以下本地导入，不提交到 MinerU。
+网页填写专题、用户（默认孔祥聪），选择文件再确认。PDF 与 HTML 都走唯一 article-parser，并在内部选择已有 MinerU 路径。Markdown 已是文本，使用以下本地导入，不提交到 MinerU。
 
 在仓库 `.agents/` 目录执行（替换为真实绝对路径）：
 

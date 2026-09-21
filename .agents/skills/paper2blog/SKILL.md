@@ -1,6 +1,6 @@
 ---
 name: paper2blog
-description: Turn a paper-parser evidence bundle into a source-faithful Chinese technical blog with an evidence map, causal method explanation, figure and experiment analysis, limitations, and traceable references. Use for paper interpretation or paper-to-blog writing, not for generic summaries or unsupported promotional copy.
+description: Turn an article-parser PDF evidence bundle into a source-faithful Chinese technical blog with an evidence map, causal method explanation, figure and experiment analysis, limitations, and traceable references. Use for paper interpretation or paper-to-blog writing, not for generic summaries or unsupported promotional copy.
 ---
 
 # Paper to Blog
@@ -9,7 +9,7 @@ Create a publishable Chinese technical explanation from parsed paper evidence. R
 
 ## Establish the evidence workspace
 
-Input must be a registered `paper_pdf` Paper Source whose canonical `parser-bundle/` contains `content.md`, `metadata.json`, `validation.json`, and `images/`. Require `validation.json.ok=true`, `metadata.json.source_kind=paper_pdf`, and `metadata.json.parser=paper-parser`. Reject `article_html` directly. If the user supplies only a PDF, invoke `paper-parser` first and honor its MinerU upload-consent and token boundary.
+Input must be a registered `paper_pdf` Paper Source whose canonical `parser-bundle/` contains `content.md`, `metadata.json`, `validation.json`, and `images/`. Require `validation.json.ok=true`, `metadata.json.source_kind=paper_pdf`, and `metadata.json.parser=article-parser`. Reject `article_html` directly. If the user supplies only a PDF, invoke `article-parser` first and honor its MinerU upload-consent and token boundary.
 
 Resolve `scripts/paper2blog.py` relative to this skill directory and prepare the Paper-local Blog Output:
 

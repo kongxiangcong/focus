@@ -4,7 +4,7 @@ import { defineConfig, type ProxyOptions } from "vite";
 export default defineConfig({
   plugins: [react()],
   server: {
-    proxy: Object.fromEntries(["/reader", "/library/topics", "/library/sources"].map(path => [path, {
+    proxy: Object.fromEntries(["/reader", "/library/topics", "/library/sources", "/library/inbox"].map(path => [path, {
       target: "http://127.0.0.1:8765", changeOrigin: true,
       configure(proxy) {
         proxy.on("proxyReq", (req, incoming) => {

@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
-import type { LibrarySource, LibraryTopic, ReaderHost, ReaderHostResult, ReadingWindow } from "@focus/reader-contracts";
+import { createReaderId, type IngestionItem, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingWindow } from "@focus/reader-contracts";
 import { FocusReader, TaskProgress } from "@focus/reader-ui";
 
 type Route = "/library" | "/reading" | "/settings";
@@ -23,6 +23,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [view, setView] = useState<ReadingWindow | null>(null);
   const [sources, setSources] = useState<readonly LibrarySource[]>([]);
   const [topics, setTopics] = useState<readonly LibraryTopic[]>([]);
+  const [inbox, setInbox] = useState<readonly IngestionItem[]>([]);
   const [topic, setTopic] = useState("");
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
@@ -32,7 +33,6 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadTopic, setUploadTopic] = useState("");
-  const [uploader, setUploader] = useState("孔祥聪");
   const uploadDialog = useRef<HTMLDialogElement>(null);
   const confirmation = useRef<HTMLDialogElement>(null);
   const locked = useRef(false);
@@ -44,10 +44,11 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     if (!host.listSources || !host.listTopics) { setLoading(false); return; }
     const version = ++requestVersion.current;
     try {
-      const [sourceResult, topicResult] = await Promise.all([host.listSources(), host.listTopics()]);
+      const [sourceResult, topicResult, inboxResult] = await Promise.all([host.listSources(), host.listTopics(), host.listInbox?.()]);
       if (version !== requestVersion.current) return;
       if (sourceResult.ok) setSources(sourceResult.value); else setError(sourceResult.error.message);
       if (topicResult.ok) setTopics(topicResult.value); else setError(topicResult.error.message);
+      if (inboxResult) { if (inboxResult.ok) setInbox(inboxResult.value); else setError(inboxResult.error.message); }
     } catch (e) { if (version === requestVersion.current) setError(String(e)); }
     finally { if (version === requestVersion.current) setLoading(false); }
   }
@@ -65,6 +66,11 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     return () => { alive = false; unsubscribe?.(); window.removeEventListener("popstate", pop); requestVersion.current++; };
   }, [host]);
   useEffect(() => { if (route !== "/settings") void refresh(); }, [route, view?.agent?.run?.status, host]);
+  useEffect(() => {
+    if (!inbox.some(item => item.status === "processing")) return;
+    const timer = window.setInterval(() => void refresh(), 1200);
+    return () => window.clearInterval(timer);
+  }, [inbox, host]);
   useEffect(() => { if (confirm) confirmation.current?.showModal(); else confirmation.current?.close(); }, [confirm]);
 
   useEffect(() => { if (uploadOpen) uploadDialog.current?.showModal(); else uploadDialog.current?.close(); }, [uploadOpen]);
@@ -82,14 +88,44 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     } catch (e) { setError(String(e)); }
     finally { locked.current = false; setBusy(""); }
   }
+  function replaceInbox(item: IngestionItem) { setInbox(current => [item, ...current.filter(existing => existing.item_id !== item.item_id)]); }
+  async function ingest(label: string, operation: () => Promise<ReaderHostResult<IngestionItem>>, closeUpload = false) {
+    if (locked.current) return;
+    locked.current = true; setBusy(label); setError("");
+    try {
+      const result = await operation();
+      if (!result.ok) { setError(result.error.message); return; }
+      replaceInbox(result.value);
+      if (closeUpload) { setUploadOpen(false); setSelectedFile(null); }
+    } catch (e) { setError(String(e)); }
+    finally { locked.current = false; setBusy(""); }
+  }
+  async function confirmAndStart(item: IngestionItem) {
+    if (!host.confirmIngestion || !host.processIngestion || locked.current) return;
+    locked.current = true; setBusy("确认"); setError("");
+    try {
+      const confirmed = await host.confirmIngestion(item.item_id);
+      if (!confirmed.ok) { setError(confirmed.error.message); return; }
+      replaceInbox(confirmed.value); setBusy("入库");
+      const started = await host.processIngestion(item.item_id, createReaderId());
+      if (!started.ok) { setError(started.error.message); return; }
+      replaceInbox(started.value);
+    } catch (e) { setError(String(e)); }
+    finally { locked.current = false; setBusy(""); }
+  }
   const filtered = sources.filter(s => (!topic || s.topicIds.includes(topic)) && (s.title + " " + (s.shortName ?? "")).toLowerCase().includes(query.toLowerCase()));
   function chooseUpload(selected?: File) {
-    if (selected && !/\.(pdf|html|md|markdown)$/i.test(selected.name)) { setError("请选择 PDF、HTML 或 Markdown"); return; }
+    if (selected && !/\.pdf$/i.test(selected.name)) { setError("请选择 PDF"); return; }
     setSelectedFile(selected ?? null);
     setUploadTopic(topics.find(t => t.topicId === topic)?.title ?? "");
     setError(""); setUploadOpen(true);
   }
-  const uploadDisabled = !!busy || active || !host.uploadSource;
+  const uploadDisabled = !!busy || active || !host.stageIngestion;
+  const statusText: Record<IngestionItem["status"], string> = {
+    awaiting_confirmation: "待确认", confirmed: "已确认，等待开始", processing: "处理中", status_check_required: "远端状态待核对",
+    retry_waiting: "等待继续", failed: "处理失败，可继续", commit_conflict: "提交冲突，可继续", topic_attachment_pending: "文档已入库，专题关联待恢复",
+    cancelled: "已取消，可继续", interrupted: "处理曾中断，可继续", completed: "入库完成",
+  };
   return <div className="workspace-app" style={{ "--reader-brightness": brightness / 100 } as CSSProperties}>
     <header className="workspace-nav">
       <a className="workspace-logo" href="/library" onClick={e => { e.preventDefault(); navigate("/library"); }}>focus<span>.</span></a>
@@ -108,6 +144,14 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <button className="workspace-primary" disabled={uploadDisabled} onClick={() => chooseUpload()}>上传</button>
       </div>
       {view?.agent?.run && <div className="library-run"><TaskProgress run={view.agent.run} /><button onClick={() => navigate("/reading")}>查看</button></div>}
+      {inbox.length > 0 && <section className="library-inbox" aria-label="Inbox"><div className="library-inbox-heading"><h2>Inbox</h2><button disabled={!!busy} onClick={() => void refresh()}>刷新状态</button></div>{inbox.map(item => <article key={item.item_id} className="library-inbox-item" data-status={item.status}>
+        <div><strong>{item.file_name}</strong><span>{statusText[item.status]}</span><small>{item.topic_title ?? topics.find(t => t.topicId === item.topic_id)?.title ?? "不关联专题"}</small></div>
+        {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>将调用 {item.confirmation?.services?.join("、") ?? "MinerU"} 解析此 PDF，仅用于建立 Source 并关联专题；不会创建博客、翻译或阅读计划。</p><button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>确认并开始</button></div>}
+        {item.status === "processing" && <button disabled={!!busy || !host.cancelIngestion} onClick={() => host.cancelIngestion && void ingest("取消", () => host.cancelIngestion!(item.item_id))}>取消</button>}
+        {["retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "cancelled", "interrupted"].includes(item.status) && <button disabled={!!busy || !host.continueIngestion} onClick={() => host.continueIngestion && void ingest("继续", () => host.continueIngestion!(item.item_id, createReaderId()))}>继续</button>}
+        {item.source_id && <div className="inbox-links">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(item.source_id)} target="_blank" rel="noreferrer">PDF 原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(item.source_id)} target="_blank" rel="noreferrer">正文</a>}</div>}
+        {(item.error || item.topic_error) && <p className="inbox-error">{item.topic_error?.message ?? item.error?.message}</p>}
+      </article>)}</section>}
       <div className="library-layout"><aside className="library-topics" aria-label="专题"><h2>专题</h2><button aria-pressed={!topic} onClick={() => setTopic("")}>全部 <span>{sources.length}</span></button>{topics.map(t => <button key={t.topicId} aria-pressed={topic === t.topicId} onClick={() => setTopic(t.topicId)}>{t.title}<span>{t.sourceIds.length}</span></button>)}</aside>
         <section className="library-sources" aria-label="材料列表"><div className="library-toolbar"><h2>{topics.find(t => t.topicId === topic)?.title ?? "全部材料"}<small>{filtered.length}</small></h2><input type="search" aria-label="搜索材料" placeholder="搜索标题" value={query} onChange={e => setQuery(e.target.value)} /></div>
           {loading ? <p role="status" className="library-empty">读取中…</p> : filtered.length === 0 ? <div className="library-empty"><span aria-hidden="true">▤</span><p>{query || topic ? "暂无匹配材料" : "放入第一份材料"}</p><button className="workspace-primary" disabled={uploadDisabled} onClick={() => { if (query || topic) { setQuery(""); setTopic(""); } else chooseUpload(); }}>{query || topic ? "重置" : "上传"}</button></div> : <div className="library-cards">{filtered.map(s => <article className="library-card" data-reading-status={readingStatus(s)} key={s.sourceId}>
@@ -116,7 +160,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
             <p className="library-metadata" title={s.title}>{[s.publishedAt, s.venue].filter(Boolean).join(" · ")}</p>
             <div className="library-progress"><progress aria-label={`${s.title} 阅读进度`} value={s.progress.completed} max={s.progress.total || 1} /><span>{s.progress.completed} / {s.progress.total}</span></div>
             <p className="library-metadata">{s.preparation && (s.preparation.ready ? "阅读已准备好" : `准备阅读 ${s.preparation.completed}/${s.preparation.total} · 点击阅读继续准备`)}</p>
-            <div className="library-card-bottom"><small>{({ ready: "待阅读", reading: "阅读中", completed: "已读完", unplanned: "待规划" })[readingStatus(s)]}</small><div className="library-row-actions"><button disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready"} onClick={() => void operate("打开", () => host.openSource!(s.sourceId), true)}>阅读</button><button disabled={!!busy || active || !host.rereadSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "reread" })}>从头阅读</button><button disabled={!!busy || active || !host.replanSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "replan" })}>重新规划</button><button disabled={!!busy || active || !host.deleteSource} onClick={() => setConfirm({ source: s, action: "delete" })}>删除</button></div></div>
+            <div className="library-card-bottom"><small>{({ ready: "待阅读", reading: "阅读中", completed: "已读完", unplanned: "待规划" })[readingStatus(s)]}</small><div className="library-row-actions">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(s.sourceId)} target="_blank" rel="noreferrer">PDF 原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(s.sourceId)} target="_blank" rel="noreferrer">正文</a>}<button disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready"} onClick={() => void operate("打开", () => host.openSource!(s.sourceId), true)}>阅读</button><button disabled={!!busy || active || !host.rereadSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "reread" })}>从头阅读</button><button disabled={!!busy || active || !host.replanSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "replan" })}>重新规划</button><button disabled={!!busy || active || !host.deleteSource} onClick={() => setConfirm({ source: s, action: "delete" })}>删除</button></div></div>
             <div className="library-tags" aria-label="专题标签">{s.topicIds.map(id => <button key={id} onClick={() => setTopic(id)}>{topics.find(t => t.topicId === id)?.title ?? id}</button>)}</div>
           </article>)}</div>}
         </section></div>
@@ -129,14 +173,14 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <div className="settings-row"><label htmlFor="network">网络</label><span className="settings-network" title="当前后端协议未提供网络控制接口"><small>待接入</small><input id="network" className="focus-reader__toggle" type="checkbox" role="switch" checked={false} disabled /></span></div></section>
     </main>}
     <dialog className="workspace-confirm workspace-upload" ref={uploadDialog} onCancel={() => setUploadOpen(false)}>
-      <form onSubmit={e => { e.preventDefault(); if (selectedFile && host.uploadSource) void operate("上传", () => host.uploadSource!(selectedFile, { topic: uploadTopic.trim(), uploader: uploader.trim() })); }}>
-        <h2>上传材料</h2>
+      <form onSubmit={e => { e.preventDefault(); if (selectedFile && host.stageIngestion) { const existing = topics.find(t => t.title === uploadTopic.trim()); void ingest("暂存", () => host.stageIngestion!(selectedFile, existing ? { topicId: existing.topicId } : uploadTopic.trim() ? { topicTitle: uploadTopic.trim() } : {}), true); } }}>
+        <h2>暂存 PDF</h2>
         <label>专题<input list="upload-topics" required maxLength={120} value={uploadTopic} onChange={e => setUploadTopic(e.target.value)} placeholder="选择或新建专题" /></label>
         <datalist id="upload-topics">{topics.map(t => <option key={t.topicId} value={t.title} />)}</datalist>
-        <label>用户<input required maxLength={100} value={uploader} onChange={e => setUploader(e.target.value)} /></label>
-        <label className="upload-file">{selectedFile?.name ?? "PDF / HTML / Markdown"}<input aria-label="上传材料" type="file" accept=".pdf,.html,.md,.markdown" onChange={e => setSelectedFile(e.target.files?.[0] ?? null)} /></label>
+        <label className="upload-file">{selectedFile?.name ?? "PDF"}<input aria-label="上传材料" type="file" accept=".pdf,application/pdf" onChange={e => setSelectedFile(e.target.files?.[0] ?? null)} /></label>
+        <p>此步只把文件放入 Inbox，不会调用 MinerU 或 Codex。暂存后可核对目标专题与处理范围，再明确确认。</p>
         {error && <p role="alert">{error}</p>}
-        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFile || !uploadTopic.trim() || !uploader.trim()}>{busy ? "上传中…" : "确认上传"}</button></div>
+        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFile}>{busy ? "暂存中…" : "放入 Inbox"}</button></div>
       </form>
     </dialog>
     <dialog className="workspace-confirm" ref={confirmation} onCancel={() => setConfirm(null)}><h2>{confirm?.action === "delete" ? "删除材料？" : confirm?.action === "replan" ? "重新规划？" : "从头阅读？"}</h2><p>{confirm?.source.title}</p><p>{confirm?.action === "delete" ? "原文、图片、计划与笔记将永久删除，专题引用也会移除。" : confirm?.action === "replan" ? "重新分段并准备译文；保留旧计划、译文和笔记，不重复解析。" : "回到第一段，保留现有分段、译文和笔记。"}</p><div><button disabled={!!busy} onClick={() => setConfirm(null)}>取消</button><button className="workspace-primary" disabled={!!busy || active} onClick={() => {

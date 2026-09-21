@@ -17,7 +17,8 @@ from chunks and records; Host task progress is temporary. Each completed transla
 is saved separately. A retry resumes missing chunks, preserves Notes and rejects
 writes to a no-longer-selected Plan. Existing translations are not overwritten.
 
-Library upload/replan succeeds only once the whole Plan is ready. Open on an
+Library replan succeeds only once the whole Plan is ready. Ingestion publishes
+the Source without creating a Plan; a later Open action on an
 unfinished plan resumes preparation, then starts reading after verification. Open
 on a ready plan and explicit Continue run through Core, without an Agent. Continue
 retains receipt checking, request deduplication and serialized writes. Topic

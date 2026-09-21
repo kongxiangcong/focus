@@ -62,20 +62,28 @@ class LibraryHostTests(unittest.TestCase):
                 SourceLibrary(self.workspace).reset_reading('fixture-paper')
         self.assertEqual(state, (self.workspace / 'state.json').read_bytes())
 
-    def test_library_http_upload_and_auth(self):
+    def test_library_http_inbox_resources_and_auth(self):
         server = Server(('127.0.0.1', 0), self.host)
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
         try:
             conn = http.client.HTTPConnection('127.0.0.1', server.server_port)
             conn.request('GET', '/library/sources')
             response = conn.getresponse(); self.assertEqual(200, response.status); response.read()
-            conn.request('POST', '/library/sources?name=test.html', b'html')
+            conn.request('POST', '/library/inbox?name=test.html', b'html')
             response = conn.getresponse(); self.assertEqual(400, response.status); response.read()
             conn.close(); conn = http.client.HTTPConnection('127.0.0.1', server.server_port)
-            conn.request('POST', '/library/sources?name=test.pdf&topic=Test', b'%PDF test')
-            response = conn.getresponse(); self.assertEqual(202, response.status); response.read()
-            self.finish()
-            self.assertIn('paper-parser', json.dumps(test_web_host.ProtocolDouble.instances[-1].calls, ensure_ascii=False))
+            conn.request('POST', '/library/inbox?name=test.pdf&topic=Test', b'%PDF test')
+            response = conn.getresponse(); self.assertEqual(201, response.status)
+            item = json.loads(response.read())['value']
+            self.assertEqual('awaiting_confirmation', item['status'])
+            conn.request('GET', '/library/inbox')
+            response = conn.getresponse(); self.assertEqual(200, response.status); self.assertEqual(1, len(json.loads(response.read())['value']))
+            conn.request('GET', '/library/sources/fixture-paper/original')
+            response = conn.getresponse(); self.assertEqual(200, response.status); self.assertTrue(response.read().startswith(b'%PDF'))
+            conn.request('GET', '/library/sources/fixture-paper/content')
+            response = conn.getresponse(); self.assertEqual(200, response.status); self.assertIn(b'Fixture Paper', response.read())
+            conn.request('GET', '/library/sources/fixture-paper/images/image-001.png')
+            response = conn.getresponse(); self.assertEqual(200, response.status); self.assertGreater(len(response.read()), 0)
             conn.request('GET', '/library/topics', headers={'Origin': 'https://evil.example'})
             response = conn.getresponse(); self.assertEqual(403, response.status); response.read()
             conn.close()
@@ -90,28 +98,3 @@ class LibraryHostTests(unittest.TestCase):
         self.assertTrue((self.workspace / 'sources/fixture-paper/parser-bundle/content.md').is_file())
         self.assertEqual(state, (self.workspace / 'state.json').read_bytes())
         self.assertEqual('reading', self.host.snapshot()['status'])
-
-    def test_upload_success_reuses_original_and_removes_temporary_copy(self):
-        self.prepare_all()
-        root = self.workspace / 'uploads/upload-fixture'
-        root.mkdir(parents=True)
-        original = root / 'selected.pdf'
-        original.write_bytes((self.workspace / 'sources/fixture-paper/parser-bundle/source.pdf').read_bytes())
-        self.host.store.put('upload:upload-fixture', {'name': 'selected.pdf', 'path': str(original)})
-        self.host.library_upload('upload-fixture')
-        self.finish()
-        self.assertEqual('completed', self.host.snapshot()['agent']['run']['status'])
-        self.assertEqual(1, len(self.host.library_sources()))
-        self.assertFalse(root.exists())
-
-    def test_upload_cannot_report_success_without_an_installed_bundle(self):
-        root = self.workspace / 'uploads/upload-unparsed'
-        root.mkdir(parents=True)
-        original = root / 'selected.pdf'; original.write_bytes(b'%PDF not installed')
-        self.host.store.put('upload:upload-unparsed', {'name': 'selected.pdf', 'path': str(original)})
-        self.host.library_upload('upload-unparsed')
-        self.finish()
-        run = self.host.snapshot()['agent']['run']
-        self.assertEqual('failed', run['status'])
-        self.assertIn('尚未安装有效 Source', run['error'])
-        self.assertTrue(original.exists())  # retryable input, not a second Source

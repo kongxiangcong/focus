@@ -9,7 +9,7 @@ The standalone application now defaults to a real Python Host. Fixture mode is e
 This chooses a FOCUS-owned Host for the first usable web workflow rather than the
 future DSH integration described in Phase 2. ADR 0004's host-independent seam remains.
 
-The Host manages a pinned Codex App Server over stdio, passing the existing four
+The Host manages a pinned Codex App Server over stdio, passing the Parser and reading
 reading/parser skills explicitly. It exposes one `focus` dynamic tool for Core
 operations. Normal shell/patch capabilities remain available for user-requested
 file tasks. Parser registration still uses the existing parser scripts. Reading Plan,

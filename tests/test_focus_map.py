@@ -72,7 +72,7 @@ class FocusMapTests(unittest.TestCase):
         (bundle / "source.pdf").write_bytes(b"%PDF fixture")
         (bundle / "content.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
         (bundle / "metadata.json").write_text(
-            '{"source_kind":"paper_pdf","language":"en","parser":"paper-parser","batch_id":"fixture-batch"}\n', encoding="utf-8"
+            '{"source_kind":"paper_pdf","language":"en","parser":"article-parser","batch_id":"fixture-batch"}\n', encoding="utf-8"
         )
         (bundle / "validation.json").write_text('{"ok":true}\n', encoding="utf-8")
         (bundle / "images" / "image-001.png").write_bytes(b"image")

@@ -140,7 +140,7 @@ class PreparedReadingTests(unittest.TestCase):
         import sys
         from pathlib import Path
         script = Path(__file__).resolve().parents[1] / '.agents/skills/focus-map/scripts/focus_map.py'
-        base = [sys.executable, str(script), 'prepare', '--workspace', str(self.workspace), '--source-id', 'fixture-paper']
+        base = [sys.executable, '-X', 'utf8', str(script), 'prepare', '--workspace', str(self.workspace), '--source-id', 'fixture-paper']
         state = (self.workspace / 'state.json').read_bytes()
         status = json.loads(subprocess.check_output(base, text=True))
         self.assertEqual(3, status['total'])

@@ -1,12 +1,8 @@
 """File-backed acceptance for the Topic Library workflow; no remote parser calls."""
-import json
-import http.client
-import threading
 import tempfile
 import unittest
 from pathlib import Path
 
-import test_library_host
 from host.core_bridge import SourceLibrary, WorkspaceError
 from core.library_import import import_markdown
 from core.reading_workspace import WorkspaceCore
@@ -76,60 +72,3 @@ class FoundationTests(unittest.TestCase):
         view = self.library.overview()[0]
         self.assertEqual('ready', view['readingStatus'])
         self.assertEqual('plan-002', view['progress']['planId'])
-
-
-class UploadVerificationTests(unittest.TestCase):
-    setUp = test_library_host.LibraryHostTests.setUp
-    tearDown = test_library_host.LibraryHostTests.tearDown
-    finish = test_library_host.LibraryHostTests.finish
-
-    def test_http_routes_html_and_markdown_to_the_correct_workflows(self):
-        from host.server import Server
-        server = Server(('127.0.0.1', 0), self.host)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            for name, content, parser in [('article.html', b'<p>Article</p>', 'article-parser'),
-                                          ('note.md', b'# Note\n\nText', 'core.library_import markdown')]:
-                conn = http.client.HTTPConnection('127.0.0.1', server.server_port)
-                conn.request('POST', '/library/sources?name=' + name + '&topic=Test', content)
-                response = conn.getresponse()
-                self.assertEqual(202, response.status)
-                response.read()
-                conn.close()
-                self.finish()
-                self.assertIn(parser, json.dumps(test_library_host.test_web_host.ProtocolDouble.instances[-1].calls, ensure_ascii=False))
-                self.assertEqual('failed', self.host.snapshot()['agent']['run']['status'])
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join()
-
-    def test_bound_form_is_applied_and_existing_topic_is_reused(self):
-        test_library_host.test_web_host.WebHostTests.prepare_all(self)
-        library = SourceLibrary(self.workspace)
-        library.attach('fixture-paper', topic_title='已有专题', topic_id='custom-topic')
-        root = self.workspace / 'uploads/test'
-        root.mkdir(parents=True)
-        original = root / 'selected.pdf'
-        original.write_bytes((self.workspace / 'sources/fixture-paper/parser-bundle/source.pdf').read_bytes())
-        self.host.store.put('upload:test', {'name': original.name, 'path': str(original)})
-        self.host.library_upload('test', topic='已有专题', uploader='孔祥聪')
-        self.finish()
-        self.assertEqual('completed', self.host.snapshot()['agent']['run']['status'])
-        self.assertEqual('孔祥聪', library.get('fixture-paper')['uploader'])
-        self.assertEqual(['custom-topic'], library.overview()[0]['topicIds'])
-
-    def test_unplanned_install_cannot_report_upload_success(self):
-        library = SourceLibrary(self.workspace)
-        library.reset_reading('fixture-paper')
-        root = self.workspace / 'uploads/test'
-        root.mkdir(parents=True)
-        original = root / 'selected.pdf'
-        original.write_bytes((self.workspace / 'sources/fixture-paper/parser-bundle/source.pdf').read_bytes())
-        self.host.store.put('upload:test', {'name': original.name, 'path': str(original)})
-        self.host.library_upload('test', topic='待规划', uploader='孔祥聪')
-        self.finish()
-        self.assertEqual('failed', self.host.snapshot()['agent']['run']['status'])
-        self.assertTrue(original.exists())
-        self.assertEqual('unplanned', library.overview()[0]['readingStatus'])

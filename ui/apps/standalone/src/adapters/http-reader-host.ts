@@ -1,6 +1,7 @@
 import { createReaderId,
   type LibrarySource,
-  type LibraryUpload,
+  type IngestionItem,
+  type IngestionTarget,
   type LibraryTopic,
   type ContinueReadingInput,
   type ReaderApprovalResponse,
@@ -110,6 +111,16 @@ function decodeResult(value: unknown): ReaderHostResult<ReadingWindow> {
   };
 }
 
+function isIngestionItem(value: unknown): value is IngestionItem {
+  if (value === null || typeof value !== "object") return false;
+  const item = value as Record<string, unknown>;
+  return typeof item.item_id === "string" && typeof item.file_name === "string" &&
+    typeof item.status === "string" && (item.topic_title === null || typeof item.topic_title === "string") &&
+    (item.topic_id === null || typeof item.topic_id === "string") &&
+    (item.source_id === null || typeof item.source_id === "string") &&
+    typeof item.document_status === "string" && typeof item.topic_status === "string";
+}
+
 export class HttpReaderHost implements ReaderHost {
   private readonly baseUrl: string;
   private readonly fetch: Fetch;
@@ -144,8 +155,32 @@ export class HttpReaderHost implements ReaderHost {
     } catch (e) { return { ok: false, error: { code: "unavailable", message: String(e), retryable: true } }; }
   }
 
-  uploadSource(file: File, fields: LibraryUpload): Promise<ReaderHostResult<ReadingWindow>> {
-    return this.request(`/library/sources?${new URLSearchParams({ name: file.name, topic: fields.topic, uploader: fields.uploader })}`, { method: "POST", body: file });
+  listInbox(): Promise<ReaderHostResult<readonly IngestionItem[]>> {
+    return this.libraryList<IngestionItem>("/library/inbox", isIngestionItem);
+  }
+  stageIngestion(file: File, target: IngestionTarget): Promise<ReaderHostResult<IngestionItem>> {
+    const query = new URLSearchParams({ name: file.name });
+    if (target.topicTitle) query.set("topic", target.topicTitle);
+    if (target.topicId) query.set("topicId", target.topicId);
+    return this.ingestionRequest(`/library/inbox?${query}`, { method: "POST", body: file });
+  }
+  confirmIngestion(itemId: string): Promise<ReaderHostResult<IngestionItem>> {
+    return this.ingestionRequest(`/library/inbox/${encodeURIComponent(itemId)}/confirm`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  }
+  processIngestion(itemId: string, requestId: string): Promise<ReaderHostResult<IngestionItem>> {
+    return this.ingestionRequest(`/library/inbox/${encodeURIComponent(itemId)}/process`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });
+  }
+  continueIngestion(itemId: string, requestId: string): Promise<ReaderHostResult<IngestionItem>> {
+    return this.ingestionRequest(`/library/inbox/${encodeURIComponent(itemId)}/continue`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });
+  }
+  cancelIngestion(itemId: string): Promise<ReaderHostResult<IngestionItem>> {
+    return this.ingestionRequest(`/library/inbox/${encodeURIComponent(itemId)}/cancel`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  }
+  sourceOriginalUrl(sourceId: string): string {
+    return `${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/original`;
+  }
+  sourceContentUrl(sourceId: string): string {
+    return `${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/content`;
   }
   deleteSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}`, { method: "DELETE" });
@@ -263,6 +298,18 @@ export class HttpReaderHost implements ReaderHost {
           retryable: true,
         },
       };
+    }
+  }
+
+  private async ingestionRequest(path: string, init: RequestInit): Promise<ReaderHostResult<IngestionItem>> {
+    try {
+      const response = await this.fetch(`${this.baseUrl}${path}`, init);
+      const body = await response.json();
+      if (response.ok && body.ok === true && isIngestionItem(body.value)) return { ok: true, value: body.value };
+      if (body?.ok === false && typeof body.error?.message === "string") return { ok: false, error: { code: isFailureCode(body.error.code) ? body.error.code : "unknown", message: body.error.message, retryable: body.error.retryable === true } };
+      return { ok: false, error: { code: "invalid-response", message: "Inbox 响应格式错误", retryable: false } };
+    } catch (error) {
+      return { ok: false, error: { code: "unavailable", message: String(error), retryable: true } };
     }
   }
 }

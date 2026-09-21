@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Parse a Chinese HTML article with MinerU-HTML into one Parser Bundle."""
+"""Parse a selected PDF or HTML article into one canonical Parser Bundle."""
 
 from __future__ import annotations
 
@@ -15,19 +15,21 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "paper-parser" / "scripts"))
 
 from core import (
     ArticleParserTask,
+    ParserTask,
     SourceLibrary,
     WorkspaceCore,
     WorkspaceError,
     canonical_article_url,
     validate_topic_id,
 )
-from mineru_precision import (
+from core.mineru import (
     BASE_URL,
     ParserError,
+    MinerUHostedParser as MinerUPdfHostedParser,
+    MAX_SOURCE_BYTES,
     _bundle_image_checks,
     _download,
     _json_request,
@@ -167,6 +169,9 @@ def _poll(reference_kind: str, reference_id: str, timeout: float, interval: floa
 
 
 class MinerUHTMLHostedParser:
+    def __init__(self) -> None:
+        self.pdf = MinerUPdfHostedParser()
+
     def start_url(self, url: str) -> tuple[str, str]:
         result = _json_request(
             "POST",
@@ -196,6 +201,9 @@ class MinerUHTMLHostedParser:
             raise ArticleParserError("MinerU upload-link response is incomplete")
         _upload(urls[0], source)
         return "batch_id", batch_id
+
+    def start_pdf(self, source: Path, *, model: str, language: str, ocr: bool) -> str:
+        return self.pdf.start(source, model=model, language=language, ocr=ocr)
 
     def complete(
         self,
@@ -233,6 +241,25 @@ class MinerUHTMLHostedParser:
         finally:
             shutil.rmtree(transfer_root, ignore_errors=True)
 
+    def complete_pdf(
+        self,
+        task: ParserTask,
+        source: Path,
+        output: Path,
+        *,
+        timeout: float,
+        interval: float,
+    ) -> None:
+        self.pdf.complete(
+            source,
+            output,
+            batch_id=task.batch_id,
+            model=task.model,
+            language=task.language,
+            timeout=timeout,
+            interval=interval,
+        )
+
 
 def _finish(core: WorkspaceCore, task: ArticleParserTask, hosted: Any, timeout: float, interval: float) -> dict[str, Any]:
     staging = core.prepare_parser_bundle(task)
@@ -248,6 +275,24 @@ def _finish(core: WorkspaceCore, task: ArticleParserTask, hosted: Any, timeout: 
     except Exception as exc:
         core.discard_parser_bundle(task)
         if isinstance(exc, ArticleParserError) and not exc.recoverable:
+            core.discard_parser_task(task)
+        raise
+
+
+def _finish_pdf(core: WorkspaceCore, task: ParserTask, hosted: Any, timeout: float, interval: float) -> dict[str, Any]:
+    staging = core.prepare_parser_bundle(task)
+    try:
+        hosted.complete_pdf(
+            task,
+            core.parser_task_source(task),
+            staging,
+            timeout=timeout,
+            interval=interval,
+        )
+        return core.install_parser_bundle(task, staging)
+    except Exception as exc:
+        core.discard_parser_bundle(task)
+        if isinstance(exc, ParserError) and not exc.recoverable:
             core.discard_parser_task(task)
         raise
 
@@ -291,8 +336,11 @@ def _parse_url(args: argparse.Namespace, hosted: Any) -> None:
 
 def _parse_file(args: argparse.Namespace, hosted: Any) -> None:
     source = args.source.resolve()
-    if not source.is_file() or source.suffix.lower() != ".html":
-        raise ArticleParserError("Source must be an existing .html file", "source_html_missing")
+    if not source.is_file() or source.suffix.lower() not in {".html", ".pdf"}:
+        raise ArticleParserError("Source must be an existing .pdf or .html file", "source_file_missing")
+    if source.suffix.lower() == ".pdf":
+        _parse_pdf_file(args, hosted, source)
+        return
     core = WorkspaceCore(args.workspace)
     _validate_registration(args.title, args.short_name, args.topic, args.topic_id)
     existing = SourceLibrary(args.workspace).find_original(source, source_kind="article_html")
@@ -321,9 +369,49 @@ def _parse_file(args: argparse.Namespace, hosted: Any) -> None:
     print(json.dumps({**result, "status": "done", reference_kind: reference_id}, ensure_ascii=False))
 
 
+def _parse_pdf_file(args: argparse.Namespace, hosted: Any, source: Path) -> None:
+    if source.stat().st_size > MAX_SOURCE_BYTES:
+        raise ArticleParserError("Source exceeds MinerU's 200 MB precision-API limit", "source_pdf_too_large")
+    core = WorkspaceCore(args.workspace)
+    _validate_registration(args.title, args.short_name, args.topic, args.topic_id)
+    existing = SourceLibrary(args.workspace).find_original(source, source_kind="paper_pdf")
+    if existing is not None:
+        topic_id = None
+        if args.topic is not None or args.topic_id is not None:
+            topic_id = SourceLibrary(args.workspace).attach(
+                existing["source_id"], topic_title=args.topic, topic_id=args.topic_id
+            )
+        print(json.dumps({"status": "reused", "source_id": existing["source_id"], "topic_id": topic_id}, ensure_ascii=False))
+        return
+    batch_id = hosted.start_pdf(source, model=args.model, language=args.language, ocr=args.ocr)
+    task = core.create_parser_task(
+        batch_id,
+        source,
+        title=args.title or "",
+        short_name=args.short_name or "",
+        topic_title=args.topic,
+        topic_id=args.topic_id,
+        published_at=args.published_at,
+        model=args.model,
+        language=args.language,
+    )
+    print(json.dumps({"status": "uploaded", "batch_id": batch_id}, ensure_ascii=False), flush=True)
+    result = _finish_pdf(core, task, hosted, args.timeout, args.poll_interval)
+    print(json.dumps({**result, "status": "done", "batch_id": batch_id}, ensure_ascii=False))
+
+
 def _resume(args: argparse.Namespace, hosted: Any) -> None:
     core = WorkspaceCore(args.workspace)
-    task = core.load_article_parser_task(args.reference_id)
+    try:
+        task = core.load_article_parser_task(args.reference_id)
+    except WorkspaceError as article_error:
+        try:
+            pdf_task = core.load_parser_task(args.reference_id)
+        except WorkspaceError:
+            raise article_error
+        result = _finish_pdf(core, pdf_task, hosted, args.timeout, args.poll_interval)
+        print(json.dumps({**result, "status": "done", "batch_id": pdf_task.batch_id}, ensure_ascii=False))
+        return
     result = _finish(core, task, hosted, args.timeout, args.poll_interval)
     print(
         json.dumps(
@@ -350,6 +438,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parse_url.set_defaults(func=_parse_url)
     parse_file = commands.add_parser("parse-file", parents=[common])
     parse_file.add_argument("source", type=Path)
+    parse_file.add_argument("--model", choices=("vlm", "pipeline"), default="vlm")
+    parse_file.add_argument("--language", default="en")
+    parse_file.add_argument("--ocr", action="store_true")
     parse_file.set_defaults(func=_parse_file)
     resume = commands.add_parser("resume")
     resume.add_argument("reference_id")

@@ -9,9 +9,18 @@ from .reading_workspace import (
     validate_topic_id,
 )
 from .source_library import SourceLibrary, canonical_article_url, normalize_short_name
+from .ingestion import CandidateParser, CandidateRuntime, IngestionApplication, IngestionCore, IngestionExternalError
+from .mineru import MinerUIngestionParser, ParserError
 
 __all__ = [
     "ArticleParserTask",
+    "CandidateParser",
+    "CandidateRuntime",
+    "IngestionApplication",
+    "IngestionCore",
+    "IngestionExternalError",
+    "MinerUIngestionParser",
+    "ParserError",
     "ParserTask",
     "WorkspaceCore",
     "WorkspaceError",
