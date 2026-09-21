@@ -497,7 +497,11 @@ class MinerUIngestionParser:
             source.stem,
         )
         short_name = "DeepStack" if "deepstack" in title.casefold() else title
-        return {"title": title, "short_name": short_name, "batch_id": batch_id}
+        result = {"title": title, "short_name": short_name, "batch_id": batch_id}
+        from .ingestion import persist_candidate_result
+
+        persist_candidate_result(candidate, result)
+        return result
 
     def resume(self, source: Path, candidate: Path, *, checkpoint: dict[str, Any]) -> dict[str, Any]:
         if checkpoint.get("reference_kind") != "batch_id" or not isinstance(checkpoint.get("reference_id"), str):

@@ -62,6 +62,20 @@ describe("HttpReaderHost", () => {
       "http://127.0.0.1:4317/library/inbox/abc/process",
     ]);
   });
+
+  it("rejects a successful Inbox envelope whose value is not an array", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, value: { item_id: "not-a-list" } })),
+    );
+    const host = new HttpReaderHost({ baseUrl: "http://127.0.0.1:4317", fetch });
+
+    const result = await host.listInbox();
+
+    expect(result).toEqual({
+      ok: false,
+      error: { code: "invalid-response", message: "Inbox 响应格式错误", retryable: false },
+    });
+  });
 });
 
 

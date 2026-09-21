@@ -21,6 +21,6 @@ Spec coverage: T09–T18，T19–T20 的重启／进程边界，T23 的真实适
 
 ## Answer
 
-Application 现持久化远端引用、Run／Step／attempt 与提交资格；暂时性错误最多自动续接两次，受理不明进入待核对，重启和手动继续沿最后有效断点。取消先关闭 attempt，再停止可停止的 Runtime；迟到候选由 Core 拒绝。已发布 Source 与待补 Topic 关联均按现有进展继续。
+Application 现持久化远端引用、Run／Step／attempt、输入／服务／方法版本与提交资格；暂时性错误最多自动续接两次，受理不明进入待核对，重启和手动继续沿最后有效断点。候选已完整落盘但 attempt 结果尚未持久化时，重开会校验原件、绑定、Bundle 与 Parser 原子写入的发布结果，并建立新的恢复 attempt，不重复解析或重新解释正文。配置漂移要求显式重新确认并废弃旧候选／断点；Core 提交再次核对候选、Inbox、记录和确认四方指纹。取消先关闭 attempt，再停止可停止的 Runtime；迟到候选由 Core 拒绝。已发布 Source 与待补 Topic 关联均按现有进展继续。
 
 真实验收使用授权 PDF 和全新隔离 Workspace：MinerU 同一 batch 续接后发布成功，重复添加只复用；固定 Codex 0.154.0 / gpt-6-astra 的受限图文检查和进程取消通过；关键页面、图表、公式与阅读顺序抽查通过。MinerU v4 无文档化取消端点，系统明确保留 `still_running` 边界。完整证据见 `docs/requirements/v0.2/stage-1-acceptance.md`。

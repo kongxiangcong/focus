@@ -95,6 +95,13 @@ it("restores authoritative Inbox state after refresh and continues attachment re
   fireEvent.click(screen.getByRole("button", { name: "继续" }));
   await waitFor(() => expect(host.continueIngestion).toHaveBeenCalledWith("recover", expect.any(String)));
 });
+it("offers explicit reconfirmation for a recoverable Inbox item", async () => {
+  const interrupted: IngestionItem = { itemId: "recover", fileName: "paper.pdf", status: "interrupted", topicTitle: "系统", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru", "codex"] };
+  const { host } = setup([interrupted]);
+  fireEvent.click(await screen.findByRole("button", { name: "重新确认并开始" }));
+  await waitFor(() => expect(host.confirmIngestion).toHaveBeenCalledWith("recover"));
+  await waitFor(() => expect(host.processIngestion).toHaveBeenCalledWith("recover", expect.any(String)));
+});
 it("persists brightness and leaves unsupported network control disabled", async () => {
   setup(); await screen.findByRole("button", { name: "A Paper" });
   fireEvent.click(screen.getByRole("link", { name: "设置" }));

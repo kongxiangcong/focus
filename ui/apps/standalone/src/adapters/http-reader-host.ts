@@ -171,8 +171,8 @@ export class HttpReaderHost implements ReaderHost {
     try {
       const response = await this.fetch(`${this.baseUrl}/library/inbox`);
       const body = await response.json();
-      const items = Array.isArray(body.value) ? body.value.map(decodeIngestionItem) : [];
-      if (response.ok && body.ok === true && items.every(Boolean)) return { ok: true, value: items as IngestionItem[] };
+      const items = Array.isArray(body.value) ? body.value.map(decodeIngestionItem) : null;
+      if (response.ok && body.ok === true && items !== null && items.every(Boolean)) return { ok: true, value: items as IngestionItem[] };
       return { ok: false, error: { code: "invalid-response", message: body.error?.message ?? "Inbox 响应格式错误", retryable: false } };
     } catch (e) { return { ok: false, error: { code: "unavailable", message: String(e), retryable: true } }; }
   }

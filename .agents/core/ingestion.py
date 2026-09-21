@@ -17,6 +17,10 @@ from .reading_workspace import (
 from .source_library import SourceLibrary
 
 
+INGESTION_METHOD_VERSION = "focus-ingestion-v1"
+CANDIDATE_RESULT_NAME = "ingestion-result.json"
+
+
 def _file_fingerprint(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -25,7 +29,33 @@ def _file_fingerprint(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _component_config(component: object) -> dict[str, Any]:
+    config: dict[str, Any] = {
+        "adapter": f"{type(component).__module__}.{type(component).__qualname__}",
+    }
+    for name in ("model", "language", "ocr"):
+        value = getattr(component, name, None)
+        if isinstance(value, (str, bool, int, float)):
+            config[name] = value
+    return config
+
+
+def persist_candidate_result(candidate: Path, result: dict[str, Any]) -> None:
+    if not isinstance(result.get("title"), str) or not isinstance(result.get("short_name"), str):
+        raise WorkspaceError("parser_result_invalid", "Parser result requires title and short name")
+    _write_document(candidate / CANDIDATE_RESULT_NAME, result)
+
+
+def _read_candidate_result(candidate: Path) -> dict[str, Any]:
+    result = _read_document(candidate / CANDIDATE_RESULT_NAME)
+    if not isinstance(result.get("title"), str) or not isinstance(result.get("short_name"), str):
+        raise WorkspaceError("parser_result_invalid", "Persisted parser result is invalid")
+    return result
+
+
 class CandidateParser(Protocol):
+    """Create a valid candidate and persist its exact result before returning."""
+
     def parse(self, source: Path, candidate: Path, *, checkpoint: Any | None = None) -> dict[str, Any]: ...
 
 
@@ -83,7 +113,16 @@ class IngestionCore:
     ) -> dict[str, Any]:
         _validate_parser_bundle(candidate)
         item = _read_document(item_path)
-        if _file_fingerprint(candidate / "source.pdf") != _file_fingerprint(item_path.parent / "source.pdf"):
+        candidate_fingerprint = _file_fingerprint(candidate / "source.pdf")
+        inbox_fingerprint = _file_fingerprint(item_path.parent / "source.pdf")
+        confirmation = item.get("confirmation", {})
+        if not (
+            candidate_fingerprint
+            == inbox_fingerprint
+            == item.get("fingerprint")
+            == confirmation.get("fingerprint")
+            == confirmation.get("input_version")
+        ):
             raise WorkspaceError("candidate_original_mismatch", "Candidate original does not match the Inbox source")
         attempts = item.get("run", {}).get("steps", {}).get("parse", {}).get("attempts", [])
         selected = next((entry for entry in attempts if entry.get("attempt_id") == attempt_id), None)
@@ -118,7 +157,11 @@ class IngestionCore:
         expected_version: int,
         request_id: str,
         writer_id: str,
+        item_path: Path,
     ) -> dict[str, Any]:
+        item = _read_document(item_path)
+        if item.get("status") == "cancelled":
+            raise WorkspaceError("attempt_cancelled", "This ingestion is cancelled")
         state = self._state()
         self._authorize(state, writer_id)
         requests = state.setdefault("requests", {})
@@ -159,17 +202,43 @@ class IngestionApplication:
         self.core = IngestionCore(self.workspace)
         self._recover_interrupted()
 
+    def _service_config(self) -> dict[str, dict[str, Any]]:
+        config = {"mineru": _component_config(self.parser)}
+        if self.runtime is not None:
+            config["codex"] = _component_config(self.runtime)
+        return config
+
+    def _attempt_binding(self, service: str, confirmation: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "service": service,
+            "configuration": dict(confirmation["service_config"][service]),
+            "method_version": confirmation["method_version"],
+            "input_version": confirmation["input_version"],
+        }
+
+    def _attempt_matches(
+        self,
+        attempt: dict[str, Any],
+        service: str,
+        confirmation: dict[str, Any],
+    ) -> bool:
+        expected = self._attempt_binding(service, confirmation)
+        return all(attempt.get(key) == value for key, value in expected.items())
+
     def _recover_interrupted(self) -> None:
         for path in (self.workspace / "inbox").glob("*/item.json"):
             item = _read_document(path)
             if item.get("status") != "processing":
                 continue
             item["status"] = "interrupted"
-            attempts = item.get("run", {}).get("steps", {}).get("parse", {}).get("attempts", [])
-            for attempt in attempts:
-                if attempt.get("status") == "running":
-                    attempt["status"] = "interrupted"
-                    attempt["commit_allowed"] = False
+            steps = item.get("run", {}).get("steps", {})
+            for step in steps.values():
+                if step.get("status") == "running":
+                    step["status"] = "interrupted"
+                for attempt in step.get("attempts", []):
+                    if attempt.get("status") == "running":
+                        attempt["status"] = "interrupted"
+                        attempt["commit_allowed"] = False
             _write_document(path, item)
 
     def _root(self, item_id: str) -> Path:
@@ -188,13 +257,14 @@ class IngestionApplication:
             raise WorkspaceError("inbox_item_invalid", "Inbox item is invalid")
         return value
 
-    def _write(self, item_id: str, item: dict[str, Any]) -> None:
+    def _write(self, item_id: str, item: dict[str, Any]) -> bool:
         with self._state_lock:
             path = self._root(item_id) / "item.json"
             current = _read_document(path) if path.is_file() else None
             if isinstance(current, dict) and current.get("status") == "cancelled" and item.get("status") != "cancelled":
-                return
+                return False
             _write_document(path, item)
+            return True
 
     @staticmethod
     def _public(item: dict[str, Any]) -> dict[str, Any]:
@@ -253,27 +323,30 @@ class IngestionApplication:
         topic_title: str | None = None,
         topic_id: str | None = None,
     ) -> dict[str, Any]:
-        item = self._read(item_id)
-        root = self._root(item_id)
-        if source is not None:
-            source = Path(source).resolve()
-            if not source.is_file() or source.suffix.lower() != ".pdf" or source.read_bytes()[:4] != b"%PDF":
-                raise WorkspaceError("source_pdf_invalid", "Source must be an existing PDF file")
-            shutil.copy2(source, root / "source.pdf")
-            item["file_name"] = source.name
-            item["fingerprint"] = self._fingerprint(root / "source.pdf")
-        if topic_title is not None:
-            if not topic_title.strip():
-                raise WorkspaceError("topic_invalid", "Topic title is empty or invalid")
-            item["topic_title"] = topic_title.strip()
-            item["topic_id"] = None
-        if topic_id is not None:
-            item["topic_id"] = validate_topic_id(topic_id)
-            item["topic_title"] = None
-        item["confirmation"] = None
-        item["status"] = "awaiting_confirmation"
-        self._write(item_id, item)
-        return self._public(item)
+        with self._state_lock:
+            item = self._read(item_id)
+            if item.get("status") not in {"awaiting_confirmation", "confirmed"}:
+                raise WorkspaceError("ingestion_not_editable", "Only a staged Inbox item can be edited")
+            root = self._root(item_id)
+            if source is not None:
+                source = Path(source).resolve()
+                if not source.is_file() or source.suffix.lower() != ".pdf" or source.read_bytes()[:4] != b"%PDF":
+                    raise WorkspaceError("source_pdf_invalid", "Source must be an existing PDF file")
+                shutil.copy2(source, root / "source.pdf")
+                item["file_name"] = source.name
+                item["fingerprint"] = self._fingerprint(root / "source.pdf")
+            if topic_title is not None:
+                if not topic_title.strip():
+                    raise WorkspaceError("topic_invalid", "Topic title is empty or invalid")
+                item["topic_title"] = topic_title.strip()
+                item["topic_id"] = None
+            if topic_id is not None:
+                item["topic_id"] = validate_topic_id(topic_id)
+                item["topic_title"] = None
+            item["confirmation"] = None
+            item["status"] = "awaiting_confirmation"
+            self._write(item_id, item)
+            return self._public(item)
 
     def confirm(
         self,
@@ -283,66 +356,167 @@ class IngestionApplication:
         purpose: str,
         scope: str,
     ) -> dict[str, Any]:
-        item = self._read(item_id)
-        expected_services = ["mineru"] + (["codex"] if self.runtime is not None else [])
-        if scope != "ingestion" or not purpose.strip() or services != expected_services:
-            raise WorkspaceError(
-                "confirmation_scope_invalid",
-                "Confirmation services do not match this ingestion workflow",
+        with self._state_lock:
+            item = self._read(item_id)
+            confirmable = {
+                "awaiting_confirmation",
+                "confirmed",
+                "interrupted",
+                "retry_waiting",
+                "failed",
+                "commit_conflict",
+                "topic_attachment_pending",
+                "cancelled",
+                "status_check_required",
+            }
+            if item.get("status") not in confirmable:
+                raise WorkspaceError(
+                    "ingestion_not_confirmable",
+                    "Only a staged or resumable Inbox item can be confirmed",
+                )
+            expected_services = ["mineru"] + (["codex"] if self.runtime is not None else [])
+            if scope != "ingestion" or not purpose.strip() or services != expected_services:
+                raise WorkspaceError(
+                    "confirmation_scope_invalid",
+                    "Confirmation services do not match this ingestion workflow",
+                )
+            if self._fingerprint(self._root(item_id) / "source.pdf") != item.get("fingerprint"):
+                raise WorkspaceError("confirmation_required", "Inbox source changed and must be staged again")
+            new_confirmation = {
+                "fingerprint": item["fingerprint"],
+                "input_version": item["fingerprint"],
+                "topic_title": item["topic_title"],
+                "topic_id": item["topic_id"],
+                "services": list(services),
+                "service_config": self._service_config(),
+                "method_version": INGESTION_METHOD_VERSION,
+                "purpose": purpose.strip(),
+                "scope": scope,
+                "expected_version": self.core.version,
+            }
+            previous = item.get("confirmation")
+            binding_keys = {
+                "fingerprint",
+                "input_version",
+                "topic_title",
+                "topic_id",
+                "services",
+                "service_config",
+                "method_version",
+                "scope",
+            }
+            binding_changed = isinstance(previous, dict) and any(
+                previous.get(key) != new_confirmation.get(key) for key in binding_keys
             )
-        item["confirmation"] = {
-            "fingerprint": item["fingerprint"],
-            "topic_title": item["topic_title"],
-            "topic_id": item["topic_id"],
-            "services": list(services),
-            "purpose": purpose.strip(),
-            "scope": scope,
-            "expected_version": self.core.version,
-        }
-        item["status"] = "confirmed"
-        self._write(item_id, item)
-        return self._public(item)
+            if item.get("status") == "status_check_required" and not binding_changed:
+                raise WorkspaceError(
+                    "remote_status_check_required",
+                    "The accepted remote task must be reconciled before it can be reconfirmed",
+                )
+            if binding_changed and item.get("document_status") not in {"published", "reused"}:
+                shutil.rmtree(self._root(item_id) / "candidate", ignore_errors=True)
+                item["run"] = None
+                item["document_status"] = "not_started"
+                item["topic_status"] = "not_started"
+                for key in ("candidate_result", "runtime_result", "request_id", "error"):
+                    item.pop(key, None)
+            item["confirmation"] = new_confirmation
+            item["status"] = "confirmed"
+            self._write(item_id, item)
+            return self._public(item)
 
     def process(self, item_id: str, *, request_id: str) -> dict[str, Any]:
-        item = self._read(item_id)
-        confirmation = item.get("confirmation")
-        if not isinstance(confirmation, dict) or confirmation.get("fingerprint") != item.get("fingerprint"):
-            raise WorkspaceError("confirmation_required", "A current ingestion confirmation is required")
-        if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 200:
-            raise WorkspaceError("request_id_invalid", "Request id is invalid")
-        if item.get("request_id") == request_id and item.get("status") == "completed":
-            return self._public(item)
-        root = self._root(item_id)
-        source = root / "source.pdf"
-        run = item.get("run") or {
-            "run_id": uuid.uuid4().hex,
-            "steps": {
-                "parse": {"status": "pending", "attempts": []},
-                "runtime": {"status": "pending", "attempts": []},
-                "publish": {"status": "pending", "attempts": []},
-                "attach": {"status": "pending", "attempts": []},
-            },
-        }
-        item["run"] = run
-        item["request_id"] = request_id
-        item["status"] = "processing"
-        self._write(item_id, item)
+        with self._state_lock:
+            item = self._read(item_id)
+            confirmation = item.get("confirmation")
+            expected_services = ["mineru"] + (["codex"] if self.runtime is not None else [])
+            root = self._root(item_id)
+            source = root / "source.pdf"
+            if (
+                not isinstance(confirmation, dict)
+                or confirmation.get("fingerprint") != item.get("fingerprint")
+                or confirmation.get("input_version") != item.get("fingerprint")
+                or confirmation.get("topic_title") != item.get("topic_title")
+                or confirmation.get("topic_id") != item.get("topic_id")
+                or confirmation.get("services") != expected_services
+                or confirmation.get("service_config") != self._service_config()
+                or confirmation.get("method_version") != INGESTION_METHOD_VERSION
+                or confirmation.get("scope") != "ingestion"
+                or not source.is_file()
+                or self._fingerprint(source) != item.get("fingerprint")
+            ):
+                raise WorkspaceError("confirmation_required", "A current ingestion confirmation is required")
+            if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 200:
+                raise WorkspaceError("request_id_invalid", "Request id is invalid")
+            if item.get("request_id") == request_id and item.get("status") == "completed":
+                return self._public(item)
+            if item.get("status") not in {
+                "confirmed",
+                "interrupted",
+                "retry_waiting",
+                "failed",
+                "commit_conflict",
+                "topic_attachment_pending",
+                "status_check_required",
+            }:
+                raise WorkspaceError("ingestion_not_processable", "Inbox item is not ready to process")
+            run = item.get("run") or {
+                "run_id": uuid.uuid4().hex,
+                "steps": {
+                    "parse": {"status": "pending", "attempts": []},
+                    "runtime": {"status": "pending", "attempts": []},
+                    "publish": {"status": "pending", "attempts": []},
+                    "attach": {"status": "pending", "attempts": []},
+                },
+            }
+            item["run"] = run
+            item["request_id"] = request_id
+            item["status"] = "processing"
+            self._write(item_id, item)
 
-        existing = SourceLibrary(self.workspace).find_original(source, source_kind="paper_pdf")
+        existing = SourceLibrary(self.workspace).find("paper-original:" + item["fingerprint"])
         if existing is None:
             candidate = root / "candidate"
             parse_step = run["steps"]["parse"]
             parsed = item.get("candidate_result")
-            reusable_candidate = isinstance(parsed, dict) and candidate.is_dir() and parse_step.get("status") == "completed"
-            if reusable_candidate:
+            reusable_candidate = False
+            may_recover_candidate = any(
+                entry.get("status") in {"completed", "interrupted"}
+                and self._attempt_matches(entry, "mineru", confirmation)
+                for entry in parse_step.get("attempts", [])
+            )
+            if candidate.is_dir() and may_recover_candidate:
                 try:
                     _validate_parser_bundle(candidate)
-                    attempt = next(
-                        entry for entry in reversed(parse_step["attempts"])
-                        if entry.get("status") == "completed" and entry.get("commit_allowed") is True
-                    )
-                except (StopIteration, WorkspaceError):
-                    reusable_candidate = False
+                    if _file_fingerprint(candidate / "source.pdf") != _file_fingerprint(source):
+                        raise WorkspaceError(
+                            "candidate_original_mismatch",
+                            "Candidate original does not match the Inbox source",
+                        )
+                    if not isinstance(parsed, dict):
+                        parsed = _read_candidate_result(candidate)
+                    try:
+                        attempt = next(
+                            entry for entry in reversed(parse_step["attempts"])
+                            if entry.get("status") == "completed" and entry.get("commit_allowed") is True
+                            and self._attempt_matches(entry, "mineru", confirmation)
+                        )
+                    except StopIteration:
+                        attempt = {
+                            "attempt_id": uuid.uuid4().hex,
+                            "status": "completed",
+                            "commit_allowed": True,
+                            "recovered_candidate": True,
+                            **self._attempt_binding("mineru", confirmation),
+                        }
+                        parse_step["attempts"].append(attempt)
+                    parse_step["status"] = "completed"
+                    item["candidate_result"] = dict(parsed)
+                    item.pop("error", None)
+                    self._write(item_id, item)
+                    reusable_candidate = True
+                except WorkspaceError:
+                    pass
             for automatic_index in range(0 if reusable_candidate else 3):
                 if candidate.exists():
                     shutil.rmtree(candidate)
@@ -350,11 +524,13 @@ class IngestionApplication:
                     "attempt_id": uuid.uuid4().hex,
                     "status": "running",
                     "commit_allowed": True,
+                    **self._attempt_binding("mineru", confirmation),
                 }
                 parse_step["attempts"].append(attempt)
                 parse_step["status"] = "running"
                 item["status"] = "processing"
-                self._write(item_id, item)
+                if not self._write(item_id, item):
+                    return self._public(self._read(item_id))
 
                 def save_checkpoint(value):
                     if not isinstance(value, dict) or not value.get("reference_id"):
@@ -367,6 +543,11 @@ class IngestionApplication:
                         if entry["attempt_id"] == attempt["attempt_id"]
                     )
                     if current_attempt.get("commit_allowed") is not True:
+                        if hasattr(self.parser, "cancel"):
+                            try:
+                                self.parser.cancel(value)
+                            except Exception:
+                                pass
                         return
                     current_step["checkpoint"] = dict(value)
                     self._write(item_id, current)
@@ -380,6 +561,11 @@ class IngestionApplication:
                     if not isinstance(parsed, dict):
                         raise WorkspaceError("parser_result_invalid", "Parser result is invalid")
                     _validate_parser_bundle(candidate)
+                    if _read_candidate_result(candidate) != parsed:
+                        raise WorkspaceError(
+                            "parser_result_invalid",
+                            "Parser result does not match its persisted candidate result",
+                        )
                     item = self._read(item_id)
                     run = item["run"]
                     parse_step = run["steps"]["parse"]
@@ -436,12 +622,22 @@ class IngestionApplication:
             reusable_runtime = (
                 run["steps"]["runtime"].get("status") == "completed"
                 and isinstance(item.get("runtime_result"), dict)
+                and any(
+                    entry.get("status") == "completed"
+                    and self._attempt_matches(entry, "codex", confirmation)
+                    for entry in run["steps"]["runtime"].get("attempts", [])
+                )
             )
             if self.runtime is not None and not reusable_runtime:
-                runtime_attempt = {"attempt_id": uuid.uuid4().hex, "status": "running"}
+                runtime_attempt = {
+                    "attempt_id": uuid.uuid4().hex,
+                    "status": "running",
+                    **self._attempt_binding("codex", confirmation),
+                }
                 run["steps"]["runtime"]["attempts"].append(runtime_attempt)
                 run["steps"]["runtime"]["status"] = "running"
-                self._write(item_id, item)
+                if not self._write(item_id, item):
+                    return self._public(self._read(item_id))
                 try:
                     runtime_result = self.runtime.inspect(candidate)
                     if (
@@ -493,17 +689,18 @@ class IngestionApplication:
             else:
                 run["steps"]["runtime"]["status"] = "skipped"
             try:
-                published = self.core.publish(
-                    candidate,
-                    expected_version=int(confirmation["expected_version"]),
-                    request_id=request_id + ":publish",
-                    writer_id=self.writer_id,
-                    title=str(parsed.get("title") or ""),
-                    short_name=str(parsed.get("short_name") or ""),
-                    identity="paper-original:" + item["fingerprint"],
-                    item_path=root / "item.json",
-                    attempt_id=attempt["attempt_id"],
-                )
+                with self._state_lock:
+                    published = self.core.publish(
+                        candidate,
+                        expected_version=int(confirmation["expected_version"]),
+                        request_id=request_id + ":publish",
+                        writer_id=self.writer_id,
+                        title=str(parsed.get("title") or ""),
+                        short_name=str(parsed.get("short_name") or ""),
+                        identity="paper-original:" + item["fingerprint"],
+                        item_path=root / "item.json",
+                        attempt_id=attempt["attempt_id"],
+                    )
             except WorkspaceError as exc:
                 if exc.error_id != "attempt_cancelled":
                     if exc.error_id == "writer_conflict":
@@ -535,43 +732,54 @@ class IngestionApplication:
             run["steps"]["publish"]["status"] = "completed"
             version = int(published["version"])
         else:
-            source_id = existing["source_id"]
-            item["document_status"] = "reused"
-            run["steps"]["parse"]["status"] = "skipped"
-            run["steps"]["runtime"]["status"] = "skipped"
-            run["steps"]["publish"]["status"] = "skipped"
-            version = self.core.version
+            with self._state_lock:
+                item = self._read(item_id)
+                if item.get("status") == "cancelled":
+                    return self._public(item)
+                run = item["run"]
+                source_id = existing["source_id"]
+                item["document_status"] = "reused"
+                run["steps"]["parse"]["status"] = "skipped"
+                run["steps"]["runtime"]["status"] = "skipped"
+                run["steps"]["publish"]["status"] = "skipped"
+                version = self.core.version
         item["source_id"] = source_id
         self._write(item_id, item)
 
-        if item.get("topic_title") is not None or item.get("topic_id") is not None:
-            try:
-                attached = self.core.attach(
-                    source_id,
-                    topic_title=item.get("topic_title"),
-                    topic_id=item.get("topic_id"),
-                    expected_version=version,
-                    request_id=request_id + ":attach",
-                    writer_id=self.writer_id,
-                )
-                if attached["status"] == "version_conflict":
-                    raise WorkspaceError("version_conflict", "Topic attachment version changed")
-                item["topic_status"] = "attached"
-                item["resolved_topic_id"] = attached["topic_id"]
-                run["steps"]["attach"]["status"] = "completed"
-            except WorkspaceError as exc:
-                item["topic_status"] = "pending_recovery"
-                item["topic_error"] = {"error_id": exc.error_id, "message": str(exc)}
-                item["status"] = "topic_attachment_pending"
-                run["steps"]["attach"]["status"] = "failed"
-                self._write(item_id, item)
+        with self._state_lock:
+            item = self._read(item_id)
+            if item.get("status") == "cancelled":
                 return self._public(item)
-        else:
-            item["topic_status"] = "not_requested"
-            run["steps"]["attach"]["status"] = "skipped"
-        item["status"] = "completed"
-        self._write(item_id, item)
-        return self._public(item)
+            run = item["run"]
+            if item.get("topic_title") is not None or item.get("topic_id") is not None:
+                try:
+                    attached = self.core.attach(
+                        source_id,
+                        topic_title=item.get("topic_title"),
+                        topic_id=item.get("topic_id"),
+                        expected_version=version,
+                        request_id=request_id + ":attach",
+                        writer_id=self.writer_id,
+                        item_path=root / "item.json",
+                    )
+                    if attached["status"] == "version_conflict":
+                        raise WorkspaceError("version_conflict", "Topic attachment version changed")
+                    item["topic_status"] = "attached"
+                    item["resolved_topic_id"] = attached["topic_id"]
+                    run["steps"]["attach"]["status"] = "completed"
+                except WorkspaceError as exc:
+                    item["topic_status"] = "pending_recovery"
+                    item["topic_error"] = {"error_id": exc.error_id, "message": str(exc)}
+                    item["status"] = "topic_attachment_pending"
+                    run["steps"]["attach"]["status"] = "failed"
+                    self._write(item_id, item)
+                    return self._public(item)
+            else:
+                item["topic_status"] = "not_requested"
+                run["steps"]["attach"]["status"] = "skipped"
+            item["status"] = "completed"
+            self._write(item_id, item)
+            return self._public(item)
 
     def continue_run(self, item_id: str, *, request_id: str) -> dict[str, Any]:
         item = self._read(item_id)
@@ -597,35 +805,36 @@ class IngestionApplication:
         return self.process(item_id, request_id=request_id)
 
     def cancel(self, item_id: str) -> dict[str, Any]:
-        item = self._read(item_id)
-        run = item.get("run")
-        if not isinstance(run, dict):
-            raise WorkspaceError("ingestion_not_cancellable", "Ingestion has not started")
-        parse_step = run.get("steps", {}).get("parse", {})
-        attempts = parse_step.get("attempts", [])
-        active = next((entry for entry in reversed(attempts) if entry.get("commit_allowed") is True), None)
-        if active is not None:
-            active["commit_allowed"] = False
-            active["status"] = "cancelled"
-        item["status"] = "cancelled"
-        item["remote_status"] = "not_started"
-        checkpoint = parse_step.get("checkpoint")
-        if checkpoint is not None:
-            item["remote_status"] = "stop_requested"
-        self._write(item_id, item)
-        if checkpoint is not None and hasattr(self.parser, "cancel"):
-            try:
-                stopped = self.parser.cancel(checkpoint)
-                item["remote_status"] = "stop_requested" if stopped else "still_running"
-            except Exception as exc:
-                item["remote_status"] = "stop_unknown"
-                item["cancel_error"] = {
-                    "error_id": getattr(exc, "error_id", "cancel_failed"),
-                    "message": str(exc),
-                }
+        with self._state_lock:
+            item = self._read(item_id)
+            run = item.get("run")
+            if not isinstance(run, dict):
+                raise WorkspaceError("ingestion_not_cancellable", "Ingestion has not started")
+            parse_step = run.get("steps", {}).get("parse", {})
+            attempts = parse_step.get("attempts", [])
+            active = next((entry for entry in reversed(attempts) if entry.get("commit_allowed") is True), None)
+            if active is not None:
+                active["commit_allowed"] = False
+                active["status"] = "cancelled"
+            item["status"] = "cancelled"
+            item["remote_status"] = "not_started"
+            checkpoint = parse_step.get("checkpoint")
+            if checkpoint is not None:
+                item["remote_status"] = "stop_requested"
             self._write(item_id, item)
-        runtime_step = run.get("steps", {}).get("runtime", {})
-        if runtime_step.get("status") == "running" and self.runtime is not None and hasattr(self.runtime, "cancel"):
-            item["runtime_status"] = "stop_requested" if self.runtime.cancel() else "stop_unknown"
-            self._write(item_id, item)
-        return self._public(item)
+            if checkpoint is not None and hasattr(self.parser, "cancel"):
+                try:
+                    stopped = self.parser.cancel(checkpoint)
+                    item["remote_status"] = "stop_requested" if stopped else "still_running"
+                except Exception as exc:
+                    item["remote_status"] = "stop_unknown"
+                    item["cancel_error"] = {
+                        "error_id": getattr(exc, "error_id", "cancel_failed"),
+                        "message": str(exc),
+                    }
+                self._write(item_id, item)
+            runtime_step = run.get("steps", {}).get("runtime", {})
+            if runtime_step.get("status") == "running" and self.runtime is not None and hasattr(self.runtime, "cancel"):
+                item["runtime_status"] = "stop_requested" if self.runtime.cancel() else "stop_unknown"
+                self._write(item_id, item)
+            return self._public(item)
