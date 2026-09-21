@@ -6,6 +6,7 @@ FOCUS 是一个以来源原文为锚点的私人阅读工作台。它保存可�
 
 **Topic**:
 按阅读意图组织 Reading Source ID 的命名有序集合；顺序就是 Topic Reading 顺序；同时作为来源的专题标签。一份来源可属于多个专题，不拥有或复制来源资产。
+知识库按 Topic 展示，同一来源在不同专题中的展示指向同一份来源资产。
 _Avoid_: Course, physical asset owner, knowledge domain
 
 **Source Library**:
@@ -38,6 +39,7 @@ _Avoid_: Source Title, source hash, mutable display name
 
 **Source Identity**:
 用于识别相同规范 URL 或相同 Paper 原件并复用已注册 Reading Source 的稳定输入身份；它独立于 MinerU Parser Task ID 与 Source ID。
+相同 PDF 内容即为相同 Paper 原件，改名或加入另一 Topic 不产生新 Source 或 Parser Bundle。
 _Avoid_: Source ID, directory name, display title
 
 **Parser Bundle**:

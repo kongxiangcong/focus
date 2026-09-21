@@ -11,4 +11,5 @@ __pycache__/
 node_modules/
 dist/
 .focus-host-*/
+.focus-runtime/
 .venv/
