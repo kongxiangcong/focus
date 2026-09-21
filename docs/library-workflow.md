@@ -14,9 +14,11 @@ workspace/
 
 来源根目录是完整 bundle，parser-bundle 是其规范原文部分。专题 manifest 的有序 `sources` 是成员关系唯一权威；卡片 tags 从这里反向投影。跨专题复用来源 ID，不复制目录。
 
-## 上传与本地导入
+## Inbox 入库与本地导入
 
-网页填写专题、用户（默认孔祥聪），选择文件再确认。PDF 与 HTML 都走唯一 article-parser，并在内部选择已有 MinerU 路径。Markdown 已是文本，使用以下本地导入，不提交到 MinerU。
+网页阶段 1 只接收单篇 PDF：先选择或新建目标专题并放入持久 Inbox；这一步不外发。用户核对文件、专题、MinerU/Codex 服务和“仅入库”范围后明确确认，Host 才调用共享 Application。相同原件复用唯一 Source，只补 Topic 关系。完成结果可查看原件、正文和引用图片，但没有 Reading Plan、全文翻译或博客。
+
+直接使用 `article-parser` Skill 仍支持 PDF 与单文件 HTML；Markdown 已是文本，使用以下本地导入，不提交到 MinerU。这些开发者入口与网页 Inbox 的确认边界不同。
 
 在仓库 `.agents/` 目录执行（替换为真实绝对路径）：
 
@@ -27,9 +29,9 @@ python -B -X utf8 -m core.library_import describe --workspace <workspace> --sour
 
 Markdown 接受 UTF-8 非空文本，保留字节相同原件。单文件上传不包含相邻图片，缺失的本地图片引用会明确失败，不生成残缺 bundle。英文文本选择 `--language en`。完整标题保留；简称必须有来源依据。年月保留 YYYY、YYYY-MM 或 YYYY-MM-DD 原有精度；不知道的期刊或时间留空。
 
-解析/导入只注册来源；知识库完整工作流随后调用 focus-map 规划或复用。上传与重读只规划，不自动 focus-read。Host 校验原件、bundle 和所选 Plan 才报告任务成功。失败输入暂存在 uploads/，成功后清理；重新上传同一原件复用已安装来源，补做规划，追加专题而不重置进度。
+解析/导入只注册来源。只有用户随后点击阅读或重新规划，才调用 focus-map 建立／复用 Plan 并准备阅读；入库成功不依赖 Plan。失败输入、远端引用和有效候选保留在 Inbox 断点中；继续处理只补未完成步骤。
 
-本地通过 SourceLibrary.attach 或现有 parser reuse 命令添加第二专题；网页重复上传相同原件并选择另一专题得到同样结果。
+本地通过 SourceLibrary.attach 或现有 parser reuse 命令添加第二专题；网页把相同 PDF 放入 Inbox 并选择另一专题时复用同一 Source，不重新解析，也不改变既有阅读位置。
 
 ## 阅读生命周期
 
@@ -47,9 +49,9 @@ state.json 的每份来源保存 current_plan_id、current_chunk_id，以及可�
 Plan 可选 language=zh/en/mixed；旧 Plan 继承 bundle 语言。语言由规划时对正文的判断确定，
 不是按文件扩展名判断。中文夹技术术语仍可标为 zh。
 
-上传／重新规划：解析或复用 → 分段和术语表 → preparation 查询 → 逐个 prepare_chunk／
+重新规划／首次打开未规划 Source：分段和术语表 → preparation 查询 → 逐个 prepare_chunk／
 prepare_translation → ready=true。中文条目也计入已就绪段数，但没有复制的译文。
-任务中断后重新打开材料或复用上传，保留已有译文，只补缺失项。准备不计入阅读进度。
+任务中断后重新打开材料，保留已有译文，只补缺失项。准备不计入阅读进度；Inbox 入库不触发本段流程。
 
 打开已准备材料／下一段只读 Core 和缓存，不启动 Agent。旧计划缺译文时先点击阅读补齐。
 从头阅读保留 Plan、译文和 Notes，回到第一段；重新规划保留旧资产并创建新 Plan，不清空笔记。

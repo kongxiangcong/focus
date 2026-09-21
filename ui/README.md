@@ -52,8 +52,8 @@ The default is the same-origin HTTP Adapter. Set `VITE_FOCUS_READER_BASE_URL=fix
 - Fixture verified: synthetic state and interaction tests.
 - Browser verified: desktop and 390px checks, pointer-driven motion, post-Continue focus landing, and console.
 - Production build verified: build succeeds without switcher or variant paths.
-- Live-host verified: not complete.
-- Production accepted: not claimed.
+- Live-host verified: Stage 1 Inbox、刷新、Topic 与 Source 资源出口已在隔离真实 Workspace 验证。
+- Production accepted: Stage 1 单篇入库已验收；整个 v0.2 产品仍不作生产完成声明。
 
 See `docs/design/focus-reader-design-verdict.md`, `docs/design/focus-reader-ui-spec.md`, and `.scratch/focus-reader-formalization/` for the decision and staged acceptance work.
 

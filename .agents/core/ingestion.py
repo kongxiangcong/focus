@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import shutil
+import threading
 import uuid
 from pathlib import Path
 from typing import Any, Protocol
@@ -14,6 +15,14 @@ from .reading_workspace import (
     validate_topic_id,
 )
 from .source_library import SourceLibrary
+
+
+def _file_fingerprint(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while block := source.read(1024 * 1024):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 class CandidateParser(Protocol):
@@ -74,6 +83,8 @@ class IngestionCore:
     ) -> dict[str, Any]:
         _validate_parser_bundle(candidate)
         item = _read_document(item_path)
+        if _file_fingerprint(candidate / "source.pdf") != _file_fingerprint(item_path.parent / "source.pdf"):
+            raise WorkspaceError("candidate_original_mismatch", "Candidate original does not match the Inbox source")
         attempts = item.get("run", {}).get("steps", {}).get("parse", {}).get("attempts", [])
         selected = next((entry for entry in attempts if entry.get("attempt_id") == attempt_id), None)
         if not isinstance(selected, dict) or selected.get("commit_allowed") is not True:
@@ -144,6 +155,7 @@ class IngestionApplication:
         self.parser = parser
         self.runtime = runtime
         self.writer_id = writer_id.strip()
+        self._state_lock = threading.RLock()
         self.core = IngestionCore(self.workspace)
         self._recover_interrupted()
 
@@ -167,17 +179,22 @@ class IngestionApplication:
 
     @staticmethod
     def _fingerprint(path: Path) -> str:
-        digest = hashlib.sha256()
-        with path.open("rb") as source:
-            while block := source.read(1024 * 1024):
-                digest.update(block)
-        return digest.hexdigest()
+        return _file_fingerprint(path)
 
     def _read(self, item_id: str) -> dict[str, Any]:
-        value = _read_document(self._root(item_id) / "item.json")
+        with self._state_lock:
+            value = _read_document(self._root(item_id) / "item.json")
         if value.get("item_id") != item_id:
             raise WorkspaceError("inbox_item_invalid", "Inbox item is invalid")
         return value
+
+    def _write(self, item_id: str, item: dict[str, Any]) -> None:
+        with self._state_lock:
+            path = self._root(item_id) / "item.json"
+            current = _read_document(path) if path.is_file() else None
+            if isinstance(current, dict) and current.get("status") == "cancelled" and item.get("status") != "cancelled":
+                return
+            _write_document(path, item)
 
     @staticmethod
     def _public(item: dict[str, Any]) -> dict[str, Any]:
@@ -208,6 +225,7 @@ class IngestionApplication:
             "fingerprint": self._fingerprint(stored),
             "topic_title": topic_title.strip() if topic_title else None,
             "topic_id": topic_id,
+            "services": ["mineru"] + (["codex"] if self.runtime is not None else []),
             "status": "awaiting_confirmation",
             "confirmation": None,
             "run": None,
@@ -215,7 +233,7 @@ class IngestionApplication:
             "document_status": "not_started",
             "topic_status": "not_started",
         }
-        _write_document(root / "item.json", item)
+        self._write(item_id, item)
         return self._public(item)
 
     def get(self, item_id: str) -> dict[str, Any]:
@@ -254,7 +272,7 @@ class IngestionApplication:
             item["topic_title"] = None
         item["confirmation"] = None
         item["status"] = "awaiting_confirmation"
-        _write_document(root / "item.json", item)
+        self._write(item_id, item)
         return self._public(item)
 
     def confirm(
@@ -282,7 +300,7 @@ class IngestionApplication:
             "expected_version": self.core.version,
         }
         item["status"] = "confirmed"
-        _write_document(self._root(item_id) / "item.json", item)
+        self._write(item_id, item)
         return self._public(item)
 
     def process(self, item_id: str, *, request_id: str) -> dict[str, Any]:
@@ -308,14 +326,24 @@ class IngestionApplication:
         item["run"] = run
         item["request_id"] = request_id
         item["status"] = "processing"
-        _write_document(root / "item.json", item)
+        self._write(item_id, item)
 
         existing = SourceLibrary(self.workspace).find_original(source, source_kind="paper_pdf")
         if existing is None:
             candidate = root / "candidate"
             parse_step = run["steps"]["parse"]
-            parsed = None
-            for automatic_index in range(3):
+            parsed = item.get("candidate_result")
+            reusable_candidate = isinstance(parsed, dict) and candidate.is_dir() and parse_step.get("status") == "completed"
+            if reusable_candidate:
+                try:
+                    _validate_parser_bundle(candidate)
+                    attempt = next(
+                        entry for entry in reversed(parse_step["attempts"])
+                        if entry.get("status") == "completed" and entry.get("commit_allowed") is True
+                    )
+                except (StopIteration, WorkspaceError):
+                    reusable_candidate = False
+            for automatic_index in range(0 if reusable_candidate else 3):
                 if candidate.exists():
                     shutil.rmtree(candidate)
                 attempt = {
@@ -326,13 +354,22 @@ class IngestionApplication:
                 parse_step["attempts"].append(attempt)
                 parse_step["status"] = "running"
                 item["status"] = "processing"
-                _write_document(root / "item.json", item)
+                self._write(item_id, item)
 
                 def save_checkpoint(value):
                     if not isinstance(value, dict) or not value.get("reference_id"):
                         raise WorkspaceError("parser_checkpoint_invalid", "Parser checkpoint is invalid")
                     parse_step["checkpoint"] = dict(value)
-                    _write_document(root / "item.json", item)
+                    current = self._read(item_id)
+                    current_step = current["run"]["steps"]["parse"]
+                    current_attempt = next(
+                        entry for entry in current_step["attempts"]
+                        if entry["attempt_id"] == attempt["attempt_id"]
+                    )
+                    if current_attempt.get("commit_allowed") is not True:
+                        return
+                    current_step["checkpoint"] = dict(value)
+                    self._write(item_id, current)
 
                 try:
                     checkpoint = parse_step.get("checkpoint")
@@ -343,37 +380,68 @@ class IngestionApplication:
                     if not isinstance(parsed, dict):
                         raise WorkspaceError("parser_result_invalid", "Parser result is invalid")
                     _validate_parser_bundle(candidate)
+                    item = self._read(item_id)
+                    run = item["run"]
+                    parse_step = run["steps"]["parse"]
+                    attempt = next(
+                        entry for entry in parse_step["attempts"]
+                        if entry["attempt_id"] == attempt["attempt_id"]
+                    )
+                    if attempt.get("commit_allowed") is not True:
+                        item["document_status"] = "candidate_retained"
+                        run["steps"]["publish"]["status"] = "rejected"
+                        self._write(item_id, item)
+                        return self._public(item)
                     attempt["status"] = "completed"
+                    item["candidate_result"] = dict(parsed)
                     item.pop("error", None)
                     break
                 except Exception as exc:
+                    current = self._read(item_id)
+                    current_run = current["run"]
+                    current_step = current_run["steps"]["parse"]
+                    current_attempt = next(
+                        entry for entry in current_step["attempts"]
+                        if entry["attempt_id"] == attempt["attempt_id"]
+                    )
+                    if current_attempt.get("commit_allowed") is not True:
+                        current["document_status"] = "candidate_retained" if candidate.exists() else "not_started"
+                        current_run["steps"]["publish"]["status"] = "rejected"
+                        self._write(item_id, current)
+                        return self._public(current)
+                    item, run, parse_step, attempt = current, current_run, current_step, current_attempt
                     attempt["status"] = "failed"
                     attempt["error_id"] = getattr(exc, "error_id", "parser_failed")
                     item["error"] = {"error_id": attempt["error_id"], "message": str(exc)}
                     if getattr(exc, "acceptance_unknown", False):
                         parse_step["status"] = "status_check_required"
                         item["status"] = "status_check_required"
-                        _write_document(root / "item.json", item)
+                        self._write(item_id, item)
                         return self._public(item)
                     if getattr(exc, "transient", False):
                         if automatic_index < 2:
                             continue
                         parse_step["status"] = "retry_waiting"
                         item["status"] = "retry_waiting"
-                        _write_document(root / "item.json", item)
+                        self._write(item_id, item)
                         return self._public(item)
                     parse_step["status"] = "failed"
                     item["status"] = "failed"
                     item["document_status"] = "candidate_rejected"
-                    _write_document(root / "item.json", item)
+                    self._write(item_id, item)
                     return self._public(item)
             assert parsed is not None
             run["steps"]["parse"]["status"] = "completed"
-            if self.runtime is not None:
+            self._write(item_id, item)
+            reusable_runtime = (
+                run["steps"]["runtime"].get("status") == "completed"
+                and isinstance(item.get("runtime_result"), dict)
+            )
+            if self.runtime is not None and not reusable_runtime:
                 runtime_attempt = {"attempt_id": uuid.uuid4().hex, "status": "running"}
                 run["steps"]["runtime"]["attempts"].append(runtime_attempt)
                 run["steps"]["runtime"]["status"] = "running"
-                _write_document(root / "item.json", item)
+                self._write(item_id, item)
                 try:
                     runtime_result = self.runtime.inspect(candidate)
                     if (
@@ -383,6 +451,16 @@ class IngestionApplication:
                     ):
                         raise WorkspaceError("runtime_result_invalid", "Runtime inspection did not validate the candidate")
                 except Exception as exc:
+                    current = self._read(item_id)
+                    current_parse_attempt = next(
+                        entry for entry in current["run"]["steps"]["parse"]["attempts"]
+                        if entry["attempt_id"] == attempt["attempt_id"]
+                    )
+                    if current_parse_attempt.get("commit_allowed") is not True:
+                        current["document_status"] = "candidate_retained"
+                        current["run"]["steps"]["publish"]["status"] = "rejected"
+                        self._write(item_id, current)
+                        return self._public(current)
                     runtime_attempt["status"] = "failed"
                     run["steps"]["runtime"]["status"] = "failed"
                     item["status"] = "failed"
@@ -391,7 +469,23 @@ class IngestionApplication:
                         "error_id": getattr(exc, "error_id", "runtime_failed"),
                         "message": str(exc),
                     }
-                    _write_document(root / "item.json", item)
+                    self._write(item_id, item)
+                    return self._public(item)
+                item = self._read(item_id)
+                run = item["run"]
+                parse_step = run["steps"]["parse"]
+                attempt = next(
+                    entry for entry in parse_step["attempts"]
+                    if entry["attempt_id"] == attempt["attempt_id"]
+                )
+                runtime_attempt = next(
+                    entry for entry in run["steps"]["runtime"]["attempts"]
+                    if entry["attempt_id"] == runtime_attempt["attempt_id"]
+                )
+                if attempt.get("commit_allowed") is not True:
+                    item["document_status"] = "candidate_retained"
+                    run["steps"]["publish"]["status"] = "rejected"
+                    self._write(item_id, item)
                     return self._public(item)
                 runtime_attempt["status"] = "completed"
                 run["steps"]["runtime"]["status"] = "completed"
@@ -412,17 +506,29 @@ class IngestionApplication:
                 )
             except WorkspaceError as exc:
                 if exc.error_id != "attempt_cancelled":
-                    raise
+                    if exc.error_id == "writer_conflict":
+                        raise
+                    item = self._read(item_id)
+                    item["status"] = "failed"
+                    item["document_status"] = "candidate_rejected"
+                    item["error"] = {"error_id": exc.error_id, "message": str(exc)}
+                    item["run"]["steps"]["publish"]["status"] = "failed"
+                    if exc.error_id == "candidate_original_mismatch":
+                        item["run"]["steps"]["parse"]["status"] = "failed"
+                        item.pop("candidate_result", None)
+                        shutil.rmtree(candidate, ignore_errors=True)
+                    self._write(item_id, item)
+                    return self._public(item)
                 cancelled = self._read(item_id)
                 cancelled["document_status"] = "candidate_retained"
                 cancelled["run"]["steps"]["publish"]["status"] = "rejected"
-                _write_document(root / "item.json", cancelled)
+                self._write(item_id, cancelled)
                 return self._public(cancelled)
             if published["status"] == "version_conflict":
                 item["status"] = "commit_conflict"
                 item["document_status"] = "candidate_retained"
                 run["steps"]["publish"]["status"] = "conflict"
-                _write_document(root / "item.json", item)
+                self._write(item_id, item)
                 return self._public(item)
             source_id = published["source_id"]
             item["document_status"] = "published"
@@ -436,7 +542,7 @@ class IngestionApplication:
             run["steps"]["publish"]["status"] = "skipped"
             version = self.core.version
         item["source_id"] = source_id
-        _write_document(root / "item.json", item)
+        self._write(item_id, item)
 
         if item.get("topic_title") is not None or item.get("topic_id") is not None:
             try:
@@ -458,18 +564,19 @@ class IngestionApplication:
                 item["topic_error"] = {"error_id": exc.error_id, "message": str(exc)}
                 item["status"] = "topic_attachment_pending"
                 run["steps"]["attach"]["status"] = "failed"
-                _write_document(root / "item.json", item)
+                self._write(item_id, item)
                 return self._public(item)
         else:
             item["topic_status"] = "not_requested"
             run["steps"]["attach"]["status"] = "skipped"
         item["status"] = "completed"
-        _write_document(root / "item.json", item)
+        self._write(item_id, item)
         return self._public(item)
 
     def continue_run(self, item_id: str, *, request_id: str) -> dict[str, Any]:
         item = self._read(item_id)
         if item.get("status") not in {
+            "status_check_required",
             "retry_waiting",
             "failed",
             "commit_conflict",
@@ -478,6 +585,15 @@ class IngestionApplication:
             "interrupted",
         }:
             raise WorkspaceError("ingestion_not_resumable", "Ingestion is not waiting for continuation")
+        if item.get("status") == "status_check_required" and not item.get("run", {}).get("steps", {}).get("parse", {}).get("checkpoint"):
+            raise WorkspaceError("remote_reference_missing", "Remote acceptance cannot be reconciled without a task reference")
+        if item.get("status") == "cancelled":
+            item["status"] = "confirmed"
+            with self._state_lock:
+                _write_document(self._root(item_id) / "item.json", item)
+        if item.get("status") == "commit_conflict":
+            item["confirmation"]["expected_version"] = self.core.version
+            self._write(item_id, item)
         return self.process(item_id, request_id=request_id)
 
     def cancel(self, item_id: str) -> dict[str, Any]:
@@ -496,7 +612,7 @@ class IngestionApplication:
         checkpoint = parse_step.get("checkpoint")
         if checkpoint is not None:
             item["remote_status"] = "stop_requested"
-        _write_document(self._root(item_id) / "item.json", item)
+        self._write(item_id, item)
         if checkpoint is not None and hasattr(self.parser, "cancel"):
             try:
                 stopped = self.parser.cancel(checkpoint)
@@ -507,9 +623,9 @@ class IngestionApplication:
                     "error_id": getattr(exc, "error_id", "cancel_failed"),
                     "message": str(exc),
                 }
-            _write_document(self._root(item_id) / "item.json", item)
+            self._write(item_id, item)
         runtime_step = run.get("steps", {}).get("runtime", {})
         if runtime_step.get("status") == "running" and self.runtime is not None and hasattr(self.runtime, "cancel"):
             item["runtime_status"] = "stop_requested" if self.runtime.cancel() else "stop_unknown"
-            _write_document(self._root(item_id) / "item.json", item)
+            self._write(item_id, item)
         return self._public(item)

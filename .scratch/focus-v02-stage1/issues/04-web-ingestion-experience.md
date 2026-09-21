@@ -17,4 +17,6 @@ Verification: 独立网页版演示用户闭环，使用隔离数据；已有合
 
 Spec coverage: T24、T23 的 Host／资源接入与各后端状态的必要 UI 投影；阶段 1 综合结果与开发结束基线刷新。
 
-Answer: ReaderHost 和 HTTP 现只把单 PDF 暂存到持久 Inbox；确认和处理是两个独立动作，后台线程只调用共享 Application。网页投影权威状态并轮询处理中项目，提供续接、取消、刷新，以及文档／专题分别完成的状态。Source 卡和 Inbox 都从 Core 的唯一 Topic 关系显示标签，并经同一认证边界访问原件、正文和相对 `images/` 资源。隔离的真实 Workspace 浏览器演示确认“暂存不外发”、刷新恢复、已完成 Inbox 与无 Plan Source 资源入口。旧 `/library/sources` 上传规划入口及其 5 项失效测试已删除；保留的 Source ID 测试改为验证当前打开／准备路径。全量 Python 125 项、UI 40 项通过，UI 类型检查、生产构建与 Python compileall 通过；构建只有既有单块大于 500 kB 的 Vite 警告。
+## Answer
+
+ReaderHost 和 HTTP 现只把单 PDF 暂存到持久 Inbox；确认和处理是两个独立动作，后台线程只调用共享 Application。网页投影权威状态并轮询处理中项目，提供续接、取消、刷新，以及文档／专题分别完成的状态。Source 卡和 Inbox 都从 Core 的唯一 Topic 关系显示标签，并经同一认证边界访问原件、正文和相对 `images/` 资源。隔离的真实 Workspace 浏览器演示确认“暂存不外发”、刷新恢复、已完成 Inbox 与无 Plan Source 资源入口。旧 `/library/sources` 上传规划入口及其 5 项失效测试已删除；保留的 Source ID 测试改为验证当前打开／准备路径。审查后补强原件一致性、有效候选复用、取消竞态、Host writer identity 与既有阅读位置保持。全量 Python 129 项、UI 40 项通过，UI 类型检查、生产构建与 Python compileall 通过；构建只有既有单块大于 500 kB 的 Vite 警告。

@@ -50,7 +50,7 @@ API-key 登录沿用运行时凭据保存策略，可能更新该用户的 Codex
 与 [当前结构与证据](FOCUS_Agent_Architecture.md)。此前 CodeBuddy SDK 实验保留在 `host/backends/codebuddy.py`，
 未注册为用户可选运行时。安装该 SDK 或将地区设为 internal 都不等于接入国内 WorkBuddy。
 
-新 PDF / HTML / URL 的解析需要 `MINERU_API_TOKEN`，在后台进程环境或 Workspace 被忽略的 `.env` 中配置。
+网页 Inbox 的新 PDF 入库需要 `MINERU_API_TOKEN` 和可用的固定 Codex Runtime；确认页会同时列出 MinerU 与 Codex。直接调用 `article-parser` 解析 PDF / HTML / URL 只需要相应 MinerU 凭据。在后台进程环境或 Workspace 被忽略的 `.env` 中配置 Token。
 已有解析 Source 的阅读不需要再次调用 MinerU。模型/Parser 凭据不要填进聊天或前端配置。
 
 Linux / WSL 配置示例：

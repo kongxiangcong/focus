@@ -52,6 +52,13 @@ class InvalidParser(ValidParser):
         return result
 
 
+class MismatchedOriginalParser(ValidParser):
+    def parse(self, source: Path, candidate: Path, *, checkpoint=None):
+        result = super().parse(source, candidate, checkpoint=checkpoint)
+        (candidate / "source.pdf").write_bytes(b"%PDF-1.4\nnot-the-selected-file\n")
+        return result
+
+
 class LongTitleParser(ValidParser):
     def parse(self, source: Path, candidate: Path, *, checkpoint=None):
         result = super().parse(source, candidate, checkpoint=checkpoint)
@@ -130,6 +137,13 @@ class InspectingRuntime:
             "image_observed": self.valid,
             "notes": "bounded candidate inspection",
         }
+
+
+class FirstInvalidRuntime(InspectingRuntime):
+    def inspect(self, candidate: Path):
+        self.calls += 1
+        valid = self.calls > 1
+        return {"title_matches": valid, "image_observed": valid, "notes": "retry"}
 
 
 class BlockingRuntime(InspectingRuntime):
@@ -263,6 +277,29 @@ class IngestionApplicationTests(unittest.TestCase):
         ))
         self.assertFalse((self.workspace / "sources").exists())
 
+    def test_candidate_original_must_match_the_confirmed_inbox_file(self):
+        app = IngestionApplication(self.workspace, parser=MismatchedOriginalParser(), writer_id="host-a")
+        item = app.stage_pdf(self.pdf)
+        app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+        result = app.process(item["item_id"], request_id="mismatched-original")
+        self.assertEqual(("failed", "candidate_rejected", "candidate_original_mismatch"), (
+            result["status"], result["document_status"], result["error"]["error_id"]
+        ))
+        self.assertFalse((self.workspace / "sources").exists())
+
+    def test_reopen_reuses_a_valid_candidate_without_reparsing(self):
+        parser = ValidParser()
+        runtime = FirstInvalidRuntime()
+        app = IngestionApplication(self.workspace, parser=parser, runtime=runtime, writer_id="host-a")
+        item = app.stage_pdf(self.pdf)
+        app.confirm(item["item_id"], services=["mineru", "codex"], purpose="register source", scope="ingestion")
+        failed = app.process(item["item_id"], request_id="runtime-first")
+        self.assertEqual("failed", failed["status"])
+
+        reopened = IngestionApplication(self.workspace, parser=parser, runtime=runtime, writer_id="host-a")
+        completed = reopened.continue_run(item["item_id"], request_id="runtime-second")
+        self.assertEqual(("completed", 1, 2), (completed["status"], parser.calls, runtime.calls))
+
     def test_topic_failure_keeps_the_published_source_accessible(self):
         app = IngestionApplication(self.workspace, parser=ValidParser(), writer_id="host-a")
         item = app.stage_pdf(self.pdf, topic_id="missing-topic")
@@ -303,6 +340,8 @@ class IngestionApplicationTests(unittest.TestCase):
             conflict["status"], conflict["document_status"]
         ))
         self.assertTrue((self.workspace / "inbox" / second["item_id"] / "candidate").is_dir())
+        recovered = app.continue_run(second["item_id"], request_id="second-retry")
+        self.assertEqual(("completed", 2), (recovered["status"], parser.calls))
 
         third_pdf = self.root / "third.pdf"
         third_pdf.write_bytes(b"%PDF-1.4\nthird\n")
@@ -445,6 +484,44 @@ class IngestionApplicationTests(unittest.TestCase):
             result["status"], result["document_status"]
         ))
         self.assertFalse((self.workspace / "sources").exists())
+
+    def test_parser_cancellation_cannot_be_overwritten_when_runtime_is_enabled(self):
+        parser = BlockingParser()
+        runtime = InspectingRuntime()
+        app = IngestionApplication(
+            self.workspace, parser=parser, runtime=runtime, writer_id="host-a"
+        )
+        item = app.stage_pdf(self.pdf)
+        app.confirm(
+            item["item_id"], services=["mineru", "codex"], purpose="register source", scope="ingestion"
+        )
+        result = {}
+        worker = threading.Thread(
+            target=lambda: result.update(app.process(item["item_id"], request_id="parser-runtime-cancel"))
+        )
+        worker.start()
+        self.assertTrue(parser.started.wait(2))
+        app.cancel(item["item_id"])
+        parser.release.set()
+        worker.join(5)
+
+        self.assertEqual(("cancelled", "candidate_retained", 0), (
+            result["status"], result["document_status"], runtime.calls
+        ))
+        self.assertFalse((self.workspace / "sources").exists())
+
+    def test_host_writer_identity_persists_but_differs_between_host_data_roots(self):
+        first = HostService(self.workspace, self.root / "host-one", ingestion_parser=ValidParser())
+        first_id = first.ingestion.writer_id
+        first.close()
+        reopened = HostService(self.workspace, self.root / "host-one", ingestion_parser=ValidParser())
+        second = HostService(self.workspace, self.root / "host-two", ingestion_parser=ValidParser())
+        try:
+            self.assertEqual(first_id, reopened.ingestion.writer_id)
+            self.assertNotEqual(first_id, second.ingestion.writer_id)
+        finally:
+            reopened.close()
+            second.close()
 
 
 if __name__ == "__main__":

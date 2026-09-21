@@ -189,7 +189,8 @@ class SourceLibrary:
         if not isinstance(source_states, dict):
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         state.setdefault("current_topic_id", None)
-        state["current_source_id"] = source_id
+        if not state.get("current_source_id"):
+            state["current_source_id"] = source_id
         source_states[source_id] = {"current_plan_id": None, "current_chunk_id": None}
         source = {
             "source_id": source_id,

@@ -62,6 +62,13 @@ def main():
     service = HostService(workspace, data, model=args.model, codex_bin=args.codex_bin,
                           backend=args.backend, network=args.network, approval_policy=args.approval_policy)
     backend = check_backend(service.backend_name, args.codex_bin)
+    if service.backend_name == 'codex':
+        from .codex_ingestion import CodexIngestionRuntime
+        from .runtime import codex_command
+        runtime_model = service.models.get('codex') or 'gpt-6-astra'
+        service.ingestion.runtime = CodexIngestionRuntime(
+            Path(codex_command(args.codex_bin)[0]), model=runtime_model
+        )
     server = Server((args.bind, args.port), service, token=token, public_origin=args.public_origin)
     print(f'FOCUS http://{args.bind}:{args.port}\nWorkspace: {workspace}\nBackend: {service.backend_name} ({backend})', flush=True)
     if not server.local_access and not token:

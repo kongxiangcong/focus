@@ -94,6 +94,8 @@ class SourceLibraryTopicTests(unittest.TestCase):
         self.assertFalse((self.workspace / "sources" / "Different suggestion-paper").exists())
 
         second = self._register("second", short_name="Second Work", identity="paper:second")
+        state = json.loads((self.workspace / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(first["source_id"], state["current_source_id"])
         self.library.attach(first["source_id"], topic_title="Systems", topic_id="systems")
         self.library.attach(second["source_id"], existing_topic_id="systems")
         self.library.attach(first["source_id"], topic_title="AI", topic_id="ai")

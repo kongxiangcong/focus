@@ -111,14 +111,26 @@ function decodeResult(value: unknown): ReaderHostResult<ReadingWindow> {
   };
 }
 
-function isIngestionItem(value: unknown): value is IngestionItem {
-  if (value === null || typeof value !== "object") return false;
+function decodeIngestionItem(value: unknown): IngestionItem | null {
+  if (value === null || typeof value !== "object") return null;
   const item = value as Record<string, unknown>;
-  return typeof item.item_id === "string" && typeof item.file_name === "string" &&
+  if (!(typeof item.item_id === "string" && typeof item.file_name === "string" &&
     typeof item.status === "string" && (item.topic_title === null || typeof item.topic_title === "string") &&
     (item.topic_id === null || typeof item.topic_id === "string") &&
     (item.source_id === null || typeof item.source_id === "string") &&
-    typeof item.document_status === "string" && typeof item.topic_status === "string";
+    typeof item.document_status === "string" && typeof item.topic_status === "string")) return null;
+  const error = item.error as Record<string, unknown> | undefined;
+  const topicError = item.topic_error as Record<string, unknown> | undefined;
+  return {
+    itemId: item.item_id, fileName: item.file_name, status: item.status as IngestionItem["status"],
+    topicTitle: item.topic_title as string | null, topicId: item.topic_id as string | null,
+    sourceId: item.source_id as string | null, documentStatus: item.document_status,
+    topicStatus: item.topic_status,
+    services: isStringArray(item.services) ? item.services : undefined,
+    confirmation: item.confirmation as IngestionItem["confirmation"],
+    ...(error && typeof error.message === "string" ? { error: { errorId: String(error.error_id), message: error.message } } : {}),
+    ...(topicError && typeof topicError.message === "string" ? { topicError: { errorId: String(topicError.error_id), message: topicError.message } } : {}),
+  };
 }
 
 export class HttpReaderHost implements ReaderHost {
@@ -155,8 +167,14 @@ export class HttpReaderHost implements ReaderHost {
     } catch (e) { return { ok: false, error: { code: "unavailable", message: String(e), retryable: true } }; }
   }
 
-  listInbox(): Promise<ReaderHostResult<readonly IngestionItem[]>> {
-    return this.libraryList<IngestionItem>("/library/inbox", isIngestionItem);
+  async listInbox(): Promise<ReaderHostResult<readonly IngestionItem[]>> {
+    try {
+      const response = await this.fetch(`${this.baseUrl}/library/inbox`);
+      const body = await response.json();
+      const items = Array.isArray(body.value) ? body.value.map(decodeIngestionItem) : [];
+      if (response.ok && body.ok === true && items.every(Boolean)) return { ok: true, value: items as IngestionItem[] };
+      return { ok: false, error: { code: "invalid-response", message: body.error?.message ?? "Inbox 响应格式错误", retryable: false } };
+    } catch (e) { return { ok: false, error: { code: "unavailable", message: String(e), retryable: true } }; }
   }
   stageIngestion(file: File, target: IngestionTarget): Promise<ReaderHostResult<IngestionItem>> {
     const query = new URLSearchParams({ name: file.name });
@@ -305,7 +323,8 @@ export class HttpReaderHost implements ReaderHost {
     try {
       const response = await this.fetch(`${this.baseUrl}${path}`, init);
       const body = await response.json();
-      if (response.ok && body.ok === true && isIngestionItem(body.value)) return { ok: true, value: body.value };
+      const item = decodeIngestionItem(body.value);
+      if (response.ok && body.ok === true && item) return { ok: true, value: item };
       if (body?.ok === false && typeof body.error?.message === "string") return { ok: false, error: { code: isFailureCode(body.error.code) ? body.error.code : "unknown", message: body.error.message, retryable: body.error.retryable === true } };
       return { ok: false, error: { code: "invalid-response", message: "Inbox 响应格式错误", retryable: false } };
     } catch (error) {

@@ -7,7 +7,7 @@ import { WorkspaceApp } from "./WorkspaceApp";
 const empty: ReadingWindow = { status: "empty", current: null, history: [], conversation: [], source: { sourceId: "", title: "", topicId: null }, sessionId: "s1",
   agent: { run: null, catalog: { sources: [], topics: [] }, backend: "codex", backends: [{ id: "codex", label: "Codex" }, { id: "workbuddy", label: "WorkBuddy", unavailableReason: "待接入" }] } };
 function setup(initialInbox: readonly IngestionItem[] = []) {
-  const staged: IngestionItem = { item_id: "item-1", file_name: "test.pdf", status: "awaiting_confirmation", topic_title: "编译", topic_id: null, source_id: null, document_status: "not_started", topic_status: "not_started" };
+  const staged: IngestionItem = { itemId: "item-1", fileName: "test.pdf", status: "awaiting_confirmation", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru", "codex"] };
   const confirmed: IngestionItem = { ...staged, status: "confirmed", confirmation: { services: ["mineru"], purpose: "register source", scope: "ingestion" } };
   const processing: IngestionItem = { ...staged, status: "processing" };
   const cancelled: IngestionItem = { ...staged, status: "cancelled" };
@@ -56,6 +56,7 @@ it("stages a PDF without processing and starts only after explicit confirmation"
   expect(host.stageIngestion).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "放入 Inbox" }));
   await waitFor(() => expect(host.stageIngestion).toHaveBeenCalledWith(pdf, { topicId: "topic" }));
+  expect(await screen.findByText(/MinerU、Codex/)).toBeInTheDocument();
   expect(host.confirmIngestion).not.toHaveBeenCalled();
   expect(host.processIngestion).not.toHaveBeenCalled();
   fireEvent.click(await screen.findByRole("button", { name: "确认并开始" }));
@@ -88,7 +89,7 @@ it("filters source cards, exposes source resources, and only accepts PDF ingesti
 });
 
 it("restores authoritative Inbox state after refresh and continues attachment recovery", async () => {
-  const recovering: IngestionItem = { item_id: "recover", file_name: "paper.pdf", status: "topic_attachment_pending", topic_title: "系统", topic_id: null, source_id: "a-paper", document_status: "published", topic_status: "pending_recovery" };
+  const recovering: IngestionItem = { itemId: "recover", fileName: "paper.pdf", status: "topic_attachment_pending", topicTitle: "系统", topicId: null, sourceId: "a-paper", documentStatus: "published", topicStatus: "pending_recovery" };
   const { host } = setup([recovering]);
   expect(await screen.findByText("文档已入库，专题关联待恢复")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "继续" }));

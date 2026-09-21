@@ -170,17 +170,18 @@ export type IngestionStatus =
   | "completed";
 
 export interface IngestionItem {
-  item_id: string;
-  file_name: string;
+  itemId: string;
+  fileName: string;
   status: IngestionStatus;
-  topic_title: string | null;
-  topic_id: string | null;
-  source_id: string | null;
-  document_status: string;
-  topic_status: string;
+  topicTitle: string | null;
+  topicId: string | null;
+  sourceId: string | null;
+  documentStatus: string;
+  topicStatus: string;
+  services?: readonly string[];
   confirmation?: { services: readonly string[]; purpose: string; scope: string } | null;
-  error?: { error_id: string; message: string };
-  topic_error?: { error_id: string; message: string };
+  error?: { errorId: string; message: string };
+  topicError?: { errorId: string; message: string };
 }
 
 export interface LibrarySource {

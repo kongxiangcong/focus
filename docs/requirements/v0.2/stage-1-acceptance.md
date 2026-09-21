@@ -7,7 +7,7 @@
 - `IngestionApplication` 的公开边界覆盖暂存、更新、确认、处理、查询、续接和取消。未确认项目可重开且零外发；文件或 Topic 变化会清除确认。
 - Parser 只生成候选，`IngestionCore` 才能校验并发布。发布要求匹配预期版本、请求 ID、写入方和未取消 attempt；Topic 关联单独提交。
 - 可控故障覆盖远端引用持久化、最多两次自动续接、受理不明待核对、重启后续接、无效候选、版本冲突、第二写入方、关联失败只补关联、取消后迟到候选拒绝和 Runtime 取消。
-- 相关 Parser／Application／Host／Core 分段回归 58 项通过；最终完整 Python 回归 125 项、UI 回归 40 项通过，UI 类型检查、生产构建与 Python `compileall` 通过。Vite 仅报告既有单块大于 500 kB 的非阻断警告。
+- 相关 Parser／Application／Host／Core 分段回归 58 项通过；最终完整 Python 回归 129 项、UI 回归 40 项通过，UI 类型检查、生产构建与 Python `compileall` 通过。Vite 仅报告既有单块大于 500 kB 的非阻断警告。
 
 ## Host 与浏览器
 
@@ -16,6 +16,7 @@
 - Source 与 Inbox 的 PDF 原件、`content.md` 和相对 `images/` 资源均从已注册 Bundle 读取并经过现有 Host 认证、Origin 和路径边界；无 Plan Source 也可访问。Topic 标签来自 Source Library 唯一关系。
 - 使用隔离的真实 `workspace-runtime` 和 Codex CLI 0.154.0 启动生产构建，浏览器实际看到 `DeepStack-paper` 的完成 Inbox、`Stage 1 Runtime` Topic、待规划 Source 及原件／正文入口；点击刷新后投影保持。上传弹窗明确显示“此步只把文件放入 Inbox，不会调用 MinerU 或 Codex”，未再次上传或解析论文。
 - 5 项只验证旧 Host 上传规划路径的测试随入口一并删除；一项 Source ID 用例改为验证当前打开／准备路径。当前全套失败清单为空。
+- 双轴审查后新增回归证明：候选 `source.pdf` 必须与确认原件一致；有效候选在重开后不重跑 Parser；Parser/Runtime 迟到结果不能覆盖取消；Host writer identity 按 Host 数据目录持久且相互不同；新 Source 发布不切换既有阅读位置。
 
 ## 真实 MinerU
 

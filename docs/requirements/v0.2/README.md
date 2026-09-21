@@ -1,6 +1,6 @@
 # v0.2 分阶段需求索引
 
-日期：2026-09-21。状态：阶段 0 grill 已完成、实测验收部分完成；阶段 1 已生成本地实施 spec 并确认测试边界；其他阶段待 grill。本目录是需求索引，不是产品已完成声明。
+日期：2026-09-21。状态：阶段 0 grill 已完成、实测验收部分完成；阶段 1 已按确认 spec 完成并留下分层验收证据；其他阶段待 grill。本目录是需求索引，不是整个产品已完成声明。
 
 需求权威是 [FOCUS v0.2 总计划](../../../FOCUS_Shared_Workflow_MultiHost_Plan_v0.2.md)。本目录只细分交付顺序、范围和验收出口；不重新定义产品。总计划的 P0–P5 与本目录的阶段编号不是一一对应关系。
 
@@ -53,6 +53,6 @@
 2. 用 `to-spec` 将已收敛讨论整理到 `.scratch/focus-v02-<stage>/spec.md`，确认最高层可用测试边界。
 3. 用 `to-tickets` 拆纵向交付、确认粒度与真实阻塞边，按仓库规则一票一文件放入同目录的 `issues/`。
 
-本目录不标记 `ready-for-agent`。按用户显式调用生成的 spec／tickets 放入本地 tracker；当前 [阶段 1 spec](../../../.scratch/focus-v02-stage1/spec.md) 及用户批准的 [4 张实施票](../../../.scratch/focus-v02-stage1/README.md) 已标记 `ready-for-agent`，按统一 Parser → 后端主流程 → 续接与真实运行 → 网页接入推进，尚未实施。完成阶段后将证据和仍未通过的出口回链到该阶段；下一轮重新核对代码基线，避免把这里的现状快照当成永久事实。`.scratch/` 默认受 Git 忽略；本阶段 spec、任务索引和 4 张票已显式纳入版本管理，试验数据保持本地。
+本目录不标记 `ready-for-agent`。按用户显式调用生成的 spec／tickets 放入本地 tracker；当前 [阶段 1 spec](../../../.scratch/focus-v02-stage1/spec.md) 及用户批准的 [4 张实施票](../../../.scratch/focus-v02-stage1/README.md) 已依次实施，综合证据见 [阶段 1 验收记录](stage-1-acceptance.md)。下一轮重新核对代码基线，避免把这里的现状快照当成永久事实。`.scratch/` 默认受 Git 忽略；本阶段 spec、任务索引和 4 张票已显式纳入版本管理，试验数据保持本地。
 
 阶段 0 grill 已确认忽略 v0.1，不再继承或等待其未见章节。需求以 v0.2 总计划、现有 `paper2blog/references/writing-method.md` 与已确认的阶段记录为依据；方法的具体更新在相应阶段收敛。
