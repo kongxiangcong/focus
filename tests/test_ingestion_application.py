@@ -531,6 +531,93 @@ class IngestionApplicationTests(unittest.TestCase):
         self.assertTrue(after["sources"][done["source_id"]]["reading_started"])
         self.assertEqual(1, len(list((self.workspace / "sources").iterdir())))
 
+    def test_repeated_add_of_a_pending_attachment_task_returns_the_recovery_task(self):
+        parser = ValidParser()
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        first = app.stage_pdf(self.pdf, topic_id="missing-topic")
+        app.confirm(first["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+        pending = app.process(first["item_id"], request_id="attachment-failure")
+        self.assertEqual("topic_attachment_pending", pending["status"])
+
+        renamed = self.root / "renamed.pdf"
+        renamed.write_bytes(self.pdf.read_bytes())
+        repeated = app.stage_pdf(renamed, topic_title="Other Topic")
+
+        self.assertEqual(first["item_id"], repeated["item_id"])
+        self.assertTrue(repeated["duplicate"])
+        self.assertEqual("missing-topic", repeated["topic_id"])
+        self.assertIsNone(repeated["topic_title"])
+        self.assertEqual("pending_recovery", repeated["topic_status"])
+        self.assertTrue(repeated["confirmation"])
+        self.assertEqual(1, len(list((self.workspace / "inbox").glob("*/item.json"))))
+        self.assertFalse((self.workspace / "topics" / "other-topic").exists())
+        self.assertEqual(1, parser.calls)
+
+        SourceLibrary(self.workspace).create_topic("Recovered", topic_id="missing-topic")
+        recovered = app.continue_run(first["item_id"], request_id="attachment-retry")
+        self.assertEqual(("completed", "reused", "attached"), (
+            recovered["status"], recovered["document_status"], recovered["topic_status"]
+        ))
+
+    def test_concurrent_repeated_staging_produces_exactly_one_task(self):
+        parser = ValidParser()
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        results = []
+        errors = []
+
+        def stage(label):
+            source = self.root / f"copy-{label}.pdf"
+            source.write_bytes(self.pdf.read_bytes())
+            try:
+                results.append(app.stage_pdf(source, topic_title=f"Topic {label}"))
+            except Exception as exc:  # pragma: no cover - surfaced below
+                errors.append(exc)
+
+        workers = [threading.Thread(target=stage, args=(label,)) for label in range(4)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(5)
+
+        self.assertEqual([], errors)
+        self.assertEqual(4, len(results))
+        self.assertEqual(1, len({result["item_id"] for result in results}))
+        duplicates = [result for result in results if result.get("duplicate")]
+        self.assertEqual(3, len(duplicates))
+        original = next(result for result in results if not result.get("duplicate"))
+        self.assertEqual(
+            {original["item_id"]},
+            {json.loads(path.read_text(encoding="utf-8"))["item_id"]
+             for path in (self.workspace / "inbox").glob("*/item.json")},
+        )
+        # Staging never creates Topic relationships; only the one unfinished task exists.
+        self.assertFalse((self.workspace / "topics").exists())
+
+    def test_editing_a_staged_source_cannot_bypass_identity_reuse(self):
+        parser = ValidParser()
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        other_pdf = self.root / "other.pdf"
+        other_pdf.write_bytes(b"%PDF-1.4\nother\n")
+        first = app.stage_pdf(self.pdf, topic_title="Systems")
+        second = app.stage_pdf(other_pdf, topic_title="Other")
+
+        with self.assertRaisesRegex(WorkspaceError, "unfinished Inbox task"):
+            app.update_staged(second["item_id"], source=self.pdf)
+        self.assertEqual(
+            other_pdf.read_bytes(),
+            (self.workspace / "inbox" / second["item_id"] / "source.pdf").read_bytes(),
+        )
+        self.assertEqual("other.pdf", app.get(second["item_id"])["file_name"])
+        self.assertEqual(2, len(list((self.workspace / "inbox").glob("*/item.json"))))
+
+        # Re-selecting the item's own current original keeps the edit legitimate.
+        renamed_own = self.root / "renamed-other.pdf"
+        renamed_own.write_bytes(other_pdf.read_bytes())
+        edited = app.update_staged(second["item_id"], source=renamed_own)
+        self.assertEqual("awaiting_confirmation", edited["status"])
+        self.assertIsNone(edited["confirmation"])
+        self.assertEqual("renamed-other.pdf", edited["file_name"])
+
     def test_new_original_next_to_an_unfinished_task_still_stages_normally(self):
         parser = ValidParser()
         app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
@@ -995,6 +1082,45 @@ class IngestionApplicationTests(unittest.TestCase):
                     [{"topicId": "systems", "title": "Systems", "sourceIds": [completed["source_id"]]}],
                     json.loads(response.read())["value"],
                 )
+        finally:
+            connection.close()
+            server.shutdown()
+            server.server_close()
+            worker.join(5)
+            host.close()
+
+    def test_http_entry_returns_the_existing_task_for_a_repeated_add(self):
+        workspace = self.root / "host-duplicate-entry"
+        workspace.mkdir()
+        host = HostService(workspace, self.root / "host-duplicate-data", ingestion_parser=ValidParser())
+        server = Server(("127.0.0.1", 0), host)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=10)
+        try:
+            with forbid_codex_processes():
+                connection.request("POST", "/library/inbox?name=paper.pdf&topic=Systems", self.pdf.read_bytes())
+                response = connection.getresponse()
+                staged = json.loads(response.read())["value"]
+                self.assertEqual(201, response.status)
+                self.assertFalse(staged.get("duplicate"))
+
+                renamed = self.pdf.read_bytes()
+                connection.request("POST", "/library/inbox?name=renamed.pdf&topic=Other", renamed)
+                response = connection.getresponse()
+                repeated = json.loads(response.read())["value"]
+                self.assertEqual(201, response.status)
+                self.assertEqual(staged["item_id"], repeated["item_id"])
+                self.assertTrue(repeated["duplicate"])
+                self.assertEqual("Systems", repeated["topic_title"])
+                self.assertEqual("awaiting_confirmation", repeated["status"])
+
+                connection.request("GET", "/library/inbox")
+                response = connection.getresponse()
+                items = json.loads(response.read())["value"]
+                self.assertEqual(1, len(items))
+                self.assertEqual(staged["item_id"], items[0]["item_id"])
+                self.assertNotIn("duplicate", items[0])
         finally:
             connection.close()
             server.shutdown()

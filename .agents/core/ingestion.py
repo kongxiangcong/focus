@@ -364,9 +364,18 @@ class IngestionApplication:
                 source = Path(source).resolve()
                 if not source.is_file() or source.suffix.lower() != ".pdf" or source.read_bytes()[:4] != b"%PDF":
                     raise WorkspaceError("source_pdf_invalid", "Source must be an existing PDF file")
+                # Editing may not sidestep identity reuse: the replacement original
+                # must not belong to a different unfinished Inbox task.
+                replacement_fingerprint = self._fingerprint(source)
+                existing = self._unfinished_original(replacement_fingerprint)
+                if existing is not None and existing.get("item_id") != item_id:
+                    raise WorkspaceError(
+                        "ingestion_duplicate_original",
+                        "Another unfinished Inbox task already uses this original",
+                    )
                 shutil.copy2(source, root / "source.pdf")
                 item["file_name"] = source.name
-                item["fingerprint"] = self._fingerprint(root / "source.pdf")
+                item["fingerprint"] = replacement_fingerprint
             if topic_title is not None:
                 if not topic_title.strip():
                     raise WorkspaceError("topic_invalid", "Topic title is empty or invalid")

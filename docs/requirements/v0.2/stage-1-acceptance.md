@@ -5,12 +5,19 @@
 2026-09-22 需求补充：grill Q1–Q4 已确认无图可入库、受理不明时明确提示后可手动重提、重复添加引导回未完成任务，以及默认入库不强制 AI 审核。以下为既有验收记录，不证明这些补充要求通过；新增场景见 [当前 spec](../../../.scratch/focus-v02-stage1/spec.md)，尚待实现验收。本轮未复跑测试。
 
 ## 2026-09-22 无 AI 审核入库验收（票 05：Q1 无图、Q4 无审核）
-
 - 默认入库只声明并调用 `mineru`：`IngestionApplication` 无 Runtime 属性且拒绝 `runtime` 注入，Host 确认只提交 `['mineru']`，网页确认说明只列 MinerU 并声明"不做 AI 内容审核"。确认＋处理全程 patch `subprocess.Popen` 断言零外部 Codex 进程；Codex 已配置与不可用两种 Host 装配均完成合法入库（T26）。单独变更 Codex 二进制／模型不使确认失效；Parser 模型、原件或目标变更仍要求重新确认（T02 回归）。
 - 原本无图的 PDF（无 `images/` 目录）通过既有 Bundle 校验后发布唯一 Source 并完成 Topic 关联（T05a）；正文引用的本地图片缺失、越界或不可访问仍拒绝发布，`images/` 内文件须被引用且按序命名（T05）。有图 PDF 同规则发布，Bundle 保留引用图片。
 - 发布后不生成 Plan、翻译或博客，不改变既有 Source 阅读资产；Core 仍是唯一发布入口，确认、版本、请求幂等与独占写入方校验沿用原测试（T03、T22 回归）。
 - Host 真实 HTTP 入口（staging→confirm→process→轮询）可访问无 Plan Source 的原件、正文与 `/library/sources/{id}/images/...` 引用图片（T24 来源访问）。`CodexIngestionRuntime` 保留为独立 Runtime 能力，仅在其自身边界验证（`tests/test_ingestion_runtime.py`），不再作为入库验收前置。
 - 回归基线：Python 全套 152 项通过（含票 05 新增 3 项）；UI 类型检查 3 包通过，vitest 43 项通过，生产构建通过，仅既有 >500 kB 单块非阻断警告。
+
+## 2026-09-22 重复添加找回未完成任务验收（票 06：Q3）
+
+- 按内容指纹识别未完成 Inbox Item：改名或重启后重复添加返回原任务及真实状态并标记 `duplicate`，不创建新任务、不自动继续或重提、不覆盖原目标与确认；十种未完成状态（含待核对、取消、冲突、关联待恢复）均不能借重复添加另起解析，已取消任务仍需 `continue_run` 明确继续（T07a、T07b）。
+- 发布成功但关联未完成的任务被重复添加时找回原关联恢复任务，补建 Topic 后续接只补关联（T09 相关回归）；已完成任务继续走 Source 复用规则，`reading_started` 等阅读资产不被改写（T21 相关回归）。
+- `update_staged` 换源同样接受指纹查重：替换原件属于另一未完成任务时拒绝（`ingestion_duplicate_original`），直连 Application 也无法绕过身份复用；重选本任务当前原件仍合法。并发重复暂存在 `_state_lock` 内串行化，只产生一个任务；HTTP `POST /library/inbox` 重复添加返回原任务，Inbox 投影不含瞬态 `duplicate` 标记（T25 重复添加部分）。
+- 网页收到 `duplicate` 后展示"该原件已有未完成任务，已回到原任务；不会重复解析"及该任务真实状态；受理不明的显式重提（票 07）未在本票引入。
+- 回归基线：Python 全套 156 项通过（含票 06 新增 4 项）；standalone UI 15 项通过。
 
 ## 确定性与 Host
 
