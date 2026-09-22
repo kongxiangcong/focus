@@ -59,7 +59,17 @@ class CandidateParser(Protocol):
     def parse(self, source: Path, candidate: Path, *, checkpoint: Any | None = None) -> dict[str, Any]: ...
 
 
+INGESTION_SERVICES = ["mineru"]
+
+
 class CandidateRuntime(Protocol):
+    """Independent Runtime capability.
+
+    It inspects a bounded candidate excerpt and its own tests verify it on this
+    boundary. Default single-document ingestion never declares or calls it, so a
+    Runtime result can neither gate nor replace Core validation.
+    """
+
     def inspect(self, candidate: Path) -> dict[str, Any]: ...
 
 
@@ -180,7 +190,12 @@ class IngestionCore:
 
 
 class IngestionApplication:
-    """Persistent single-document Inbox and ingestion application boundary."""
+    """Persistent single-document Inbox and ingestion application boundary.
+
+    Default ingestion publishes a validated Parser Bundle without any AI review:
+    it declares and calls only the Parser it actually uses (`mineru`). Runtime
+    capabilities are verified on their own boundary and are not part of this flow.
+    """
 
     def __init__(
         self,
@@ -188,7 +203,6 @@ class IngestionApplication:
         *,
         parser: CandidateParser,
         writer_id: str,
-        runtime: CandidateRuntime | None = None,
     ):
         self.workspace = Path(workspace).resolve()
         if not self.workspace.is_dir():
@@ -196,17 +210,13 @@ class IngestionApplication:
         if not isinstance(writer_id, str) or not writer_id.strip():
             raise WorkspaceError("writer_invalid", "Writer identity is required")
         self.parser = parser
-        self.runtime = runtime
         self.writer_id = writer_id.strip()
         self._state_lock = threading.RLock()
         self.core = IngestionCore(self.workspace)
         self._recover_interrupted()
 
     def _service_config(self) -> dict[str, dict[str, Any]]:
-        config = {"mineru": _component_config(self.parser)}
-        if self.runtime is not None:
-            config["codex"] = _component_config(self.runtime)
-        return config
+        return {"mineru": _component_config(self.parser)}
 
     def _attempt_binding(self, service: str, confirmation: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -270,6 +280,21 @@ class IngestionApplication:
     def _public(item: dict[str, Any]) -> dict[str, Any]:
         return dict(item)
 
+    def _unfinished_original(self, fingerprint: str) -> dict[str, Any] | None:
+        """The persisted Inbox task for this exact original, while it is still unfinished.
+
+        Identity is the content fingerprint, so a renamed file and an application
+        restart both resolve to the same task. Nothing is added to the item here:
+        finding a task never continues, resubmits or retargets it.
+        """
+        matches: list[tuple[float, str, dict[str, Any]]] = []
+        for path in (self.workspace / "inbox").glob("*/item.json"):
+            item = _read_document(path, {})
+            if item.get("fingerprint") != fingerprint or item.get("status") == "completed":
+                continue
+            matches.append((path.stat().st_mtime, str(path), item))
+        return max(matches, key=lambda match: match[:2])[2] if matches else None
+
     def stage_pdf(
         self,
         source: Path,
@@ -284,26 +309,33 @@ class IngestionApplication:
             raise WorkspaceError("topic_invalid", "Topic title is empty or invalid")
         if topic_id is not None:
             validate_topic_id(topic_id)
-        item_id = uuid.uuid4().hex
-        root = self._root(item_id)
-        root.mkdir(parents=True)
-        stored = root / "source.pdf"
-        shutil.copy2(source, stored)
-        item = {
-            "item_id": item_id,
-            "file_name": source.name,
-            "fingerprint": self._fingerprint(stored),
-            "topic_title": topic_title.strip() if topic_title else None,
-            "topic_id": topic_id,
-            "services": ["mineru"] + (["codex"] if self.runtime is not None else []),
-            "status": "awaiting_confirmation",
-            "confirmation": None,
-            "run": None,
-            "source_id": None,
-            "document_status": "not_started",
-            "topic_status": "not_started",
-        }
-        self._write(item_id, item)
+        fingerprint = self._fingerprint(source)
+        with self._state_lock:
+            existing = self._unfinished_original(fingerprint)
+            if existing is not None:
+                # Same original, unfinished task: return it with its own target and
+                # progress. The requested target is reported back as the original one.
+                return {**self._public(existing), "duplicate": True}
+            item_id = uuid.uuid4().hex
+            root = self._root(item_id)
+            root.mkdir(parents=True)
+            stored = root / "source.pdf"
+            shutil.copy2(source, stored)
+            item = {
+                "item_id": item_id,
+                "file_name": source.name,
+                "fingerprint": fingerprint,
+                "topic_title": topic_title.strip() if topic_title else None,
+                "topic_id": topic_id,
+                "services": list(INGESTION_SERVICES),
+                "status": "awaiting_confirmation",
+                "confirmation": None,
+                "run": None,
+                "source_id": None,
+                "document_status": "not_started",
+                "topic_status": "not_started",
+            }
+            self._write(item_id, item)
         return self._public(item)
 
     def get(self, item_id: str) -> dict[str, Any]:
@@ -374,8 +406,13 @@ class IngestionApplication:
                     "ingestion_not_confirmable",
                     "Only a staged or resumable Inbox item can be confirmed",
                 )
-            expected_services = ["mineru"] + (["codex"] if self.runtime is not None else [])
-            if scope != "ingestion" or not purpose.strip() or services != expected_services:
+            expected_services = list(INGESTION_SERVICES)
+            if (
+                scope != "ingestion"
+                or not purpose.strip()
+                or not isinstance(services, list)
+                or services != expected_services
+            ):
                 raise WorkspaceError(
                     "confirmation_scope_invalid",
                     "Confirmation services do not match this ingestion workflow",
@@ -418,7 +455,7 @@ class IngestionApplication:
                 item["run"] = None
                 item["document_status"] = "not_started"
                 item["topic_status"] = "not_started"
-                for key in ("candidate_result", "runtime_result", "request_id", "error"):
+                for key in ("candidate_result", "request_id", "error"):
                     item.pop(key, None)
             item["confirmation"] = new_confirmation
             item["status"] = "confirmed"
@@ -429,7 +466,7 @@ class IngestionApplication:
         with self._state_lock:
             item = self._read(item_id)
             confirmation = item.get("confirmation")
-            expected_services = ["mineru"] + (["codex"] if self.runtime is not None else [])
+            expected_services = list(INGESTION_SERVICES)
             root = self._root(item_id)
             source = root / "source.pdf"
             if (
@@ -464,7 +501,6 @@ class IngestionApplication:
                 "run_id": uuid.uuid4().hex,
                 "steps": {
                     "parse": {"status": "pending", "attempts": []},
-                    "runtime": {"status": "pending", "attempts": []},
                     "publish": {"status": "pending", "attempts": []},
                     "attach": {"status": "pending", "attempts": []},
                 },
@@ -619,75 +655,8 @@ class IngestionApplication:
             assert parsed is not None
             run["steps"]["parse"]["status"] = "completed"
             self._write(item_id, item)
-            reusable_runtime = (
-                run["steps"]["runtime"].get("status") == "completed"
-                and isinstance(item.get("runtime_result"), dict)
-                and any(
-                    entry.get("status") == "completed"
-                    and self._attempt_matches(entry, "codex", confirmation)
-                    for entry in run["steps"]["runtime"].get("attempts", [])
-                )
-            )
-            if self.runtime is not None and not reusable_runtime:
-                runtime_attempt = {
-                    "attempt_id": uuid.uuid4().hex,
-                    "status": "running",
-                    **self._attempt_binding("codex", confirmation),
-                }
-                run["steps"]["runtime"]["attempts"].append(runtime_attempt)
-                run["steps"]["runtime"]["status"] = "running"
-                if not self._write(item_id, item):
-                    return self._public(self._read(item_id))
-                try:
-                    runtime_result = self.runtime.inspect(candidate)
-                    if (
-                        not isinstance(runtime_result, dict)
-                        or runtime_result.get("title_matches") is not True
-                        or runtime_result.get("image_observed") is not True
-                    ):
-                        raise WorkspaceError("runtime_result_invalid", "Runtime inspection did not validate the candidate")
-                except Exception as exc:
-                    current = self._read(item_id)
-                    current_parse_attempt = next(
-                        entry for entry in current["run"]["steps"]["parse"]["attempts"]
-                        if entry["attempt_id"] == attempt["attempt_id"]
-                    )
-                    if current_parse_attempt.get("commit_allowed") is not True:
-                        current["document_status"] = "candidate_retained"
-                        current["run"]["steps"]["publish"]["status"] = "rejected"
-                        self._write(item_id, current)
-                        return self._public(current)
-                    runtime_attempt["status"] = "failed"
-                    run["steps"]["runtime"]["status"] = "failed"
-                    item["status"] = "failed"
-                    item["document_status"] = "candidate_retained"
-                    item["error"] = {
-                        "error_id": getattr(exc, "error_id", "runtime_failed"),
-                        "message": str(exc),
-                    }
-                    self._write(item_id, item)
-                    return self._public(item)
-                item = self._read(item_id)
-                run = item["run"]
-                parse_step = run["steps"]["parse"]
-                attempt = next(
-                    entry for entry in parse_step["attempts"]
-                    if entry["attempt_id"] == attempt["attempt_id"]
-                )
-                runtime_attempt = next(
-                    entry for entry in run["steps"]["runtime"]["attempts"]
-                    if entry["attempt_id"] == runtime_attempt["attempt_id"]
-                )
-                if attempt.get("commit_allowed") is not True:
-                    item["document_status"] = "candidate_retained"
-                    run["steps"]["publish"]["status"] = "rejected"
-                    self._write(item_id, item)
-                    return self._public(item)
-                runtime_attempt["status"] = "completed"
-                run["steps"]["runtime"]["status"] = "completed"
-                item["runtime_result"] = runtime_result
-            else:
-                run["steps"]["runtime"]["status"] = "skipped"
+            # Default ingestion publishes straight from the validated Parser Bundle:
+            # no Runtime inspection runs, and no candidate may replace Core validation.
             try:
                 with self._state_lock:
                     published = self.core.publish(
@@ -740,7 +709,6 @@ class IngestionApplication:
                 source_id = existing["source_id"]
                 item["document_status"] = "reused"
                 run["steps"]["parse"]["status"] = "skipped"
-                run["steps"]["runtime"]["status"] = "skipped"
                 run["steps"]["publish"]["status"] = "skipped"
                 version = self.core.version
         item["source_id"] = source_id
@@ -832,9 +800,5 @@ class IngestionApplication:
                         "error_id": getattr(exc, "error_id", "cancel_failed"),
                         "message": str(exc),
                     }
-                self._write(item_id, item)
-            runtime_step = run.get("steps", {}).get("runtime", {})
-            if runtime_step.get("status") == "running" and self.runtime is not None and hasattr(self.runtime, "cancel"):
-                item["runtime_status"] = "stop_requested" if self.runtime.cancel() else "stop_unknown"
                 self._write(item_id, item)
             return self._public(item)

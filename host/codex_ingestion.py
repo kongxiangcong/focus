@@ -1,4 +1,9 @@
-"""Bounded Codex candidate inspection; never a Core writer."""
+"""Bounded Codex candidate inspection; an independent Runtime capability.
+
+Not part of default single-document ingestion, which declares and calls only the
+Parser it uses. It is verified on this boundary alone: read-only, ephemeral,
+bounded excerpt, and never a Core writer.
+"""
 
 from __future__ import annotations
 
@@ -28,9 +33,10 @@ class CodexIngestionRuntime:
             raise RuntimeError("Candidate is missing required inspection inputs")
         content = content_path.read_text(encoding="utf-8", errors="replace")
         title = next((line[2:].strip() for line in content.splitlines() if line.startswith("# ")), "")
-        image = next(iter(sorted((candidate / "images").glob("*"))), None)
-        if not title or image is None or not image.is_file():
-            raise RuntimeError("Candidate has no inspectable title or image")
+        # Figures are optional: an image-less candidate is inspected without one.
+        image = next((path for path in sorted((candidate / "images").glob("*")) if path.is_file()), None)
+        if not title:
+            raise RuntimeError("Candidate has no inspectable title")
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         if metadata.get("source_kind") != "paper_pdf" or metadata.get("parser") != "article-parser":
             raise RuntimeError("Candidate provenance is invalid")
@@ -47,19 +53,19 @@ class CodexIngestionRuntime:
         }
         excerpt = content[:4000]
         prompt = (
-            "Inspect only the supplied bounded paper excerpt and attached extracted figure. "
-            "Do not call tools or modify files. Return the required JSON. "
+            "Inspect only the supplied bounded paper excerpt"
+            + (" and attached extracted figure. " if image is not None else ". ")
+            + "Do not call tools or modify files. Return the required JSON. "
             "title_matches is true only if the first Markdown heading equals the declared title. "
-            "image_observed is true only if the attached image is a legible paper figure.\n\n"
+            "image_observed is true only if an attached image is a legible paper figure, "
+            "and false when no figure is attached.\n\n"
             f"Declared title: {title}\n\nMarkdown excerpt:\n{excerpt}"
         )
         with tempfile.TemporaryDirectory(prefix="focus-codex-ingestion-") as temporary:
             root = Path(temporary)
             schema_path = root / "schema.json"
             output_path = root / "result.json"
-            image_path = root / ("figure" + image.suffix.lower())
             schema_path.write_text(json.dumps(schema), encoding="utf-8")
-            shutil.copy2(image, image_path)
             command = [
                 str(self.codex_bin),
                 "exec",
@@ -77,10 +83,12 @@ class CodexIngestionRuntime:
                 str(schema_path),
                 "--output-last-message",
                 str(output_path),
-                "--image",
-                str(image_path),
-                "-",
             ]
+            if image is not None:
+                image_path = root / ("figure" + image.suffix.lower())
+                shutil.copy2(image, image_path)
+                command += ["--image", str(image_path)]
+            command.append("-")
             process = subprocess.Popen(
                 command,
                 stdin=subprocess.PIPE,

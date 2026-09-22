@@ -7,7 +7,7 @@ import { WorkspaceApp } from "./WorkspaceApp";
 const empty: ReadingWindow = { status: "empty", current: null, history: [], conversation: [], source: { sourceId: "", title: "", topicId: null }, sessionId: "s1",
   agent: { run: null, catalog: { sources: [], topics: [] }, backend: "codex", backends: [{ id: "codex", label: "Codex" }, { id: "workbuddy", label: "WorkBuddy", unavailableReason: "待接入" }] } };
 function setup(initialInbox: readonly IngestionItem[] = []) {
-  const staged: IngestionItem = { itemId: "item-1", fileName: "test.pdf", status: "awaiting_confirmation", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru", "codex"] };
+  const staged: IngestionItem = { itemId: "item-1", fileName: "test.pdf", status: "awaiting_confirmation", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"] };
   const confirmed: IngestionItem = { ...staged, status: "confirmed", confirmation: { services: ["mineru"], purpose: "register source", scope: "ingestion" } };
   const processing: IngestionItem = { ...staged, status: "processing" };
   const cancelled: IngestionItem = { ...staged, status: "cancelled" };
@@ -56,7 +56,10 @@ it("stages a PDF without processing and starts only after explicit confirmation"
   expect(host.stageIngestion).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "放入 Inbox" }));
   await waitFor(() => expect(host.stageIngestion).toHaveBeenCalledWith(pdf, { topicId: "topic" }));
-  expect(await screen.findByText(/MinerU、Codex/)).toBeInTheDocument();
+  const statement = await screen.findByText(/仅用于建立 Source 并关联专题/);
+  expect(statement).toHaveTextContent("将调用 MinerU 处理此 PDF");
+  expect(statement).not.toHaveTextContent("Codex");
+  expect(statement).toHaveTextContent("不做 AI 内容审核");
   expect(host.confirmIngestion).not.toHaveBeenCalled();
   expect(host.processIngestion).not.toHaveBeenCalled();
   fireEvent.click(await screen.findByRole("button", { name: "确认并开始" }));
@@ -96,7 +99,7 @@ it("restores authoritative Inbox state after refresh and continues attachment re
   await waitFor(() => expect(host.continueIngestion).toHaveBeenCalledWith("recover", expect.any(String)));
 });
 it("offers explicit reconfirmation for a recoverable Inbox item", async () => {
-  const interrupted: IngestionItem = { itemId: "recover", fileName: "paper.pdf", status: "interrupted", topicTitle: "系统", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru", "codex"] };
+  const interrupted: IngestionItem = { itemId: "recover", fileName: "paper.pdf", status: "interrupted", topicTitle: "系统", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"] };
   const { host } = setup([interrupted]);
   fireEvent.click(await screen.findByRole("button", { name: "重新确认并开始" }));
   await waitFor(() => expect(host.confirmIngestion).toHaveBeenCalledWith("recover"));
@@ -108,4 +111,25 @@ it("persists brightness and leaves unsupported network control disabled", async 
   fireEvent.change(screen.getByRole("slider", { name: "亮度" }), { target: { value: "90" } });
   expect(localStorage.getItem("focus.brightness")).toBe("90");
   expect(screen.getByRole("switch", { name: "网络" })).toBeDisabled();
+});
+it("shows the original unfinished task instead of a new one when the same file is added again", async () => {
+  const { host } = setup();
+  const existing: IngestionItem = { itemId: "item-1", fileName: "test.pdf", status: "status_check_required", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"], duplicate: true };
+  vi.mocked(host.stageIngestion!).mockResolvedValue(readerSuccess(existing));
+  await screen.findByRole("button", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "上传" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "专题" }), { target: { value: "编译" } });
+  fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF test"], "test.pdf", { type: "application/pdf" })] } });
+  fireEvent.click(screen.getByRole("button", { name: "放入 Inbox" }));
+
+  const notice = await screen.findByText(/该原件已有未完成任务/);
+  expect(notice.closest("[role=status]")).not.toBeNull();
+  expect(notice).toHaveTextContent("已回到原任务；不会重复解析。");
+  const row = document.querySelector(".library-inbox-item");
+  expect(row).toHaveTextContent("test.pdf");
+  expect(row).toHaveTextContent("远端状态待核对");
+  expect(row).toHaveTextContent("编译");
+  expect(host.processIngestion).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "知道了" }));
+  expect(screen.queryByText(/该原件已有未完成任务/)).not.toBeInTheDocument();
 });

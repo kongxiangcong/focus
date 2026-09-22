@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import http.client
 import json
 import tempfile
 import threading
+import time
 import unittest
 from unittest.mock import patch
 from pathlib import Path
 
 from core import IngestionApplication, IngestionExternalError, SourceLibrary, WorkspaceError
 from core.ingestion import persist_candidate_result
+from host.server import Server
 from host.service import HostService
 
 
@@ -46,6 +49,44 @@ class ValidParser:
         )
         result = {"title": "Stored Paper", "short_name": "Stored"}
         persist_candidate_result(candidate, result)
+        return result
+
+
+class FigurelessParser(ValidParser):
+    """A paper without figures: no `images/` directory and no image references."""
+
+    def parse(self, source: Path, candidate: Path, *, checkpoint=None):
+        result = super().parse(source, candidate, checkpoint=checkpoint)
+        (candidate / "images").rmdir()
+        return result
+
+
+FIGURE_PNG = b"\x89PNG\r\n\x1a\nfigure-bytes"
+
+
+class FigureParser(ValidParser):
+    """A paper carrying one real figure: the file exists and is referenced."""
+
+    def parse(self, source: Path, candidate: Path, *, checkpoint=None):
+        result = super().parse(source, candidate, checkpoint=checkpoint)
+        (candidate / "images" / "image-001.png").write_bytes(FIGURE_PNG)
+        (candidate / "content.md").write_text(
+            "# Stored Paper\n\nBody.\n\n![Figure 1](images/image-001.png)\n", encoding="utf-8"
+        )
+        return result
+
+
+class DanglingImageParser(ValidParser):
+    def __init__(self, reference: str = "images/image-001.png") -> None:
+        super().__init__()
+        self.reference = reference
+
+    def parse(self, source: Path, candidate: Path, *, checkpoint=None):
+        result = super().parse(source, candidate, checkpoint=checkpoint)
+        (candidate / "images").rmdir()
+        (candidate / "content.md").write_text(
+            f"# Stored Paper\n\nBody.\n\n![Figure 1]({self.reference})\n", encoding="utf-8"
+        )
         return result
 
 
@@ -131,44 +172,9 @@ class BlockingParser(ValidParser):
         return True
 
 
-class InspectingRuntime:
-    def __init__(self, *, valid=True) -> None:
-        self.calls = 0
-        self.valid = valid
-        self.model = "fixture-model"
-
-    def inspect(self, candidate: Path):
-        self.calls += 1
-        return {
-            "title_matches": self.valid,
-            "image_observed": self.valid,
-            "notes": "bounded candidate inspection",
-        }
-
-
-class FirstInvalidRuntime(InspectingRuntime):
-    def inspect(self, candidate: Path):
-        self.calls += 1
-        valid = self.calls > 1
-        return {"title_matches": valid, "image_observed": valid, "notes": "retry"}
-
-
-class BlockingRuntime(InspectingRuntime):
-    def __init__(self) -> None:
-        super().__init__()
-        self.started = threading.Event()
-        self.release = threading.Event()
-        self.cancelled = 0
-
-    def inspect(self, candidate: Path):
-        self.started.set()
-        self.release.wait(5)
-        return super().inspect(candidate)
-
-    def cancel(self):
-        self.cancelled += 1
-        self.release.set()
-        return True
+def forbid_codex_processes():
+    """Any external Codex call during default ingestion is a failure."""
+    return patch("subprocess.Popen", side_effect=AssertionError("default ingestion must not spawn Codex"))
 
 
 class IngestionApplicationTests(unittest.TestCase):
@@ -294,19 +300,6 @@ class IngestionApplicationTests(unittest.TestCase):
         ))
         self.assertFalse((self.workspace / "sources").exists())
 
-    def test_reopen_reuses_a_valid_candidate_without_reparsing(self):
-        parser = ValidParser()
-        runtime = FirstInvalidRuntime()
-        app = IngestionApplication(self.workspace, parser=parser, runtime=runtime, writer_id="host-a")
-        item = app.stage_pdf(self.pdf)
-        app.confirm(item["item_id"], services=["mineru", "codex"], purpose="register source", scope="ingestion")
-        failed = app.process(item["item_id"], request_id="runtime-first")
-        self.assertEqual("failed", failed["status"])
-
-        reopened = IngestionApplication(self.workspace, parser=parser, runtime=runtime, writer_id="host-a")
-        completed = reopened.continue_run(item["item_id"], request_id="runtime-second")
-        self.assertEqual(("completed", 1, 2), (completed["status"], parser.calls, runtime.calls))
-
     def test_reopen_recovers_a_valid_candidate_written_before_attempt_state(self):
         parser = ValidParser()
         app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
@@ -335,7 +328,6 @@ class IngestionApplicationTests(unittest.TestCase):
                         "input_version": confirmation["input_version"],
                     }],
                 },
-                "runtime": {"status": "pending", "attempts": []},
                 "publish": {"status": "pending", "attempts": []},
                 "attach": {"status": "pending", "attempts": []},
             },
@@ -354,23 +346,201 @@ class IngestionApplicationTests(unittest.TestCase):
         )
         self.assertEqual("Stored", source["short_name"])
 
-    def test_confirmation_is_bound_to_service_configuration(self):
+    def test_confirmation_is_bound_to_the_parser_configuration_only(self):
         parser = ValidParser()
         parser.model = "parser-v1"
-        runtime = InspectingRuntime()
-        app = IngestionApplication(
-            self.workspace, parser=parser, runtime=runtime, writer_id="host-a"
-        )
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
         item = app.stage_pdf(self.pdf)
+        self.assertEqual(["mineru"], item["services"])
         confirmed = app.confirm(
-            item["item_id"], services=["mineru", "codex"], purpose="register source", scope="ingestion"
+            item["item_id"], services=["mineru"], purpose="register source", scope="ingestion"
         )
+        self.assertEqual({"mineru"}, set(confirmed["confirmation"]["service_config"]))
         self.assertEqual("parser-v1", confirmed["confirmation"]["service_config"]["mineru"]["model"])
-        runtime.model = "changed-after-confirmation"
+        parser.model = "changed-after-confirmation"
 
         with self.assertRaisesRegex(WorkspaceError, "confirmation"):
             app.process(item["item_id"], request_id="configuration-changed")
-        self.assertEqual((0, 0), (parser.calls, runtime.calls))
+        self.assertEqual(0, parser.calls)
+
+    def test_confirmation_declares_only_the_service_default_ingestion_uses(self):
+        parser = ValidParser()
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        self.assertFalse(hasattr(app, "runtime"))
+        with self.assertRaises(TypeError):
+            IngestionApplication(self.workspace, parser=parser, writer_id="host-a", runtime=object())
+        item = app.stage_pdf(self.pdf)
+        self.assertEqual(["mineru"], item["services"])
+        with self.assertRaisesRegex(WorkspaceError, "services"):
+            app.confirm(item["item_id"], services=["mineru", "codex"], purpose="register source", scope="ingestion")
+
+        with forbid_codex_processes():
+            app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+            completed = app.process(item["item_id"], request_id="no-ai-review")
+        self.assertEqual("completed", completed["status"])
+        self.assertEqual(1, parser.calls)
+        self.assertEqual({"parse", "publish", "attach"}, set(completed["run"]["steps"]))
+        self.assertNotIn("runtime_result", completed)
+
+    def test_a_paper_without_figures_publishes_without_any_ai_review(self):
+        parser = FigurelessParser()
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        item = app.stage_pdf(self.pdf, topic_title="Systems")
+        app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+
+        with forbid_codex_processes():
+            completed = app.process(item["item_id"], request_id="figureless")
+
+        self.assertEqual(("completed", "published", "attached"), (
+            completed["status"], completed["document_status"], completed["topic_status"]
+        ))
+        self.assertEqual(1, parser.calls)
+        bundle = self.workspace / "sources" / completed["source_id"] / "parser-bundle"
+        self.assertEqual("# Stored Paper\n\nBody.\n", (bundle / "content.md").read_text(encoding="utf-8"))
+        self.assertFalse((bundle / "images").exists())
+        topic = json.loads((self.workspace / "topics" / "systems" / "topic.yaml").read_text(encoding="utf-8"))
+        self.assertEqual([completed["source_id"]], topic["sources"])
+
+    def test_a_paper_with_a_referenced_figure_publishes_with_zero_runtime_calls(self):
+        parser = FigureParser()
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        item = app.stage_pdf(self.pdf, topic_title="Systems")
+        app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+
+        with forbid_codex_processes():
+            completed = app.process(item["item_id"], request_id="with-figure")
+
+        self.assertEqual(("completed", "published", "attached"), (
+            completed["status"], completed["document_status"], completed["topic_status"]
+        ))
+        self.assertEqual(1, parser.calls)
+        self.assertEqual({"parse", "publish", "attach"}, set(completed["run"]["steps"]))
+        bundle = self.workspace / "sources" / completed["source_id"] / "parser-bundle"
+        self.assertEqual(FIGURE_PNG, (bundle / "images" / "image-001.png").read_bytes())
+        self.assertIn(
+            "images/image-001.png", (bundle / "content.md").read_text(encoding="utf-8")
+        )
+        state = json.loads((self.workspace / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            {"current_plan_id": None, "current_chunk_id": None}, state["sources"][completed["source_id"]]
+        )
+        self.assertFalse((self.workspace / "sources" / completed["source_id"] / "reading").exists())
+
+    def test_referenced_images_must_still_resolve_when_figures_are_optional(self):
+        for reference in ("images/image-001.png", "../outside.png"):
+            with self.subTest(reference=reference):
+                workspace = self.root / f"workspace-{abs(hash(reference))}"
+                workspace.mkdir()
+                app = IngestionApplication(
+                    workspace, parser=DanglingImageParser(reference), writer_id="host-a"
+                )
+                item = app.stage_pdf(self.pdf)
+                app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+                rejected = app.process(item["item_id"], request_id="dangling-image")
+                self.assertEqual(("failed", "candidate_rejected", "parser_bundle_invalid"), (
+                    rejected["status"], rejected["document_status"], rejected["error"]["error_id"]
+                ))
+                self.assertFalse((workspace / "sources").exists())
+
+    def test_repeated_add_of_an_unfinished_original_returns_the_same_task(self):
+        parser = ValidParser()
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        first = app.stage_pdf(self.pdf, topic_title="Systems")
+        app.confirm(first["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+
+        renamed = self.root / "renamed.pdf"
+        renamed.write_bytes(self.pdf.read_bytes())
+        repeated = app.stage_pdf(renamed, topic_title="Other Topic")
+
+        self.assertEqual(first["item_id"], repeated["item_id"])
+        self.assertTrue(repeated["duplicate"])
+        self.assertEqual("confirmed", repeated["status"])
+        self.assertEqual("Systems", repeated["topic_title"])
+        self.assertTrue(repeated["confirmation"])
+        self.assertEqual(1, len(list((self.workspace / "inbox").glob("*/item.json"))))
+        self.assertFalse((self.workspace / "topics" / "other-topic").exists())
+        self.assertEqual(0, parser.calls)
+        self.assertNotIn("duplicate", app.get(first["item_id"]))
+
+    def test_repeated_add_after_restart_finds_the_persisted_task(self):
+        parser = ValidParser()
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        staged = app.stage_pdf(self.pdf, topic_title="Systems")
+        reopened = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        repeated = reopened.stage_pdf(self.pdf)
+        self.assertEqual(staged["item_id"], repeated["item_id"])
+        self.assertTrue(repeated["duplicate"])
+        self.assertEqual("Systems", repeated["topic_title"])
+        self.assertEqual("awaiting_confirmation", repeated["status"])
+
+    def test_every_unfinished_status_blocks_a_second_parsing_task(self):
+        parser = BlockingParser()
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        started = app.stage_pdf(self.pdf, topic_title="Systems")
+        app.confirm(started["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+        worker = threading.Thread(target=lambda: app.process(started["item_id"], request_id="in-flight"))
+        worker.start()
+        self.assertTrue(parser.started.wait(2))
+
+        statuses = ["awaiting_confirmation", "confirmed", "processing", "failed", "status_check_required",
+                    "retry_waiting", "commit_conflict", "topic_attachment_pending", "cancelled", "interrupted"]
+        for status in statuses:
+            with self.subTest(status=status):
+                item_id = app.stage_pdf(self.pdf, topic_title="Other")["item_id"]
+                self.assertEqual(started["item_id"], item_id)
+                persisted = json.loads(
+                    (self.workspace / "inbox" / item_id / "item.json").read_text(encoding="utf-8")
+                )
+                persisted["status"] = status
+                (self.workspace / "inbox" / item_id / "item.json").write_text(
+                    json.dumps(persisted), encoding="utf-8"
+                )
+                repeated = app.stage_pdf(self.pdf)
+                self.assertEqual(started["item_id"], repeated["item_id"])
+                self.assertTrue(repeated["duplicate"])
+                self.assertEqual(status, repeated["status"])
+                self.assertEqual(1, len(list((self.workspace / "inbox").glob("*/item.json"))))
+
+        app.cancel(started["item_id"])
+        parser.release.set()
+        worker.join(5)
+        self.assertFalse((self.workspace / "sources").exists())
+
+    def test_repeated_add_of_a_completed_original_still_reuses_the_source(self):
+        parser = ValidParser()
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        first = app.stage_pdf(self.pdf, topic_title="First")
+        app.confirm(first["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+        done = app.process(first["item_id"], request_id="first")
+        state_path = self.workspace / "state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        state["sources"][done["source_id"]]["reading_started"] = True
+        state_path.write_text(json.dumps(state), encoding="utf-8")
+
+        second = app.stage_pdf(self.pdf, topic_title="Second")
+
+        self.assertNotEqual(first["item_id"], second["item_id"])
+        self.assertFalse(second.get("duplicate", False))
+        self.assertEqual("awaiting_confirmation", second["status"])
+        self.assertEqual("Second", second["topic_title"])
+        app.confirm(second["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+        reused = app.process(second["item_id"], request_id="second")
+        self.assertEqual((done["source_id"], "reused"), (reused["source_id"], reused["document_status"]))
+        self.assertEqual(1, parser.calls)
+        after = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertTrue(after["sources"][done["source_id"]]["reading_started"])
+        self.assertEqual(1, len(list((self.workspace / "sources").iterdir())))
+
+    def test_new_original_next_to_an_unfinished_task_still_stages_normally(self):
+        parser = ValidParser()
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        staged = app.stage_pdf(self.pdf, topic_title="Systems")
+        other_pdf = self.root / "other.pdf"
+        other_pdf.write_bytes(b"%PDF-1.4\nother\n")
+        staged_other = app.stage_pdf(other_pdf)
+        self.assertNotEqual(staged["item_id"], staged_other["item_id"])
+        self.assertFalse(staged_other.get("duplicate", False))
+        self.assertEqual(2, len(list((self.workspace / "inbox").glob("*/item.json"))))
 
     def test_processing_rejects_a_disk_input_that_no_longer_matches_confirmation(self):
         parser = ValidParser()
@@ -430,21 +600,20 @@ class IngestionApplicationTests(unittest.TestCase):
         attempt = completed["run"]["steps"]["parse"]["attempts"][0]
         self.assertEqual("parser-v2", attempt["configuration"]["model"])
 
-    def test_reopen_interrupts_a_runtime_attempt_before_continuation(self):
+    def test_reopen_interrupts_a_running_step_before_continuation(self):
         app = IngestionApplication(self.workspace, parser=ValidParser(), writer_id="host-a")
         item = app.stage_pdf(self.pdf)
         root = self.workspace / "inbox" / item["item_id"]
         persisted = json.loads((root / "item.json").read_text(encoding="utf-8"))
         persisted["status"] = "processing"
         persisted["run"] = {
-            "run_id": "runtime-crash",
+            "run_id": "publish-crash",
             "steps": {
                 "parse": {"status": "completed", "attempts": []},
-                "runtime": {
+                "publish": {
                     "status": "running",
-                    "attempts": [{"attempt_id": "runtime-lost", "status": "running"}],
+                    "attempts": [{"attempt_id": "publish-lost", "status": "running", "commit_allowed": True}],
                 },
-                "publish": {"status": "pending", "attempts": []},
                 "attach": {"status": "pending", "attempts": []},
             },
         }
@@ -453,12 +622,12 @@ class IngestionApplicationTests(unittest.TestCase):
         reopened = IngestionApplication(self.workspace, parser=ValidParser(), writer_id="host-a")
         recovered = reopened.get(item["item_id"])
 
-        self.assertEqual("interrupted", recovered["run"]["steps"]["runtime"]["status"])
+        self.assertEqual("interrupted", recovered["run"]["steps"]["publish"]["status"])
         self.assertEqual(
             ("interrupted", False),
             (
-                recovered["run"]["steps"]["runtime"]["attempts"][0]["status"],
-                recovered["run"]["steps"]["runtime"]["attempts"][0]["commit_allowed"],
+                recovered["run"]["steps"]["publish"]["attempts"][0]["status"],
+                recovered["run"]["steps"]["publish"]["attempts"][0]["commit_allowed"],
             ),
         )
 
@@ -618,6 +787,33 @@ class IngestionApplicationTests(unittest.TestCase):
         finally:
             host.store.close()
 
+    def test_host_returns_the_existing_task_for_a_repeated_add(self):
+        upload_root = self.workspace / "uploads" / "fixture"
+        upload_root.mkdir(parents=True)
+        uploaded = upload_root / "selected.pdf"
+        uploaded.write_bytes(self.pdf.read_bytes())
+        renamed = upload_root / "renamed.pdf"
+        renamed.write_bytes(self.pdf.read_bytes())
+        host = HostService(
+            self.workspace,
+            self.root / "host-duplicate",
+            ingestion_parser=ValidParser(),
+        )
+        try:
+            host.store.put("upload:fixture", {"name": uploaded.name, "path": str(uploaded)})
+            host.store.put("upload:renamed", {"name": renamed.name, "path": str(renamed)})
+            first = host.inbox_stage("fixture", topic_title="Systems")
+            repeated = host.inbox_stage("renamed", topic_title="Another")
+
+            self.assertEqual(first["item_id"], repeated["item_id"])
+            self.assertTrue(repeated["duplicate"])
+            self.assertEqual("Systems", repeated["topic_title"])
+            self.assertEqual(1, len(host.inbox_items()))
+            self.assertEqual(repeated["item_id"], host.inbox_item(repeated["item_id"])["item_id"])
+            self.assertEqual(1, len(host.ingestion.list_inbox()))
+        finally:
+            host.store.close()
+
     def test_transient_failure_resumes_remote_task_twice_then_waits_for_manual_retry(self):
         parser = ResumableParser(failures=3)
         app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
@@ -647,40 +843,6 @@ class IngestionApplicationTests(unittest.TestCase):
         self.assertEqual(1, parser.calls)
         self.assertNotIn("checkpoint", result["run"]["steps"]["parse"])
 
-    def test_optional_runtime_inspects_candidate_but_cannot_replace_core_validation(self):
-        runtime = InspectingRuntime()
-        app = IngestionApplication(
-            self.workspace, parser=ValidParser(), runtime=runtime, writer_id="host-a"
-        )
-        item = app.stage_pdf(self.pdf)
-        with self.assertRaisesRegex(WorkspaceError, "services"):
-            app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
-        app.confirm(
-            item["item_id"],
-            services=["mineru", "codex"],
-            purpose="register source",
-            scope="ingestion",
-        )
-        result = app.process(item["item_id"], request_id="runtime")
-        self.assertEqual(("completed", 1, "completed"), (
-            result["status"], runtime.calls, result["run"]["steps"]["runtime"]["status"]
-        ))
-
-        other_pdf = self.root / "other.pdf"
-        other_pdf.write_bytes(b"%PDF-1.4\nother\n")
-        invalid_runtime = InspectingRuntime(valid=False)
-        other = IngestionApplication(
-            self.workspace, parser=ValidParser(), runtime=invalid_runtime, writer_id="host-a"
-        )
-        staged = other.stage_pdf(other_pdf)
-        other.confirm(
-            staged["item_id"], services=["mineru", "codex"], purpose="register source", scope="ingestion"
-        )
-        rejected = other.process(staged["item_id"], request_id="runtime-invalid")
-        self.assertEqual(("failed", "candidate_retained", "runtime_result_invalid"), (
-            rejected["status"], rejected["document_status"], rejected["error"]["error_id"]
-        ))
-
     def test_cancel_closes_attempt_before_remote_stop_and_rejects_late_candidate(self):
         parser = BlockingParser()
         app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
@@ -705,46 +867,14 @@ class IngestionApplicationTests(unittest.TestCase):
         continued = app.continue_run(item["item_id"], request_id="after-cancel")
         self.assertEqual(("completed", 1), (continued["status"], parser.resumes))
 
-    def test_cancel_interrupts_runtime_and_keeps_it_outside_core_authority(self):
-        runtime = BlockingRuntime()
-        app = IngestionApplication(
-            self.workspace, parser=ValidParser(), runtime=runtime, writer_id="host-a"
-        )
-        item = app.stage_pdf(self.pdf)
-        app.confirm(
-            item["item_id"], services=["mineru", "codex"], purpose="register source", scope="ingestion"
-        )
-        result = {}
-
-        worker = threading.Thread(
-            target=lambda: result.update(app.process(item["item_id"], request_id="runtime-blocking"))
-        )
-        worker.start()
-        self.assertTrue(runtime.started.wait(2))
-        cancelled = app.cancel(item["item_id"])
-        worker.join(5)
-
-        self.assertEqual(("cancelled", "stop_requested", 1), (
-            cancelled["status"], cancelled["runtime_status"], runtime.cancelled
-        ))
-        self.assertEqual(("cancelled", "candidate_retained"), (
-            result["status"], result["document_status"]
-        ))
-        self.assertFalse((self.workspace / "sources").exists())
-
-    def test_parser_cancellation_cannot_be_overwritten_when_runtime_is_enabled(self):
+    def test_parser_cancellation_cannot_be_overwritten_by_a_late_candidate(self):
         parser = BlockingParser()
-        runtime = InspectingRuntime()
-        app = IngestionApplication(
-            self.workspace, parser=parser, runtime=runtime, writer_id="host-a"
-        )
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
         item = app.stage_pdf(self.pdf)
-        app.confirm(
-            item["item_id"], services=["mineru", "codex"], purpose="register source", scope="ingestion"
-        )
+        app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
         result = {}
         worker = threading.Thread(
-            target=lambda: result.update(app.process(item["item_id"], request_id="parser-runtime-cancel"))
+            target=lambda: result.update(app.process(item["item_id"], request_id="parser-cancel"))
         )
         worker.start()
         self.assertTrue(parser.started.wait(2))
@@ -752,10 +882,125 @@ class IngestionApplicationTests(unittest.TestCase):
         parser.release.set()
         worker.join(5)
 
-        self.assertEqual(("cancelled", "candidate_retained", 0), (
-            result["status"], result["document_status"], runtime.calls
-        ))
+        self.assertEqual(("cancelled", "candidate_retained"), (result["status"], result["document_status"]))
         self.assertFalse((self.workspace / "sources").exists())
+
+    def test_codex_configuration_never_gates_or_invalidates_default_ingestion(self):
+        """T26: a configured or unavailable Codex never joins default ingestion.
+
+        Only the actually used Parser is declared; changing the Codex binary or
+        model alone keeps a valid confirmation and produces zero Runtime calls.
+        """
+        configured = self.root / "codex-fixture"
+        configured.write_bytes(b"fixture")
+        for label, binary in (("configured", configured), ("unavailable", self.root / "absent-codex")):
+            with self.subTest(codex=label):
+                workspace = self.root / f"workspace-codex-{label}"
+                workspace.mkdir()
+                host = HostService(
+                    workspace,
+                    self.root / f"host-codex-{label}",
+                    backend="codex",
+                    codex_bin=binary,
+                    model="codex-model-a",
+                    ingestion_parser=ValidParser(),
+                )
+                try:
+                    upload_root = workspace / "uploads" / "fixture"
+                    upload_root.mkdir(parents=True)
+                    uploaded = upload_root / "selected.pdf"
+                    uploaded.write_bytes(b"%PDF-1.4\nselected\n")
+                    host.store.put("upload:fixture", {"name": uploaded.name, "path": str(uploaded)})
+                    staged = host.inbox_stage("fixture", topic_title="Systems")
+                    confirmed = host.inbox_confirm(staged["item_id"])
+                    self.assertEqual(["mineru"], confirmed["confirmation"]["services"])
+                    self.assertEqual(["mineru"], sorted(confirmed["confirmation"]["service_config"]))
+
+                    host.codex_bin = self.root / "moved-codex"
+                    host.models["codex"] = "codex-model-b"
+
+                    with forbid_codex_processes():
+                        completed = host.inbox_process(
+                            staged["item_id"], request_id=f"codex-{label}"
+                        )
+                    self.assertEqual(("completed", "published", "attached"), (
+                        completed["status"], completed["document_status"], completed["topic_status"]
+                    ))
+                    self.assertFalse(hasattr(host.ingestion, "runtime"))
+                finally:
+                    host.store.close()
+
+    def test_host_entry_publishes_the_source_without_any_ai_review(self):
+        workspace = self.root / "host-entry"
+        workspace.mkdir()
+        host = HostService(workspace, self.root / "host-entry-data", ingestion_parser=FigureParser())
+        server = Server(("127.0.0.1", 0), host)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=10)
+        try:
+            with forbid_codex_processes():
+                connection.request("POST", "/library/inbox?name=paper.pdf&topic=Systems", self.pdf.read_bytes())
+                response = connection.getresponse()
+                staged = json.loads(response.read())["value"]
+                self.assertEqual(201, response.status)
+                self.assertEqual(["mineru"], staged["services"])
+                self.assertEqual("awaiting_confirmation", staged["status"])
+
+                connection.request("POST", f"/library/inbox/{staged['item_id']}/confirm", b"{}")
+                response = connection.getresponse()
+                confirmed = json.loads(response.read())["value"]
+                self.assertEqual(["mineru"], confirmed["confirmation"]["services"])
+                self.assertEqual(["mineru"], sorted(confirmed["confirmation"]["service_config"]))
+
+                connection.request("POST", f"/library/inbox/{staged['item_id']}/process",
+                                   json.dumps({"requestId": "host-no-review"}).encode())
+                response = connection.getresponse()
+                self.assertEqual(202, response.status)
+                response.read()
+
+                deadline = time.monotonic() + 10
+                while time.monotonic() < deadline:
+                    connection.request("GET", "/library/inbox")
+                    response = connection.getresponse()
+                    items = json.loads(response.read())["value"]
+                    if items and items[0]["status"] == "completed":
+                        break
+                    time.sleep(0.05)
+                completed = items[0]
+                self.assertEqual(("completed", "published", "attached"), (
+                    completed["status"], completed["document_status"], completed["topic_status"]
+                ))
+
+                connection.request("GET", f"/library/sources/{completed['source_id']}/original")
+                response = connection.getresponse()
+                self.assertEqual(200, response.status)
+                self.assertEqual(self.pdf.read_bytes(), response.read())
+                connection.request("GET", f"/library/sources/{completed['source_id']}/content")
+                response = connection.getresponse()
+                self.assertEqual(200, response.status)
+                self.assertIn(
+                    "images/image-001.png",
+                    response.read().decode("utf-8").replace("\r\n", "\n"),
+                )
+                connection.request(
+                    "GET", f"/library/sources/{completed['source_id']}/images/image-001.png"
+                )
+                response = connection.getresponse()
+                self.assertEqual(200, response.status)
+                self.assertEqual(FIGURE_PNG, response.read())
+                connection.request("GET", "/library/topics")
+                response = connection.getresponse()
+                self.assertEqual(
+                    [{"topicId": "systems", "title": "Systems", "sourceIds": [completed["source_id"]]}],
+                    json.loads(response.read())["value"],
+                )
+        finally:
+            connection.close()
+            server.shutdown()
+            server.server_close()
+            worker.join(5)
+            host.close()
 
     def test_host_writer_identity_persists_but_differs_between_host_data_roots(self):
         first = HostService(self.workspace, self.root / "host-one", ingestion_parser=ValidParser())

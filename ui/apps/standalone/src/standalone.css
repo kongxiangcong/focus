@@ -57,6 +57,8 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
 .settings-row input[type=range] { width:min(55%,300px); accent-color:var(--reader-accent); }.settings-row input[type=radio]{accent-color:var(--reader-ink)}
 .settings-network{display:flex;align-items:center;gap:12px}.focus-reader__toggle{appearance:none;position:relative;width:38px;height:22px;border-radius:999px;background:#929db730;margin:0}.focus-reader__toggle::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:white;box-shadow:0 1px 5px #35414d20}.focus-reader__toggle:checked{background:var(--reader-accent)}.focus-reader__toggle:checked::after{left:19px}.focus-reader__toggle:disabled{opacity:.5}
 .workspace-error { position:absolute; top:8px; left:100px; right:16px; z-index:2; padding:10px 16px; background:#fff9f4; border-radius:12px; font-size:13px; overflow-wrap:anywhere; }
+.workspace-notice { position:absolute; top:8px; left:100px; right:16px; z-index:2; padding:10px 16px; background:#f4fbf6; border-radius:12px; font-size:13px; overflow-wrap:anywhere; }
+.workspace-notice button { border:1px solid transparent; border-radius:999px; background:transparent; min-height:40px; padding:8px 16px; }
 .workspace-confirm { width:min(460px,calc(100vw - 32px)); max-height:80dvh; border:1px solid var(--reader-line); border-radius:17px; padding:28px; background:var(--reader-paper); color:var(--reader-ink); box-shadow:var(--reader-shadow); }.workspace-confirm p{overflow-wrap:anywhere;font-size:14px;line-height:1.7}.workspace-confirm>div{display:flex;justify-content:flex-end;gap:10px}.workspace-confirm::backdrop{background:#35414d40}
 .workspace-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 .focus-login { max-width:540px; margin:15vh auto; padding:32px; }.focus-login form{display:grid;gap:16px}.focus-login input{padding:10px;width:100%}.focus-login button{padding:12px}
@@ -66,13 +68,13 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
  .workspace-reading .focus-mist{grid-template-columns:minmax(0,1fr)}.workspace-reading .mist-sidebar{left:-64px;width:64px;top:260px}
  .workspace-reading .focus-bottom{grid-column:1}.library-page,.settings-page{padding:28px}.library-layout{grid-template-columns:minmax(0,1fr)}
  .library-topics{grid-column:1;grid-row:1;display:flex;gap:8px;overflow:auto;padding:8px;background:transparent;border:0}.library-topics h2{display:none}.library-topics button{width:auto;flex-shrink:0;white-space:nowrap}
- .library-sources{grid-row:2}.library-layout{gap:18px}.page-heading{margin-bottom:24px}.workspace-error{left:76px}
+ .library-sources{grid-row:2}.library-layout{gap:18px}.page-heading{margin-bottom:24px}.workspace-error,.workspace-notice{left:76px}
 }
 @media(max-width:540px) {
  .workspace-app{grid-template-columns:minmax(0,1fr);grid-template-rows:64px minmax(0,1fr)}.workspace-nav{grid-column:1;grid-row:1;flex-direction:row;justify-content:space-between;padding:8px 16px;border-right:0;border-bottom:1px solid var(--reader-line);gap:16px}
  .workspace-nav nav{flex-direction:row;width:auto;gap:8px}.workspace-nav nav a{flex-direction:row;min-height:40px;padding:8px 10px}.workspace-nav nav a>span{display:none}
  .workspace-reading,.library-page,.settings-page{grid-column:1;grid-row:2}.workspace-reading .mist-sidebar{position:static;width:auto;grid-column:1;grid-row:1}
- .library-page,.settings-page{padding:24px 18px}.library-toolbar{gap:10px}.library-toolbar input{width:140px}.library-card{padding:22px}.settings-row{gap:12px}.settings-options{gap:10px;flex-wrap:wrap}.focus-reader__appearance-panel{padding-inline:18px}.workspace-error{left:12px;top:70px}
+ .library-page,.settings-page{padding:24px 18px}.library-toolbar{gap:10px}.library-toolbar input{width:140px}.library-card{padding:22px}.settings-row{gap:12px}.settings-options{gap:10px;flex-wrap:wrap}.focus-reader__appearance-panel{padding-inline:18px}.workspace-error,.workspace-notice{left:12px;top:70px}
 }
 @media(max-height:780px) { .workspace-nav{padding-top:16px;gap:20px}.workspace-reading .mist-sidebar{top:250px}.page-heading{margin-bottom:24px} }
 @media(prefers-reduced-motion:reduce) { .workspace-app *{transition:none!important;animation:none!important;scroll-behavior:auto!important} }

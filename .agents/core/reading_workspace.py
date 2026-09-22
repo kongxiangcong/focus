@@ -212,8 +212,8 @@ def _validate_parser_bundle(bundle: Path) -> dict[str, Any]:
         errors.append("Parser Bundle must contain exactly one source representation")
     if not content.is_file() or not content.read_text(encoding="utf-8", errors="replace").strip():
         errors.append("content.md is missing or empty")
-    if not images.is_dir():
-        errors.append("images directory is missing")
+    # Images are optional: a source without figures may carry no `images/` directory
+    # at all. Referenced local images are still validated against what is on disk.
     if metadata.get("parser") not in {"article-parser", "markdown-import"}:
         errors.append("metadata parser provenance is invalid")
     elif metadata.get("parser") != {"paper_pdf": "article-parser", "article_html": "article-parser", "article_markdown": "markdown-import"}.get(source_kind):
@@ -241,7 +241,7 @@ def _validate_parser_bundle(bundle: Path) -> dict[str, Any]:
     warnings = validation.get("warnings", [])
     if not isinstance(warnings, list) or len(warnings) > 20 or any(not isinstance(item, str) for item in warnings):
         errors.append("structural validation warnings are invalid")
-    if content.is_file() and images.is_dir():
+    if content.is_file():
         linked: list[Path] = []
         for match in MARKDOWN_IMAGE_RE.finditer(content.read_text(encoding="utf-8", errors="replace")):
             target = _split_image_target(match.group(1))
@@ -255,7 +255,7 @@ def _validate_parser_bundle(bundle: Path) -> dict[str, Any]:
                 break
             if candidate not in linked:
                 linked.append(candidate)
-        actual = sorted(path.resolve() for path in images.glob("*") if path.is_file())
+        actual = sorted(path.resolve() for path in images.glob("*") if path.is_file()) if images.is_dir() else []
         if set(linked) != set(actual):
             errors.append("referenced local images do not resolve")
         numbers = []

@@ -17,6 +17,14 @@ _Avoid_: Topic-owned sources, object store, duplicate source tree
 一份已在 Workspace 本地注册、可稳定阅读的来源及其可复用源资产；类型只区分 Paper Source 与 Article Source。
 _Avoid_: Learning object, assessment subject, knowledge item
 
+**Inbox Item**:
+一份待入库材料及其处理目标、确认和可恢复进展；它本身不是已注册 Reading Source。相同原件已有未完成入库任务时，重复添加指回原任务。
+_Avoid_: Reading Source, duplicate parsing task
+
+**Ingestion**:
+将来源原件及通过校验的 Parser Bundle 发布到 Source Library 的过程；不以图片存在、AI 审核、Reading Plan 或博客完成为前提。文档发布与所请求的 Topic 关联分别报告结果。
+_Avoid_: Reading Preparation, AI quality certification, Topic attachment
+
 **Paper Source**:
 以 PDF 提供并由 MinerU 文档模型解析的学术作品。
 _Avoid_: Article Source, generic document

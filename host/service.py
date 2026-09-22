@@ -13,7 +13,7 @@ from .backends.base import APPROVAL_TITLES, COMMAND_APPROVAL, FILE_APPROVAL, PER
 from .core_bridge import CoreBridge, ROOT, WorkspaceError
 from .store import Store
 from .progress import CORE_LABELS, activity_label
-from core import IngestionApplication, MinerUIngestionParser
+from core import INGESTION_SERVICES, IngestionApplication, MinerUIngestionParser
 
 ACTIVE = ('running', 'approval', 'stopping')
 SKILLS = ('article-parser', 'focus-map', 'focus-read')
@@ -21,8 +21,7 @@ SKILLS = ('article-parser', 'focus-map', 'focus-read')
 
 class HostService:
     def __init__(self, workspace, data, *, model=None, codex_bin=None, backend=None,
-                 backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None,
-                 ingestion_runtime=None):
+                 backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None):
         workspace.mkdir(parents=True, exist_ok=True)
         self.workspace = workspace.resolve()
         self.core = CoreBridge(self.workspace)
@@ -35,7 +34,6 @@ class HostService:
             self.workspace,
             parser=ingestion_parser or MinerUIngestionParser(),
             writer_id=writer_id,
-            runtime=ingestion_runtime,
         )
         self.lock = threading.RLock()
         self.condition = threading.Condition(self.lock)
@@ -128,8 +126,7 @@ class HostService:
         with self.lock:
             self._library_idle()
             return self.ingestion.confirm(
-                item_id, services=['mineru'] + (['codex'] if self.ingestion.runtime is not None else []),
-                purpose='register source', scope='ingestion'
+                item_id, services=list(INGESTION_SERVICES), purpose='register source', scope='ingestion'
             )
 
     def inbox_process(self, item_id, *, request_id):

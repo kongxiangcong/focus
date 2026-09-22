@@ -27,6 +27,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [topic, setTopic] = useState("");
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [confirm, setConfirm] = useState<{ source: LibrarySource; action: "delete" | "reread" | "replan" } | null>(null);
@@ -91,18 +92,19 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   function replaceInbox(item: IngestionItem) { setInbox(current => [item, ...current.filter(existing => existing.itemId !== item.itemId)]); }
   async function ingest(label: string, operation: () => Promise<ReaderHostResult<IngestionItem>>, closeUpload = false) {
     if (locked.current) return;
-    locked.current = true; setBusy(label); setError("");
+    locked.current = true; setBusy(label); setError(""); setNotice("");
     try {
       const result = await operation();
       if (!result.ok) { setError(result.error.message); return; }
       replaceInbox(result.value);
+      if (result.value.duplicate) setNotice("该原件已有未完成任务，已回到原任务；不会重复解析。");
       if (closeUpload) { setUploadOpen(false); setSelectedFile(null); }
     } catch (e) { setError(String(e)); }
     finally { locked.current = false; setBusy(""); }
   }
   async function confirmAndStart(item: IngestionItem) {
     if (!host.confirmIngestion || !host.processIngestion || locked.current) return;
-    locked.current = true; setBusy("确认"); setError("");
+    locked.current = true; setBusy("确认"); setError(""); setNotice("");
     try {
       const confirmed = await host.confirmIngestion(item.itemId);
       if (!confirmed.ok) { setError(confirmed.error.message); return; }
@@ -133,6 +135,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <a key={path} href={path} aria-current={route === path ? "page" : undefined} onClick={e => { e.preventDefault(); navigate(path); }}><span aria-hidden="true">{icon}</span>{title}</a>)}</nav>
     </header>
     {!uploadOpen && error && <div className="workspace-error" role="alert">{error}<button onClick={() => { setError(""); void refresh(); }}>重试</button></div>}
+    {notice && <div className="workspace-notice" role="status">{notice}<button onClick={() => setNotice("")}>知道了</button></div>}
     <div className="workspace-reading" hidden={route !== "/reading"}>
       <div className="reading-library-picker"><select aria-label="阅读专题" value={topic} onChange={e => setTopic(e.target.value)}><option value="">全部专题</option>{topics.map(t => <option key={t.topicId} value={t.topicId}>{t.title}</option>)}</select><select aria-label="选择阅读材料" value={sources.some(s => s.sourceId === view?.source.sourceId && (!topic || s.topicIds.includes(topic))) ? view?.source.sourceId : ""} disabled={!!busy || active} onChange={e => { if (e.target.value && host.openSource) void operate("打开", () => host.openSource!(e.target.value)); }}><option value="">选择材料</option>{sources.filter(s => !topic || s.topicIds.includes(topic)).map(s => <option key={s.sourceId} value={s.sourceId}>{s.shortName || s.title}</option>)}</select></div>
       <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} /></div>
@@ -146,7 +149,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       {view?.agent?.run && <div className="library-run"><TaskProgress run={view.agent.run} /><button onClick={() => navigate("/reading")}>查看</button></div>}
       {inbox.length > 0 && <section className="library-inbox" aria-label="Inbox"><div className="library-inbox-heading"><h2>Inbox</h2><button disabled={!!busy} onClick={() => void refresh()}>刷新状态</button></div>{inbox.map(item => <article key={item.itemId} className="library-inbox-item" data-status={item.status}>
         <div><strong>{item.fileName}</strong><span>{statusText[item.status]}</span><small>{item.topicTitle ?? topics.find(t => t.topicId === item.topicId)?.title ?? "不关联专题"}</small></div>
-        {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>将调用 {(item.services ?? item.confirmation?.services ?? ["mineru"]).map(service => service === "mineru" ? "MinerU" : service === "codex" ? "Codex" : service).join("、")} 处理此 PDF，仅用于建立 Source 并关联专题；不会创建博客、翻译或阅读计划。</p><button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>确认并开始</button></div>}
+        {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>将调用 {(item.services ?? item.confirmation?.services ?? ["mineru"]).map(service => service === "mineru" ? "MinerU" : service).join("、")} 处理此 PDF，仅用于建立 Source 并关联专题；不会创建博客、翻译或阅读计划，也不做 AI 内容审核。</p><button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>确认并开始</button></div>}
         {item.status === "processing" && <button disabled={!!busy || !host.cancelIngestion} onClick={() => host.cancelIngestion && void ingest("取消", () => host.cancelIngestion!(item.itemId))}>取消</button>}
         {["status_check_required", "retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "cancelled", "interrupted"].includes(item.status) && <button disabled={!!busy || !host.continueIngestion} onClick={() => host.continueIngestion && void ingest("继续", () => host.continueIngestion!(item.itemId, createReaderId()))}>继续</button>}
         {["status_check_required", "retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "cancelled", "interrupted"].includes(item.status) && <button disabled={!!busy || !host.confirmIngestion || !host.processIngestion} onClick={() => void confirmAndStart(item)}>重新确认并开始</button>}
@@ -179,7 +182,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <label>专题<input list="upload-topics" required maxLength={120} value={uploadTopic} onChange={e => setUploadTopic(e.target.value)} placeholder="选择或新建专题" /></label>
         <datalist id="upload-topics">{topics.map(t => <option key={t.topicId} value={t.title} />)}</datalist>
         <label className="upload-file">{selectedFile?.name ?? "PDF"}<input aria-label="上传材料" type="file" accept=".pdf,application/pdf" onChange={e => setSelectedFile(e.target.files?.[0] ?? null)} /></label>
-        <p>此步只把文件放入 Inbox，不会调用 MinerU 或 Codex。暂存后可核对目标专题与处理范围，再明确确认。</p>
+        <p>此步只把文件放入 Inbox，不调用任何解析服务，也不做 AI 内容审核。暂存后可核对目标专题与处理范围，再明确确认。</p>
         {error && <p role="alert">{error}</p>}
         <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFile || !uploadTopic.trim()}>{busy ? "暂存中…" : "放入 Inbox"}</button></div>
       </form>

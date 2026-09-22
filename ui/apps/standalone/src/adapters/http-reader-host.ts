@@ -128,6 +128,7 @@ function decodeIngestionItem(value: unknown): IngestionItem | null {
     topicStatus: item.topic_status,
     services: isStringArray(item.services) ? item.services : undefined,
     confirmation: item.confirmation as IngestionItem["confirmation"],
+    ...(item.duplicate === true ? { duplicate: true } : {}),
     ...(error && typeof error.message === "string" ? { error: { errorId: String(error.error_id), message: error.message } } : {}),
     ...(topicError && typeof topicError.message === "string" ? { topicError: { errorId: String(topicError.error_id), message: topicError.message } } : {}),
   };

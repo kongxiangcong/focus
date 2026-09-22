@@ -180,6 +180,8 @@ export interface IngestionItem {
   topicStatus: string;
   services?: readonly string[];
   confirmation?: { services: readonly string[]; purpose: string; scope: string } | null;
+  /** Staging returned this unfinished task for the same original instead of a new one. */
+  duplicate?: boolean;
   error?: { errorId: string; message: string };
   topicError?: { errorId: string; message: string };
 }

@@ -2,6 +2,16 @@
 
 日期：2026-09-21。此记录区分确定性、Host、浏览器、真实 Parser、真实 Runtime 与内容证据。
 
+2026-09-22 需求补充：grill Q1–Q4 已确认无图可入库、受理不明时明确提示后可手动重提、重复添加引导回未完成任务，以及默认入库不强制 AI 审核。以下为既有验收记录，不证明这些补充要求通过；新增场景见 [当前 spec](../../../.scratch/focus-v02-stage1/spec.md)，尚待实现验收。本轮未复跑测试。
+
+## 2026-09-22 无 AI 审核入库验收（票 05：Q1 无图、Q4 无审核）
+
+- 默认入库只声明并调用 `mineru`：`IngestionApplication` 无 Runtime 属性且拒绝 `runtime` 注入，Host 确认只提交 `['mineru']`，网页确认说明只列 MinerU 并声明"不做 AI 内容审核"。确认＋处理全程 patch `subprocess.Popen` 断言零外部 Codex 进程；Codex 已配置与不可用两种 Host 装配均完成合法入库（T26）。单独变更 Codex 二进制／模型不使确认失效；Parser 模型、原件或目标变更仍要求重新确认（T02 回归）。
+- 原本无图的 PDF（无 `images/` 目录）通过既有 Bundle 校验后发布唯一 Source 并完成 Topic 关联（T05a）；正文引用的本地图片缺失、越界或不可访问仍拒绝发布，`images/` 内文件须被引用且按序命名（T05）。有图 PDF 同规则发布，Bundle 保留引用图片。
+- 发布后不生成 Plan、翻译或博客，不改变既有 Source 阅读资产；Core 仍是唯一发布入口，确认、版本、请求幂等与独占写入方校验沿用原测试（T03、T22 回归）。
+- Host 真实 HTTP 入口（staging→confirm→process→轮询）可访问无 Plan Source 的原件、正文与 `/library/sources/{id}/images/...` 引用图片（T24 来源访问）。`CodexIngestionRuntime` 保留为独立 Runtime 能力，仅在其自身边界验证（`tests/test_ingestion_runtime.py`），不再作为入库验收前置。
+- 回归基线：Python 全套 152 项通过（含票 05 新增 3 项）；UI 类型检查 3 包通过，vitest 43 项通过，生产构建通过，仅既有 >500 kB 单块非阻断警告。
+
 ## 确定性与 Host
 
 - `IngestionApplication` 的公开边界覆盖暂存、更新、确认、处理、查询、续接和取消。未确认项目可重开且零外发；文件或 Topic 变化会清除确认。确认绑定原件版本、目标、服务配置和方法版本，配置漂移会在任何外部调用前要求重新确认。
