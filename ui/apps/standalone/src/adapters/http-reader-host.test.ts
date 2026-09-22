@@ -76,6 +76,36 @@ describe("HttpReaderHost", () => {
       error: { code: "invalid-response", message: "Inbox 响应格式错误", retryable: false },
     });
   });
+
+  it("sends an explicit resubmission with its risk choice and decodes the risk state", async () => {
+    const item = {
+      item_id: "abc", file_name: "paper.pdf", status: "status_check_required",
+      topic_title: null, topic_id: "systems", source_id: null,
+      document_status: "not_started", topic_status: "not_started",
+      remote_reference: false, resubmit_risk: { choice_id: "choice-1" },
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, value: item })),
+    );
+    const host = new HttpReaderHost({ baseUrl: "http://127.0.0.1:4317", fetch });
+
+    const result = await host.resubmitIngestion("abc", "request-1", "choice-1");
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        itemId: "abc", fileName: "paper.pdf", status: "status_check_required",
+        topicTitle: null, topicId: "systems", sourceId: null,
+        documentStatus: "not_started", topicStatus: "not_started",
+        remoteReference: false, resubmitRisk: { choiceId: "choice-1" },
+      },
+    });
+    expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:4317/library/inbox/abc/resubmit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ requestId: "request-1", riskChoiceId: "choice-1" }),
+    });
+  });
 });
 
 

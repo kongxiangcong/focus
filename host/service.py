@@ -134,16 +134,27 @@ class HostService:
             self._library_idle()
             return self.ingestion.process(item_id, request_id=request_id)
 
-    def inbox_start_process(self, item_id, *, request_id, continuing=False):
+    def inbox_start_process(self, item_id, *, request_id, continuing=False, resubmit=False, risk_choice_id=None):
         with self.lock:
             self._library_idle()
             if item_id in self.ingestion_workers and self.ingestion_workers[item_id].is_alive():
                 raise ValueError('该材料正在处理中。')
+            if resubmit:
+                # Validation is synchronous so a rejected resubmission reaches the
+                # caller; the worker only carries the long parse.
+                self.ingestion.validate_resubmit(
+                    item_id, request_id=request_id, risk_choice_id=risk_choice_id or ''
+                )
 
             def run():
                 try:
-                    operation = self.ingestion.continue_run if continuing else self.ingestion.process
-                    operation(item_id, request_id=request_id)
+                    if resubmit:
+                        self.ingestion.resubmit(
+                            item_id, request_id=request_id, risk_choice_id=risk_choice_id
+                        )
+                    else:
+                        operation = self.ingestion.continue_run if continuing else self.ingestion.process
+                        operation(item_id, request_id=request_id)
                 finally:
                     with self.lock:
                         self.ingestion_workers.pop(item_id, None)
@@ -167,6 +178,13 @@ class HostService:
         with self.lock:
             self._library_idle()
             return self.ingestion.continue_run(item_id, request_id=request_id)
+
+    def inbox_resubmit(self, item_id, *, request_id, risk_choice_id):
+        with self.lock:
+            self._library_idle()
+            return self.ingestion.resubmit(
+                item_id, request_id=request_id, risk_choice_id=risk_choice_id
+            )
 
     def inbox_cancel(self, item_id):
         with self.lock:

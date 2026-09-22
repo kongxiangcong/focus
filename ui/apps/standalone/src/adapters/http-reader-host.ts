@@ -111,6 +111,10 @@ function decodeResult(value: unknown): ReaderHostResult<ReadingWindow> {
   };
 }
 
+function isRiskChoice(value: unknown): value is { choice_id: string } {
+  return typeof value === "object" && value !== null && typeof (value as Record<string, unknown>).choice_id === "string";
+}
+
 function decodeIngestionItem(value: unknown): IngestionItem | null {
   if (value === null || typeof value !== "object") return null;
   const item = value as Record<string, unknown>;
@@ -129,6 +133,8 @@ function decodeIngestionItem(value: unknown): IngestionItem | null {
     services: isStringArray(item.services) ? item.services : undefined,
     confirmation: item.confirmation as IngestionItem["confirmation"],
     ...(item.duplicate === true ? { duplicate: true } : {}),
+    ...(typeof item.remote_reference === "boolean" ? { remoteReference: item.remote_reference } : {}),
+    ...(isRiskChoice(item.resubmit_risk) ? { resubmitRisk: { choiceId: item.resubmit_risk.choice_id } } : {}),
     ...(error && typeof error.message === "string" ? { error: { errorId: String(error.error_id), message: error.message } } : {}),
     ...(topicError && typeof topicError.message === "string" ? { topicError: { errorId: String(topicError.error_id), message: topicError.message } } : {}),
   };
@@ -191,6 +197,9 @@ export class HttpReaderHost implements ReaderHost {
   }
   continueIngestion(itemId: string, requestId: string): Promise<ReaderHostResult<IngestionItem>> {
     return this.ingestionRequest(`/library/inbox/${encodeURIComponent(itemId)}/continue`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });
+  }
+  resubmitIngestion(itemId: string, requestId: string, riskChoiceId: string): Promise<ReaderHostResult<IngestionItem>> {
+    return this.ingestionRequest(`/library/inbox/${encodeURIComponent(itemId)}/resubmit`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId, riskChoiceId }) });
   }
   cancelIngestion(itemId: string): Promise<ReaderHostResult<IngestionItem>> {
     return this.ingestionRequest(`/library/inbox/${encodeURIComponent(itemId)}/cancel`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });

@@ -238,18 +238,22 @@ class IngestionApplication:
     def _recover_interrupted(self) -> None:
         for path in (self.workspace / "inbox").glob("*/item.json"):
             item = _read_document(path)
-            if item.get("status") != "processing":
-                continue
-            item["status"] = "interrupted"
-            steps = item.get("run", {}).get("steps", {})
-            for step in steps.values():
-                if step.get("status") == "running":
-                    step["status"] = "interrupted"
-                for attempt in step.get("attempts", []):
-                    if attempt.get("status") == "running":
-                        attempt["status"] = "interrupted"
-                        attempt["commit_allowed"] = False
-            _write_document(path, item)
+            if item.get("status") == "processing":
+                item["status"] = "interrupted"
+                steps = item.get("run", {}).get("steps", {})
+                for step in steps.values():
+                    if step.get("status") == "running":
+                        step["status"] = "interrupted"
+                    for attempt in step.get("attempts", []):
+                        if attempt.get("status") == "running":
+                            attempt["status"] = "interrupted"
+                            attempt["commit_allowed"] = False
+                _write_document(path, item)
+            elif "resubmit_pending" in item:
+                # A pending marker without an attempt means no submission was
+                # sent yet; a restart must not leave the task locked.
+                item.pop("resubmit_pending", None)
+                _write_document(path, item)
 
     def _root(self, item_id: str) -> Path:
         if not isinstance(item_id, str) or not item_id or any(c not in "0123456789abcdef" for c in item_id):
@@ -276,9 +280,18 @@ class IngestionApplication:
             _write_document(path, item)
             return True
 
-    @staticmethod
-    def _public(item: dict[str, Any]) -> dict[str, Any]:
-        return dict(item)
+    def _public(self, item: dict[str, Any]) -> dict[str, Any]:
+        value = dict(item)
+        value.pop("resubmit_pending", None)  # internal concurrency marker
+        run = value.get("run")
+        parse = run.get("steps", {}).get("parse") if isinstance(run, dict) else None
+        # The reference is only actionable when this Parser can query it back.
+        value["remote_reference"] = (
+            isinstance(parse, dict)
+            and parse.get("checkpoint") is not None
+            and hasattr(self.parser, "resume")
+        )
+        return value
 
     def _unfinished_original(self, fingerprint: str) -> dict[str, Any] | None:
         """The persisted Inbox task for this exact original, while it is still unfinished.
@@ -464,6 +477,8 @@ class IngestionApplication:
                 item["run"] = None
                 item["document_status"] = "not_started"
                 item["topic_status"] = "not_started"
+                item.pop("resubmit_risk", None)
+                item.pop("resubmit_pending", None)
                 for key in ("candidate_result", "request_id", "error"):
                     item.pop(key, None)
             item["confirmation"] = new_confirmation
@@ -471,29 +486,56 @@ class IngestionApplication:
             self._write(item_id, item)
             return self._public(item)
 
+    def _require_current_confirmation(
+        self, item: dict[str, Any], source: Path
+    ) -> dict[str, Any]:
+        confirmation = item.get("confirmation")
+        expected_services = list(INGESTION_SERVICES)
+        if (
+            not isinstance(confirmation, dict)
+            or confirmation.get("fingerprint") != item.get("fingerprint")
+            or confirmation.get("input_version") != item.get("fingerprint")
+            or confirmation.get("topic_title") != item.get("topic_title")
+            or confirmation.get("topic_id") != item.get("topic_id")
+            or confirmation.get("services") != expected_services
+            or confirmation.get("service_config") != self._service_config()
+            or confirmation.get("method_version") != INGESTION_METHOD_VERSION
+            or confirmation.get("scope") != "ingestion"
+            or not source.is_file()
+            or self._fingerprint(source) != item.get("fingerprint")
+        ):
+            raise WorkspaceError("confirmation_required", "A current ingestion confirmation is required")
+        return confirmation
+
     def process(self, item_id: str, *, request_id: str) -> dict[str, Any]:
+        return self._process(item_id, request_id=request_id, resubmission=False)
+
+    @staticmethod
+    def _supersede_unfinished_attempts(parse_step: dict[str, Any]) -> None:
+        """Permanently close every unfinished attempt of a step.
+
+        A new execution supersedes the old ones: their late results can no
+        longer commit through Core.
+        """
+        for entry in parse_step.get("attempts", []):
+            if entry.get("status") != "completed":
+                entry["commit_allowed"] = False
+
+    def _process(self, item_id: str, *, request_id: str, resubmission: bool = False) -> dict[str, Any]:
         with self._state_lock:
             item = self._read(item_id)
-            confirmation = item.get("confirmation")
-            expected_services = list(INGESTION_SERVICES)
+            if resubmission and self._resubmit_replayed(item, request_id):
+                return self._public(item)
             root = self._root(item_id)
             source = root / "source.pdf"
-            if (
-                not isinstance(confirmation, dict)
-                or confirmation.get("fingerprint") != item.get("fingerprint")
-                or confirmation.get("input_version") != item.get("fingerprint")
-                or confirmation.get("topic_title") != item.get("topic_title")
-                or confirmation.get("topic_id") != item.get("topic_id")
-                or confirmation.get("services") != expected_services
-                or confirmation.get("service_config") != self._service_config()
-                or confirmation.get("method_version") != INGESTION_METHOD_VERSION
-                or confirmation.get("scope") != "ingestion"
-                or not source.is_file()
-                or self._fingerprint(source) != item.get("fingerprint")
-            ):
-                raise WorkspaceError("confirmation_required", "A current ingestion confirmation is required")
+            confirmation = self._require_current_confirmation(item, source)
             if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 200:
                 raise WorkspaceError("request_id_invalid", "Request id is invalid")
+            if resubmission and item.get("status") == "cancelled":
+                # The explicit resubmission is the deliberate continuation of a
+                # cancelled acceptance-unknown task, mirroring continue_run.
+                item["status"] = "confirmed"
+                _write_document(root / "item.json", item)
             if item.get("request_id") == request_id and item.get("status") == "completed":
                 return self._public(item)
             if item.get("status") not in {
@@ -515,6 +557,17 @@ class IngestionApplication:
                 },
             }
             item["run"] = run
+            if (
+                not resubmission
+                and self._acceptance_unresolved(item)
+                and not self._unresolved_original_published(item)
+            ):
+                # Acceptance is unknown: a new submission needs the explicit
+                # resubmission action, never an ordinary continue or replay.
+                raise WorkspaceError(
+                    "ingestion_resubmission_required",
+                    "The previous submission outcome is unknown; reconcile the remote task or resubmit explicitly",
+                )
             item["request_id"] = request_id
             item["status"] = "processing"
             self._write(item_id, item)
@@ -565,12 +618,17 @@ class IngestionApplication:
             for automatic_index in range(0 if reusable_candidate else 3):
                 if candidate.exists():
                     shutil.rmtree(candidate)
+                self._supersede_unfinished_attempts(parse_step)
                 attempt = {
                     "attempt_id": uuid.uuid4().hex,
                     "status": "running",
                     "commit_allowed": True,
                     **self._attempt_binding("mineru", confirmation),
                 }
+                if resubmission:
+                    attempt["resubmit_request_id"] = request_id
+                    item.pop("resubmit_risk", None)
+                    item.pop("resubmit_pending", None)
                 parse_step["attempts"].append(attempt)
                 parse_step["status"] = "running"
                 item["status"] = "processing"
@@ -647,6 +705,11 @@ class IngestionApplication:
                     if getattr(exc, "acceptance_unknown", False):
                         parse_step["status"] = "status_check_required"
                         item["status"] = "status_check_required"
+                        item["resubmit_risk"] = {
+                            "choice_id": uuid.uuid4().hex,
+                            "attempt_id": attempt["attempt_id"],
+                            "error_id": attempt.get("error_id", "acceptance_unknown"),
+                        }
                         self._write(item_id, item)
                         return self._public(item)
                     if getattr(exc, "transient", False):
@@ -758,6 +821,24 @@ class IngestionApplication:
             self._write(item_id, item)
             return self._public(item)
 
+    def _acceptance_unresolved(self, item: dict[str, Any]) -> bool:
+        """The last submission's acceptance is unknown and cannot be queried."""
+        run = item.get("run")
+        if not isinstance(run, dict):
+            return False
+        parse = run.get("steps", {}).get("parse")
+        return (
+            isinstance(parse, dict)
+            and parse.get("status") == "status_check_required"
+            and (parse.get("checkpoint") is None or not hasattr(self.parser, "resume"))
+        )
+
+    def _unresolved_original_published(self, item: dict[str, Any]) -> bool:
+        return (
+            SourceLibrary(self.workspace).find("paper-original:" + str(item.get("fingerprint", "")))
+            is not None
+        )
+
     def continue_run(self, item_id: str, *, request_id: str) -> dict[str, Any]:
         item = self._read(item_id)
         if item.get("status") not in {
@@ -772,6 +853,16 @@ class IngestionApplication:
             raise WorkspaceError("ingestion_not_resumable", "Ingestion is not waiting for continuation")
         if item.get("status") == "status_check_required" and not item.get("run", {}).get("steps", {}).get("parse", {}).get("checkpoint"):
             raise WorkspaceError("remote_reference_missing", "Remote acceptance cannot be reconciled without a task reference")
+        if (
+            self._acceptance_unresolved(item)
+            and not self._unresolved_original_published(item)
+        ):
+            # Checked before any state change: ordinary continuation must not
+            # turn an acceptance-unknown task into a silent second submission.
+            raise WorkspaceError(
+                "ingestion_resubmission_required",
+                "The previous submission outcome is unknown; reconcile the remote task or resubmit explicitly",
+            )
         if item.get("status") == "cancelled":
             item["status"] = "confirmed"
             with self._state_lock:
@@ -780,6 +871,94 @@ class IngestionApplication:
             item["confirmation"]["expected_version"] = self.core.version
             self._write(item_id, item)
         return self.process(item_id, request_id=request_id)
+
+    @staticmethod
+    def _resubmit_replayed(item: dict[str, Any], request_id: str) -> bool:
+        """True when this exact resubmission request already started an attempt."""
+        run = item.get("run")
+        if not isinstance(run, dict):
+            return False
+        attempts = run.get("steps", {}).get("parse", {}).get("attempts", [])
+        return any(
+            isinstance(entry, dict) and entry.get("resubmit_request_id") == request_id
+            for entry in attempts
+        )
+
+    def _require_resubmittable(
+        self, item: dict[str, Any], request_id: str, risk_choice_id: Any
+    ) -> None:
+        risk = item.get("resubmit_risk")
+        # A cancelled task keeps its acceptance-unknown record: the explicit
+        # risk choice remains the only way back to a fresh submission.
+        if item.get("status") not in {"status_check_required", "cancelled"} or not isinstance(risk, dict):
+            raise WorkspaceError(
+                "ingestion_not_resubmittable",
+                "Only an acceptance-unknown task can be resubmitted",
+            )
+        if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 200:
+            raise WorkspaceError("request_id_invalid", "Request id is invalid")
+        self._require_current_confirmation(
+            item, self._root(item["item_id"]) / "source.pdf"
+        )
+        pending = item.get("resubmit_pending")
+        if isinstance(pending, str) and pending != request_id:
+            raise WorkspaceError(
+                "ingestion_not_resubmittable",
+                "Another resubmission of this task is already in progress",
+            )
+        if (
+            not isinstance(risk_choice_id, str)
+            or not risk_choice_id.strip()
+            or risk.get("choice_id") != risk_choice_id
+        ):
+            raise WorkspaceError(
+                "ingestion_risk_choice_invalid",
+                "The resubmission risk choice does not match the current task",
+            )
+
+    def validate_resubmit(
+        self, item_id: str, *, request_id: str, risk_choice_id: str
+    ) -> dict[str, Any]:
+        """Check an explicit resubmission without any side effect."""
+        with self._state_lock:
+            item = self._read(item_id)
+            if self._resubmit_replayed(item, request_id):
+                return self._public(item)
+            self._require_resubmittable(item, request_id, risk_choice_id)
+            return self._public(item)
+
+    def resubmit(
+        self, item_id: str, *, request_id: str, risk_choice_id: str
+    ) -> dict[str, Any]:
+        """Start a new parse attempt after an explicit risk choice.
+
+        Reuses the original Inbox item, Run and still-valid business input.
+        The superseded attempts lose commit eligibility permanently and keep
+        their acceptance-unknown record; nothing claims the old remote task
+        stopped. The same request replayed never starts a second submission.
+        """
+        with self._state_lock:
+            item = self._read(item_id)
+            if self._resubmit_replayed(item, request_id):
+                return self._public(item)
+            self._require_resubmittable(item, request_id, risk_choice_id)
+            run = item["run"]
+            parse_step = run["steps"]["parse"]
+            checkpoint = parse_step.pop("checkpoint", None)
+            if checkpoint is not None:
+                # Keep the old task reference on the superseded attempt.
+                for entry in reversed(parse_step.get("attempts", [])):
+                    if entry.get("status") != "completed":
+                        entry["checkpoint"] = checkpoint
+                        break
+            self._supersede_unfinished_attempts(parse_step)
+            # The pending marker closes the gap before the new attempt is
+            # persisted: a concurrent resubmission with another request id is
+            # rejected instead of starting a second submission.
+            item["resubmit_pending"] = request_id
+            if not self._write(item_id, item):
+                return self._public(self._read(item_id))
+        return self._process(item_id, request_id=request_id, resubmission=True)
 
     def cancel(self, item_id: str) -> dict[str, Any]:
         with self._state_lock:
@@ -795,6 +974,7 @@ class IngestionApplication:
                 active["status"] = "cancelled"
             item["status"] = "cancelled"
             item["remote_status"] = "not_started"
+            item.pop("resubmit_pending", None)
             checkpoint = parse_step.get("checkpoint")
             if checkpoint is not None:
                 item["remote_status"] = "stop_requested"

@@ -18,6 +18,7 @@ function setup(initialInbox: readonly IngestionItem[] = []) {
     listInbox: vi.fn(async () => readerSuccess(initialInbox)), stageIngestion: vi.fn(async () => readerSuccess(staged)),
     confirmIngestion: vi.fn(async () => readerSuccess(confirmed)),
     processIngestion: vi.fn(async () => readerSuccess(processing)), continueIngestion: vi.fn(async () => readerSuccess(processing)), cancelIngestion: vi.fn(async () => readerSuccess(cancelled)),
+    resubmitIngestion: vi.fn(async () => readerSuccess(processing)),
     sourceOriginalUrl: id => `/library/sources/${id}/original`, sourceContentUrl: id => `/library/sources/${id}/content`,
     openSource: vi.fn(async () => readerSuccess(empty)), deleteSource: vi.fn(async () => readerSuccess(empty)), rereadSource: vi.fn(async () => readerSuccess(empty)),
   };
@@ -132,4 +133,43 @@ it("shows the original unfinished task instead of a new one when the same file i
   expect(host.processIngestion).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "知道了" }));
   expect(screen.queryByText(/该原件已有未完成任务/)).not.toBeInTheDocument();
+});
+it("explains the duplicate-parsing risk next to an explicit resubmission action", async () => {
+  const unknown: IngestionItem = { itemId: "item-1", fileName: "paper.pdf", status: "status_check_required", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"], remoteReference: false, resubmitRisk: { choiceId: "choice-1" } };
+  const { host } = setup([unknown]);
+  expect(await screen.findByText("远端状态待核对")).toBeInTheDocument();
+  expect(screen.getByText("上次提交结果未知，重新提交可能重复解析。")).toBeInTheDocument();
+  // Without a remote reference, a plain continue is never offered as a way out;
+  // reconfirming the changed scope stays a separate, explicit action.
+  expect(screen.queryByRole("button", { name: "继续" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "查询并续接原任务" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "重新确认并开始" })).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "重新提交" }));
+
+  await waitFor(() => expect(host.resubmitIngestion).toHaveBeenCalledWith("item-1", expect.any(String), "choice-1"));
+  expect(host.continueIngestion).not.toHaveBeenCalled();
+  expect(host.processIngestion).not.toHaveBeenCalled();
+});
+it("offers resubmission instead of a doomed continue for a cancelled acceptance-unknown item", async () => {
+  const cancelled: IngestionItem = { itemId: "item-1", fileName: "paper.pdf", status: "cancelled", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"], remoteReference: false, resubmitRisk: { choiceId: "choice-1" } };
+  const { host } = setup([cancelled]);
+  expect(await screen.findByText("上次提交结果未知，重新提交可能重复解析。")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "继续" })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "重新提交" }));
+
+  await waitFor(() => expect(host.resubmitIngestion).toHaveBeenCalledWith("item-1", expect.any(String), "choice-1"));
+  expect(host.continueIngestion).not.toHaveBeenCalled();
+});
+it("offers querying the original task first when a remote reference exists", async () => {
+  const unknown: IngestionItem = { itemId: "item-1", fileName: "paper.pdf", status: "status_check_required", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"], remoteReference: true, resubmitRisk: { choiceId: "choice-1" } };
+  const { host } = setup([unknown]);
+  expect(await screen.findByRole("button", { name: "查询并续接原任务" })).toBeEnabled();
+  expect(screen.getByText("上次提交结果未知，重新提交可能重复解析。")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "查询并续接原任务" }));
+
+  await waitFor(() => expect(host.continueIngestion).toHaveBeenCalledWith("item-1", expect.any(String)));
+  expect(host.resubmitIngestion).not.toHaveBeenCalled();
 });

@@ -2,7 +2,7 @@
 
 日期：2026-09-21。此记录区分确定性、Host、浏览器、真实 Parser、真实 Runtime 与内容证据。
 
-2026-09-22 需求补充：grill Q1–Q4 已确认无图可入库、受理不明时明确提示后可手动重提、重复添加引导回未完成任务，以及默认入库不强制 AI 审核。以下为既有验收记录，不证明这些补充要求通过；新增场景见 [当前 spec](../../../.scratch/focus-v02-stage1/spec.md)，尚待实现验收。本轮未复跑测试。
+2026-09-22 需求补充：grill Q1–Q4 已确认无图可入库、受理不明时明确提示后可手动重提、重复添加引导回未完成任务，以及默认入库不强制 AI 审核。补充要求已由票 05–07 分别实现并验收（见下文各节及 [当前 spec](../../../.scratch/focus-v02-stage1/spec.md)）；下文 2026-09-21 的既有验收记录描述原四票交付。
 
 ## 2026-09-22 无 AI 审核入库验收（票 05：Q1 无图、Q4 无审核）
 - 默认入库只声明并调用 `mineru`：`IngestionApplication` 无 Runtime 属性且拒绝 `runtime` 注入，Host 确认只提交 `['mineru']`，网页确认说明只列 MinerU 并声明"不做 AI 内容审核"。确认＋处理全程 patch `subprocess.Popen` 断言零外部 Codex 进程；Codex 已配置与不可用两种 Host 装配均完成合法入库（T26）。单独变更 Codex 二进制／模型不使确认失效；Parser 模型、原件或目标变更仍要求重新确认（T02 回归）。
@@ -18,6 +18,15 @@
 - `update_staged` 换源同样接受指纹查重：替换原件属于另一未完成任务时拒绝（`ingestion_duplicate_original`），直连 Application 也无法绕过身份复用；重选本任务当前原件仍合法。并发重复暂存在 `_state_lock` 内串行化，只产生一个任务；HTTP `POST /library/inbox` 重复添加返回原任务，Inbox 投影不含瞬态 `duplicate` 标记（T25 重复添加部分）。
 - 网页收到 `duplicate` 后展示"该原件已有未完成任务，已回到原任务；不会重复解析"及该任务真实状态；受理不明的显式重提（票 07）未在本票引入。
 - 回归基线：Python 全套 156 项通过（含票 06 新增 4 项）；standalone UI 15 项通过。
+
+## 2026-09-22 受理不明显式重提验收（票 07：Q2）
+
+- `resubmit` 是与普通续接可区分的显式动作：仅受理不明（`status_check_required`）且当前确认有效时可用，请求须携带落盘时绑定该任务的 `resubmit_risk.choice_id`；输入或服务变更经重新确认后旧选择失效，陈旧 choice 的直连 Application 或 HTTP 请求均被拒绝且零外发（T11a、T11c、T25）。
+- 已有任务引用时优先查询并续接原任务：`continue_run` 只 `resume` 查询、零新提交，旧 attempt 同时被永久关闭；无引用时普通 `process`／`continue_run` 不再能新起解析（`ingestion_resubmission_required`），网页不展示必然失败的普通继续作为唯一出口（T10、T11）。
+- 重提复用原 Inbox、Run 与业务输入：步骤 checkpoint 归档进被替代 attempt 并永久关闭其提交资格，旧受理不明记录保留、不声称远端已停止；新建 attempt 记录 `resubmit_request_id`，相同请求重复点击、响应丢失或重启后重放均不发起第二次远端提交；再次受理不明停回待核对并生成新 choice，无自动重传循环（T11b）。
+- 已发布 Source 与有效候选仍按既有规则优先复用，不重复解析；被替代 attempt 的迟到结果无法经 Core 发布（`attempt_cancelled`），Source 保持唯一（T11c、T13/T14 相关回归）。
+- 网页在"远端状态待核对"行内展示"上次提交结果未知，重新提交可能重复解析。"紧邻"重新提交"按钮；有任务引用时另提供"查询并续接原任务"。HTTP `POST /library/inbox/{id}/resubmit` 同步校验（陈旧 choice 返回 400），长解析进 worker 后 202。
+- 回归基线：Python 全套 164 项通过（含票 07 新增 8 项）；UI 类型检查 3 包、vitest 46 项（reader-ui 28 + standalone 18）、生产构建通过，仅既有 >500 kB 单块非阻断警告。真实 MinerU／Codex 层未重复执行，沿用既有真实证据；本票未引入新的真实服务行为。
 
 ## 确定性与 Host
 

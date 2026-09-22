@@ -239,19 +239,28 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith('/library/inbox/'):
             parts = path[len('/library/inbox/'):].split('/')
             item_id = unquote(parts[0])
-            if len(parts) != 2 or method != 'POST' or parts[1] not in ('confirm', 'process', 'continue', 'cancel'):
+            if len(parts) != 2 or method != 'POST' or parts[1] not in ('confirm', 'process', 'continue', 'cancel', 'resubmit'):
                 raise ValueError('Unknown Inbox operation')
             if parts[1] == 'confirm':
                 self._body(); result = service.inbox_confirm(item_id)
             elif parts[1] == 'cancel':
                 self._body(); result = service.inbox_cancel(item_id)
+            elif parts[1] == 'resubmit':
+                payload = self._body()
+                request_id = payload.get('requestId')
+                risk_choice_id = payload.get('riskChoiceId')
+                if not isinstance(request_id, str) or not isinstance(risk_choice_id, str):
+                    raise ValueError('A requestId and riskChoiceId are required')
+                result = service.inbox_start_process(
+                    item_id, request_id=request_id, resubmit=True, risk_choice_id=risk_choice_id
+                )
             else:
                 payload = self._body()
                 request_id = payload.get('requestId')
                 if not isinstance(request_id, str):
                     raise ValueError('A requestId is required')
                 result = service.inbox_start_process(item_id, request_id=request_id, continuing=parts[1] == 'continue')
-            self._send(202 if parts[1] in ('process', 'continue') else 200, {'ok': True, 'value': result})
+            self._send(202 if parts[1] in ('process', 'continue', 'resubmit') else 200, {'ok': True, 'value': result})
             return
         elif method == 'POST' and path == '/reader/upload':
             name = parse_qs(urlsplit(self.path).query).get('name', [''])[0]

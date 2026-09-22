@@ -149,6 +149,53 @@ class UnknownAcceptanceParser:
         )
 
 
+class CheckpointedNonResumableParser(ValidParser):
+    """Saves a task reference, reports the outcome as unknown, cannot query it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.submissions = 0
+
+    def parse(self, source: Path, candidate: Path, *, checkpoint=None):
+        self.submissions += 1
+        if self.submissions == 1:
+            if checkpoint is not None:
+                checkpoint({"reference_kind": "batch_id", "reference_id": "stuck-batch"})
+            raise IngestionExternalError(
+                "upload_acceptance_unknown", "submission outcome is unknown", acceptance_unknown=True
+            )
+        return super().parse(source, candidate, checkpoint=checkpoint)
+
+
+class AcceptanceUnknownParser(ValidParser):
+    """Reports the first submissions as unknown-outcome, then parses normally.
+
+    `unknown` counts submissions whose outcome stayed unknown, `resumes`
+    counts remote queries; inherited `calls` counts completed parses.
+    """
+
+    def __init__(self, unknown_failures: int = 1, *, checkpointed: bool = False) -> None:
+        super().__init__()
+        self.unknown_failures = unknown_failures
+        self.checkpointed = checkpointed
+        self.unknown = 0
+        self.resumes = 0
+
+    def parse(self, source: Path, candidate: Path, *, checkpoint=None):
+        if self.unknown < self.unknown_failures:
+            self.unknown += 1
+            if self.checkpointed and checkpoint is not None:
+                checkpoint({"reference_kind": "batch_id", "reference_id": "unknown-batch"})
+            raise IngestionExternalError(
+                "upload_acceptance_unknown", "submission outcome is unknown", acceptance_unknown=True
+            )
+        return super().parse(source, candidate, checkpoint=checkpoint)
+
+    def resume(self, source: Path, candidate: Path, *, checkpoint):
+        self.resumes += 1
+        return super().parse(source, candidate, checkpoint=checkpoint)
+
+
 class BlockingParser(ValidParser):
     def __init__(self) -> None:
         super().__init__()
@@ -930,6 +977,286 @@ class IngestionApplicationTests(unittest.TestCase):
         self.assertEqual(1, parser.calls)
         self.assertNotIn("checkpoint", result["run"]["steps"]["parse"])
 
+    def test_resubmit_requires_an_explicit_current_risk_choice(self):
+        parser = AcceptanceUnknownParser(unknown_failures=1)
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        item = app.stage_pdf(self.pdf, topic_title="Systems")
+        app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+        unknown = app.process(item["item_id"], request_id="initial")
+
+        self.assertEqual("status_check_required", unknown["status"])
+        self.assertFalse(unknown["remote_reference"])
+        choice = unknown["resubmit_risk"]["choice_id"]
+
+        # Ordinary paths cannot silently produce a second submission.
+        with self.assertRaisesRegex(WorkspaceError, "resubmit explicitly"):
+            app.process(item["item_id"], request_id="silent-retry")
+        with self.assertRaisesRegex(WorkspaceError, "task reference"):
+            app.continue_run(item["item_id"], request_id="silent-continue")
+        with self.assertRaisesRegex(WorkspaceError, "risk choice"):
+            app.resubmit(item["item_id"], request_id="resubmit-1", risk_choice_id="stale-choice")
+        self.assertEqual("status_check_required", app.validate_resubmit(
+            item["item_id"], request_id="check", risk_choice_id=choice
+        )["status"])
+        self.assertEqual((1, 0), (parser.unknown, parser.calls))
+
+        resubmitted = app.resubmit(item["item_id"], request_id="resubmit-1", risk_choice_id=choice)
+
+        self.assertEqual(("completed", "published", "attached"), (
+            resubmitted["status"], resubmitted["document_status"], resubmitted["topic_status"]
+        ))
+        self.assertEqual((1, 1), (parser.unknown, parser.calls))
+        attempts = resubmitted["run"]["steps"]["parse"]["attempts"]
+        self.assertEqual(("failed", False), (attempts[0]["status"], attempts[0]["commit_allowed"]))
+        self.assertEqual(("completed", True, "resubmit-1"), (
+            attempts[1]["status"], attempts[1]["commit_allowed"], attempts[1]["resubmit_request_id"]
+        ))
+        self.assertNotIn("resubmit_risk", resubmitted)
+
+    def test_resubmit_replays_are_idempotent_across_repeat_unknown_and_restart(self):
+        parser = AcceptanceUnknownParser(unknown_failures=2)
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        item = app.stage_pdf(self.pdf)
+        app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+        app.process(item["item_id"], request_id="initial")
+        first_choice = app.get(item["item_id"])["resubmit_risk"]["choice_id"]
+
+        again_unknown = app.resubmit(item["item_id"], request_id="resubmit-1", risk_choice_id=first_choice)
+        self.assertEqual("status_check_required", again_unknown["status"])
+        second_choice = again_unknown["resubmit_risk"]["choice_id"]
+        self.assertNotEqual(first_choice, second_choice)
+
+        # A repeated click of the same request replays without another submission.
+        replayed = app.resubmit(item["item_id"], request_id="resubmit-1", risk_choice_id=second_choice)
+        self.assertEqual("status_check_required", replayed["status"])
+        self.assertEqual(2, parser.unknown)
+
+        reopened = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        completed = reopened.resubmit(item["item_id"], request_id="resubmit-2", risk_choice_id=second_choice)
+        self.assertEqual("completed", completed["status"])
+
+        # Replaying either request after completion returns the existing result.
+        self.assertEqual("completed", reopened.resubmit(
+            item["item_id"], request_id="resubmit-2", risk_choice_id=second_choice
+        )["status"])
+        self.assertEqual("completed", reopened.resubmit(
+            item["item_id"], request_id="resubmit-1", risk_choice_id=first_choice
+        )["status"])
+        self.assertEqual((2, 1), (parser.unknown, parser.calls))
+        self.assertEqual(1, len(list((self.workspace / "sources").iterdir())))
+
+    def test_resubmit_with_a_reference_archives_it_and_rejects_the_late_result(self):
+        parser = AcceptanceUnknownParser(unknown_failures=1, checkpointed=True)
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        item = app.stage_pdf(self.pdf, topic_title="Systems")
+        app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+        unknown = app.process(item["item_id"], request_id="initial")
+        self.assertTrue(unknown["remote_reference"])
+        old_attempt_id = unknown["run"]["steps"]["parse"]["attempts"][0]["attempt_id"]
+        choice = unknown["resubmit_risk"]["choice_id"]
+
+        resubmitted = app.resubmit(item["item_id"], request_id="resubmit-1", risk_choice_id=choice)
+
+        self.assertEqual("completed", resubmitted["status"])
+        self.assertEqual((1, 1, 0), (parser.unknown, parser.calls, parser.resumes))
+        attempts = resubmitted["run"]["steps"]["parse"]["attempts"]
+        self.assertEqual("unknown-batch", attempts[0]["checkpoint"]["reference_id"])
+        self.assertFalse(attempts[0]["commit_allowed"])
+        self.assertNotIn("checkpoint", resubmitted["run"]["steps"]["parse"])
+
+        # A late result from the superseded attempt cannot publish through Core.
+        bundle = self.workspace / "sources" / resubmitted["source_id"] / "parser-bundle"
+        with self.assertRaisesRegex(WorkspaceError, "not allowed to commit"):
+            app.core.publish(
+                bundle,
+                expected_version=app.core.version,
+                request_id="late-result",
+                writer_id="host-a",
+                title="Stored Paper",
+                short_name="Stored",
+                identity="paper-original:" + item["fingerprint"],
+                item_path=self.workspace / "inbox" / item["item_id"] / "item.json",
+                attempt_id=old_attempt_id,
+            )
+        self.assertEqual(1, len(list((self.workspace / "sources").iterdir())))
+
+    def test_a_known_reference_is_queried_and_resumed_before_resubmission(self):
+        parser = AcceptanceUnknownParser(unknown_failures=1, checkpointed=True)
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        item = app.stage_pdf(self.pdf)
+        app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+        unknown = app.process(item["item_id"], request_id="initial")
+        self.assertEqual("status_check_required", unknown["status"])
+
+        completed = app.continue_run(item["item_id"], request_id="query-original")
+
+        self.assertEqual("completed", completed["status"])
+        self.assertEqual((1, 1), (parser.unknown, parser.resumes))
+        self.assertEqual(1, parser.calls)
+        attempts = completed["run"]["steps"]["parse"]["attempts"]
+        self.assertEqual(("failed", False), (attempts[0]["status"], attempts[0]["commit_allowed"]))
+        self.assertEqual(("completed", True), (attempts[1]["status"], attempts[1]["commit_allowed"]))
+
+    def test_a_changed_input_or_service_invalidates_the_previous_risk_choice(self):
+        parser = AcceptanceUnknownParser(unknown_failures=1)
+        parser.model = "parser-v1"
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        item = app.stage_pdf(self.pdf)
+        app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+        unknown = app.process(item["item_id"], request_id="initial")
+        choice = unknown["resubmit_risk"]["choice_id"]
+
+        parser.model = "parser-v2"
+        with self.assertRaisesRegex(WorkspaceError, "confirmation"):
+            app.resubmit(item["item_id"], request_id="resubmit-1", risk_choice_id=choice)
+        self.assertEqual(1, parser.unknown)
+
+        reconfirmed = app.confirm(
+            item["item_id"], services=["mineru"], purpose="register source", scope="ingestion"
+        )
+        self.assertNotIn("resubmit_risk", reconfirmed)
+        with self.assertRaisesRegex(WorkspaceError, "resubmitted"):
+            app.resubmit(item["item_id"], request_id="resubmit-2", risk_choice_id=choice)
+        self.assertEqual((1, 0), (parser.unknown, parser.calls))
+
+        completed = app.process(item["item_id"], request_id="fresh-after-reconfirm")
+        self.assertEqual("completed", completed["status"])
+        self.assertEqual((1, 1), (parser.unknown, parser.calls))
+
+    def test_concurrent_resubmit_of_the_same_request_submits_once(self):
+        parser = AcceptanceUnknownParser(unknown_failures=1)
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        item = app.stage_pdf(self.pdf)
+        app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+        app.process(item["item_id"], request_id="initial")
+        choice = app.get(item["item_id"])["resubmit_risk"]["choice_id"]
+        results, errors = [], []
+
+        def resubmit():
+            try:
+                results.append(
+                    app.resubmit(item["item_id"], request_id="resubmit-1", risk_choice_id=choice)
+                )
+            except Exception as exc:  # the losing caller is rejected, never duplicated
+                errors.append(exc)
+
+        workers = [threading.Thread(target=resubmit) for _ in range(2)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(5)
+
+        self.assertEqual(2, len(results) + len(errors))
+        self.assertEqual(1, len([result for result in results if result.get("status") == "completed"]))
+        self.assertEqual((1, 1), (parser.unknown, parser.calls))
+        attempts = app.get(item["item_id"])["run"]["steps"]["parse"]["attempts"]
+        self.assertEqual(1, len([entry for entry in attempts if entry.get("resubmit_request_id")]))
+        self.assertEqual(1, len(list((self.workspace / "sources").iterdir())))
+
+    def test_concurrent_resubmit_with_different_requests_submits_once(self):
+        parser = AcceptanceUnknownParser(unknown_failures=1)
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        item = app.stage_pdf(self.pdf)
+        app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+        app.process(item["item_id"], request_id="initial")
+        choice = app.get(item["item_id"])["resubmit_risk"]["choice_id"]
+        results, errors = [], []
+
+        def resubmit(request_id):
+            try:
+                results.append(
+                    app.resubmit(item["item_id"], request_id=request_id, risk_choice_id=choice)
+                )
+            except Exception as exc:  # the losing caller is rejected, never duplicated
+                errors.append(exc)
+
+        workers = [
+            threading.Thread(target=resubmit, args=(request_id,))
+            for request_id in ("resubmit-1", "resubmit-2")
+        ]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(5)
+
+        self.assertEqual(2, len(results) + len(errors))
+        self.assertEqual(1, len([result for result in results if result.get("status") == "completed"]))
+        self.assertEqual((1, 1), (parser.unknown, parser.calls))
+        attempts = app.get(item["item_id"])["run"]["steps"]["parse"]["attempts"]
+        self.assertEqual(1, len([entry for entry in attempts if entry.get("resubmit_request_id")]))
+        self.assertEqual(1, len(list((self.workspace / "sources").iterdir())))
+
+    def test_a_cancelled_acceptance_unknown_task_recovers_through_explicit_resubmit(self):
+        parser = AcceptanceUnknownParser(unknown_failures=1)
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        item = app.stage_pdf(self.pdf, topic_title="Systems")
+        app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+        unknown = app.process(item["item_id"], request_id="initial")
+        choice = unknown["resubmit_risk"]["choice_id"]
+
+        app.cancel(item["item_id"])
+        self.assertEqual("cancelled", app.get(item["item_id"])["status"])
+
+        # An ordinary continue would silently resubmit; it is refused instead.
+        with self.assertRaisesRegex(WorkspaceError, "resubmit explicitly"):
+            app.continue_run(item["item_id"], request_id="after-cancel")
+        self.assertEqual("cancelled", app.get(item["item_id"])["status"])
+
+        recovered = app.resubmit(item["item_id"], request_id="resubmit-1", risk_choice_id=choice)
+        self.assertEqual(("completed", "published"), (recovered["status"], recovered["document_status"]))
+        self.assertEqual((1, 1), (parser.unknown, parser.calls))
+        self.assertNotIn("resubmit_pending", recovered)
+
+    def test_remote_reference_requires_a_resume_capable_parser(self):
+        parser = CheckpointedNonResumableParser()
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        item = app.stage_pdf(self.pdf, topic_title="Systems")
+        app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+        unknown = app.process(item["item_id"], request_id="initial")
+
+        self.assertEqual("status_check_required", unknown["status"])
+        # A checkpoint exists but this Parser cannot query it back.
+        self.assertFalse(unknown["remote_reference"])
+        with self.assertRaisesRegex(WorkspaceError, "resubmit explicitly"):
+            app.continue_run(item["item_id"], request_id="doomed-query")
+
+        choice = unknown["resubmit_risk"]["choice_id"]
+        resubmitted = app.resubmit(item["item_id"], request_id="resubmit-1", risk_choice_id=choice)
+        self.assertEqual("completed", resubmitted["status"])
+        attempts = resubmitted["run"]["steps"]["parse"]["attempts"]
+        self.assertEqual("stuck-batch", attempts[0]["checkpoint"]["reference_id"])
+        self.assertFalse(attempts[0]["commit_allowed"])
+        self.assertNotIn("checkpoint", resubmitted["run"]["steps"]["parse"])
+
+    def test_resubmit_prefers_an_already_published_source(self):
+        parser = AcceptanceUnknownParser(unknown_failures=1)
+        app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
+        item = app.stage_pdf(self.pdf, topic_title="Systems")
+        app.confirm(item["item_id"], services=["mineru"], purpose="register source", scope="ingestion")
+        unknown = app.process(item["item_id"], request_id="initial")
+        self.assertEqual("status_check_required", unknown["status"])
+        choice = unknown["resubmit_risk"]["choice_id"]
+
+        # The same original gets published while this task is stuck: a valid
+        # bundle registered under the identical original identity.
+        root = self.workspace / "inbox" / item["item_id"]
+        ValidParser().parse(root / "source.pdf", root / "candidate")
+        registered = SourceLibrary(self.workspace).register(
+            root / "candidate",
+            source_kind="paper_pdf",
+            title="Stored Paper",
+            short_name="Stored",
+            identity="paper-original:" + item["fingerprint"],
+        )
+
+        resubmitted = app.resubmit(item["item_id"], request_id="resubmit-1", risk_choice_id=choice)
+
+        self.assertEqual(("completed", "reused"), (resubmitted["status"], resubmitted["document_status"]))
+        self.assertEqual(registered["source_id"], resubmitted["source_id"])
+        # No new remote submission: the existing Source covers the original.
+        self.assertEqual((1, 0), (parser.unknown, parser.calls))
+        self.assertEqual(1, len(list((self.workspace / "sources").iterdir())))
+
     def test_cancel_closes_attempt_before_remote_stop_and_rejects_late_candidate(self):
         parser = BlockingParser()
         app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
@@ -1121,6 +1448,96 @@ class IngestionApplicationTests(unittest.TestCase):
                 self.assertEqual(1, len(items))
                 self.assertEqual(staged["item_id"], items[0]["item_id"])
                 self.assertNotIn("duplicate", items[0])
+        finally:
+            connection.close()
+            server.shutdown()
+            server.server_close()
+            worker.join(5)
+            host.close()
+
+    def test_host_forwards_resubmission_and_rejects_a_stale_choice(self):
+        upload_root = self.workspace / "uploads" / "fixture"
+        upload_root.mkdir(parents=True)
+        uploaded = upload_root / "selected.pdf"
+        uploaded.write_bytes(self.pdf.read_bytes())
+        host = HostService(
+            self.workspace,
+            self.root / "host-resubmit",
+            ingestion_parser=AcceptanceUnknownParser(unknown_failures=1),
+        )
+        try:
+            host.store.put("upload:fixture", {"name": uploaded.name, "path": str(uploaded)})
+            staged = host.inbox_stage("fixture", topic_title="Systems")
+            host.inbox_confirm(staged["item_id"])
+            unknown = host.inbox_process(staged["item_id"], request_id="initial")
+            choice = unknown["resubmit_risk"]["choice_id"]
+
+            with self.assertRaisesRegex(WorkspaceError, "risk choice"):
+                host.inbox_resubmit(staged["item_id"], request_id="resubmit-1", risk_choice_id="stale")
+
+            completed = host.inbox_resubmit(staged["item_id"], request_id="resubmit-2", risk_choice_id=choice)
+            self.assertEqual(("completed", "published"), (completed["status"], completed["document_status"]))
+            self.assertEqual(completed, host.inbox_item(staged["item_id"]))
+        finally:
+            host.store.close()
+
+    def test_http_entry_resubmit_validates_the_risk_choice_and_runs_the_application(self):
+        workspace = self.root / "host-resubmit-entry"
+        workspace.mkdir()
+        parser = AcceptanceUnknownParser(unknown_failures=1)
+        host = HostService(workspace, self.root / "host-resubmit-data", ingestion_parser=parser)
+        server = Server(("127.0.0.1", 0), host)
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=10)
+        try:
+            connection.request("POST", "/library/inbox?name=paper.pdf&topic=Systems", self.pdf.read_bytes())
+            staged = json.loads(connection.getresponse().read())["value"]
+            connection.request("POST", f"/library/inbox/{staged['item_id']}/confirm", b"{}")
+            connection.getresponse().read()
+            connection.request("POST", f"/library/inbox/{staged['item_id']}/process",
+                               json.dumps({"requestId": "initial"}).encode())
+            response = connection.getresponse()
+            self.assertEqual(202, response.status)
+            response.read()
+
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                connection.request("GET", "/library/inbox")
+                items = json.loads(connection.getresponse().read())["value"]
+                if items and items[0]["status"] == "status_check_required":
+                    break
+                time.sleep(0.05)
+            while staged["item_id"] in host.ingestion_workers:
+                time.sleep(0.05)
+            item = items[0]
+            choice = item["resubmit_risk"]["choice_id"]
+            self.assertFalse(item["remote_reference"])
+
+            # A direct request with a stale risk choice is rejected server-side.
+            connection.request("POST", f"/library/inbox/{item['item_id']}/resubmit",
+                               json.dumps({"requestId": "resubmit-1", "riskChoiceId": "stale"}).encode())
+            response = connection.getresponse()
+            self.assertEqual(400, response.status)
+            self.assertIn("risk choice", json.loads(response.read())["error"]["message"])
+
+            connection.request("POST", f"/library/inbox/{item['item_id']}/resubmit",
+                               json.dumps({"requestId": "resubmit-2", "riskChoiceId": choice}).encode())
+            response = connection.getresponse()
+            self.assertEqual(202, response.status)
+            response.read()
+
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                connection.request("GET", "/library/inbox")
+                items = json.loads(connection.getresponse().read())["value"]
+                if items and items[0]["status"] == "completed":
+                    break
+                time.sleep(0.05)
+            completed = items[0]
+            self.assertEqual("published", completed["document_status"])
+            self.assertEqual((1, 1), (parser.unknown, parser.calls))
+            self.assertEqual(1, len(list((workspace / "sources").iterdir())))
         finally:
             connection.close()
             server.shutdown()

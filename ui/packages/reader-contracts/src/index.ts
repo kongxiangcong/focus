@@ -182,6 +182,10 @@ export interface IngestionItem {
   confirmation?: { services: readonly string[]; purpose: string; scope: string } | null;
   /** Staging returned this unfinished task for the same original instead of a new one. */
   duplicate?: boolean;
+  /** A persisted remote task reference exists for the unfinished parse step. */
+  remoteReference?: boolean;
+  /** The risk choice bound to the current acceptance-unknown state, if any. */
+  resubmitRisk?: { choiceId: string } | null;
   error?: { errorId: string; message: string };
   topicError?: { errorId: string; message: string };
 }
@@ -213,6 +217,8 @@ export interface ReaderHost {
   confirmIngestion?(itemId: string): Promise<ReaderHostResult<IngestionItem>>;
   processIngestion?(itemId: string, requestId: string): Promise<ReaderHostResult<IngestionItem>>;
   continueIngestion?(itemId: string, requestId: string): Promise<ReaderHostResult<IngestionItem>>;
+  /** Explicit resubmission after the user accepted the duplicate-parsing risk. */
+  resubmitIngestion?(itemId: string, requestId: string, riskChoiceId: string): Promise<ReaderHostResult<IngestionItem>>;
   cancelIngestion?(itemId: string): Promise<ReaderHostResult<IngestionItem>>;
   sourceOriginalUrl?(sourceId: string): string;
   sourceContentUrl?(sourceId: string): string;
