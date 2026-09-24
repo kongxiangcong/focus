@@ -21,13 +21,22 @@
 3. 在同一 root 上新建 Context 并重新挂载公共服务。
 4. `stat(session.id)` 仍有结果，`list()` 仍包含该 Session，运行时公共服务不存在 `delete` 操作。
 
-命令：
+可复现探针源码保存在 [`tests/probes/dsh_session_deletion_probe.spec.ts`](../../../tests/probes/dsh_session_deletion_probe.spec.ts)。它是 FOCUS 的验收资产；复现时临时复制到固定 DSH checkout 的测试目录，不把探针提交到 DSH：
 
-```text
-pnpm exec vitest run packages/session/session-persistence-jsonl/tests/focus-session-delete-probe.spec.ts
+```powershell
+$dshRoot = 'D:\dsh-proj\deepseek-harness'
+$probeTarget = Join-Path $dshRoot 'packages\session\session-persistence-jsonl\tests\focus-session-delete-probe.spec.ts'
+Copy-Item -LiteralPath '.\tests\probes\dsh_session_deletion_probe.spec.ts' -Destination $probeTarget
+Push-Location $dshRoot
+try {
+  pnpm exec vitest run packages/session/session-persistence-jsonl/tests/focus-session-delete-probe.spec.ts
+} finally {
+  Pop-Location
+  Remove-Item -LiteralPath $probeTarget
+}
 ```
 
-结果：`Test Files 1 passed (1)`，`Tests 1 passed (1)`。该通过只证明“终止后仍持久化，且公共删除能力缺失”的探针断言。测试 teardown 对整个隔离临时 root 的外部删除仅用于回收测试资源，不是 Session 删除方案，也不计为验收证据。
+结果摘要：Vitest `v4.1.8`，`Test Files 1 passed (1)`，`Tests 1 passed (1)`，duration `3.96s`。该通过只证明“终止后仍持久化，且公共删除能力缺失”的探针断言。测试 teardown 对整个隔离临时 root 的外部删除仅用于回收测试资源，不是 Session 删除方案，也不计为验收证据。
 
 ## 决策
 
