@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
-import { createReaderId, type IngestionItem, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingWindow } from "@focus/reader-contracts";
+import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogStatus, type IngestionItem, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingWindow } from "@focus/reader-contracts";
 import { FocusReader, TaskProgress } from "@focus/reader-ui";
 
 type Route = "/library" | "/reading" | "/settings";
@@ -14,6 +14,15 @@ function routeFromLocation(): Route { return ["/library", "/reading", "/settings
 function readingStatus(source: LibrarySource) {
   return source.readingStatus ?? (source.progress.planId && source.progress.chunkId === null ? "completed" : source.progress.completed ? "reading" : source.progress.planId ? "ready" : "unplanned");
 }
+
+const blogArtifacts: readonly [BlogArtifactName, string][] = [["value_analysis", "价值分析"], ["reading_blog", "带读博客"], ["html", "HTML"]];
+const blogStatusText: Record<BlogArtifactStatus, string> = {
+  pending: "待生成", generating: "生成中", completed: "已完成", failed: "失败", not_applicable: "不适用",
+};
+/** Retry is named by granularity: only the failed document is re-run. */
+const blogRetryLabel: Record<BlogArtifactName, string> = {
+  value_analysis: "重新生成价值分析", reading_blog: "重新生成带读博客", html: "重新生成 HTML",
+};
 
 export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [route, setRoute] = useState<Route>(routeFromLocation);
@@ -34,6 +43,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadTopic, setUploadTopic] = useState("");
+  const [blogs, setBlogs] = useState<Readonly<Record<string, BlogStatus>>>({});
+  const [generateBlogs, setGenerateBlogs] = useState(false);
+  const [blogViewer, setBlogViewer] = useState("");
   const uploadDialog = useRef<HTMLDialogElement>(null);
   const confirmation = useRef<HTMLDialogElement>(null);
   const locked = useRef(false);
@@ -73,6 +85,14 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     return () => window.clearInterval(timer);
   }, [inbox, host]);
   useEffect(() => { if (confirm) confirmation.current?.showModal(); else confirmation.current?.close(); }, [confirm]);
+  useEffect(() => { if (view?.blog) setBlogs(view.blog); }, [view?.blog]);
+  useEffect(() => {
+    const running = Object.values(blogs).filter(blog => blog.runStatus === "running").map(blog => blog.sourceId);
+    if (running.length === 0 || !host.blogStatus) return;
+    const timer = window.setInterval(() => running.forEach(id => void refreshBlog(id)), 1500);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blogs, host]);
 
   useEffect(() => { if (uploadOpen) uploadDialog.current?.showModal(); else uploadDialog.current?.close(); }, [uploadOpen]);
 
@@ -102,11 +122,39 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     } catch (e) { setError(String(e)); }
     finally { locked.current = false; setBusy(""); }
   }
+  async function refreshBlog(sourceId: string) {
+    if (!host.blogStatus) return;
+    const result = await host.blogStatus(sourceId);
+    if (result.ok) setBlogs(current => ({ ...current, [sourceId]: result.value }));
+  }
+  async function blogAction(sourceId: string, operation: () => Promise<ReaderHostResult<BlogStatus>>) {
+    setError("");
+    const result = await operation();
+    if (!result.ok) { setError(result.error.message); return; }
+    setBlogs(current => ({ ...current, [sourceId]: result.value }));
+  }
+  async function generateBlog(sourceId: string) {
+    if (!host.generateBlog) return;
+    setBusy("生成博客");
+    try { await blogAction(sourceId, () => host.generateBlog!(sourceId, createReaderId())); }
+    finally { setBusy(""); }
+  }
+  async function regenerateBlog(sourceId: string, artifact: BlogArtifactName) {
+    if (!host.regenerateBlog) return;
+    setBusy(blogRetryLabel[artifact]);
+    try { await blogAction(sourceId, () => host.regenerateBlog!(sourceId, createReaderId(), artifact)); }
+    finally { setBusy(""); }
+  }
+  async function regenerateAll(sourceId: string, blog: BlogStatus) {
+    // One deliberate re-run: each article by its own granularity, HTML follows.
+    await regenerateBlog(sourceId, "reading_blog");
+    if (blog.valueAnalysis.applicable) await regenerateBlog(sourceId, "value_analysis");
+  }
   async function confirmAndStart(item: IngestionItem) {
     if (!host.confirmIngestion || !host.processIngestion || locked.current) return;
     locked.current = true; setBusy("确认"); setError(""); setNotice("");
     try {
-      const confirmed = await host.confirmIngestion(item.itemId);
+      const confirmed = await host.confirmIngestion(item.itemId, generateBlogs);
       if (!confirmed.ok) { setError(confirmed.error.message); return; }
       replaceInbox(confirmed.value); setBusy("入库");
       const started = await host.processIngestion(item.itemId, createReaderId());
@@ -150,7 +198,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       {view?.agent?.run && <div className="library-run"><TaskProgress run={view.agent.run} /><button onClick={() => navigate("/reading")}>查看</button></div>}
       {inbox.length > 0 && <section className="library-inbox" aria-label="Inbox"><div className="library-inbox-heading"><h2>Inbox</h2><button disabled={!!busy} onClick={() => void refresh()}>刷新状态</button></div>{inbox.map(item => <article key={item.itemId} className="library-inbox-item" data-status={item.status}>
         <div><strong>{item.fileName}</strong><span>{statusText[item.status]}</span><small>{item.topicTitle ?? topics.find(t => t.topicId === item.topicId)?.title ?? "不关联专题"}</small></div>
-        {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>将调用 {(item.services ?? item.confirmation?.services ?? ["mineru"]).map(service => service === "mineru" ? "MinerU" : service).join("、")} 处理此 PDF，仅用于建立 Source 并关联专题；不会创建博客、翻译或阅读计划，也不做 AI 内容审核。</p><button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>确认并开始</button></div>}
+        {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>将调用 {(item.services ?? item.confirmation?.services ?? ["mineru"]).map(service => service === "mineru" ? "MinerU" : service).join("、")} 处理此 PDF，仅用于建立 Source 并关联专题；不会创建翻译或阅读计划，也不做 AI 内容审核。</p>
+          <label className="inbox-blog-option"><input type="checkbox" checked={generateBlogs} onChange={e => setGenerateBlogs(e.target.checked)} />同时生成博客（入库完成后自动接续带读博客，架构类论文另生成价值分析）</label>
+          <button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>确认并开始</button></div>}
         {item.status === "processing" && <button disabled={!!busy || !host.cancelIngestion} onClick={() => host.cancelIngestion && void ingest("取消", () => host.cancelIngestion!(item.itemId))}>取消</button>}
         {(item.status === "status_check_required" || (item.status === "cancelled" && item.resubmitRisk)) && <div className="inbox-confirmation inbox-resubmission">
           <p>上次提交结果未知，重新提交可能重复解析。</p>
@@ -175,6 +225,19 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
             <p className="library-metadata">{s.preparation && (s.preparation.ready ? "阅读已准备好" : `准备阅读 ${s.preparation.completed}/${s.preparation.total} · 点击阅读继续准备`)}</p>
             <div className="library-card-bottom"><small>{({ ready: "待阅读", reading: "阅读中", completed: "已读完", unplanned: "待规划" })[readingStatus(s)]}</small><div className="library-row-actions">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(s.sourceId)} target="_blank" rel="noreferrer">PDF 原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(s.sourceId)} target="_blank" rel="noreferrer">正文</a>}<button disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready"} onClick={() => void operate("打开", () => host.openSource!(s.sourceId), true)}>阅读</button><button disabled={!!busy || active || !host.rereadSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "reread" })}>从头阅读</button><button disabled={!!busy || active || !host.replanSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "replan" })}>重新规划</button><button disabled={!!busy || active || !host.deleteSource} onClick={() => setConfirm({ source: s, action: "delete" })}>删除</button></div></div>
             <div className="library-tags" aria-label="专题标签">{s.topicIds.map(id => <button key={id} onClick={() => setTopic(id)}>{topics.find(t => t.topicId === id)?.title ?? id}</button>)}</div>
+            <section className="library-blog" aria-label={`${s.title} 博客`}>
+              {!blogs[s.sourceId]?.generated ? <button disabled={!!busy || !host.generateBlog || s.parseStatus !== "ready"} onClick={() => void generateBlog(s.sourceId)}>生成博客</button> : <>
+                <ul className="blog-statuses">{blogArtifacts.map(([name, label]) => <li key={name} data-status={blogs[s.sourceId].artifacts?.[name]?.status ?? "pending"}><span>{label}</span><small>{blogStatusText[(blogs[s.sourceId].artifacts?.[name]?.status ?? "pending") as BlogArtifactStatus]}</small></li>)}</ul>
+                {blogs[s.sourceId].valueAnalysis.applicable === false && <p className="blog-note">论文价值分析不适用：{blogs[s.sourceId].valueAnalysis.reason}</p>}
+                {blogs[s.sourceId].warnings.length > 0 && <p className="blog-note" role="status">降级与证据缺口：{blogs[s.sourceId].warnings.join("；")}</p>}
+                {blogs[s.sourceId].error && <p className="blog-note" role="alert">{blogs[s.sourceId].error?.message}</p>}
+                <div className="blog-actions">
+                  {blogArtifacts.filter(([name]) => blogs[s.sourceId].artifacts?.[name]?.status === "failed").map(([name]) => <button key={name} disabled={!!busy || !host.regenerateBlog} onClick={() => void regenerateBlog(s.sourceId, name)}>{blogRetryLabel[name]}</button>)}
+                  {blogArtifacts.every(([name]) => blogs[s.sourceId].artifacts?.[name]?.status !== "failed") && <button disabled={!!busy || !host.regenerateBlog} onClick={() => void regenerateAll(s.sourceId, blogs[s.sourceId])}>重新生成</button>}
+                  {host.blogUrl && <button disabled={blogs[s.sourceId].artifacts?.html?.status !== "completed"} onClick={() => setBlogViewer(s.sourceId)}>打开博客</button>}
+                </div>
+              </>}
+            </section>
           </article>)}</div>}
         </section></div>
       {busy && <p role="status">{busy}中…</p>}
@@ -196,6 +259,11 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFile || !uploadTopic.trim()}>{busy ? "暂存中…" : "放入 Inbox"}</button></div>
       </form>
     </dialog>
+    {blogViewer && host.blogUrl && <dialog className="workspace-blog-viewer" open onCancel={() => setBlogViewer("")}>
+      <div className="blog-viewer-head"><h2>博客：{sources.find(s => s.sourceId === blogViewer)?.shortName || sources.find(s => s.sourceId === blogViewer)?.title}</h2>
+        <div><a href={host.blogUrl(blogViewer)} target="_blank" rel="noreferrer">新窗口打开</a><button onClick={() => setBlogViewer("")}>关闭</button></div></div>
+      <iframe title="博客" src={host.blogUrl(blogViewer)} />
+    </dialog>}
     <dialog className="workspace-confirm" ref={confirmation} onCancel={() => setConfirm(null)}><h2>{confirm?.action === "delete" ? "删除材料？" : confirm?.action === "replan" ? "重新规划？" : "从头阅读？"}</h2><p>{confirm?.source.title}</p><p>{confirm?.action === "delete" ? "原文、图片、计划与笔记将永久删除，专题引用也会移除。" : confirm?.action === "replan" ? "重新分段并准备译文；保留旧计划、译文和笔记，不重复解析。" : "回到第一段，保留现有分段、译文和笔记。"}</p><div><button disabled={!!busy} onClick={() => setConfirm(null)}>取消</button><button className="workspace-primary" disabled={!!busy || active} onClick={() => {
       if (!confirm) return;
       const { source, action } = confirm;

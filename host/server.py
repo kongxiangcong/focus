@@ -124,6 +124,35 @@ class Handler(BaseHTTPRequestHandler):
             self._send(409 if code == 'cursor-changed' else 400 if code == 'invalid-request' else 500,
                        {'ok': False, 'error': {'code': code, 'message': str(exc), 'retryable': code == 'unavailable'}})
 
+    def _blog(self, method, path, source_id, parts):
+        """Blog Output: status, generation, per-artifact retry and the viewer document."""
+        service = self.server.service
+        if method == 'GET' and len(parts) == 2:
+            self._send(200, {'ok': True, 'value': service.blog_status(source_id)})
+            return
+        if method == 'GET' and len(parts) == 3 and parts[2] == 'html':
+            target = service.blog_html(source_id)
+            self._send(200, target.read_bytes(), content_type='text/html; charset=utf-8',
+                       headers={'Content-Disposition': 'inline; filename="index.html"',
+                                'Content-Security-Policy': "default-src 'none'; img-src data:; style-src 'unsafe-inline'; "
+                                                           "font-src data:; script-src 'unsafe-inline'; frame-ancestors 'self'"})
+            return
+        if method != 'POST' or len(parts) != 3 or parts[2] not in ('generate', 'regenerate'):
+            raise ValueError('Unknown Blog operation')
+        payload = self._body()
+        request_id = payload.get('requestId')
+        if not isinstance(request_id, str) or not request_id:
+            raise ValueError('A requestId is required')
+        if parts[2] == 'generate':
+            result = service.blog_generate(source_id, request_id=request_id)
+        else:
+            artifact = payload.get('artifact')
+            if artifact not in ('value_analysis', 'reading_blog', 'html'):
+                raise ValueError('A blog artifact is required')
+            result = service.blog_regenerate(source_id, artifact=artifact, request_id=request_id)
+        self._send(202, {'ok': True, 'value': result})
+        return
+
     def _api(self, method, path):
         service = self.server.service
         if method == 'GET' and path == '/reader/events':
@@ -202,6 +231,9 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith('/library/sources/'):
             parts = path[len('/library/sources/'):].split('/')
             source_id = unquote(parts[0])
+            if len(parts) >= 2 and parts[1] == 'blog':
+                self._blog(method, path, source_id, parts)
+                return
             if method == 'GET' and len(parts) >= 3 and parts[1] == 'images':
                 target = service.core.image(source_id, unquote('/'.join(parts[1:])))
                 self._send(200, target.read_bytes(), content_type=mimetypes.guess_type(target)[0] or 'image/png')

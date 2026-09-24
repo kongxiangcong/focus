@@ -2,10 +2,18 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readerSuccess, type IngestionItem, type ReaderHost, type ReadingWindow } from "@focus/reader-contracts";
+import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ReaderHost, type ReadingWindow } from "@focus/reader-contracts";
 import { WorkspaceApp } from "./WorkspaceApp";
 const empty: ReadingWindow = { status: "empty", current: null, history: [], conversation: [], source: { sourceId: "", title: "", topicId: null }, sessionId: "s1",
   agent: { run: null, catalog: { sources: [], topics: [] }, backend: "codex", backends: [{ id: "codex", label: "Codex" }, { id: "workbuddy", label: "WorkBuddy", unavailableReason: "待接入" }] } };
+function blogStatus(overrides: Partial<BlogStatus> = {}, artifacts: Partial<Record<BlogArtifactName, { status: BlogStatus["artifacts"]["html"]["status"]; updatedAt: string | null }>> = {}): BlogStatus {
+  return {
+    sourceId: "a-paper", generated: true, methodVersion: "article-blog-v1", runStatus: "completed",
+    artifacts: { value_analysis: { status: "completed", updatedAt: "2026-09-24T00:00:00Z" }, reading_blog: { status: "completed", updatedAt: "2026-09-24T00:00:00Z" }, html: { status: "completed", updatedAt: "2026-09-24T00:00:00Z" }, ...artifacts },
+    valueAnalysis: { applicable: true, direction: "design_space_exploration", reason: "主贡献是设计变量与搜索选择" },
+    verificationLevel: "paper_reading", warnings: [], error: null, ...overrides,
+  };
+}
 function setup(initialInbox: readonly IngestionItem[] = []) {
   const staged: IngestionItem = { itemId: "item-1", fileName: "test.pdf", status: "awaiting_confirmation", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"] };
   const confirmed: IngestionItem = { ...staged, status: "confirmed", confirmation: { services: ["mineru"], purpose: "register source", scope: "ingestion" } };
@@ -21,6 +29,10 @@ function setup(initialInbox: readonly IngestionItem[] = []) {
     resubmitIngestion: vi.fn(async () => readerSuccess(processing)),
     sourceOriginalUrl: id => `/library/sources/${id}/original`, sourceContentUrl: id => `/library/sources/${id}/content`,
     openSource: vi.fn(async () => readerSuccess(empty)), deleteSource: vi.fn(async () => readerSuccess(empty)), rereadSource: vi.fn(async () => readerSuccess(empty)),
+    blogStatus: vi.fn(async () => readerSuccess(blogStatus())),
+    generateBlog: vi.fn(async () => readerSuccess(blogStatus({ runStatus: "running" }))),
+    regenerateBlog: vi.fn(async () => readerSuccess(blogStatus())),
+    blogUrl: (id: string) => `/library/sources/${id}/blog/html`,
   };
   return { host, ...render(<WorkspaceApp host={host} />) };
 }
@@ -64,7 +76,7 @@ it("stages a PDF without processing and starts only after explicit confirmation"
   expect(host.confirmIngestion).not.toHaveBeenCalled();
   expect(host.processIngestion).not.toHaveBeenCalled();
   fireEvent.click(await screen.findByRole("button", { name: "确认并开始" }));
-  await waitFor(() => expect(host.confirmIngestion).toHaveBeenCalledWith("item-1"));
+  await waitFor(() => expect(host.confirmIngestion).toHaveBeenCalledWith("item-1", false));
   await waitFor(() => expect(host.processIngestion).toHaveBeenCalledWith("item-1", expect.any(String)));
   await waitFor(() => expect(screen.getByRole("button", { name: "删除" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "删除" }));
@@ -103,7 +115,7 @@ it("offers explicit reconfirmation for a recoverable Inbox item", async () => {
   const interrupted: IngestionItem = { itemId: "recover", fileName: "paper.pdf", status: "interrupted", topicTitle: "系统", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"] };
   const { host } = setup([interrupted]);
   fireEvent.click(await screen.findByRole("button", { name: "重新确认并开始" }));
-  await waitFor(() => expect(host.confirmIngestion).toHaveBeenCalledWith("recover"));
+  await waitFor(() => expect(host.confirmIngestion).toHaveBeenCalledWith("recover", false));
   await waitFor(() => expect(host.processIngestion).toHaveBeenCalledWith("recover", expect.any(String)));
 });
 it("persists brightness and leaves unsupported network control disabled", async () => {
@@ -161,6 +173,52 @@ it("offers resubmission instead of a doomed continue for a cancelled acceptance-
 
   await waitFor(() => expect(host.resubmitIngestion).toHaveBeenCalledWith("item-1", expect.any(String), "choice-1"));
   expect(host.continueIngestion).not.toHaveBeenCalled();
+});
+it("generates a blog from the source card and shows the three sub-statuses", async () => {
+  const { host } = setup();
+  fireEvent.click(await screen.findByRole("button", { name: "生成博客" }));
+  await waitFor(() => expect(host.generateBlog).toHaveBeenCalledWith("a-paper", expect.any(String)));
+  expect(await screen.findByText("价值分析")).toBeInTheDocument();
+  expect(screen.getByText("带读博客")).toBeInTheDocument();
+  expect(screen.getByText("HTML")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "打开博客" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "重新生成" })).toBeEnabled();
+});
+it("names the retry button by the failed artifact only", async () => {
+  const { host } = setup();
+  host.generateBlog = vi.fn(async () => readerSuccess(blogStatus({}, { html: { status: "failed", updatedAt: null } })));
+  fireEvent.click(await screen.findByRole("button", { name: "生成博客" }));
+  const retry = await screen.findByRole("button", { name: "重新生成 HTML" });
+  expect(screen.queryByRole("button", { name: "重新生成价值分析" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "重新生成带读博客" })).not.toBeInTheDocument();
+  fireEvent.click(retry);
+  await waitFor(() => expect(host.regenerateBlog).toHaveBeenCalledWith("a-paper", expect.any(String), "html"));
+});
+it("explains a skipped value analysis instead of showing it as pending", async () => {
+  const { host } = setup();
+  host.generateBlog = vi.fn(async () => readerSuccess(blogStatus({
+    valueAnalysis: { applicable: false, direction: null, reason: "主贡献是数据集与训练技巧" },
+    warnings: ["本次运行环境无网络，未检索论文内链接与官方仓库"],
+  }, { value_analysis: { status: "not_applicable", updatedAt: null } })));
+  fireEvent.click(await screen.findByRole("button", { name: "生成博客" }));
+  expect(await screen.findByText(/论文价值分析不适用：主贡献是数据集与训练技巧/)).toBeInTheDocument();
+  expect(screen.getByText(/降级与证据缺口：/)).toBeInTheDocument();
+});
+it("opens the blog in the embedded viewer from the same host surface", async () => {
+  const { host } = setup();
+  fireEvent.click(await screen.findByRole("button", { name: "生成博客" }));
+  fireEvent.click(await screen.findByRole("button", { name: "打开博客" }));
+  const frame = await screen.findByTitle("博客");
+  expect(frame).toHaveAttribute("src", "/library/sources/a-paper/blog/html");
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+  expect(screen.queryByTitle("博客")).not.toBeInTheDocument();
+});
+it("carries the generate-blog checkbox into the ingestion confirmation", async () => {
+  const staged: IngestionItem = { itemId: "item-1", fileName: "paper.pdf", status: "awaiting_confirmation", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"] };
+  const { host } = setup([staged]);
+  fireEvent.click(await screen.findByRole("checkbox", { name: /同时生成博客/ }));
+  fireEvent.click(screen.getByRole("button", { name: "确认并开始" }));
+  await waitFor(() => expect(host.confirmIngestion).toHaveBeenCalledWith("item-1", true));
 });
 it("offers querying the original task first when a remote reference exists", async () => {
   const unknown: IngestionItem = { itemId: "item-1", fileName: "paper.pdf", status: "status_check_required", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"], remoteReference: true, resubmitRisk: { choiceId: "choice-1" } };

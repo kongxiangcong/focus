@@ -1,4 +1,6 @@
 import { createReaderId,
+  type BlogArtifactName,
+  type BlogStatus,
   type LibrarySource,
   type IngestionItem,
   type IngestionTarget,
@@ -189,8 +191,44 @@ export class HttpReaderHost implements ReaderHost {
     if (target.topicId) query.set("topicId", target.topicId);
     return this.ingestionRequest(`/library/inbox?${query}`, { method: "POST", body: file });
   }
-  confirmIngestion(itemId: string): Promise<ReaderHostResult<IngestionItem>> {
-    return this.ingestionRequest(`/library/inbox/${encodeURIComponent(itemId)}/confirm`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  confirmIngestion(itemId: string, generateBlog = false): Promise<ReaderHostResult<IngestionItem>> {
+    return this.ingestionRequest(`/library/inbox/${encodeURIComponent(itemId)}/confirm`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ generateBlog }) });
+  }
+  blogStatus(sourceId: string): Promise<ReaderHostResult<BlogStatus>> {
+    return this.blogRequest(`/library/sources/${encodeURIComponent(sourceId)}/blog`, { method: "GET" });
+  }
+  generateBlog(sourceId: string, requestId: string): Promise<ReaderHostResult<BlogStatus>> {
+    return this.blogRequest(`/library/sources/${encodeURIComponent(sourceId)}/blog/generate`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });
+  }
+  regenerateBlog(sourceId: string, requestId: string, artifact: BlogArtifactName): Promise<ReaderHostResult<BlogStatus>> {
+    return this.blogRequest(`/library/sources/${encodeURIComponent(sourceId)}/blog/regenerate`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId, artifact }) });
+  }
+  blogUrl(sourceId: string): string {
+    return `${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/blog/html`;
+  }
+
+  private async blogRequest(path: string, init: RequestInit): Promise<ReaderHostResult<BlogStatus>> {
+    try {
+      const response = await this.fetch(`${this.baseUrl}${path}`);
+      const body = await response.json();
+      const value = body?.value as Partial<BlogStatus> | undefined;
+      if (response.ok && body.ok === true && value && typeof value.sourceId === "string" && typeof value.generated === "boolean" &&
+        value.artifacts && typeof value.artifacts === "object" && Array.isArray(value.warnings)) {
+        // The Host reports failures in the Core's snake_case shape; the contract is camelCase.
+        const error = value.error as { error_id?: unknown; errorId?: unknown; message?: unknown } | null | undefined;
+        const normalized = { ...value } as Record<string, unknown>;
+        if (error && typeof error === "object") {
+          normalized.error = {
+            errorId: String(error.errorId ?? error.error_id ?? "blog_failed"),
+            message: typeof error.message === "string" ? error.message : "博客生成失败",
+          };
+        }
+        return { ok: true, value: normalized as unknown as BlogStatus };
+      }
+      return { ok: false, error: { code: "invalid-response", message: body?.error?.message ?? "博客状态响应格式错误", retryable: false } };
+    } catch (e) { return { ok: false, error: { code: "unavailable", message: String(e), retryable: true } }; }
   }
   processIngestion(itemId: string, requestId: string): Promise<ReaderHostResult<IngestionItem>> {
     return this.ingestionRequest(`/library/inbox/${encodeURIComponent(itemId)}/process`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });

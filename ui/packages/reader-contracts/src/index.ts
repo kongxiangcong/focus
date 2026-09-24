@@ -47,6 +47,28 @@ export interface ReaderSource {
   topicId: string | null;
 }
 
+export type BlogArtifactName = "value_analysis" | "reading_blog" | "html";
+
+export type BlogArtifactStatus =
+  | "pending"
+  | "generating"
+  | "completed"
+  | "failed"
+  | "not_applicable";
+
+/** One Blog Output: the two Markdown artifacts plus the merged single-file page. */
+export interface BlogStatus {
+  sourceId: string;
+  generated: boolean;
+  artifacts: Record<BlogArtifactName, { status: BlogArtifactStatus; updatedAt: string | null }>;
+  valueAnalysis: { applicable: boolean | null; direction: string | null; reason: string | null };
+  verificationLevel: string | null;
+  warnings: readonly string[];
+  methodVersion: string | null;
+  runStatus?: string | null;
+  error?: { errorId: string; message: string } | null;
+}
+
 export type ReaderMessageRole = "user" | "assistant";
 
 export interface ReaderMessage {
@@ -70,6 +92,8 @@ export interface ReadingWindow {
   history: readonly ReaderChunk[];
   conversation: readonly ReaderMessage[];
   agent?: ReaderAgentState;
+  /** Blog Output projection per Source id; absent when the Host has no blog surface. */
+  blog?: Readonly<Record<string, BlogStatus>>;
 }
 
 export interface ReaderApproval {
@@ -214,7 +238,12 @@ export interface ReaderHost {
   listSources?(): Promise<ReaderHostResult<readonly LibrarySource[]>>;
   listInbox?(): Promise<ReaderHostResult<readonly IngestionItem[]>>;
   stageIngestion?(file: File, target: IngestionTarget): Promise<ReaderHostResult<IngestionItem>>;
-  confirmIngestion?(itemId: string): Promise<ReaderHostResult<IngestionItem>>;
+  /** `generateBlog` is the Inbox checkbox: one confirmation, one authorized follow-up. */
+  confirmIngestion?(itemId: string, generateBlog?: boolean): Promise<ReaderHostResult<IngestionItem>>;
+  blogStatus?(sourceId: string): Promise<ReaderHostResult<BlogStatus>>;
+  generateBlog?(sourceId: string, requestId: string): Promise<ReaderHostResult<BlogStatus>>;
+  regenerateBlog?(sourceId: string, requestId: string, artifact: BlogArtifactName): Promise<ReaderHostResult<BlogStatus>>;
+  blogUrl?(sourceId: string): string;
   processIngestion?(itemId: string, requestId: string): Promise<ReaderHostResult<IngestionItem>>;
   continueIngestion?(itemId: string, requestId: string): Promise<ReaderHostResult<IngestionItem>>;
   /** Explicit resubmission after the user accepted the duplicate-parsing risk. */
