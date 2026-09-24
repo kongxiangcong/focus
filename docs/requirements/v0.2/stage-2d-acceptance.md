@@ -36,7 +36,7 @@ try {
 }
 ```
 
-结果摘要：Vitest `v4.1.8`，`Test Files 1 passed (1)`，`Tests 1 passed (1)`，duration `3.96s`。该通过只证明“终止后仍持久化，且公共删除能力缺失”的探针断言。测试 teardown 对整个隔离临时 root 的外部删除仅用于回收测试资源，不是 Session 删除方案，也不计为验收证据。
+结果摘要：Vitest `v4.1.8`，`Test Files 1 passed (1)`，`Tests 1 passed (1)`。该通过只证明“终止后仍持久化，且公共删除能力缺失”的探针断言。测试 teardown 对整个隔离临时 root 的外部删除仅用于回收测试资源，不是 Session 删除方案，也不计为验收证据。
 
 ## 决策
 
