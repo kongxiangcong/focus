@@ -55,4 +55,4 @@
 
 本目录不标记 `ready-for-agent`。按用户显式调用生成的 spec／tickets 放入本地 tracker；当前 [阶段 1 spec](../../../.scratch/focus-v02-stage1/spec.md) 及用户批准的 [4 张实施票](../../../.scratch/focus-v02-stage1/README.md) 已依次实施，综合证据见 [阶段 1 验收记录](stage-1-acceptance.md)。下一轮重新核对代码基线，避免把这里的现状快照当成永久事实。`.scratch/` 默认受 Git 忽略；本阶段 spec、任务索引和 4 张票已显式纳入版本管理，试验数据保持本地。
 
-阶段 0 grill 已确认忽略 v0.1，不再继承或等待其未见章节。需求以 v0.2 总计划、现有 `paper2blog/references/writing-method.md` 与已确认的阶段记录为依据；方法的具体更新在相应阶段收敛。
+阶段 0 grill 已确认忽略 v0.1，不再继承或等待其未见章节。需求以 v0.2 总计划、`methods/article-blog/reference/` 下的方法副本与已确认的阶段记录为依据；方法的具体更新在相应阶段收敛。

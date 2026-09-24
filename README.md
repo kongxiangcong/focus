@@ -146,7 +146,7 @@ $draft | python -B -X utf8 .agents/skills/focus-read/scripts/focus_read.py synth
 ## 公开 Skills
 
 - article-parser：提供 PDF、URL 或选定单文件 HTML 并调用即授权本次 MinerU 获取/上传；统一注册或复用 Paper Source / Article Source，不混淆来源类型，也不绕过访问控制或适配发布平台。
-- paper2blog：从 Parser Bundle 生成独立 Blog Output，不读取或修改私人阅读数据。
+- article-blog：从 Parser Bundle 生成独立 Blog Output（Reading Blog、Value Analysis 与合并 index.html），不读取或修改私人阅读数据。
 - focus-map：为已注册 Reading Source 创建、复用或显式重建固定 Reading Plan。
 - focus-read：展示当前 Chunk；按 Topic 有序跨 Source 阅读；执行有界 Source/Topic 搜索、Notes、Cursor 推进与显式 Source-anchored Topic Synthesis。
 

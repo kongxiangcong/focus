@@ -11,12 +11,12 @@
 | [SourceLibrary](../../../.agents/core/source_library.py)、[ADR 0003](../../adr/0003-use-one-source-library-for-ordered-topic-reading.md) | 单份 Source、多专题引用、稳定身份、原件复用 | Inbox 和 Bundle 版本化提交尚需落地；阶段 1、5C |
 | [HostService](../../../host/service.py) 的 `library_upload`／`_verify_library_task` | PDF、HTML、Markdown 路由，上传产物核验、重试复用 | 成功仍依赖 Plan 和全文准备；阶段 1 移除新入库链上的该门槛 |
 | [Core](../../../.agents/core/reading_workspace.py)、[CoreBridge](../../../host/core_bridge.py) | 原文范围读取、搜索、缓存、游标回执 | `read_source_range` 已可显式指定 Source；搜索仍依赖当前 Source，`append_note` 强制当前 Plan／Chunk；阶段 3 才形成独立备注 |
-| [paper2blog](../../../.agents/skills/paper2blog/SKILL.md) 及其 writing-method | PDF 证据地图、写作准则、渲染／校验脚本，与阅读资产隔离 | 明确拒绝 HTML；不是已贯通的网页博客 Application；阶段 2、5A |
+| [article-blog](../../../methods/article-blog/SKILL.md) 及其方法副本 | PDF 证据地图、写作准则、渲染／校验脚本，与阅读资产隔离 | 明确拒绝 HTML；不是已贯通的网页博客 Application；阶段 2、5A |
 | [ADR 0010](../../adr/0010-prepare-reading-before-opening.md)、[prepared-reading 测试](../../../tests/test_prepared_reading.py) | 逐 Chunk 保存、缺失恢复、中文不重复翻译、重读保留资产 | 当前必须全 Plan 就绪才能打开／继续；阶段 4 改为目标 Chunk 按需准备 |
 | [后端契约](../../../host/backends/base.py)、[ADR 0007](../../adr/0007-selectable-agent-backends.md) | Session、事件、工具、停止、空闲切换与会话隔离 | Codex 是参考候选，须重新预检查；WorkBuddy 当前仍显式不可用；阶段 0、7 |
 | [ADR 0004](../../adr/0004-host-agnostic-reader-seam.md)、[HostService](../../../host/service.py) | ReaderHost、HTTP／SSE、Core 权威、现有单写者保护 | 尚无总计划目标 Application／RuntimePort／DSH 原生交付证据；阶段 1 增量抽取，2D 验证 |
 
-Markdown 是当前明确的本地导入能力，可作离线回归材料；不能据此替代 v0.2 必需的 PDF／HTML 真实解析出口。首阶段建议 PDF，是为了复用已存在的解析及 paper2blog 衔接；仍需阶段 0 验证参考环境可用性。
+Markdown 是当前明确的本地导入能力，可作离线回归材料；不能据此替代 v0.2 必需的 PDF／HTML 真实解析出口。首阶段建议 PDF，是为了复用已存在的解析及 article-blog 衔接；仍需阶段 0 验证参考环境可用性。
 
 ## 必须显式处理的既有决策
 

@@ -10,7 +10,7 @@
 |---|---|
 | paper-parser | 调用即授权本次 MinerU PDF 上传；解析、注册或复用 Paper Source |
 | article-parser | 调用即授权本次 MinerU URL 获取或 HTML 上传；解析、注册或复用 Article Source |
-| paper2blog | 从 Paper Parser Bundle 生成独立 Blog Output |
+| article-blog | 从 Paper Parser Bundle 生成独立 Blog Output |
 | focus-map | 通过 stdin 接收私有草案，创建、复用或显式重建 Source-owned Reading Plan |
 | focus-read | 阅读 Source 或有序 Topic，检索、记录、推进并显式生成 Topic Synthesis |
 

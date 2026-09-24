@@ -7,7 +7,8 @@
 | 路径 | 职责 |
 | --- | --- |
 | `.agents/core/` | Source Library、Reading Plan/Chunk/Record、Cursor、Notes/Topic 的领域实现与文件存储 |
-| `.agents/skills/` | Parser、focus-map、focus-read、paper2blog 工作流；也含 UI 开发辅助 Skills |
+| `.agents/skills/` | Parser、focus-map、focus-read 工作流；也含 UI 开发辅助 Skills |
+| `methods/` | article-blog 版本化方法资源包（SKILL.md、方法副本与脚本） |
 | `ui/packages/reader-contracts/` | `ReaderHost` 操作契约和 `ReadingWindow`，隔离宿主协议 |
 | `ui/packages/reader-ui/` | React Reader、阅读/聊天流、附件、Agent 选择、审批和执行记录 |
 | `ui/apps/standalone/` | Vite 网页入口与 HTTP/SSE Adapter；`prototypes/` 为保留的设计实验 |

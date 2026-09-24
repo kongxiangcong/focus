@@ -104,7 +104,12 @@ class RepositoryBoundaryTests(unittest.TestCase):
                     continue
                 content = path.read_text(encoding="utf-8")
                 python_matches = list(python_only.finditer(content)) if path.suffix.lower() == ".py" else []
-                if path.relative_to(ROOT).as_posix() == ".agents/core/ingestion.py":
+                # Hashing is only allowed where it binds a published asset to the
+                # original or Bundle it was derived from, never as a reading runtime.
+                if path.relative_to(ROOT).as_posix() in {
+                    ".agents/core/ingestion.py",
+                    ".agents/core/article_blog.py",
+                }:
                     python_matches = [m for m in python_matches if m.group(0).lower() not in {"hashlib", "sha256"}]
                 if retired.search(content) or python_matches:
                     findings.append(path.relative_to(ROOT).as_posix())

@@ -26,7 +26,7 @@ def load_module(name: str, path: Path):
 ARTICLE = load_module("journey_article", ROOT / ".agents/skills/article-parser/scripts/article_parser.py")
 FOCUS_MAP = load_module("journey_article_map", ROOT / ".agents/skills/focus-map/scripts/focus_map.py")
 FOCUS_READ = load_module("journey_article_read", ROOT / ".agents/skills/focus-read/scripts/focus_read.py")
-BLOG = load_module("journey_article_blog", ROOT / ".agents/skills/paper2blog/scripts/paper2blog.py")
+ARTICLE_BLOG = load_module("journey_article_blog", ROOT / "methods" / "article-blog" / "scripts" / "article2blog.py")
 
 
 class ArticleReadingJourneyTests(unittest.TestCase):
@@ -211,8 +211,16 @@ class ArticleReadingJourneyTests(unittest.TestCase):
         )
 
         code, rejected = self._run(
-            BLOG,
-            ["prepare", "--workspace", str(workspace), "--source-id", source_id],
+            ARTICLE_BLOG,
+            [
+                "prepare",
+                "--workspace",
+                str(workspace),
+                "--source-id",
+                source_id,
+                "--candidate",
+                str(self.root / "blog-candidate"),
+            ],
         )
         self.assertEqual((1, "source_kind_unsupported"), (code, rejected["error_id"]))
 

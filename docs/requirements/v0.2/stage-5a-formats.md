@@ -6,7 +6,7 @@
 
 在同一 Inbox／Application 路径补齐 PDF 和用户选择的单文件 HTML，均发布同一契约 Bundle，并走通博客、整篇问答、独立备注和可选精读。格式差异留在解析适配和证据规则，不复制业务状态机。
 
-现有 HTML Parser 可复用，但 paper2blog 的 PDF-only 前置条件必须在共用 article-blog 方法中消解。非论文文章没有公式、实验或表格时依据真实内容解释，不强塞论文模板。
+现有 HTML Parser 可复用，但方法原先的 PDF-only 前置条件必须在共用 article-blog 方法中消解。非论文文章没有公式、实验或表格时依据真实内容解释，不强塞论文模板。
 
 ## 验收出口
 

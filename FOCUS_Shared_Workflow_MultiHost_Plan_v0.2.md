@@ -278,7 +278,7 @@ FOCUS 基线仍为 `1de307f51c9bd674b8c7efc053e57e5e5b777276`。其 `Backend` �
 
 本次核查了 DSH 的宿主／运行时架构与 Pi SDK、OpenAI 官方说明；未执行工程修改、真实部署或模型验收。本文所有新目录、RuntimePort 和阶段出口都是设计提议。
 
-博客写作方法以现有 `.agents/skills/paper2blog/references/writing-method.md` 为输入，按 v0.2 阶段讨论更新；MinerU 实际 PDF／HTML 接口行为、真实图像分析能力仍按功能验收补齐。它们不影响先建立共享业务与宿主边界，但会影响相应功能是否可以发布。缺失 v0.1 不再是需求或验收阻塞。
+博客写作方法以 `methods/article-blog/reference/` 下的方法副本为输入，按 v0.2 阶段讨论更新；MinerU 实际 PDF／HTML 接口行为、真实图像分析能力仍按功能验收补齐。它们不影响先建立共享业务与宿主边界，但会影响相应功能是否可以发布。缺失 v0.1 不再是需求或验收阻塞。
 
 ## 10. 参考资料
 
