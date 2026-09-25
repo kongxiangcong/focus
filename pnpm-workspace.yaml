@@ -1,4 +1,5 @@
 packages:
+  - integrations/*
   - ui/apps/*
   - ui/packages/*
 

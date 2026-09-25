@@ -1,0 +1,3 @@
+- insert:
+    - id: focus-native
+      name: '@focus/dsh-native'

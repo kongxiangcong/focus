@@ -1,0 +1,33 @@
+{
+  "name": "@focus/dsh-native",
+  "version": "0.2.0-stage2d",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./session-lifecycle": "./session-lifecycle.js"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "session-lifecycle.js",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node --check index.js && node --check client.js && node --check session-lifecycle.js"
+  }
+}
