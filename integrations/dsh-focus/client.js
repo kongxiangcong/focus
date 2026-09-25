@@ -34,6 +34,7 @@ window.__ModuleLoader__.load({
       descriptors: [
         method('listSources'), method('status', ['sourceId']),
         method('regenerate', ['sourceId', 'requestId', 'hold']), method('cancel', ['attemptId']),
+        method('liveRegenerate', ['sourceId', 'requestId']),
         method('open', ['sourceId']),
       ],
     }
@@ -71,6 +72,14 @@ window.__ModuleLoader__.load({
         } catch (failure) { show(String(failure)) }
       }
 
+      async function liveRegenerate() {
+        try {
+          const requestId = `dsh-live-${Date.now()}`
+          await focus.liveRegenerate(currentSource, requestId).then(unwrap)
+          await refresh()
+        } catch (failure) { show(String(failure)) }
+      }
+
       async function openBlog() {
         try {
           const target = window.document.querySelector('[data-focus-blog-document]')
@@ -91,6 +100,7 @@ window.__ModuleLoader__.load({
       h('div', { style: { margin: '16px 0' } },
         h('button', { style: button, onClick: () => regenerate(false) }, '重新生成'),
         h('button', { style: button, onClick: () => regenerate(true) }, '开始取消演练'),
+        h('button', { style: button, onClick: liveRegenerate }, '真实受限 AI'),
         h('button', { style: button, onClick: cancel }, '取消'),
         h('button', { style: button, onClick: openBlog }, '打开博客'),
         h('button', { style: button, onClick: () => refresh() }, '刷新状态')),

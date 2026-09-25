@@ -90,6 +90,25 @@ class ControlledRuntime:
         return True
 
 
+class SubmittedCandidateRuntime:
+    """One-shot Runtime that returns only the candidate submitted by DSH."""
+
+    def __init__(self, files: dict[str, str]) -> None:
+        self.files = dict(files)
+        self.cancelled = threading.Event()
+
+    def write_artifact(self, *, artifact, **_kwargs):
+        if self.cancelled.is_set():
+            raise RuntimeError("DSH candidate was cancelled")
+        if artifact != "reading_blog":
+            raise RuntimeError(f"DSH live Runtime cannot write {artifact}")
+        return {"files": dict(self.files), "warnings": []}
+
+    def cancel(self):
+        self.cancelled.set()
+        return True
+
+
 SOURCE_ID = "Fixture-paper"
 
 
@@ -114,12 +133,14 @@ class Worker:
     def __init__(self, focus_root: Path, workspace: Path) -> None:
         sys.path.insert(0, str(focus_root / ".agents"))
         from core import BlogApplication
+        self.focus_root = focus_root
         self.workspace = workspace
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.runtime = ControlledRuntime()
         prepare_fixture(workspace)
         self.app = BlogApplication(workspace, runtime=self.runtime, writer_id="dsh-native", network=False)
         self.active: dict | None = None
+        self.active_runtime = None
         self.active_done = threading.Event()
         self.lock = threading.RLock()
         if not (workspace / "sources" / self.SOURCE_ID / "blog" / "index.html").is_file():
@@ -127,6 +148,21 @@ class Worker:
 
     def list_sources(self):
         return [{"sourceId": self.SOURCE_ID, "title": "Fixture Paper", "publicFixture": True}]
+
+    def live_context(self, source_id: str):
+        if source_id != self.SOURCE_ID:
+            raise ValueError("unknown public fixture")
+        bundle = self.workspace / "sources" / source_id / "parser-bundle"
+        method_root = self.focus_root / "methods" / "article-blog"
+        return {
+            "sourceId": source_id,
+            "bundle": (bundle / "content.md").read_text(encoding="utf-8"),
+            "images": sorted(path.name for path in (bundle / "images").iterdir() if path.is_file()),
+            "method": "\n\n".join([
+                (method_root / "SKILL.md").read_text(encoding="utf-8"),
+                (method_root / "reference" / "reading-blog-method.md").read_text(encoding="utf-8"),
+            ]),
+        }
 
     def status(self, source_id: str):
         value = self.app.status(source_id)
@@ -143,6 +179,7 @@ class Worker:
             self.runtime.prepare(hold)
             self.active_done.clear()
             self.active = {"attemptId": attempt_id, "requestId": request_id, "status": "running"}
+            self.active_runtime = self.runtime
 
         def run():
             try:
@@ -158,6 +195,7 @@ class Worker:
             finally:
                 with self.lock:
                     self.active = None
+                    self.active_runtime = None
                     self.active_done.set()
 
         threading.Thread(target=run, name="focus-blog-attempt", daemon=True).start()
@@ -165,12 +203,50 @@ class Worker:
             raise RuntimeError("controlled runtime did not reach the cancellation barrier")
         return {"accepted": True, "attemptId": attempt_id}
 
+    def regenerate_live(self, source_id: str, request_id: str, attempt_id: str, files: dict[str, str]):
+        required = {"blog.md", "evidence/evidence-map.md"}
+        if set(files) != required or not all(isinstance(value, str) for value in files.values()):
+            raise ValueError("DSH live candidate must contain blog.md and evidence/evidence-map.md")
+        with self.lock:
+            if self.active is not None:
+                raise RuntimeError("a DSH live attempt is already active")
+            runtime = SubmittedCandidateRuntime(files)
+            self.active_done.clear()
+            self.active = {"attemptId": attempt_id, "requestId": request_id, "status": "running", "kind": "dsh-live"}
+            self.active_runtime = runtime
+
+        def run():
+            previous = self.app.runtime
+            self.app.runtime = runtime
+            try:
+                self.app.regenerate(
+                    source_id, artifact="reading_blog", request_id=request_id,
+                    authorized_by="manual_trigger",
+                )
+            except Exception as exc:
+                with self.lock:
+                    if self.active is not None:
+                        self.active.update(status="failed", error=str(exc))
+            else:
+                with self.lock:
+                    if self.active is not None:
+                        self.active["status"] = "completed"
+            finally:
+                self.app.runtime = previous
+                with self.lock:
+                    self.active = None
+                    self.active_runtime = None
+                    self.active_done.set()
+
+        threading.Thread(target=run, name="focus-dsh-live-attempt", daemon=True).start()
+        return {"accepted": True, "attemptId": attempt_id}
+
     def cancel(self, sourceId: str, attemptId: str):
         with self.lock:
             if self.active is None or self.active["attemptId"] != attemptId:
                 raise RuntimeError("attempt is not active")
             self.app.cancel(sourceId)
-            self.runtime.cancel()
+            self.active_runtime.cancel()
         if not self.active_done.wait(5):
             raise RuntimeError("controlled runtime did not terminate after cancellation")
         return self.app.status(sourceId)
@@ -192,8 +268,10 @@ def main() -> None:
             method = request["method"]
             params = request.get("params", {})
             if method == "listSources": value = worker.list_sources()
+            elif method == "liveContext": value = worker.live_context(params["sourceId"])
             elif method == "status": value = worker.status(params["sourceId"])
             elif method == "regenerate": value = worker.regenerate(params["sourceId"], params["requestId"], params["attemptId"], bool(params.get("hold")))
+            elif method == "regenerateLive": value = worker.regenerate_live(params["sourceId"], params["requestId"], params["attemptId"], params["files"])
             elif method == "cancel": value = worker.cancel(**params)
             elif method == "open": value = worker.open(params["sourceId"])
             elif method == "shutdown":

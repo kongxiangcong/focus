@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import re
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -30,6 +31,31 @@ def wait_host(host: HostService, source_id: str, timeout: float = 20.0) -> dict:
 
 
 class DshFocusWorkerTests(unittest.TestCase):
+    def test_submitted_live_candidate_uses_the_public_reading_blog_path(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "dsh"
+            worker = DSH.Worker(ROOT, workspace)
+            context = worker.live_context(DSH.SOURCE_ID)
+            self.assertIn("# Fixture Paper", context["bundle"])
+            self.assertIn("article-blog", context["method"])
+            self.assertEqual(["image-001.png"], context["images"])
+            blog = DSH.BLOG + "\n\n真实 DSH 候选标记。\n"
+            worker.regenerate_live(
+                DSH.SOURCE_ID, "live-request", "live-attempt",
+                {"blog.md": blog, "evidence/evidence-map.md": DSH.EVIDENCE},
+            )
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                status = worker.status(DSH.SOURCE_ID)
+                if status["runStatus"] != "running":
+                    break
+                time.sleep(0.01)
+            self.assertEqual("completed", status["runStatus"])
+            self.assertIn(
+                "真实 DSH 候选标记",
+                (workspace / "sources" / DSH.SOURCE_ID / "blog" / "blog.md").read_text(encoding="utf-8"),
+            )
+
     def test_controlled_candidate_is_identical_across_dsh_and_standalone_hosts(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -88,6 +114,46 @@ class DshFocusWorkerTests(unittest.TestCase):
             self.assertEqual("cancelled", receipt["runStatus"])
             self.assertEqual(published, (workspace / "sources" / DSH.SOURCE_ID / "blog" / "blog.md").read_bytes())
             self.assertIsNone(worker.active)
+
+    def test_cancelled_live_candidate_stops_its_attempt_runtime(self):
+        entered = threading.Event()
+        release = threading.Event()
+        original_runtime = DSH.SubmittedCandidateRuntime
+
+        class BlockingCandidateRuntime(original_runtime):
+            def write_artifact(self, **kwargs):
+                entered.set()
+                if not release.wait(5):
+                    raise RuntimeError("test live Runtime barrier timed out")
+                return super().write_artifact(**kwargs)
+
+            def cancel(self):
+                result = super().cancel()
+                release.set()
+                return result
+
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary) / "dsh"
+            worker = DSH.Worker(ROOT, workspace)
+            published = (workspace / "sources" / DSH.SOURCE_ID / "blog" / "blog.md").read_bytes()
+            DSH.SubmittedCandidateRuntime = BlockingCandidateRuntime
+            try:
+                worker.regenerate_live(
+                    DSH.SOURCE_ID, "live-cancel-request", "live-attempt-cancel",
+                    {
+                        "blog.md": DSH.BLOG + "\n\n这个真实候选迟到后不能发布。\n",
+                        "evidence/evidence-map.md": DSH.EVIDENCE,
+                    },
+                )
+                self.assertTrue(entered.wait(5), "live Runtime did not reach cancellation barrier")
+                receipt = worker.cancel(DSH.SOURCE_ID, "live-attempt-cancel")
+            finally:
+                DSH.SubmittedCandidateRuntime = original_runtime
+
+            self.assertEqual("cancelled", receipt["runStatus"])
+            self.assertEqual(published, (workspace / "sources" / DSH.SOURCE_ID / "blog" / "blog.md").read_bytes())
+            self.assertIsNone(worker.active)
+            self.assertIsNone(worker.active_runtime)
 
 
 if __name__ == "__main__":

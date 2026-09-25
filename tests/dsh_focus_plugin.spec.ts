@@ -45,4 +45,17 @@ describe('FOCUS DSH native entry', () => {
       { name: 'sidebar.panellist', id: 'focus-library', order: 12, label: 'FOCUS 知识库' },
     ])
   })
+
+  it('restricts a live agent to the three FOCUS candidate tools', () => {
+    const source = readFileSync(resolve('integrations/dsh-focus/index.js'), 'utf8')
+    expect(source).toContain("agentCtx.tools.restrict({ allow: [] })")
+    expect(source.match(/name: 'focus_(?:read_bundle|read_method|submit_candidate)'/g)?.sort()).toEqual([
+      "name: 'focus_read_bundle'",
+      "name: 'focus_read_method'",
+      "name: 'focus_submit_candidate'",
+    ])
+    expect(source).toContain("name: 'bash'")
+    expect(source).toContain("rejected: denial.isError === true")
+    expect(source).toContain("runStatus: latestAttempt.businessStatus")
+  })
 })

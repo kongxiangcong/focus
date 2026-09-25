@@ -1,6 +1,6 @@
 # FOCUS v0.2 阶段 2D 验收记录
 
-日期：2026-09-25。当前结论：票 01、02 已通过。永久删除能力调查已完成；用户接受固定 DSH 基准采用“终止执行、释放资源并归档专用 Session”的明确例外。最小插件与受控 Runtime 博客闭环已完成真实 DSH 页面、双 Host 对照、取消、中断恢复和归档验收。票 03 的真实受限 AI 仍待执行。
+日期：2026-09-25。当前结论：票 01、02 已通过；票 03 的实现、受限工具探针、真实失败与真实取消／归档已通过，但真实成功写作被 DeepSeek 官方账户余额阻塞。永久删除能力调查已完成；用户接受固定 DSH 基准采用“终止执行、释放资源并归档专用 Session”的明确例外。阶段 2D 因缺少真实模型成功、候选校验与 Core 提交证据，尚不能宣布完整通过。
 
 ## 固定基准
 
@@ -65,8 +65,10 @@ try {
 | 插件 build/pack/install/boot | 通过 | 本地包在隔离 profile 完成安装、两次启动、卸载和重装 |
 | 无 Session 原生页面 | 通过 | 真实浏览器入口可见；打开前后持久 Session 数保持 1；客户端单测 1/1 通过 |
 | 受控 Runtime 双 Host 业务闭环 | 通过 | 真实 DSH Remote/worker 页面闭环；双 Host 自动化 2/2、Host 自动化 14/14、前端相关自动化 25/25 通过 |
-| 真实 DSH 受限 AI | 未测 | 票 03 被票 02 阻塞 |
-| 阶段 2D | 进行中 | 票 01、02 已通过，继续实施票 03 |
+| 真实 DSH 受限 AI 权限边界 | 通过 | 实际 Agent 仅暴露三项 FOCUS 工具；真实 `bash` 调用返回 `UNKNOWN_TOOL` |
+| 真实 DSH AI 成功写作 | 阻塞 | DeepSeek 官方 `deepseek-v4-flash` 在首个 token 前返回 HTTP 402／`QUOTA`（余额不足） |
+| 真实 DSH AI 取消与归档 | 通过 | 页面即时取消得到 `cancelled / archived`；失败会话得到 `failed / archived` |
+| 阶段 2D | 阻塞 | 票 01、02 通过；票 03 缺真实模型成功、公共校验、Core 提交与页面打开最终 HTML 证据 |
 
 ## 票 02 受控 Runtime 证据
 
@@ -88,3 +90,22 @@ try {
 - `pnpm reader:typecheck` 与 `pnpm reader:build` 通过；build 仅保留既有大 chunk 警告。
 
 本节只证明受控 Runtime、真实 DSH Host/Remote/worker/Core/归档层；它不证明真实模型调用、真实工具权限隔离或内容质量。后者属于票 03。
+
+## 票 03 真实受限 Runtime 证据
+
+- 插件 `@focus/dsh-native@0.2.0-stage2d.23` 将一个 DSH Agent／Session 接到票 02 的同一 `BlogApplication.regenerate(..., artifact="reading_blog")` 路径。模型仅产出候选；worker 仍调用共享校验器、Core 提交与确定性 HTML 渲染，不启动旧 Host、第二个 harness 或第二个模型循环。
+- 每个 live attempt 在创建 Agent 后先屏蔽继承工具，再仅注册 `focus_read_bundle`、`focus_read_method`、`focus_submit_candidate`。运行时枚举确认完整可见工具清单恰为这三项；随后通过 Agent 的实际 scope 执行一次 `bash`，得到 `UNKNOWN_TOOL`。这项拒绝证据来自真实工具执行入口，不只是静态 allow 配置。
+- `focus_read_bundle` 只返回选定公开 Fixture Paper 的 `content.md` 与可用图片名；`focus_read_method` 只返回 article-blog 方法资源；`focus_submit_candidate` 只接受一次 `blog.md` 与 `evidence/evidence-map.md`，候选仍须进入共享业务路径。Agent 不暴露 shell、网络、任意文件操作或正式资产直提工具。
+- 实际 Runtime 为固定 DSH `0.1.7-rc.2` 的 Agent，provider 为 `deepseek-official`，model 为 `deepseek-v4-flash`，认证只记录 `DEEPSEEK_API_KEY environment credential reference`，没有把凭据写入 FOCUS 状态、仓库或报告。
+- 真实写作 attempt `82a3ce0b-c5b7-4665-84b3-224f5bf4a376` 已通过三工具预检查和越界拒绝探针，但 provider 在首个 token 前返回 HTTP 402／`QUOTA`（余额不足）。该 attempt 以 `failed / archived` 终止；没有候选、没有形态／内容校验、没有 Core 提交，也没有用受控 fixture 冒充真实模型结果。
+- 真实取消 attempt `72731010-06cd-45ca-8a18-3ba3be0897d7` 从页面发起后立即取消，得到 `cancelled / archived`。Agent live handle 已释放，专用 Session 通过公开 workspace 归档能力归档；DSH 自有会话日志仍保留。受控 Runtime 的迟到候选拒绝、worker 中断和 DSH 退出恢复继续由票 02 的确定性证据覆盖，未冒充真实模型完成证据。
+- FOCUS 的最小状态只记录版本关联所需的 attempt／Session、source／request、provider／model、认证引用、完整工具清单、拒绝探针结果、业务终态及归档回执；不复制模型消息、思考、候选正文或完整工具日志。
+
+票 03 自动化结果：
+
+- `@focus/dsh-native` build 通过；DSH 原生入口／工具边界和真实归档生命周期 Vitest `3/3` 通过。
+- `tests.test_dsh_focus_worker` 与 `tests.test_blog_host` 共 `18/18` 通过，包含 DSH live 候选进入公开 Reading Blog 路径、双 Host 对照、模型候选进入 worker 后的取消／迟到拒绝及 Standalone Host 回归。
+- Reader UI 与 Standalone Vitest 共 `54/54` 通过；`pnpm reader:typecheck` 与 `pnpm reader:build` 通过。build 仅保留既有大 chunk 警告。
+- 真实 DSH 页面确认失败和取消 attempt 都已归档；固定 DSH checkout 仍在 `477b4f420553e8a52c2fbccc464d7561b239c443` 且 tracked 工作树干净。
+
+票 03 保持阻塞，解除条件是为同一显式 provider／model 提供可用额度后重跑真实写作，并取得候选返回、结构／图片／引用校验、质量 warnings、Core 提交、确定性 HTML 页面打开及成功 Session 释放／归档证据。无需改变权限范围，也不得静默切换 provider。
