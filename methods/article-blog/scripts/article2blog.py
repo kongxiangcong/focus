@@ -435,11 +435,20 @@ th { background:var(--code); text-align:left; }
 hr { border:0; border-top:1px solid var(--line); margin:2rem 0; }
 footer { border-top:1px solid var(--line); color:var(--muted); font-size:14px; padding:20px 0 48px; }
 footer .warn { background:var(--warn-bg); color:var(--warn); border:1px solid #f0dca8; border-radius:8px; padding:12px 16px; margin-bottom:16px; }
+.source-evidence { border-top:1px solid var(--line); padding:18px 0 30px; }
+.source-evidence details { margin:.5rem 0; }
+.source-evidence pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; }
 .not-applicable { border:1px dashed var(--line); border-radius:8px; padding:20px; color:var(--muted); }
 """
 
 PAGE_JS = """
 document.addEventListener('click', function (event) {
+  var source = event.target.closest('a.source-anchor');
+  if (source) {
+    var excerpt = document.getElementById(source.getAttribute('href').slice(1));
+    if (excerpt && excerpt.tagName === 'DETAILS') { excerpt.open = true; }
+    return;
+  }
   var tab = event.target.closest('.tab');
   if (!tab) { return; }
   document.querySelectorAll('.tab').forEach(function (item) {
@@ -539,6 +548,7 @@ def _html_document(
     footer: str,
     *,
     embed_katex: bool = False,
+    source_evidence: str = "",
 ) -> str:
     tabs = "\n".join(
         f'<button class="tab" role="tab" id="tab-{index}" aria-controls="panel-{index}" '
@@ -564,7 +574,7 @@ def _html_document(
         f"<meta name=\"generator\" content=\"article-blog {ARTICLE_BLOG_METHOD_VERSION}\">\n"
         f"<title>{_escape(title)}</title>\n{styles}\n</head>\n<body>\n"
         "<header><div class=\"wrap\"><div class=\"tabs\" role=\"tablist\">" + tabs + "</div></div></header>\n"
-        "<main class=\"wrap\">" + bodies + "</main>\n"
+        "<main class=\"wrap\">" + bodies + source_evidence + "</main>\n"
         "<footer><div class=\"wrap\">" + footer + "</div></footer>\n"
         f"{scripts}\n</body>\n</html>\n"
     )
@@ -654,7 +664,81 @@ def _footer(metadata: dict) -> str:
     return "".join(parts)
 
 
-def _render(blog_dir: Path, *, embed_images: bool = True) -> dict:
+SOURCE_MENTION = re.compile(
+    r"第\s*(\d+(?:\.\d+)*)\s*节|\b(Figure|Fig\.|Table)\s*(\d+)\b|公式\s*[（(]\s*(\d+)\s*[)）]",
+    flags=re.IGNORECASE,
+)
+
+
+def _bundle_anchors(bundle: Path | None) -> dict[str, tuple[str, str]]:
+    """Keep traceable source excerpts inside the self-contained HTML."""
+    if bundle is None or not (bundle / "content.md").is_file():
+        return {}
+    lines = (bundle / "content.md").read_text(encoding="utf-8", errors="replace").splitlines()
+    anchors: dict[str, tuple[str, str]] = {}
+    for index, line in enumerate(lines):
+        section = re.match(r"^\s*#{0,6}\s*(\d+(?:\.\d+){0,3})\s+\S", line)
+        if section:
+            number = section.group(1)
+            key = "section-" + number.replace(".", "-")
+            anchors.setdefault(key, (f"原文第 {number} 节", "\n".join(lines[index:index + 8])[:1000]))
+        figure = re.match(r"^\s*(Figure|Fig\.|Table)\s*(\d+)\s*(?:[:.]|\s+)", line, flags=re.IGNORECASE)
+        if not figure:
+            figure = re.match(r"^\s*!\[(Figure|Fig\.|Table)\s*(\d+)\]", line, flags=re.IGNORECASE)
+        if figure:
+            kind = "table" if figure.group(1).lower() == "table" else "figure"
+            number = figure.group(2)
+            anchors.setdefault(f"{kind}-{number}", (f"原文 {figure.group(1)} {number}", line[:1000]))
+        formula = re.search(r"\\tag\{(\d+)\}", line)
+        if formula:
+            number = formula.group(1)
+            anchors.setdefault(f"formula-{number}", (f"原文公式（{number}）", line[:1000]))
+    return anchors
+
+
+def _link_bundle_mentions(body: str, anchors: dict[str, tuple[str, str]], used: list[str]) -> str:
+    """Link only visible text nodes, never attributes, code or existing links."""
+    parts = re.split(r"(<[^>]+>)", body)
+    blocked: list[str] = []
+
+    def link(match: re.Match) -> str:
+        if match.group(1):
+            key = "section-" + match.group(1).replace(".", "-")
+        elif match.group(2):
+            key = ("table-" if match.group(2).lower() == "table" else "figure-") + match.group(3)
+        else:
+            key = "formula-" + match.group(4)
+        if key not in anchors:
+            return match.group(0)
+        if key not in used:
+            used.append(key)
+        return f'<a class="source-anchor" href="#bundle-{key}">{match.group(0)}</a>'
+
+    for index, part in enumerate(parts):
+        if part.startswith("<"):
+            closing = re.match(r"</\s*([a-z]+)", part, flags=re.IGNORECASE)
+            opening = re.match(r"<\s*([a-z]+)", part, flags=re.IGNORECASE)
+            if closing and blocked and closing.group(1).lower() == blocked[-1]:
+                blocked.pop()
+            elif opening and opening.group(1).lower() in {"a", "code", "pre", "script", "style"}:
+                blocked.append(opening.group(1).lower())
+        elif not blocked:
+            parts[index] = SOURCE_MENTION.sub(link, part)
+    return "".join(parts)
+
+
+def _source_evidence(anchors: dict[str, tuple[str, str]], used: list[str]) -> str:
+    if not used:
+        return ""
+    items = "".join(
+        f'<details id="bundle-{key}" data-source-anchor="{key}"><summary>{_escape(anchors[key][0])}</summary>'
+        f'<pre>{_escape(anchors[key][1])}</pre></details>'
+        for key in used
+    )
+    return '<aside class="source-evidence"><h2>原文锚点</h2><p>以下摘录来自本 Source 的 Parser Bundle。</p>' + items + '</aside>'
+
+
+def _render(blog_dir: Path, *, embed_images: bool = True, bundle: Path | None = None) -> dict:
     """Merge both Markdown artifacts into one self-contained index.html.
 
     Rendering only writes index.html. A failure here leaves both Markdown files
@@ -669,22 +753,28 @@ def _render(blog_dir: Path, *, embed_images: bool = True) -> dict:
     heading = re.search(r"^#\s+(.+?)\s*$", blog, flags=re.MULTILINE)
     title = heading.group(1) if heading else "Blog Output"
     image_src = _image_source(blog_dir, embed_images)
+    source_anchors = _bundle_anchors(bundle or blog_dir.parent / "parser-bundle")
+    used_anchors: list[str] = []
     panels: list[tuple[str, str, str]] = [
-        ("带读博客", _markdown_to_html(blog, image_src), "reading_blog")
+        ("带读博客", _link_bundle_mentions(_markdown_to_html(blog, image_src), source_anchors, used_anchors), "reading_blog")
     ]
     value_path = blog_dir / ARTIFACT_FILES["value_analysis"]
     if value_path.is_file():
         panels.append(
             (
                 "论文价值分析",
-                _markdown_to_html(value_path.read_text(encoding="utf-8", errors="replace"), image_src),
+                _link_bundle_mentions(
+                    _markdown_to_html(value_path.read_text(encoding="utf-8", errors="replace"), image_src),
+                    source_anchors, used_anchors,
+                ),
                 "value_analysis",
             )
         )
     else:
         panels.append(("论文价值分析", _value_page(metadata), "value_analysis"))
     document = _html_document(
-        title, panels, _footer(metadata), embed_katex="data-tex" in "".join(body for _, body, _ in panels)
+        title, panels, _footer(metadata), embed_katex="data-tex" in "".join(body for _, body, _ in panels),
+        source_evidence=_source_evidence(source_anchors, used_anchors),
     )
     target = blog_dir / ARTIFACT_FILES["html"]
     temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")

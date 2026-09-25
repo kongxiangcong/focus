@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
-import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogStatus, type IngestionItem, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingWindow } from "@focus/reader-contracts";
+import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingWindow } from "@focus/reader-contracts";
 import { FocusReader, TaskProgress } from "@focus/reader-ui";
 
 type Route = "/library" | "/reading" | "/settings";
@@ -59,7 +59,14 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     try {
       const [sourceResult, topicResult, inboxResult] = await Promise.all([host.listSources(), host.listTopics(), host.listInbox?.()]);
       if (version !== requestVersion.current) return;
-      if (sourceResult.ok) setSources(sourceResult.value); else setError(sourceResult.error.message);
+      if (sourceResult.ok) {
+        setSources(sourceResult.value);
+        if (host.blogStatus) {
+          const statuses = await Promise.all(sourceResult.value.map(source => host.blogStatus!(source.sourceId)));
+          if (version !== requestVersion.current) return;
+          setBlogs(Object.fromEntries(statuses.filter(result => result.ok).map(result => [result.value.sourceId, result.value])));
+        }
+      } else setError(sourceResult.error.message);
       if (topicResult.ok) setTopics(topicResult.value); else setError(topicResult.error.message);
       if (inboxResult) { if (inboxResult.ok) setInbox(inboxResult.value); else setError(inboxResult.error.message); }
     } catch (e) { if (version === requestVersion.current) setError(String(e)); }
@@ -139,16 +146,17 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     try { await blogAction(sourceId, () => host.generateBlog!(sourceId, createReaderId())); }
     finally { setBusy(""); }
   }
-  async function regenerateBlog(sourceId: string, artifact: BlogArtifactName) {
+  async function regenerateBlog(sourceId: string, artifact: BlogRegenerationTarget) {
     if (!host.regenerateBlog) return;
-    setBusy(blogRetryLabel[artifact]);
+    setBusy(artifact === "all" ? "重新生成" : blogRetryLabel[artifact]);
     try { await blogAction(sourceId, () => host.regenerateBlog!(sourceId, createReaderId(), artifact)); }
     finally { setBusy(""); }
   }
-  async function regenerateAll(sourceId: string, blog: BlogStatus) {
-    // One deliberate re-run: each article by its own granularity, HTML follows.
-    await regenerateBlog(sourceId, "reading_blog");
-    if (blog.valueAnalysis.applicable) await regenerateBlog(sourceId, "value_analysis");
+  async function cancelBlog(sourceId: string) {
+    if (!host.cancelBlog) return;
+    setBusy("取消博客生成");
+    try { await blogAction(sourceId, () => host.cancelBlog!(sourceId)); }
+    finally { setBusy(""); }
   }
   async function confirmAndStart(item: IngestionItem) {
     if (!host.confirmIngestion || !host.processIngestion || locked.current) return;
@@ -232,8 +240,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
                 {blogs[s.sourceId].warnings.length > 0 && <p className="blog-note" role="status">降级与证据缺口：{blogs[s.sourceId].warnings.join("；")}</p>}
                 {blogs[s.sourceId].error && <p className="blog-note" role="alert">{blogs[s.sourceId].error?.message}</p>}
                 <div className="blog-actions">
+                  {blogs[s.sourceId].runStatus === "running" && <button disabled={!!busy || !host.cancelBlog} onClick={() => void cancelBlog(s.sourceId)}>取消生成</button>}
                   {blogArtifacts.filter(([name]) => blogs[s.sourceId].artifacts?.[name]?.status === "failed").map(([name]) => <button key={name} disabled={!!busy || !host.regenerateBlog} onClick={() => void regenerateBlog(s.sourceId, name)}>{blogRetryLabel[name]}</button>)}
-                  {blogArtifacts.every(([name]) => blogs[s.sourceId].artifacts?.[name]?.status !== "failed") && <button disabled={!!busy || !host.regenerateBlog} onClick={() => void regenerateAll(s.sourceId, blogs[s.sourceId])}>重新生成</button>}
+                  {blogArtifacts.every(([name]) => blogs[s.sourceId].artifacts?.[name]?.status !== "failed") && <button disabled={!!busy || !host.regenerateBlog} onClick={() => void regenerateBlog(s.sourceId, "all")}>重新生成</button>}
                   {host.blogUrl && <button disabled={blogs[s.sourceId].artifacts?.html?.status !== "completed"} onClick={() => setBlogViewer(s.sourceId)}>打开博客</button>}
                 </div>
               </>}

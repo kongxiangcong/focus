@@ -29,9 +29,10 @@ function setup(initialInbox: readonly IngestionItem[] = []) {
     resubmitIngestion: vi.fn(async () => readerSuccess(processing)),
     sourceOriginalUrl: id => `/library/sources/${id}/original`, sourceContentUrl: id => `/library/sources/${id}/content`,
     openSource: vi.fn(async () => readerSuccess(empty)), deleteSource: vi.fn(async () => readerSuccess(empty)), rereadSource: vi.fn(async () => readerSuccess(empty)),
-    blogStatus: vi.fn(async () => readerSuccess(blogStatus())),
+    blogStatus: vi.fn(async () => readerSuccess(blogStatus({ generated: false }))),
     generateBlog: vi.fn(async () => readerSuccess(blogStatus({ runStatus: "running" }))),
     regenerateBlog: vi.fn(async () => readerSuccess(blogStatus())),
+    cancelBlog: vi.fn(async () => readerSuccess(blogStatus({ runStatus: "cancelled" }))),
     blogUrl: (id: string) => `/library/sources/${id}/blog/html`,
   };
   return { host, ...render(<WorkspaceApp host={host} />) };
@@ -193,6 +194,12 @@ it("names the retry button by the failed artifact only", async () => {
   expect(screen.queryByRole("button", { name: "重新生成带读博客" })).not.toBeInTheDocument();
   fireEvent.click(retry);
   await waitFor(() => expect(host.regenerateBlog).toHaveBeenCalledWith("a-paper", expect.any(String), "html"));
+});
+it("cancels a running blog through the shared host contract", async () => {
+  const { host } = setup();
+  fireEvent.click(await screen.findByRole("button", { name: "生成博客" }));
+  fireEvent.click(await screen.findByRole("button", { name: "取消生成" }));
+  await waitFor(() => expect(host.cancelBlog).toHaveBeenCalledWith("a-paper"));
 });
 it("explains a skipped value analysis instead of showing it as pending", async () => {
   const { host } = setup();

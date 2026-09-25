@@ -137,9 +137,12 @@ class Handler(BaseHTTPRequestHandler):
                                 'Content-Security-Policy': "default-src 'none'; img-src data:; style-src 'unsafe-inline'; "
                                                            "font-src data:; script-src 'unsafe-inline'; frame-ancestors 'self'"})
             return
-        if method != 'POST' or len(parts) != 3 or parts[2] not in ('generate', 'regenerate'):
+        if method != 'POST' or len(parts) != 3 or parts[2] not in ('generate', 'regenerate', 'cancel'):
             raise ValueError('Unknown Blog operation')
         payload = self._body()
+        if parts[2] == 'cancel':
+            self._send(200, {'ok': True, 'value': service.blog_cancel(source_id)})
+            return
         request_id = payload.get('requestId')
         if not isinstance(request_id, str) or not request_id:
             raise ValueError('A requestId is required')
@@ -147,7 +150,7 @@ class Handler(BaseHTTPRequestHandler):
             result = service.blog_generate(source_id, request_id=request_id)
         else:
             artifact = payload.get('artifact')
-            if artifact not in ('value_analysis', 'reading_blog', 'html'):
+            if artifact not in ('value_analysis', 'reading_blog', 'html', 'all'):
                 raise ValueError('A blog artifact is required')
             result = service.blog_regenerate(source_id, artifact=artifact, request_id=request_id)
         self._send(202, {'ok': True, 'value': result})
@@ -274,7 +277,11 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) != 2 or method != 'POST' or parts[1] not in ('confirm', 'process', 'continue', 'cancel', 'resubmit'):
                 raise ValueError('Unknown Inbox operation')
             if parts[1] == 'confirm':
-                self._body(); result = service.inbox_confirm(item_id)
+                payload = self._body()
+                generate_blog = payload.get('generateBlog', False)
+                if not isinstance(generate_blog, bool):
+                    raise ValueError('generateBlog must be a boolean')
+                result = service.inbox_confirm(item_id, generate_blog=generate_blog)
             elif parts[1] == 'cancel':
                 self._body(); result = service.inbox_cancel(item_id)
             elif parts[1] == 'resubmit':

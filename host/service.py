@@ -288,9 +288,20 @@ class HostService:
         return self._blog_start(source_id, request_id=request_id, authorized_by=authorized_by)
 
     def blog_regenerate(self, source_id, *, artifact, request_id=None, authorized_by='manual_trigger'):
-        if artifact not in BLOG_ARTIFACT_LABELS:
+        if artifact not in (*BLOG_ARTIFACT_LABELS, 'all'):
             raise ValueError('未知的博客产物。')
         return self._blog_start(source_id, artifact=artifact, request_id=request_id, authorized_by=authorized_by)
+
+    def blog_cancel(self, source_id):
+        """Revoke commit eligibility before asking the Runtime to stop."""
+        with self.lock:
+            worker = self.blog_workers.get(source_id)
+            if worker is None or not worker.is_alive():
+                raise ValueError('该材料没有正在生成的博客。')
+            result = self._blog_app().cancel(source_id)
+            runtime = self.blog_runtime
+        stop_requested = bool(runtime.cancel()) if runtime is not None and hasattr(runtime, 'cancel') else False
+        return {**result, 'stopRequested': stop_requested}
 
     def blog_open(self, source_id):
         """Locate the published index.html for the Workbench viewer."""
@@ -317,6 +328,8 @@ class HostService:
                 try:
                     if artifact is None:
                         app.generate(source_id, request_id=request_id, authorized_by=authorized_by)
+                    elif artifact == 'all':
+                        app.regenerate_all(source_id, request_id=request_id, authorized_by=authorized_by)
                     else:
                         app.regenerate(
                             source_id, artifact=artifact, request_id=request_id, authorized_by=authorized_by

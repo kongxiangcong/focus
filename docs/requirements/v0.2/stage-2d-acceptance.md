@@ -1,6 +1,6 @@
 # FOCUS v0.2 阶段 2D 验收记录
 
-日期：2026-09-25。当前结论：票 01 已通过。永久删除能力调查已完成；用户接受固定 DSH 基准采用“终止执行、释放资源并归档专用 Session”的明确例外。最小插件已完成 build、pack、安装、启动、卸载和重装，真实原生页面及隔离归档生命周期均已验收。票 02、03 仍按顺序执行。
+日期：2026-09-25。当前结论：票 01、02 已通过。永久删除能力调查已完成；用户接受固定 DSH 基准采用“终止执行、释放资源并归档专用 Session”的明确例外。最小插件与受控 Runtime 博客闭环已完成真实 DSH 页面、双 Host 对照、取消、中断恢复和归档验收。票 03 的真实受限 AI 仍待执行。
 
 ## 固定基准
 
@@ -64,6 +64,27 @@ try {
 | Session 停止／释放／归档 | 通过 | 真实公共服务、隔离持久状态、重启后归档与日志保留探针 1/1 通过 |
 | 插件 build/pack/install/boot | 通过 | 本地包在隔离 profile 完成安装、两次启动、卸载和重装 |
 | 无 Session 原生页面 | 通过 | 真实浏览器入口可见；打开前后持久 Session 数保持 1；客户端单测 1/1 通过 |
-| 受控 Runtime 双 Host 业务闭环 | 未测 | 票 02 尚未完成 |
+| 受控 Runtime 双 Host 业务闭环 | 通过 | 真实 DSH Remote/worker 页面闭环；双 Host 自动化 2/2、Host 自动化 14/14、前端相关自动化 25/25 通过 |
 | 真实 DSH 受限 AI | 未测 | 票 03 被票 02 阻塞 |
-| 阶段 2D | 进行中 | 票 01 已通过，继续实施票 02 |
+| 阶段 2D | 进行中 | 票 01、02 已通过，继续实施票 03 |
+
+## 票 02 受控 Runtime 证据
+
+- 插件 `@focus/dsh-native@0.2.0-stage2d.16` 通过 DSH `TypertRemoteService` 暴露公开 `listSources`、`status`、`regenerate`、`cancel`、`open` 动作；真实原生页面经 Remote 调用受管理 Python worker。worker 直接使用共享 `BlogApplication`、真实 Core 提交、共用候选校验与确定性 HTML 渲染，不启动旧 FOCUS Host、第二个 DSH 或第二个模型循环。
+- 公开 Fixture Paper 包含合法 Bundle、图片、初始博客与 Value Analysis。真实页面完成单篇全部重新生成，最终 `blog.md`、`value-analysis.md`、Evidence Map 与双页 `index.html` 可打开，HTML 含 Bundle section/figure source anchors。
+- 每次页面 attempt 先创建独立 DSH Session，FOCUS 的业务 run/step/attempt 保持由 Application 管理。一次普通完成与一次显式取消分别得到业务终态和独立 `archived` 清理回执；Session 日志仍由 DSH 保留。
+- 受控取消使用 Runtime 同步屏障而非任意 sleep：取消先发生时，Application 先撤销 commit eligibility，再请求 Runtime 停止；迟到候选未替换旧发布资产。提交先完成时，后续取消被公共接口拒绝，已提交资产不回滚。HTTP/Standalone 与 DSH worker 都复用相同取消语义。
+- 修复并回归了 run 启动与 article attempt 登记之间的竞态：attempt 创建和取消现在由同一 Application 锁串行化；已取消 run 不会创建新的可提交 article/HTML attempt。
+- 双 Host 对照在两个隔离 workspace 中分别经 DSH worker 与 `HostService` 公共动作运行同一候选；`blog.md`、`value-analysis.md`、Evidence Map 字节一致，HTML 仅归一化 Host 执行生成时间后字节一致。正文、版本、校验结果、warnings、提交资格和业务终态均未从比较中排除。
+- 实际中断验证从页面启动 `running / pending` attempt 后直接退出 DSH。安装并启动 `.15` 后，在未点击恢复动作前，持久 attempt 已自动变为 `failed / archived`；页面仅通过公共状态查询显示相同结果。显式重试创建新 attempt/Session 并从合法已发布资产继续，未自动重跑受控 AI。
+- 插件退出通过有界 worker shutdown；活动 attempt 若随进程中断，则由 Application 下次启动恢复为失败并永久失去提交资格。清理状态单独持久化；`pending` 清理会在下一次启动重试公开 `archiveSession`，不触及其他 Session。
+- FOCUS 的 `.dsh-attempts.json` 只保存 attempt、request/source、Session 关联、业务终态和清理回执；没有复制完整对话、思考或工具日志。DSH 自有 Session/日志按 ADR-0014 保留。
+
+票 02 自动化结果：
+
+- `tests.test_dsh_focus_worker`：2/2 通过，覆盖双 Host 规范化资产与 worker 取消迟到候选。
+- `tests.test_blog_host`：14/14 通过，覆盖公共 Host/HTTP、生成、全部重生、失败、同步取消竞争、提交先完成、查看与 ingestion continuation。
+- `dsh_focus_plugin.spec.ts`、`dsh_session_lifecycle.spec.ts`、Standalone Workspace/HTTP adapter：25/25 通过。
+- `pnpm reader:typecheck` 与 `pnpm reader:build` 通过；build 仅保留既有大 chunk 警告。
+
+本节只证明受控 Runtime、真实 DSH Host/Remote/worker/Core/归档层；它不证明真实模型调用、真实工具权限隔离或内容质量。后者属于票 03。

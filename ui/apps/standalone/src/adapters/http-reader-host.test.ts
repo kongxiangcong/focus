@@ -54,12 +54,40 @@ describe("HttpReaderHost", () => {
     const host = new HttpReaderHost({ baseUrl: "http://127.0.0.1:4317", fetch });
     const pdf = new File(["%PDF"], "paper.pdf", { type: "application/pdf" });
     await host.stageIngestion(pdf, { topicId: "systems" });
-    await host.confirmIngestion("abc");
+    await host.confirmIngestion("abc", true);
     await host.processIngestion("abc", "request-1");
     expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
       "http://127.0.0.1:4317/library/inbox?name=paper.pdf&topicId=systems",
       "http://127.0.0.1:4317/library/inbox/abc/confirm",
       "http://127.0.0.1:4317/library/inbox/abc/process",
+    ]);
+    expect(JSON.parse(fetch.mock.calls[1][1]!.body as string)).toEqual({ generateBlog: true });
+  });
+
+  it("sends generation and artifact retry as POST with the requested IDs", async () => {
+    const status = {
+      sourceId: "fixture-paper", generated: true, artifacts: {}, warnings: [],
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () =>
+      new Response(JSON.stringify({ ok: true, value: status })),
+    );
+    const host = new HttpReaderHost({ baseUrl: "http://127.0.0.1:4317", fetch });
+
+    expect((await host.generateBlog("fixture-paper", "generate-1")).ok).toBe(true);
+    expect((await host.regenerateBlog("fixture-paper", "retry-1", "value_analysis")).ok).toBe(true);
+    expect((await host.cancelBlog("fixture-paper")).ok).toBe(true);
+    expect(fetch.mock.calls).toEqual([
+      ["http://127.0.0.1:4317/library/sources/fixture-paper/blog/generate", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ requestId: "generate-1" }),
+      }],
+      ["http://127.0.0.1:4317/library/sources/fixture-paper/blog/regenerate", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ requestId: "retry-1", artifact: "value_analysis" }),
+      }],
+      ["http://127.0.0.1:4317/library/sources/fixture-paper/blog/cancel", {
+        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+      }],
     ]);
   });
 

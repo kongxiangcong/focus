@@ -1,5 +1,5 @@
 import { createReaderId,
-  type BlogArtifactName,
+  type BlogRegenerationTarget,
   type BlogStatus,
   type LibrarySource,
   type IngestionItem,
@@ -201,9 +201,13 @@ export class HttpReaderHost implements ReaderHost {
     return this.blogRequest(`/library/sources/${encodeURIComponent(sourceId)}/blog/generate`,
       { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });
   }
-  regenerateBlog(sourceId: string, requestId: string, artifact: BlogArtifactName): Promise<ReaderHostResult<BlogStatus>> {
+  regenerateBlog(sourceId: string, requestId: string, artifact: BlogRegenerationTarget): Promise<ReaderHostResult<BlogStatus>> {
     return this.blogRequest(`/library/sources/${encodeURIComponent(sourceId)}/blog/regenerate`,
       { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId, artifact }) });
+  }
+  cancelBlog(sourceId: string): Promise<ReaderHostResult<BlogStatus>> {
+    return this.blogRequest(`/library/sources/${encodeURIComponent(sourceId)}/blog/cancel`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   }
   blogUrl(sourceId: string): string {
     return `${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/blog/html`;
@@ -211,7 +215,7 @@ export class HttpReaderHost implements ReaderHost {
 
   private async blogRequest(path: string, init: RequestInit): Promise<ReaderHostResult<BlogStatus>> {
     try {
-      const response = await this.fetch(`${this.baseUrl}${path}`);
+      const response = await this.fetch(`${this.baseUrl}${path}`, init);
       const body = await response.json();
       const value = body?.value as Partial<BlogStatus> | undefined;
       if (response.ok && body.ok === true && value && typeof value.sourceId === "string" && typeof value.generated === "boolean" &&

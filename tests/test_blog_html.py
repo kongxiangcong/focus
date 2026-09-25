@@ -123,7 +123,7 @@ class BlogHtmlTests(unittest.TestCase):
                     "from pathlib import Path",
                     f"__file__ = {str(real)!r}",
                     "exec(compile(Path(__file__).read_text(encoding='utf-8'), __file__, 'exec'))",
-                    "def _render(blog_dir, *, embed_images=True):",
+                    "def _render(blog_dir, *, embed_images=True, bundle=None):",
                     "    raise RuntimeError('renderer exploded')",
                 ]
             ),
@@ -154,6 +154,10 @@ class BlogHtmlTests(unittest.TestCase):
         self.assertIn("data-tex=", html)
         self.assertIn("katex.render", html)
         self.assertIn("data:font/woff2;base64,", html)
+        self.assertIn('href="#bundle-section-1"', html)
+        self.assertIn('id="bundle-section-1"', html)
+        self.assertIn('id="bundle-figure-1"', html)
+        self.assertIn('data-source-anchor="figure-1"', html)
 
         checked = validate_blog_candidate(blog, bundle=self.bundle, require_html=True, require_value_analysis=True)
         self.assertEqual([], checked["errors"])
@@ -222,7 +226,7 @@ class BlogHtmlTests(unittest.TestCase):
         retried = app.regenerate("Fixture-paper", artifact="html", request_id="req-3", authorized_by="manual_trigger")
         self.assertEqual("completed", retried["outcome"]["status"])
         self.assertEqual(STATUS_COMPLETED, json.loads((blog / "metadata.json").read_text(encoding="utf-8"))["artifacts"]["html"]["status"])
-        self.assertNotEqual(before["index.html"], (blog / "index.html").read_bytes())
+        self.assertIn('role="tabpanel"', (blog / "index.html").read_text(encoding="utf-8"))
         # Re-rendering rewrites only index.html.
         for name in ("blog.md", "value-analysis.md"):
             self.assertEqual(before[name], (blog / name).read_bytes())

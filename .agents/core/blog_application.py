@@ -384,6 +384,7 @@ class BlogApplication:
         notes: str | None = None
         level = "paper_reading"
         warnings: list[str] = []
+        retrieval_failure: str | None = None
         if self.network and hasattr(self.runtime, "search_implementation"):
             try:
                 found = self.runtime.search_implementation(bundle=bundle, method_dir=self.method_dir, network=True)
@@ -396,9 +397,15 @@ class BlogApplication:
                     if isinstance(reported_warnings, list):
                         warnings = [item for item in reported_warnings if isinstance(item, str)]
             except Exception as exc:  # a failing retrieval degrades, it does not fail the step
-                warnings.append(f"实现检索不可用，已降级为仅论文阅读：{exc}")
+                retrieval_failure = str(exc)
+                warnings.append(f"实现检索不可用，已降级为仅论文阅读：{retrieval_failure}")
         if notes is None:
-            reason = "本次运行环境无网络，未检索论文内链接与官方仓库" if not self.network else "宿主未提供可用的实现检索能力"
+            reason = (
+                "本次运行环境无网络，未检索论文内链接与官方仓库"
+                if not self.network else
+                f"外部实现检索调用失败：{retrieval_failure}"
+                if retrieval_failure else "宿主未提供可用的实现检索能力"
+            )
             notes = DEGRADED_NOTES_TEMPLATE.format(
                 network="可用" if self.network else "不可用（未请求外部检索）",
                 links="未检索",
@@ -444,20 +451,34 @@ class BlogApplication:
             run["error"] = error
         self._save_run(run)
 
+    def _complete_run_after_render(self, source_id: str, outcome: dict[str, Any]) -> None:
+        """Finish a run without allowing a late renderer to overwrite cancellation."""
+        with self._lock:
+            run = self._run(source_id)
+            if run.get("status") == RUN_CANCELLED:
+                return
+            run["status"] = RUN_COMPLETED if outcome.get("status") == "completed" else RUN_FAILED
+            if run["status"] == RUN_COMPLETED:
+                run["error"] = None
+            self._save_run(run)
+
     def _generate_article(
         self, source_id: str, artifact: str, request_id: str, *, require_value_analysis: bool | None = None
     ) -> dict[str, Any]:
         """Run one Runtime-backed article step and commit it through Core."""
         _, bundle = self._source_bundle(source_id)
-        run = self._run(source_id)
-        step = run["steps"][artifact]
-        attempt_id = uuid.uuid4().hex
-        attempt = {"attempt_id": attempt_id, "status": "running", "commit_allowed": True}
-        step["attempts"].append(attempt)
-        step["status"] = STEP_RUNNING
-        run["status"] = RUN_RUNNING
-        run["request_id"] = request_id
-        self._save_run(run)
+        with self._lock:
+            run = self._run(source_id)
+            if run.get("status") == RUN_CANCELLED:
+                return {"status": "rejected", "error_id": "blog_rejected"}
+            step = run["steps"][artifact]
+            attempt_id = uuid.uuid4().hex
+            attempt = {"attempt_id": attempt_id, "status": "running", "commit_allowed": True}
+            step["attempts"].append(attempt)
+            step["status"] = STEP_RUNNING
+            run["status"] = RUN_RUNNING
+            run["request_id"] = request_id
+            self._save_run(run)
 
         candidate = self._candidate_dir(source_id)
         produced: dict[str, str] = {}
@@ -560,22 +581,25 @@ class BlogApplication:
         candidate has passed the shared validator.
         """
         _, bundle = self._source_bundle(source_id)
-        run = self._run(source_id)
-        step = run["steps"][HTML]
-        attempt_id = uuid.uuid4().hex
-        attempt = {"attempt_id": attempt_id, "status": "running", "commit_allowed": True}
-        step["attempts"].append(attempt)
-        step["status"] = STEP_RUNNING
-        run["status"] = RUN_RUNNING
-        run["request_id"] = request_id
-        self._save_run(run)
+        with self._lock:
+            run = self._run(source_id)
+            if run.get("status") == RUN_CANCELLED:
+                return {"status": "rejected", "error_id": "blog_rejected"}
+            step = run["steps"][HTML]
+            attempt_id = uuid.uuid4().hex
+            attempt = {"attempt_id": attempt_id, "status": "running", "commit_allowed": True}
+            step["attempts"].append(attempt)
+            step["status"] = STEP_RUNNING
+            run["status"] = RUN_RUNNING
+            run["request_id"] = request_id
+            self._save_run(run)
 
         candidate = self._candidate_dir(source_id)
         document: str | None = None
         failure: dict[str, Any] | None = None
         try:
             method = _load_method_script(self.method_dir)
-            result = method._render(candidate, embed_images=True)
+            result = method._render(candidate, embed_images=True, bundle=bundle)
             if not isinstance(result, dict) or not result.get("ok"):
                 raise WorkspaceError("blog_render_failed", "index.html could not be rendered")
             document = (candidate / ARTIFACT_FILES[HTML]).read_text(encoding="utf-8")
@@ -682,21 +706,8 @@ class BlogApplication:
                 source_id, VALUE_ANALYSIS, request_id, require_value_analysis=True
             )
         html_outcome = self._render_html(source_id, request_id)
+        self._complete_run_after_render(source_id, html_outcome)
         status = self.status(source_id)
-        if outcome.get("status") == "completed" and html_outcome.get("status") != "completed":
-            run = self._run(source_id)
-            run["status"] = RUN_FAILED
-            run["error"] = {
-                "error_id": html_outcome.get("error_id", "blog_render_failed"),
-                "message": html_outcome.get("message", "index.html could not be rendered"),
-            }
-            self._save_run(run)
-            status["runStatus"] = RUN_FAILED
-        elif outcome.get("status") == "completed":
-            run = self._run(source_id)
-            run["status"] = RUN_COMPLETED
-            self._save_run(run)
-            status["runStatus"] = RUN_COMPLETED
         return {**status, "outcome": outcome, "applicability": judged, "html": html_outcome}
 
     def regenerate(
@@ -714,6 +725,7 @@ class BlogApplication:
             raise WorkspaceError("blog_output_missing", f"Blog Output does not exist: {source_id}")
         if artifact == HTML:
             outcome = self._render_html(source_id, request_id)
+            self._complete_run_after_render(source_id, outcome)
             return {**self.status(source_id), "outcome": outcome}
         require_value_analysis = None
         if artifact == VALUE_ANALYSIS:
@@ -729,7 +741,43 @@ class BlogApplication:
         if outcome.get("status") != "completed":
             return {**self.status(source_id), "outcome": outcome}
         # index.html is derived from both articles, so it follows a successful rewrite.
-        return {**self.status(source_id), "outcome": outcome, "html": self._render_html(source_id, request_id)}
+        html = self._render_html(source_id, request_id)
+        self._complete_run_after_render(source_id, html)
+        return {**self.status(source_id), "outcome": outcome, "html": html}
+
+    def regenerate_all(self, source_id: str, *, request_id: str, authorized_by: str) -> dict[str, Any]:
+        """Rewrite both applicable articles, then replace HTML once they are valid."""
+        source_id = validate_source_id(source_id)
+        self._require_authorization(authorized_by)
+        self.core.require_writer(self.writer_id)
+        if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 200:
+            raise WorkspaceError("request_id_invalid", "Request id is invalid")
+        if not blog_root(self.workspace, source_id).is_dir():
+            raise WorkspaceError("blog_output_missing", f"Blog Output does not exist: {source_id}")
+        self._source_bundle(source_id)
+        run = self._run(source_id)
+        if run.get("full_regeneration_request_id") == request_id and run.get("status") in {RUN_COMPLETED, RUN_FAILED}:
+            return {**self.status(source_id), "replayed": True}
+        run["full_regeneration_request_id"] = request_id
+        run["status"] = RUN_RUNNING
+        run["error"] = None
+        run["warnings"] = []
+        self._save_run(run)
+        judged = self._applicability(source_id) or self._classify(source_id, request_id)
+        reading = self._generate_article(source_id, READING_BLOG, request_id)
+        if reading.get("status") != "completed":
+            return {**self.status(source_id), "outcome": reading}
+        value = None
+        if judged["applicable"]:
+            self._implementation_notes(source_id, request_id)
+            value = self._generate_article(
+                source_id, VALUE_ANALYSIS, request_id, require_value_analysis=True
+            )
+            if value.get("status") != "completed":
+                return {**self.status(source_id), "outcome": value}
+        html = self._render_html(source_id, request_id)
+        self._complete_run_after_render(source_id, html)
+        return {**self.status(source_id), "reading": reading, "value": value, "html": html}
 
     def cancel(self, source_id: str) -> dict[str, Any]:
         """Stop the running step; its late result can no longer be published."""

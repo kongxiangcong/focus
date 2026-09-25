@@ -1,6 +1,6 @@
 {
   "name": "@focus/dsh-native",
-  "version": "0.2.0-stage2d",
+  "version": "0.2.0-stage2d.16",
   "private": true,
   "type": "module",
   "exports": {
@@ -12,8 +12,13 @@
     "index.js",
     "client.js",
     "session-lifecycle.js",
+    "worker.py",
     "cordis.patch.yml"
   ],
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-typert-protocol": "0.1.7-rc.2"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -28,6 +33,6 @@
     }
   },
   "scripts": {
-    "build": "node --check index.js && node --check client.js && node --check session-lifecycle.js"
+    "build": "node --check index.js && node --check client.js && node --check session-lifecycle.js && python -m py_compile worker.py"
   }
 }

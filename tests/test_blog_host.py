@@ -7,6 +7,7 @@ published assets, sub-statuses and the retry granularity the Workbench shows.
 from __future__ import annotations
 
 import importlib.util
+import http.client
 import json
 import shutil
 import threading
@@ -19,6 +20,7 @@ from pathlib import Path
 from core.article_blog import STATUS_COMPLETED, STATUS_FAILED, STATUS_NOT_APPLICABLE
 from core.ingestion import persist_candidate_result
 from host.service import HostService
+from host.server import Server
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -46,6 +48,8 @@ class ControlledBlogRuntime:
         self.fail_html = fail_html
         self.release = threading.Event()
         self.release.set()
+        self.entered = threading.Event()
+        self.reading_body = DUAL.READING_BLOG
 
     def classify(self, *, bundle, evidence, method_dir):
         self.calls.append("classify")
@@ -59,13 +63,18 @@ class ControlledBlogRuntime:
 
     def write_artifact(self, *, artifact, bundle, candidate, method_dir, network):
         self.calls.append(artifact)
+        self.entered.set()
         self.release.wait(10)
         if artifact == "reading_blog":
             return {
-                "files": {"evidence/evidence-map.md": DUAL.EVIDENCE_MAP, "blog.md": DUAL.READING_BLOG},
+                "files": {"evidence/evidence-map.md": DUAL.EVIDENCE_MAP, "blog.md": self.reading_body},
                 "warnings": [],
             }
         return {"files": {"value-analysis.md": DUAL.VALUE_ANALYSIS}, "warnings": []}
+
+    def cancel(self):
+        self.release.set()
+        return True
 
 
 class ParserDouble:
@@ -139,9 +148,9 @@ class BlogHostTests(unittest.TestCase):
         while time.monotonic() < deadline:
             status = self.host.blog_status(source_id)
             worker = self.host.blog_workers.get(source_id)
-            if not (worker is not None and worker.is_alive()) and status["artifacts"]["reading_blog"][
-                "status"
-            ] in ("completed", "failed"):
+            if not (worker is not None and worker.is_alive()) and status["runStatus"] in (
+                "completed", "failed", "cancelled", "not_applicable"
+            ):
                 return status
             time.sleep(0.02)
         self.fail("Blog generation did not finish")
@@ -163,6 +172,29 @@ class BlogHostTests(unittest.TestCase):
         self.assertEqual("completed", status["artifacts"]["html"]["status"])
         self.assertEqual(["classify", "reading_blog", "value_analysis"], self.runtime.calls)
         self.assertEqual({}, self.host.blog_errors)
+
+    def test_http_confirmation_forwards_blog_authorization(self):
+        pdf = self.root / "confirm.pdf"
+        pdf.write_bytes(b"%PDF fixture")
+        item = self.host.ingestion.stage_pdf(pdf, topic_title="博客验收")
+        server = Server(("127.0.0.1", 0), self.host)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+            connection.request(
+                "POST", f"/library/inbox/{item['item_id']}/confirm",
+                body=json.dumps({"generateBlog": True}), headers={"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            self.assertEqual(200, response.status)
+            response.read()
+            connection.close()
+            self.assertIs(self.host.store.get("blog:" + item["item_id"]), True)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=3)
 
     def test_a_second_generation_request_is_rejected_while_one_runs(self):
         self.runtime.release.clear()
@@ -196,6 +228,77 @@ class BlogHostTests(unittest.TestCase):
         self.assertEqual(before, (self.source_root / "blog" / "blog.md").read_text(encoding="utf-8"))
         self.assertNotIn("<p>broken</p>", (self.source_root / "blog" / "index.html").read_text(encoding="utf-8"))
         self.assertEqual(["classify", "reading_blog", "value_analysis"], self.runtime.calls)
+
+    def test_unified_regeneration_rewrites_both_articles_in_one_run(self):
+        self.host.blog_generate("Fixture-paper", request_id="req-1", authorized_by="manual_trigger")
+        self.wait_blog()
+        self.host.blog_regenerate("Fixture-paper", artifact="all", request_id="req-2", authorized_by="manual_trigger")
+        status = self.wait_blog()
+        self.assertEqual("completed", status["runStatus"])
+        self.assertEqual("completed", status["artifacts"]["html"]["status"])
+        self.assertEqual(["classify", "reading_blog", "value_analysis", "reading_blog", "value_analysis"], self.runtime.calls)
+
+    def test_cancel_wins_before_commit_and_late_candidate_cannot_publish(self):
+        self.host.blog_generate("Fixture-paper", request_id="req-1", authorized_by="manual_trigger")
+        self.wait_blog()
+        published = (self.source_root / "blog" / "blog.md").read_bytes()
+        self.runtime.reading_body = DUAL.READING_BLOG + "\n\n迟到候选不得发布。\n"
+        self.runtime.release.clear()
+        self.runtime.entered.clear()
+
+        self.host.blog_regenerate("Fixture-paper", artifact="all", request_id="req-2", authorized_by="manual_trigger")
+        self.assertTrue(self.runtime.entered.wait(5), "Runtime did not reach the cancellation barrier")
+        receipt = self.host.blog_cancel("Fixture-paper")
+        status = self.wait_blog()
+
+        self.assertTrue(receipt["stopRequested"])
+        self.assertEqual("cancelled", status["runStatus"])
+        self.assertEqual(published, (self.source_root / "blog" / "blog.md").read_bytes())
+
+    def test_http_cancel_revokes_commit_eligibility_before_requesting_stop(self):
+        self.host.blog_generate("Fixture-paper", request_id="req-1", authorized_by="manual_trigger")
+        self.wait_blog()
+        published = (self.source_root / "blog" / "blog.md").read_bytes()
+        self.runtime.reading_body = DUAL.READING_BLOG + "\n\nHTTP 迟到候选不得发布。\n"
+        self.runtime.release.clear()
+        self.runtime.entered.clear()
+        self.host.blog_regenerate("Fixture-paper", artifact="all", request_id="req-2", authorized_by="manual_trigger")
+        self.assertTrue(self.runtime.entered.wait(5), "Runtime did not reach the HTTP cancellation barrier")
+
+        server = Server(("127.0.0.1", 0), self.host)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+            connection.request(
+                "POST", "/library/sources/Fixture-paper/blog/cancel",
+                body="{}", headers={"Content-Type": "application/json"},
+            )
+            response = connection.getresponse()
+            payload = json.loads(response.read())
+            connection.close()
+            self.assertEqual(200, response.status)
+            self.assertTrue(payload["value"]["stopRequested"])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=3)
+
+        status = self.wait_blog()
+        self.assertEqual("cancelled", status["runStatus"])
+        self.assertEqual(published, (self.source_root / "blog" / "blog.md").read_bytes())
+
+    def test_commit_wins_before_cancel_and_result_is_not_rolled_back(self):
+        self.host.blog_generate("Fixture-paper", request_id="req-1", authorized_by="manual_trigger")
+        self.wait_blog()
+        self.runtime.reading_body = DUAL.READING_BLOG + "\n\n提交先完成。\n"
+        self.host.blog_regenerate("Fixture-paper", artifact="all", request_id="req-2", authorized_by="manual_trigger")
+        self.wait_blog()
+        committed = (self.source_root / "blog" / "blog.md").read_bytes()
+
+        with self.assertRaisesRegex(ValueError, "没有正在生成"):
+            self.host.blog_cancel("Fixture-paper")
+        self.assertEqual(committed, (self.source_root / "blog" / "blog.md").read_bytes())
 
     def test_an_unknown_artifact_and_a_failed_step_never_silently_publish(self):
         with self.assertRaises(ValueError):

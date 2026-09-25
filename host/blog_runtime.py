@@ -8,7 +8,7 @@ Nothing here touches Core or decides what gets published.
 from __future__ import annotations
 
 import json
-import shutil
+import re
 import subprocess
 import tempfile
 import threading
@@ -16,8 +16,21 @@ from pathlib import Path
 
 from core import BlogExternalError
 
-READING_BLOG_FILES = ("evidence/evidence-map.md", "blog.md")
-VALUE_ANALYSIS_FILES = ("value-analysis.md",)
+READING_BLOG_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "evidence_map": {"type": "string"},
+        "blog": {"type": "string"},
+    },
+    "required": ["evidence_map", "blog"],
+    "additionalProperties": False,
+}
+VALUE_ANALYSIS_SCHEMA = {
+    "type": "object",
+    "properties": {"value_analysis": {"type": "string"}},
+    "required": ["value_analysis"],
+    "additionalProperties": False,
+}
 
 CLASSIFY_SCHEMA = {
     "type": "object",
@@ -61,7 +74,7 @@ def _excerpt(content: str, limit: int = 12000) -> str:
 
 
 class CodexBlogRuntime:
-    """One Codex turn per artifact, writing into the candidate directory only."""
+    """One Codex turn per artifact; trusted Application code writes its response."""
 
     def __init__(self, codex_bin: Path, *, model: str, timeout: float = 900.0):
         self.codex_bin = Path(codex_bin).resolve()
@@ -74,7 +87,7 @@ class CodexBlogRuntime:
 
     # ------------------------------------------------------------------ driver
 
-    def _run(self, prompt: str, *, cwd: Path, schema: dict | None = None) -> dict | None:
+    def _run(self, prompt: str, *, cwd: Path, schema: dict | None = None) -> dict | str:
         command = [
             str(self.codex_bin),
             "exec",
@@ -83,7 +96,7 @@ class CodexBlogRuntime:
             "--ignore-rules",
             "--skip-git-repo-check",
             "--sandbox",
-            "workspace-write",
+            "read-only",
             "-C",
             str(cwd),
         ]
@@ -94,7 +107,8 @@ class CodexBlogRuntime:
             if schema is not None:
                 schema_path = Path(temporary) / "schema.json"
                 schema_path.write_text(json.dumps(schema), encoding="utf-8")
-                command += ["--output-schema", str(schema_path), "--output-last-message", str(output_path)]
+                command += ["--output-schema", str(schema_path)]
+            command += ["--output-last-message", str(output_path)]
             command.append("-")
             process = subprocess.Popen(
                 command,
@@ -118,7 +132,7 @@ class CodexBlogRuntime:
             if process.returncode != 0:
                 raise BlogRuntimeError(f"Codex blog turn failed with exit code {process.returncode}")
             if schema is None:
-                return None
+                return output_path.read_text(encoding="utf-8", errors="replace") if output_path.is_file() else ""
             try:
                 return json.loads(output_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
@@ -131,18 +145,6 @@ class CodexBlogRuntime:
                 return False
             process.terminate()
             return True
-
-    # ------------------------------------------------------------------ inputs
-
-    @staticmethod
-    def _stage_input(bundle: Path, candidate: Path) -> Path:
-        """Give the turn a readable copy of the paper text inside its sandbox."""
-        scratch = candidate / ".runtime-input"
-        scratch.mkdir(parents=True, exist_ok=True)
-        content = bundle / "content.md"
-        if content.is_file():
-            shutil.copy2(content, scratch / "content.md")
-        return scratch
 
     @staticmethod
     def _method_doc(method_dir: Path, name: str) -> str:
@@ -175,53 +177,60 @@ class CodexBlogRuntime:
         network: bool,
     ) -> dict:
         candidate = Path(candidate).resolve()
-        scratch = self._stage_input(Path(bundle), candidate)
-        try:
-            if artifact == "reading_blog":
-                expected = list(READING_BLOG_FILES)
-                prompt = self._reading_blog_prompt(method_dir, scratch)
-            elif artifact == "value_analysis":
-                expected = list(VALUE_ANALYSIS_FILES)
-                prompt = self._value_analysis_prompt(method_dir, scratch, candidate)
-            else:
-                raise BlogRuntimeError(f"Unknown blog artifact: {artifact}")
-            self._run(prompt, cwd=candidate)
-            files = {}
-            for name in expected:
-                path = candidate / name
-                if not path.is_file() or not path.read_text(encoding="utf-8", errors="replace").strip():
-                    raise BlogRuntimeError(f"Codex did not write {name}")
-                files[name] = path.read_text(encoding="utf-8")
-        finally:
-            shutil.rmtree(scratch, ignore_errors=True)
+        content = (Path(bundle) / "content.md").read_text(encoding="utf-8", errors="replace")
+        if artifact == "reading_blog":
+            prompt = self._reading_blog_prompt(method_dir, content, candidate)
+            result = self._run(prompt, cwd=candidate, schema=READING_BLOG_SCHEMA)
+            keys = {"evidence/evidence-map.md": "evidence_map", "blog.md": "blog"}
+        elif artifact == "value_analysis":
+            prompt = self._value_analysis_prompt(method_dir, content, candidate)
+            result = self._run(prompt, cwd=candidate, schema=VALUE_ANALYSIS_SCHEMA)
+            keys = {"value-analysis.md": "value_analysis"}
+        else:
+            raise BlogRuntimeError(f"Unknown blog artifact: {artifact}")
+        files = {}
+        for name, key in keys.items():
+            value = result.get(key) if isinstance(result, dict) else None
+            if not isinstance(value, str) or not value.strip():
+                raise BlogRuntimeError(f"Codex did not return {name}")
+            files[name] = value
         return {"files": files, "warnings": []}
 
-    def _reading_blog_prompt(self, method_dir: Path, scratch: Path) -> str:
+    def _reading_blog_prompt(self, method_dir: Path, content: str, candidate: Path) -> str:
+        assets = sorted(path.name for path in (candidate / "assets").iterdir() if path.is_file())
+        sections = re.findall(r"^#{1,3}\s+(\d+)(?:\s|\.)", content, flags=re.MULTILINE)
+        allowed_sections = ", ".join(dict.fromkeys(sections)) or "按论文目录逐项核对"
         return (
-            "你是 FOCUS 的带读博客写作者。论文正文在 ./.runtime-input/content.md，"
-            "写作方法在 " + str(Path(method_dir) / "reference" / "reading-blog-method.md") + "。\n"
-            "严格按方法写作，先读方法再动笔，然后写出两个文件：\n"
-            "1) ./evidence/evidence-map.md：3-5 项贡献及原文锚点、方法模块、核心公式或算法、"
+            "你是 FOCUS 的带读博客写作者。下方提供完整论文正文和写作方法。"
+            "只返回符合 JSON schema 的两段 Markdown；宿主会把它们写入候选目录。\n"
+            "evidence_map：3-5 项贡献及原文锚点、方法模块、核心公式或算法、"
             "关键图表与实验证据、复现设置与缺失项、主张边界。填完每一项，不留占位符。\n"
-            "2) ./blog.md：中文细读长文，至少 2000 字，含导语与问题背景、方法与机制、"
+            "blog：中文细读长文，至少 2000 字，含导语与问题背景、方法与机制、"
             "实验与证据、局限与边界、参考文献。关键主张用 [n] 引用并在文末给出条目；"
-            "引用章节写成第 n 节并在正文里能对应；提到图或表时给出 Figure n / Table n 编号；"
-            "需要引用的图片用 ![](/绝对路径之外) 的相对写法 assets/<文件名>，只引用确实存在的图片。\n"
+            "文末必须有独立标题 `## 参考文献`，每个文内 [n] 必须对应一条格式为 `n. 作者. 题名. 来源` 的文末条目；"
+            "不要把证据笔记的编号当成文献引用。引用章节写成第 n 节并在正文里能对应；"
+            "仅可引用论文正文中存在的顶层章节编号：" + allowed_sections + "。提到图或表时给出 Figure n / Table n 编号；"
+            "需要引用的图片用 ![](assets/<文件名>)，只引用下面列出的图片。\n"
             "区分作者结论、解释性推论与局限；不发明作者、机构、年份、URL、指标或结果；"
-            "缺失信息写明待核实。\n"
-            "只写这两个文件，不要改动其他文件。"
+            "缺失信息写明待核实。不要尝试读取或修改本地文件。\n\n"
+            "可用图片文件名：" + ", ".join(assets) + "\n\n"
+            "# 写作方法\n" + self._method_doc(method_dir, "reading-blog-method.md") + "\n\n"
+            "# 论文正文\n" + content
         )
 
-    def _value_analysis_prompt(self, method_dir: Path, scratch: Path, candidate: Path) -> str:
+    def _value_analysis_prompt(self, method_dir: Path, content: str, candidate: Path) -> str:
         evidence_map = candidate / "evidence" / "evidence-map.md"
         return (
-            "你是 FOCUS 的论文价值分析写作者。论文正文在 ./.runtime-input/content.md，"
-            + ("共享写作证据笔记在 ./evidence/evidence-map.md，" if evidence_map.is_file() else "")
-            + "写作方法在 " + str(Path(method_dir) / "reference" / "value-analysis-method.md") + "。\n"
-            "严格按方法的固定五段主线写出 ./value-analysis.md：研究问题 → 输入输出 → "
+            "你是 FOCUS 的论文价值分析写作者。下方提供完整论文正文、写作方法与共享证据。"
+            "只返回符合 JSON schema 的 Markdown；宿主会写入候选目录。\n"
+            "严格按方法的固定五段主线写出 value_analysis：研究问题 → 输入输出 → "
             "模块拆解 → 一个运行例子 → 贡献与边界，至少 1500 字。\n"
             "说明实现是否实际运行；未运行时如实写明，不把论文概念名当成真实函数或文件名。\n"
-            "只写这一个文件，不要改动其他文件。"
+            "不要尝试读取或修改本地文件。\n\n"
+            "# 写作方法\n" + self._method_doc(method_dir, "value-analysis-method.md") + "\n\n"
+            "# 共享证据笔记\n" + (evidence_map.read_text(encoding="utf-8") if evidence_map.is_file() else "未获得") + "\n\n"
+            "# 实现核查笔记\n" + (candidate / "evidence" / "implementation-notes.md").read_text(encoding="utf-8") + "\n\n"
+            "# 论文正文\n" + content
         )
 
     def search_implementation(self, *, bundle: Path, method_dir: Path, network: bool) -> dict:

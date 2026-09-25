@@ -4,6 +4,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 import shutil
 import subprocess
 import unittest
@@ -351,6 +352,8 @@ class ArticleBlogMethodPackTests(unittest.TestCase):
         (blog / "blog.md").write_text(BLOG_BODY, encoding="utf-8")
         ARTICLE2BLOG._render(blog)
         (blog / "blog.md").write_text(BLOG_BODY + "\n补充一句。\n", encoding="utf-8")
+        stale_time = (blog / "index.html").stat().st_mtime_ns + 1_000_000_000
+        os.utime(blog / "blog.md", ns=(stale_time, stale_time))
         checked = ARTICLE2BLOG._check(blog, require_html=True)
         self.assertFalse(checked["ok"])
         self.assertIn("index.html is stale or not rendered from the current blog.md", checked["errors"])
@@ -384,6 +387,7 @@ class ArticleBlogBoundaryTests(unittest.TestCase):
             "CONTEXT.md",
             "docs/adr/0013-article-blog-dual-artifacts-and-failure-semantics.md",
             "docs/requirements/v0.2/stage-2-blog.md",
+            "tests/test_article_blog_method_pack.py",  # This guard names the retired identifier itself.
         }
         findings = []
         for relative in self._tracked_paths():

@@ -48,6 +48,7 @@ export interface ReaderSource {
 }
 
 export type BlogArtifactName = "value_analysis" | "reading_blog" | "html";
+export type BlogRegenerationTarget = BlogArtifactName | "all";
 
 export type BlogArtifactStatus =
   | "pending"
@@ -242,7 +243,8 @@ export interface ReaderHost {
   confirmIngestion?(itemId: string, generateBlog?: boolean): Promise<ReaderHostResult<IngestionItem>>;
   blogStatus?(sourceId: string): Promise<ReaderHostResult<BlogStatus>>;
   generateBlog?(sourceId: string, requestId: string): Promise<ReaderHostResult<BlogStatus>>;
-  regenerateBlog?(sourceId: string, requestId: string, artifact: BlogArtifactName): Promise<ReaderHostResult<BlogStatus>>;
+  regenerateBlog?(sourceId: string, requestId: string, artifact: BlogRegenerationTarget): Promise<ReaderHostResult<BlogStatus>>;
+  cancelBlog?(sourceId: string): Promise<ReaderHostResult<BlogStatus>>;
   blogUrl?(sourceId: string): string;
   processIngestion?(itemId: string, requestId: string): Promise<ReaderHostResult<IngestionItem>>;
   continueIngestion?(itemId: string, requestId: string): Promise<ReaderHostResult<IngestionItem>>;
