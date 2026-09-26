@@ -34,6 +34,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [topics, setTopics] = useState<readonly LibraryTopic[]>([]);
   const [inbox, setInbox] = useState<readonly IngestionItem[]>([]);
   const [topic, setTopic] = useState("");
+  const [management, setManagement] = useState<{ kind: "create" | "rename" | "delete" | "source"; id?: string } | null>(null);
+  const [managementTitle, setManagementTitle] = useState("");
+  const managementDialog = useRef<HTMLDialogElement>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -69,7 +72,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           setBlogs(Object.fromEntries(statuses.filter(result => result.ok).map(result => [result.value.sourceId, result.value])));
         }
       } else setError(sourceResult.error.message);
-      if (topicResult.ok) setTopics(topicResult.value); else setError(topicResult.error.message);
+      if (topicResult.ok) { setTopics(topicResult.value); setTopic(current => topicResult.value.some(t => t.topicId === current) ? current : ""); } else setError(topicResult.error.message);
       if (batchResult) { if (batchResult.ok) setBatches(batchResult.value); else setError(batchResult.error.message); }
       if (inboxResult) { if (inboxResult.ok) setInbox(inboxResult.value); else setError(inboxResult.error.message); }
     } catch (e) { if (version === requestVersion.current) setError(String(e)); }
@@ -94,6 +97,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     const timer = window.setInterval(() => void refresh(), 1200);
     return () => window.clearInterval(timer);
   }, [inbox, batches, host]);
+  useEffect(() => { if (management) managementDialog.current?.showModal(); else managementDialog.current?.close(); }, [management]);
   useEffect(() => { if (confirm) confirmation.current?.showModal(); else confirmation.current?.close(); }, [confirm]);
   useEffect(() => { if (view?.blog) setBlogs(view.blog); }, [view?.blog]);
   useEffect(() => {
@@ -203,7 +207,40 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     } catch (e) { setError(String(e)); }
     finally { locked.current = false; setBusy(""); }
   }
+  const selectedTopic = topics.find(t => t.topicId === topic);
+  const managementBusy = !!busy || active || batches.some(b => b.executing || ["confirmed", "running"].includes(b.status)) || Object.values(blogs).some(b => b.executing || b.runStatus === "running");
   const filtered = sources.filter(s => (!topic || s.topicIds.includes(topic)) && (s.title + " " + (s.shortName ?? "")).toLowerCase().includes(query.toLowerCase()));
+  if (selectedTopic) filtered.sort((a, b) => selectedTopic.sourceIds.indexOf(a.sourceId) - selectedTopic.sourceIds.indexOf(b.sourceId));
+  function openManagement(kind: "create" | "rename" | "delete" | "source", id?: string, title = "") {
+    setManagement({ kind, id }); setManagementTitle(title); setError("");
+  }
+  async function manage(operation: () => Promise<ReaderHostResult<unknown>>, close = true) {
+    if (locked.current) return;
+    locked.current = true; setBusy("更新知识库"); setError("");
+    try {
+      const result = await operation();
+      if (!result.ok) { setError(result.error.message); return; }
+      if (close) setManagement(null);
+      await refresh();
+    } catch (e) { setError(String(e)); }
+    finally { locked.current = false; setBusy(""); }
+  }
+  function saveManagement() {
+    if (!management) return;
+    const { kind, id } = management;
+    if (kind === "create" && host.createTopic) void manage(() => host.createTopic!(managementTitle));
+    if (kind === "rename" && id && host.manageTopic) void manage(() => host.manageTopic!(id, "rename", { title: managementTitle }));
+    if (kind === "delete" && id && host.manageTopic) void manage(() => host.manageTopic!(id, "delete", {}));
+    if (kind === "source" && id && host.renameSource) void manage(() => host.renameSource!(id, managementTitle));
+  }
+  function moveSource(sourceId: string, offset: number) {
+    if (!selectedTopic || !host.manageTopic) return;
+    const ids = [...selectedTopic.sourceIds], index = ids.indexOf(sourceId), target = index + offset;
+    if (index < 0 || target < 0 || target >= ids.length) return;
+    [ids[index], ids[target]] = [ids[target], ids[index]];
+    void manage(() => host.manageTopic!(selectedTopic.topicId, "reorder", { sourceIds: ids }));
+  }
+
   function rereadReceipt(sourceId: string) {
     if (!view || view.source.sourceId !== sourceId || view.readingRevision === undefined) return null;
     const chunk = view.current ?? view.history.at(-1);
@@ -315,9 +352,15 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         {item.sourceId && <div className="inbox-links">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(item.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(item.sourceId)} target="_blank" rel="noreferrer">正文</a>}</div>}
         {(item.error || item.topicError) && <p className="inbox-error">{item.topicError?.message ?? item.error?.message}</p>}
       </article>)}</section>}
-      <div className="library-layout"><aside className="library-topics" aria-label="专题"><h2>专题</h2><button aria-pressed={!topic} onClick={() => setTopic("")}>全部 <span>{sources.length}</span></button>{topics.map(t => <button key={t.topicId} aria-pressed={topic === t.topicId} onClick={() => setTopic(t.topicId)}>{t.title}<span>{t.sourceIds.length}</span></button>)}</aside>
-        <section className="library-sources" aria-label="材料列表"><div className="library-toolbar"><h2>{topics.find(t => t.topicId === topic)?.title ?? "全部材料"}<small>{filtered.length}</small></h2><input type="search" aria-label="搜索材料" placeholder="搜索标题" value={query} onChange={e => setQuery(e.target.value)} /></div>
+      <div className="library-layout"><aside className="library-topics" aria-label="专题"><h2>专题</h2><button disabled={managementBusy || !host.createTopic} onClick={() => openManagement("create")}>新建专题</button><button aria-pressed={!topic} onClick={() => setTopic("")}>全部 <span>{sources.length}</span></button>{topics.map(t => <button key={t.topicId} aria-pressed={topic === t.topicId} onClick={() => setTopic(t.topicId)}>{t.title}<span>{t.sourceIds.length}</span></button>)}</aside>
+        <section className="library-sources" aria-label="材料列表">{selectedTopic && <div>
+          <button disabled={managementBusy || !host.manageTopic} onClick={() => openManagement("rename", selectedTopic.topicId, selectedTopic.title)}>重命名专题</button>
+          <button disabled={managementBusy || !host.manageTopic} onClick={() => openManagement("delete", selectedTopic.topicId, selectedTopic.title)}>删除专题</button>
+        </div>}<div className="library-toolbar"><h2>{topics.find(t => t.topicId === topic)?.title ?? "全部材料"}<small>{filtered.length}</small></h2><input type="search" aria-label="搜索材料" placeholder="搜索标题" value={query} onChange={e => setQuery(e.target.value)} /></div>
           {loading ? <p role="status" className="library-empty">读取中…</p> : filtered.length === 0 ? <div className="library-empty"><span aria-hidden="true">▤</span><p>{query || topic ? "暂无匹配材料" : "放入第一份材料"}</p><button className="workspace-primary" disabled={uploadDisabled} onClick={() => { if (query || topic) { setQuery(""); setTopic(""); } else chooseUpload(); }}>{query || topic ? "重置" : "上传"}</button></div> : <div className="library-cards">{filtered.map(s => <article className="library-card" data-reading-status={readingStatus(s)} key={s.sourceId}>
+            <div><button disabled={managementBusy || !host.renameSource} onClick={() => openManagement("source", s.sourceId, s.title)}>管理来源</button>
+              {selectedTopic && <><button aria-label={`${s.title} 上移`} disabled={managementBusy || selectedTopic.sourceIds.indexOf(s.sourceId) === 0} onClick={() => moveSource(s.sourceId, -1)}>上移</button><button aria-label={`${s.title} 下移`} disabled={managementBusy || selectedTopic.sourceIds.indexOf(s.sourceId) === selectedTopic.sourceIds.length - 1} onClick={() => moveSource(s.sourceId, 1)}>下移</button></>}
+            </div>
             <div className="library-card-top"><span className="source-badge">{s.format ?? (s.kind === "paper" ? "PDF" : "HTML")}</span>{s.parseStatus !== "ready" && <span title={s.error ?? undefined}>需检查</span>}</div>
             <h3><button className="library-title" disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready"} onClick={() => void enterReading(s.sourceId)}>{s.shortName || s.title}</button></h3>
             <p className="library-metadata" title={s.title}>{[s.publishedAt, s.venue].filter(Boolean).join(" · ")}</p>
@@ -350,6 +393,16 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <div className="settings-row"><label htmlFor="font-size">字号</label><input id="font-size" type="range" min="0" max="3" step="1" value={fontOptions.findIndex(([key]) => key === fontSize)} aria-valuetext={fontOptions.find(([key]) => key === fontSize)?.[1]} onChange={e => { const value = fontOptions[Number(e.target.value)][0]; setFontSize(value); try { localStorage.setItem("focus.fontSize", value); } catch { setError("无法保存字号"); } }} /></div>
       <div className="settings-row"><label htmlFor="network">网络</label><span className="settings-network" title="当前后端协议未提供网络控制接口"><small>待接入</small><input id="network" className="focus-reader__toggle" type="checkbox" role="switch" checked={false} disabled /></span></div></section>
     </main>}
+    <dialog className="workspace-confirm" ref={managementDialog} onCancel={() => setManagement(null)}>
+      <form onSubmit={e => { e.preventDefault(); saveManagement(); }}>
+        <h2>{management?.kind === "source" ? "管理来源" : management?.kind === "delete" ? "删除专题" : management?.kind === "rename" ? "重命名专题" : "新建专题"}</h2>
+        {management?.kind === "delete" ? <p>删除“{managementTitle}”专题。全部来源、博客、笔记和阅读进度会保留。</p> : <label>{management?.kind === "source" ? "来源原题" : "专题名称"}<input aria-label={management?.kind === "source" ? "来源原题" : "专题名称"} required maxLength={management?.kind === "source" ? 1000 : 120} value={managementTitle} onChange={e => setManagementTitle(e.target.value)} /></label>}
+        {management?.kind === "source" && <fieldset><legend>所属专题</legend>{topics.map(t => <label key={t.topicId}><input type="checkbox" checked={t.sourceIds.includes(management.id!)} disabled={managementBusy || !host.manageTopic} onChange={e => { const checked = e.target.checked, sourceId = management.id!; void manage(() => host.manageTopic!(t.topicId, checked ? "attach" : "detach", { sourceId }), false); }} />{t.title}</label>)}</fieldset>}
+        {error && <p role="alert">{error}</p>}
+        <button type="button" disabled={!!busy} onClick={() => setManagement(null)}>取消</button>
+        <button type="submit" disabled={managementBusy || (management?.kind !== "delete" && !managementTitle.trim())}>{management?.kind === "delete" ? "确认删除专题" : "保存"}</button>
+      </form>
+    </dialog>
     <dialog className="workspace-confirm workspace-upload" ref={uploadDialog} onCancel={() => setUploadOpen(false)}>
       <form onSubmit={e => { e.preventDefault(); void uploadAndStart(); }}>
         <h2>解析并生成博客</h2>

@@ -27,6 +27,8 @@ function setup(initialInbox: readonly IngestionItem[] = []) {
     listBatches: vi.fn(async () => readerSuccess([])),
     startBatch: vi.fn(async () => readerSuccess({ batchId: "batch-1", topicId: "topic", status: "confirmed" as const, error: null, items: [] })),
     controlBatch: vi.fn(async () => readerSuccess({ batchId: "batch-1", topicId: "topic", status: "paused" as const, error: null, items: [] })),
+    createTopic: vi.fn(async () => readerSuccess({})), manageTopic: vi.fn(async () => readerSuccess({})),
+    renameSource: vi.fn(async () => readerSuccess({})),
     startIngestion: vi.fn(async () => readerSuccess(confirmed)),
     confirmIngestion: vi.fn(async () => readerSuccess(confirmed)),
     processIngestion: vi.fn(async () => readerSuccess(processing)), continueIngestion: vi.fn(async () => readerSuccess(processing)), cancelIngestion: vi.fn(async () => readerSuccess(cancelled)),
@@ -70,6 +72,19 @@ it("accepts saved HTML and explains local parsing in the Inbox confirmation", as
   expect(host.processIngestion).not.toHaveBeenCalled();
 });
 afterEach(cleanup);
+it("edits original metadata and Topic membership through Host actions", async () => {
+  const { host } = setup();
+  await screen.findByRole("button", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "来源原题" }), { target: { value: "Correct title" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(host.renameSource).toHaveBeenCalledWith("a-paper", "Correct title"));
+  await waitFor(() => expect(screen.queryByRole("textbox", { name: "来源原题" })).not.toBeInTheDocument());
+  fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "编译" }));
+  await waitFor(() => expect(host.manageTopic).toHaveBeenCalledWith("topic", "detach", { sourceId: "a-paper" }));
+  expect(host.deleteSource).not.toHaveBeenCalled();
+});
 it("freezes a mixed selection into one Topic batch and exposes each result", async () => {
   const { host } = setup();
   vi.mocked(host.stageIngestion!).mockImplementation(async file => readerSuccess({

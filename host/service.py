@@ -278,6 +278,37 @@ class HostService:
         with self.lock:
             return SourceLibrary(self.workspace).topics()
 
+    def library_manage(self, operation, *, topic_id=None, source_id=None, title=None, source_ids=None):
+        with self.lock:
+            self._library_idle()
+            if any(w.is_alive() for w in (*self.blog_workers.values(), *self.batch_workers.values(), *self.reading_workers.values(), *self.progress_workers.values())):
+                raise WorkspaceError('library_busy', '请等待当前任务结束，或先停止任务后再管理材料。')
+            library = SourceLibrary(self.workspace)
+            if operation == 'create-topic':
+                result = library.create_topic(title)
+            elif operation == 'rename':
+                library.rename_topic(topic_id, title)
+                result = library.topics()
+            elif operation == 'title':
+                library.rename_source(source_id, title)
+                result = library.overview()
+            elif operation == 'attach':
+                library.attach(source_id, existing_topic_id=topic_id)
+                result = library.topics()
+            elif operation == 'detach':
+                library.detach(topic_id, source_id)
+                result = library.topics()
+            elif operation == 'reorder':
+                library.reorder_topic(topic_id, source_ids)
+                result = library.topics()
+            elif operation == 'delete':
+                library.delete_topic(topic_id)
+                result = library.topics()
+            else:
+                raise WorkspaceError('library_operation_invalid', '未知管理操作。')
+            self.changed()
+            return result
+
     def library_sources(self):
         from .core_bridge import SourceLibrary
         with self.lock:

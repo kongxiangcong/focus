@@ -305,6 +305,58 @@ class SourceLibrary:
             _write_document(path, topic)
         return {"topicId": resolved, "title": topic["title"], "sourceIds": list(topic["sources"])}
 
+    def rename_topic(self, topic_id: str, title: str) -> None:
+        resolved, path, topic = self._prepare_topic(existing_topic_id=topic_id)
+        if not isinstance(title, str) or not title.strip() or len(title.strip()) > 120:
+            raise WorkspaceError('topic_invalid', '专题名称无效。')
+        title = title.strip()
+        if any(t['topicId'] != resolved and t['title'].strip().casefold() == title.casefold() for t in self.topics()):
+            raise WorkspaceError('topic_name_conflict', '已有同名专题，请选择其他名称。')
+        topic['title'] = title
+        _write_document(path, topic)
+
+    def rename_source(self, source_id: str, title: str) -> None:
+        root = self._safe_root(source_id)
+        if not isinstance(title, str) or not title.strip() or len(title.strip()) > 1000:
+            raise WorkspaceError('source_title_invalid', '来源原题无效。')
+        source = self.get(source_id)
+        source['title'] = title.strip()
+        _write_document(root / 'source.yaml', source)
+
+    def reorder_topic(self, topic_id: str, source_ids: list[str]) -> None:
+        _, path, topic = self._prepare_topic(existing_topic_id=topic_id)
+        if not isinstance(source_ids, list) or not all(isinstance(s, str) for s in source_ids) or len(source_ids) != len(set(source_ids)) or set(source_ids) != set(topic['sources']):
+            raise WorkspaceError('topic_order_invalid', '排序必须包含专题内全部来源且不重复。')
+        topic['sources'] = list(source_ids)
+        _write_document(path, topic)
+
+    def detach(self, topic_id: str, source_id: str) -> None:
+        self.get(source_id)
+        _, path, topic = self._prepare_topic(existing_topic_id=topic_id)
+        topic['sources'] = [s for s in topic['sources'] if s != source_id]
+        self._update_topic_references(path, topic, topic_id=topic_id, detached=source_id)
+
+    def delete_topic(self, topic_id: str) -> None:
+        _, path, _ = self._prepare_topic(existing_topic_id=topic_id)
+        self._update_topic_references(path, None, topic_id=topic_id)
+
+    def _update_topic_references(self, path, topic, *, topic_id, detached=None):
+        state_path = self.workspace / 'state.json'
+        state = _read_document(state_path, {'current_source_id': None, 'current_topic_id': None, 'sources': {}})
+        if state.get('current_topic_id') == topic_id and (detached is None or state.get('current_source_id') == detached):
+            state['current_topic_id'] = None
+        snapshots = {p: p.read_bytes() if p.exists() else None for p in (state_path, path)}
+        try:
+            _write_document(state_path, state)
+            if topic is None:
+                path.unlink()
+            else:
+                _write_document(path, topic)
+        except Exception:
+            for target, snapshot in snapshots.items():
+                _restore(target, snapshot)
+            raise
+
     def _safe_root(self, source_id: str) -> Path:
         self.get(source_id)
         root = self.workspace / 'sources' / source_id

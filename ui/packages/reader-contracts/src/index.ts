@@ -342,6 +342,9 @@ export interface ReaderHost {
   listSources?(): Promise<ReaderHostResult<readonly LibrarySource[]>>;
   listInbox?(): Promise<ReaderHostResult<readonly IngestionItem[]>>;
   listBatches?(): Promise<ReaderHostResult<readonly ProcessingBatch[]>>;
+  createTopic?(title: string): Promise<ReaderHostResult<unknown>>;
+  manageTopic?(topicId: string, action: "rename" | "delete" | "attach" | "detach" | "reorder", input: { title?: string; sourceId?: string; sourceIds?: readonly string[] }): Promise<ReaderHostResult<unknown>>;
+  renameSource?(sourceId: string, title: string): Promise<ReaderHostResult<unknown>>;
   startBatch?(itemIds: readonly string[], requestId: string): Promise<ReaderHostResult<ProcessingBatch>>;
   controlBatch?(batchId: string, action: "stop" | "continue" | "cancel-item" | "remove-item" | "retry-item" | "resubmit-item", requestId: string, itemId?: string, riskChoiceId?: string): Promise<ReaderHostResult<ProcessingBatch>>;
   stageIngestion?(file: File, target: IngestionTarget): Promise<ReaderHostResult<IngestionItem>>;

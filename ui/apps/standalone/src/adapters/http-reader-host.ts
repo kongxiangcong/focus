@@ -173,6 +173,28 @@ export class HttpReaderHost implements ReaderHost {
     return this.libraryList<ProcessingBatch>("/library/batches", isBatch);
   }
 
+  createTopic(title: string): Promise<ReaderHostResult<unknown>> {
+    return this.managementRequest('/library/topics', { title });
+  }
+  manageTopic(topicId: string, action: 'rename' | 'delete' | 'attach' | 'detach' | 'reorder', input: { title?: string; sourceId?: string; sourceIds?: readonly string[] }): Promise<ReaderHostResult<unknown>> {
+    return this.managementRequest(`/library/topics/${encodeURIComponent(topicId)}/${action}`, input);
+  }
+  renameSource(sourceId: string, title: string): Promise<ReaderHostResult<unknown>> {
+    return this.managementRequest(`/library/sources/${encodeURIComponent(sourceId)}/title`, { title });
+  }
+  private async managementRequest(path: string, input: unknown): Promise<ReaderHostResult<unknown>> {
+    try {
+      const response = await this.fetch(this.baseUrl + path, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
+      });
+      const body = await response.json();
+      if (body.ok === true || body.ok === false) return body;
+      return { ok: false, error: { code: 'invalid-response', message: '管理响应格式错误', retryable: false } };
+    } catch {
+      return { ok: false, error: { code: 'unavailable', message: '无法连接知识库', retryable: true } };
+    }
+  }
+
   async startBatch(itemIds: readonly string[], requestId: string): Promise<ReaderHostResult<ProcessingBatch>> {
     return this.batchRequest('/library/batches', { itemIds, requestId });
   }

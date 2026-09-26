@@ -197,6 +197,18 @@ class Handler(BaseHTTPRequestHandler):
             return
         if method == 'GET' and path == '/library/topics':
             result = service.library_topics()
+        elif method == 'POST' and path == '/library/topics':
+            result = service.library_manage('create-topic', title=self._body().get('title'))
+        elif method == 'POST' and path.startswith('/library/topics/'):
+            parts = path[len('/library/topics/'):].split('/')
+            if len(parts) != 2 or parts[1] not in ('rename', 'attach', 'detach', 'reorder', 'delete'):
+                raise ValueError('Unknown Topic operation')
+            payload = self._body()
+            result = service.library_manage(parts[1], topic_id=unquote(parts[0]), title=payload.get('title'),
+                                            source_id=payload.get('sourceId'), source_ids=payload.get('sourceIds'))
+        elif method == 'POST' and path.startswith('/library/sources/') and path.endswith('/title'):
+            source_id = unquote(path[len('/library/sources/'):-len('/title')])
+            result = service.library_manage('title', source_id=source_id, title=self._body().get('title'))
         elif method == 'GET' and path == '/library/inbox':
             result = service.inbox_items()
         elif method == 'GET' and path == '/library/batches':
