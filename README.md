@@ -13,7 +13,7 @@ Core 阅读资产落盘、审批和停止。后台使用 **Codex App Server**（
 python -m pip install -r host/requirements.txt
 pnpm install --frozen-lockfile
 pnpm reader:build
-python -m host --workspace ./workspace --network
+python -m host --workspace ./knowledge-base --network
 # 国内 WorkBuddy 前置配置见 docs/FOCUS_WorkBuddy_Local_Setup.md
 ```
 
@@ -24,7 +24,7 @@ python -m host --workspace ./workspace --network
 
 FOCUS 主要通过 Codex Skills 使用。一次完整流程只有四步：注册 Source、创建 Reading Plan、开始阅读、按需综合 Topic。
 
-1. 用唯一的 `article-parser` 注册 PDF 或 HTML 来源。直接调用 Parser 本身即授权本次 MinerU 获取或上传，不会再要求二次确认。
+1. 用唯一的 `article-parser` 注册 PDF 或 HTML 来源。PDF 使用远端 MinerU；完整 SingleFile HTML 使用本地 Mozilla Readability 和图片提取，不上传。
 2. 用 `focus-map` 为返回的 Source ID 创建 Reading Plan。重复调用会复用现有 Plan，只有明确要求重建时才会 reinitialize。
 3. 用 `focus-read` 阅读单个 Source，或按 Topic manifest 中的 Source ID 顺序连续阅读。
 4. 只有明确请求时，才用 `focus-read` 生成带 Source ID 与原文行号锚点的 Topic Synthesis。
@@ -45,14 +45,14 @@ Parser 成功后会返回稳定的 `source_id`，例如 `DeepStack-paper`。完�
 
 - 使用 Python 运行仓库内脚本；脚本仅依赖 Python 标准库。
 - 在环境变量 `MINERU_API_TOKEN` 或仓库根目录被 Git 忽略的 `.env` 中配置 MinerU Token。
-- 从仓库根目录运行命令，私有数据默认写入被 Git 忽略的 `workspace/`。
+- 从仓库根目录运行命令，私有数据默认写入被 Git 忽略的 `knowledge-base/`。
 - 不要提交 PDF、HTML、Parser Bundle、Reading Records、Topic Synthesis、`.env` 或 Token。
 
 PowerShell：
 
 ~~~powershell
 Set-Location D:\dsh-proj\focus
-$workspace = Join-Path $PWD "workspace"
+$workspace = Join-Path $PWD "knowledge-base"
 ~~~
 
 ### 命令行最小例子
@@ -74,15 +74,15 @@ $sourceId = $paper.source_id
 Article 使用同一注册语义：
 
 ~~~powershell
-python -B -X utf8 .agents/skills/article-parser/scripts/article_parser.py parse-url `
-  "https://example.com/article" `
+python -B -X utf8 .agents/skills/article-parser/scripts/article_parser.py parse-file `
+  "C:/reading/article.html" `
   --workspace $workspace `
   --short-name "核心对象与主张" `
   --topic "AI Systems" `
   --topic-id ai-systems
 ~~~
 
-如果 URL 因登录、限流或访问控制无法解析，手工保存为单个 HTML 文件，再把 `parse-url` 改为 `parse-file <article.html>`；FOCUS 不会绕过访问限制或切换抓取路径。
+网页文章先用 SingleFile 保存成图片内嵌的单个 HTML，再调用 `parse-file <article.html>`；URL 直接解析与 MinerU-HTML 已退役。FOCUS 不会绕过访问限制。
 
 创建或复用 Source 自己的 Reading Plan：
 
@@ -145,7 +145,7 @@ $draft | python -B -X utf8 .agents/skills/focus-read/scripts/focus_read.py synth
 
 ## 公开 Skills
 
-- article-parser：提供 PDF、URL 或选定单文件 HTML 并调用即授权本次 MinerU 获取/上传；统一注册或复用 Paper Source / Article Source，不混淆来源类型，也不绕过访问控制或适配发布平台。
+- article-parser：提供 PDF 即授权本次 MinerU 上传；选定完整 SingleFile HTML 则本地提取正文与图片；统一注册或复用 Paper Source / Article Source，不混淆来源类型，也不绕过访问控制或适配发布平台。
 - article-blog：从 Parser Bundle 生成独立 Blog Output（Reading Blog、Value Analysis 与合并 index.html），不读取或修改私人阅读数据。
 - focus-map：为已注册 Reading Source 创建、复用或显式重建固定 Reading Plan。
 - focus-read：展示当前 Chunk；按 Topic 有序跨 Source 阅读；执行有界 Source/Topic 搜索、Notes、Cursor 推进与显式 Source-anchored Topic Synthesis。
@@ -168,7 +168,7 @@ Source Library
 ## Workspace
 
 ~~~text
-workspace/
+knowledge-base/
 ├── state.json
 ├── topics/<topic_id>/
 │   ├── topic.yaml
@@ -219,6 +219,6 @@ python -B -X utf8 scripts/<script>.py ...
 python -B -X utf8 -m unittest discover -s tests -v
 ~~~
 
-整个 workspace/ 必须保持 Git 忽略。PDF、Parser Bundle、Blog Output、翻译、Notes、state.json、.env、Token 和签名 URL 都不能进入公开仓库。
+整个 knowledge-base/ 必须保持 Git 忽略。PDF、Parser Bundle、Blog Output、翻译、Notes、state.json、.env、Token 和签名 URL 都不能进入公开仓库。
 
 当前项目与代码结构见 [Agent 架构](docs/FOCUS_Agent_Architecture.md)，国内 WorkBuddy 的官方接入区别见 [调研](research/workbuddy-codex-agent-integration.md)。

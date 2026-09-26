@@ -11,7 +11,7 @@
 - **Value Analysis（条件有）**：按 `docs/requirements/paper_architecture_value_guide.md` 生成的架构价值分析文（`value-analysis.md`）。论文不涉及硬件架构、DSE、编译器、仿真器、性能建模任一方向时跳过生成，HTML 对应页面显示"本文不适用架构价值分析"及判定理由。
 - **合并 HTML（必有）**：`index.html` 单文件，两个可切换页面——"带读博客"（默认）与"论文价值分析"；全部资源（CSS／JS／图片 base64／公式渲染）内嵌。
 
-写作证据笔记与用户 Reading Notes 分开；生成博客不依赖 Reading Plan、Cursor 或私人阅读记录。首轮只接受 Paper Source（`paper_pdf` Bundle），Article Source 的博客在 5A 补齐。不含外网发布、跨文献综合或 HTML 输入覆盖；阶段 2D 可选此处的一个最小受限 AI 步骤作为探针。
+写作证据笔记与用户 Reading Notes 分开；生成博客不依赖 Reading Plan、Cursor 或私人阅读记录。首轮只接受 Paper Source（`paper_pdf` Bundle），Article Source 的博客在阶段 5（输入格式）补齐。不含外网发布、跨文献综合或 HTML 输入覆盖；阶段 2D 可选此处的一个最小受限 AI 步骤作为探针。
 
 ## 产物结构
 
