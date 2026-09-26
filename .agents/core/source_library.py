@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import filecmp
-import hashlib
 import re
 import shutil
 import unicodedata
@@ -545,8 +544,7 @@ class SourceLibrary:
             state['current_source_id'] = None
             state['current_topic_id'] = None
         updates = {state_path: state}
-        original = next((p for p in (root / 'parser-bundle').glob('source.*') if p.is_file()), None)
-        fingerprint = hashlib.sha256(original.read_bytes()).hexdigest() if original else None
+        fingerprint = source['identity'].removeprefix('paper-original:') if source['identity'].startswith('paper-original:') else None
         deleted_items = []
         for path in (self.workspace / 'inbox').glob('*/item.json'):
             item = _read_document(path)
