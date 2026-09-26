@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
-import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingWindow } from "@focus/reader-contracts";
+import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingWindow } from "@focus/reader-contracts";
 import { FocusReader, TaskProgress } from "@focus/reader-ui";
 
 type Route = "/library" | "/reading" | "/settings";
@@ -43,6 +43,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [readyNotice, setReadyNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
+  const [deletionImpact, setDeletionImpact] = useState<SourceDeletionImpact | null>(null);
   const [confirm, setConfirm] = useState<{ source: LibrarySource; action: "delete" | "reread" | "replan" } | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<readonly File[]>([]);
@@ -247,6 +248,15 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     return chunk ? { sourceId, planId: chunk.planId, chunkId: view.current?.chunkId ?? null,
       readingRevision: view.readingRevision } : null;
   }
+  async function confirmDelete(source: LibrarySource) {
+    if (!host.deletionImpact || managementBusy) return;
+    setBusy("读取删除影响"); setError(""); setDeletionImpact(null);
+    try {
+      const result = await host.deletionImpact(source.sourceId);
+      if (!result.ok) { setError(result.error.message); return; }
+      setDeletionImpact(result.value); setConfirm({ source, action: "delete" });
+    } finally { setBusy(""); }
+  }
   async function controlBatch(batchId: string, action: Parameters<NonNullable<ReaderHost["controlBatch"]>>[1], itemId?: string, riskChoiceId?: string) {
     if (!host.controlBatch || locked.current) return;
     locked.current = true; setBusy("更新批次"); setError("");
@@ -288,7 +298,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   const uploadDisabled = !!busy || active || !host.stageIngestion || !host.startBatch;
   const batchStatusText = { confirmed: "待处理", running: "处理中", paused: "已暂停", completed: "完成", partial: "部分完成" };
-  const itemStatusText = { queued: "待处理", processing: "处理中", completed: "完成", partial: "部分完成", failed: "失败", cancelled: "已取消" };
+  const itemStatusText = { queued: "待处理", processing: "处理中", completed: "完成", partial: "部分完成", failed: "失败", cancelled: "已取消", deleted: "来源已删除" };
   const statusText: Record<IngestionItem["status"], string> = {
     awaiting_confirmation: "待确认", confirmed: "已确认，等待开始", processing: "处理中", status_check_required: "远端状态待核对",
     retry_waiting: "等待继续", failed: "处理失败，可继续", commit_conflict: "提交冲突，可继续", topic_attachment_pending: "文档已入库，专题关联待恢复",
@@ -322,7 +332,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         {batch.error && <p role="status">{batch.error.message}</p>}
         {batch.items.map(item => <div className="library-inbox-item" key={item.itemId}>
           <strong>{item.fileName}</strong><span>{itemStatusText[item.status]}</span>
-          <small>{item.ingestionStatus === "completed" ? "解析完成" : "解析：" + (statusText[item.ingestionStatus as IngestionItem["status"]] ?? "待处理")}{item.blog ? " · 博客：" + ({ running: "生成中", completed: "已完成", failed: "失败", cancelled: "已取消", interrupted: "已中断" }[item.blog.runStatus ?? ""] ?? "待生成") : ""}</small>
+          <small>{item.status === "deleted" ? "原处理授权已失效" : item.ingestionStatus === "completed" ? "解析完成" : "解析：" + (statusText[item.ingestionStatus as IngestionItem["status"]] ?? "待处理")}{item.blog ? " · 博客：" + ({ running: "生成中", completed: "已完成", failed: "失败", cancelled: "已取消", interrupted: "已中断" }[item.blog.runStatus ?? ""] ?? "待生成") : ""}</small>
           {item.error && <p>{item.error.message}</p>}
           {item.status === "processing" && <button disabled={!!busy || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "cancel-item", item.itemId)}>取消此项</button>}
           {item.status === "queued" && <button disabled={!!busy || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "remove-item", item.itemId)}>移出队列</button>}
@@ -366,7 +376,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
             <p className="library-metadata" title={s.title}>{[s.publishedAt, s.venue].filter(Boolean).join(" · ")}</p>
             <div className="library-progress"><progress aria-label={`${s.title} 阅读进度`} value={s.progress.completed} max={s.progress.total || 1} /><span>{s.progress.completed} / {s.progress.total}</span></div>
             <p className="library-metadata">{view?.preparations?.[s.sourceId] ? (() => { const p = view.preparations![s.sourceId]; return p.ready ? (p.candidate ? "新计划已就绪；旧阅读仍保留" : "阅读已准备好，可手动打开") : `${p.candidate ? "新计划" : "阅读"}${p.status === "running" ? "准备中" : p.status === "failed" ? "准备失败" : p.status === "interrupted" ? "准备已中断" : "准备已取消"} · ${p.step} · ${p.completed}/${p.total}${p.error ? ` · ${p.error}` : ""}`; })() : "尚未初始化精读"}</p>
-            <div className="library-card-bottom"><small>{({ ready: "待阅读", reading: "阅读中", completed: "已读完", unplanned: "待规划" })[readingStatus(s)]}</small><div className="library-row-actions">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(s.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(s.sourceId)} target="_blank" rel="noreferrer">正文</a>}<button disabled={!host.selectDiscussionSource || s.parseStatus !== "ready"} onClick={() => void discuss(s.sourceId)}>讨论</button><button disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready" || (view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready)} onClick={() => void enterReading(s.sourceId)}>{view?.preparations?.[s.sourceId]?.candidate ? "打开旧阅读" : view?.preparations?.[s.sourceId]?.ready ? "打开阅读" : "进入精读"}</button>{["failed", "cancelled", "interrupted"].includes(view?.preparations?.[s.sourceId]?.status ?? "") && host.resumePreparation && <button onClick={() => void operate("恢复准备", () => host.resumePreparation!(s.sourceId, createReaderId()))}>恢复准备</button>}{view?.preparations?.[s.sourceId]?.status === "running" && host.cancelPreparation && <button onClick={() => void operate("取消准备", () => host.cancelPreparation!(s.sourceId))}>取消准备</button>}<button disabled={!!busy || active || !host.rereadReading || !rereadReceipt(s.sourceId)} onClick={() => setConfirm({ source: s, action: "reread" })}>从头阅读</button><button disabled={!!busy || active || !host.replanSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "replan" })}>重新规划</button><button disabled={!!busy || active || !host.deleteSource} onClick={() => setConfirm({ source: s, action: "delete" })}>删除</button></div></div>
+            <div className="library-card-bottom"><small>{({ ready: "待阅读", reading: "阅读中", completed: "已读完", unplanned: "待规划" })[readingStatus(s)]}</small><div className="library-row-actions">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(s.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(s.sourceId)} target="_blank" rel="noreferrer">正文</a>}<button disabled={!host.selectDiscussionSource || s.parseStatus !== "ready"} onClick={() => void discuss(s.sourceId)}>讨论</button><button disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready" || (view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready)} onClick={() => void enterReading(s.sourceId)}>{view?.preparations?.[s.sourceId]?.candidate ? "打开旧阅读" : view?.preparations?.[s.sourceId]?.ready ? "打开阅读" : "进入精读"}</button>{["failed", "cancelled", "interrupted"].includes(view?.preparations?.[s.sourceId]?.status ?? "") && host.resumePreparation && <button onClick={() => void operate("恢复准备", () => host.resumePreparation!(s.sourceId, createReaderId()))}>恢复准备</button>}{view?.preparations?.[s.sourceId]?.status === "running" && host.cancelPreparation && <button onClick={() => void operate("取消准备", () => host.cancelPreparation!(s.sourceId))}>取消准备</button>}<button disabled={!!busy || active || !host.rereadReading || !rereadReceipt(s.sourceId)} onClick={() => setConfirm({ source: s, action: "reread" })}>从头阅读</button><button disabled={!!busy || active || !host.replanSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "replan" })}>重新规划</button><button disabled={managementBusy || !host.deleteSource || !host.deletionImpact} onClick={() => void confirmDelete(s)}>删除</button></div></div>
             {view?.preparations?.[s.sourceId]?.candidate && view.preparations[s.sourceId].ready && <button className="workspace-primary" disabled={!!busy || active || !host.activateReadingCandidate || view.readingRevision === undefined} onClick={() => void activateCandidate(s.sourceId)}>打开新计划</button>}
             <div className="library-tags" aria-label="专题标签">{s.topicIds.map(id => <button key={id} onClick={() => setTopic(id)}>{topics.find(t => t.topicId === id)?.title ?? id}</button>)}</div>
             <section className="library-blog" aria-label={`${s.title} 博客`}>
@@ -419,7 +429,13 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <div><a href={host.blogUrl(blogViewer)} target="_blank" rel="noreferrer">新窗口打开</a><button onClick={() => setBlogViewer("")}>关闭</button></div></div>
       <iframe title="博客" src={host.blogUrl(blogViewer)} />
     </dialog>}
-    <dialog className="workspace-confirm" ref={confirmation} onCancel={() => setConfirm(null)}><h2>{confirm?.action === "delete" ? "删除材料？" : confirm?.action === "replan" ? "重新规划？" : "从头阅读？"}</h2><p>{confirm?.source.title}</p><p>{confirm?.action === "delete" ? "原文、图片、计划与笔记将永久删除，专题引用也会移除。" : confirm?.action === "replan" ? "重新分段并准备译文；保留旧计划、译文和笔记，不重复解析。" : "回到第一段，保留现有分段、译文和笔记。"}</p><div><button disabled={!!busy} onClick={() => setConfirm(null)}>取消</button><button className="workspace-primary" disabled={!!busy || active} onClick={() => {
+    <dialog className="workspace-confirm" ref={confirmation} onCancel={() => setConfirm(null)}><h2>{confirm?.action === "delete" ? "删除材料？" : confirm?.action === "replan" ? "重新规划？" : "从头阅读？"}</h2><p>{confirm?.source.title}</p><p>{confirm?.action === "delete" ? "原件、正文、图片、博客、计划、笔记和阅读进度将永久删除。历史聊天保留并标记来源已删除。" : confirm?.action === "replan" ? "重新分段并准备译文；保留旧计划、译文和笔记，不重复解析。" : "回到第一段，保留现有分段、译文和笔记。"}</p>{confirm?.action === "delete" && deletionImpact && <div aria-label="删除影响"><p>受影响专题：{deletionImpact.topics.map(t => t.title).join("、") || "无"}</p><ul>
+      <li>原件与解析正文（Bundle）：{deletionImpact.assets.bundle ? "将删除" : "未建立"}</li>
+      <li>博客（Blog）：{deletionImpact.assets.blog ? "将删除" : "未生成"}</li>
+      <li>笔记（Notes）：{deletionImpact.assets.notes ? "将删除" : "未建立"}</li>
+      <li>阅读计划（Plan）：{deletionImpact.assets.plans} 份</li>
+      <li>阅读进度：{deletionImpact.assets.progress ? "将清理" : "未建立"}</li>
+    </ul></div>}<div><button disabled={!!busy} onClick={() => setConfirm(null)}>取消</button><button className="workspace-primary" disabled={!!busy || active || (confirm?.action === "delete" && (managementBusy || !deletionImpact))} onClick={() => {
       if (!confirm) return;
       const { source, action } = confirm;
       const receipt = rereadReceipt(source.sourceId);

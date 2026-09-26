@@ -314,6 +314,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.select_discussion_source(source_id)
             elif method == 'DELETE' and len(parts) == 1:
                 result = service.library_delete(source_id)
+            elif method == 'GET' and len(parts) == 2 and parts[1] == 'deletion-impact':
+                result = service.deletion_impact(source_id)
             elif method == 'POST' and len(parts) == 2 and parts[1] == 'activate':
                 result = service.activate_reading_candidate(source_id, self._body())
             elif method == 'POST' and len(parts) == 2 and parts[1] in ('reread', 'replan', 'open'):

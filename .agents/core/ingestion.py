@@ -148,8 +148,10 @@ class IngestionCore:
         item_path: Path,
         attempt_id: str,
     ) -> dict[str, Any]:
-        metadata = _validate_parser_bundle(candidate)
         item = _read_document(item_path)
+        if item.get("deleted"):
+            raise WorkspaceError("source_deleted", "This source has been permanently deleted")
+        metadata = _validate_parser_bundle(candidate)
         if identity != _identity(item):
             raise WorkspaceError("candidate_original_mismatch", "Candidate identity does not match Inbox")
         if metadata["source_kind"] != _source_kind(item):
@@ -343,7 +345,7 @@ class IngestionApplication:
         matches: list[tuple[float, str, dict[str, Any]]] = []
         for path in (self.workspace / "inbox").glob("*/item.json"):
             item = _read_document(path, {})
-            if item.get("fingerprint") != fingerprint or item.get("status") == "completed":
+            if item.get('deleted') or item.get("fingerprint") != fingerprint or item.get("status") == "completed":
                 continue
             matches.append((path.stat().st_mtime, str(path), item))
         return max(matches, key=lambda match: match[:2])[2] if matches else None
@@ -464,6 +466,8 @@ class IngestionApplication:
     ) -> dict[str, Any]:
         with self._state_lock:
             item = self._read(item_id)
+            if item.get('deleted'):
+                raise WorkspaceError('source_deleted', '来源已删除，旧任务不能恢复。')
             confirmable = {
                 "awaiting_confirmation",
                 "confirmed",
@@ -541,6 +545,8 @@ class IngestionApplication:
     def _require_current_confirmation(
         self, item: dict[str, Any], source: Path
     ) -> dict[str, Any]:
+        if item.get('deleted'):
+            raise WorkspaceError('source_deleted', 'This source has been permanently deleted')
         confirmation = item.get("confirmation")
         expected_services = [_service(item)]
         if (

@@ -111,6 +111,7 @@ class HostService:
 
     def snapshot(self):
         with self.lock:
+            self._reconcile_deleted_sources()
             window = self.core.window()
             discussion_source = self.state.get('discussionSourceId')
             if discussion_source:
@@ -138,7 +139,7 @@ class HostService:
                     window['timeline'].append(entry)
             messages = self.state['conversation']
             if note_source:
-                messages = [m for m in messages if m.get('sourceId') == note_source]
+                messages = [m for m in messages if m.get('sourceId') == note_source or m.get('sourceDeleted')]
                 visible_ids = {m['messageId'] for m in messages}
                 window['timeline'] = [e for e in window['timeline']
                                       if (e['kind'] == 'message' and e['messageId'] in visible_ids)
@@ -280,9 +281,7 @@ class HostService:
 
     def library_manage(self, operation, *, topic_id=None, source_id=None, title=None, source_ids=None):
         with self.lock:
-            self._library_idle()
-            if any(w.is_alive() for w in (*self.blog_workers.values(), *self.batch_workers.values(), *self.reading_workers.values(), *self.progress_workers.values())):
-                raise WorkspaceError('library_busy', '请等待当前任务结束，或先停止任务后再管理材料。')
+            self._library_management_idle()
             library = SourceLibrary(self.workspace)
             if operation == 'create-topic':
                 result = library.create_topic(title)
@@ -308,6 +307,15 @@ class HostService:
                 raise WorkspaceError('library_operation_invalid', '未知管理操作。')
             self.changed()
             return result
+
+    def _library_management_idle(self):
+        self._library_idle()
+        if any(w.is_alive() for w in (*self.blog_workers.values(), *self.batch_workers.values(), *self.reading_workers.values(), *self.progress_workers.values())):
+            raise WorkspaceError('library_busy', '请等待当前任务结束，或先停止任务后再管理材料。')
+
+    def deletion_impact(self, source_id):
+        with self.lock:
+            return SourceLibrary(self.workspace).deletion_impact(source_id)
 
     def library_sources(self):
         from .core_bridge import SourceLibrary
@@ -431,6 +439,8 @@ class HostService:
     def inbox_start_process(self, item_id, *, request_id, continuing=False, resubmit=False, risk_choice_id=None):
         app = self._batch_app()
         with app.lock, self.lock:
+            if self.ingestion.get(item_id).get('deleted'):
+                raise WorkspaceError('source_deleted', 'This source has been permanently deleted')
             if app.owns(item_id):
                 raise WorkspaceError('batch_item_busy', '请在原批次中管理此材料。')
             self._library_idle()
@@ -574,7 +584,7 @@ class HostService:
             result = self._blog_app().cancel(source_id)
             runtime = self.blog_runtime
         stop_requested = bool(runtime.cancel()) if runtime is not None and hasattr(runtime, 'cancel') else False
-        return {**result, 'stopRequested': stop_requested}
+        return {**self.blog_status(source_id), 'stopRequested': stop_requested}
 
     def blog_open(self, source_id):
         """Locate the published index.html for the Workbench viewer."""
@@ -622,7 +632,7 @@ class HostService:
             worker = threading.Thread(target=run, name='focus-blog-' + source_id[:8], daemon=True)
             self.blog_workers[source_id] = worker
             worker.start()
-            return app.status(source_id)
+            return self.blog_status(source_id)
 
     def continue_cached(self, payload):
         """An explicit reading action needs Core, not a model turn."""
@@ -747,15 +757,45 @@ class HostService:
     def library_delete(self, source_id):
         from .core_bridge import SourceLibrary
         with self.lock:
-            self._library_idle()
+            self._library_management_idle()
             SourceLibrary(self.workspace).delete(source_id)
-            self.state['timeline'] = [e for e in self.state['timeline']
-                                      if e['kind'] != 'reading' or e['receipt']['sourceId'] != source_id]
-            for message in self.state['conversation']:
-                if (message.get('reference') or {}).get('sourceId') == source_id:
-                    message['reference'] = None
+            self._reconcile_deleted_sources()
             self.changed()
             return self.snapshot()
+
+    def _reconcile_deleted_sources(self):
+        """Derive Host reference invalidation from durable Core tombstones.
+
+        Also runs on the first snapshot after a restart, closing the gap between
+        Core deletion and Host SQLite persistence without duplicating authority.
+        """
+        deleted = SourceLibrary(self.workspace).deleted_sources()
+        if not deleted:
+            return
+        before = self.store.state
+        state = json.loads(json.dumps(before))
+        def references(value):
+            if isinstance(value, dict):
+                return value.get('sourceId') in deleted or value.get('source_id') in deleted or any(references(v) for v in value.values())
+            return isinstance(value, list) and any(references(v) for v in value)
+        if state.get('discussionSourceId') in deleted:
+            state['discussionSourceId'] = None
+        state['timeline'] = [e for e in state['timeline'] if e['kind'] != 'reading' or not references(e)]
+        for message in state['conversation']:
+            if references(message):
+                message['reference'] = None
+                message['sourceDeleted'] = True
+        state['requests'] = {k: v for k, v in state['requests'].items() if not references(v)}
+        for key in ('noteFeedback', 'noteOperation', 'run'):
+            if references(state.get(key)):
+                state[key] = None
+        if state != before:
+            self.store.state = state
+            try:
+                self.store.save()
+            except Exception:
+                self.store.state = before
+                raise
 
     def start(self, payload, *, continuing=False):
         if continuing or re.fullmatch(r'(请)?(继续阅读|下一段|回到文章继续)[。！!？?]?', payload.get('content', '').strip()):

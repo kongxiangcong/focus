@@ -57,6 +57,8 @@ class BatchApplication:
                         return self._view(batch)
                     raise WorkspaceError('batch_item_busy', '材料已有未完成批次，请返回原批次。')
             items = [self.processing.ingestion.get(i) for i in item_ids]
+            if any(i.get('deleted') for i in items):
+                raise WorkspaceError('source_deleted', '来源已删除，旧任务不能恢复。')
             if any(i['item_id'] in self.processing.running or i['status'] == 'processing' or
                    (i.get('source_id') and self.processing.blog.status(i['source_id']).get('runStatus') == 'running')
                    for i in items):
@@ -93,7 +95,9 @@ class BatchApplication:
             item = self.processing.ingestion.get(item_id)
             blog = self.processing.blog.status(item['source_id']) if item.get('source_id') else None
             error = item.get('topic_error') or item.get('error') or (blog or {}).get('error') or batch['itemErrors'].get(item_id)
-            if item_id in batch['excluded']:
+            if item.get('deleted'):
+                status = 'deleted'
+            elif item_id in batch['excluded']:
                 status = 'cancelled'
             elif item_id == batch['activeItemId'] and batch['status'] == 'running':
                 status = 'processing'
@@ -127,6 +131,8 @@ class BatchApplication:
             if action in ('cancel-item', 'remove-item', 'retry-item', 'resubmit-item') and item_id not in batch['itemIds']:
                 raise WorkspaceError('batch_item_missing', '材料不属于此批次。')
             current = {i['itemId']: i for i in self._view(batch)['items']}
+            if item_id and current[item_id]['status'] == 'deleted':
+                raise WorkspaceError('source_deleted', '来源已删除，旧任务不能恢复。')
             if action == 'stop':
                 batch['status'] = 'paused'
                 batch['error'] = None
@@ -144,7 +150,7 @@ class BatchApplication:
                     batch['excluded'] = [i for i in batch['excluded'] if i != item_id]
                     work = [item_id] if current[item_id]['status'] != 'completed' else []
                 else:
-                    work = [i for i in batch['itemIds'] if i not in batch['excluded'] and current[i]['status'] != 'completed']
+                    work = [i for i in batch['itemIds'] if i not in batch['excluded'] and current[i]['status'] not in ('completed', 'deleted')]
                 if action == 'resubmit-item':
                     self.processing.ingestion.validate_resubmit(item_id, request_id=request_id + ':0', risk_choice_id=risk_choice_id)
                 batch['resubmission'] = {'itemId': item_id, 'riskChoiceId': risk_choice_id} if action == 'resubmit-item' else None

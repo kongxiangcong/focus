@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import filecmp
+import hashlib
 import re
 import shutil
 import unicodedata
@@ -64,10 +65,35 @@ class SourceLibrary:
         self.workspace = workspace.resolve()
         if not self.workspace.is_dir():
             raise WorkspaceError("workspace_missing", "Workspace does not exist")
+        self._recover_deletions()
+
+    def _recover_deletions(self) -> None:
+        state_path = self.workspace / 'state.json'
+        state = _read_document(state_path, {})
+        for tombstone in state.get('deleted_sources', {}).values():
+            if not tombstone.get('pending_cleanup'):
+                continue
+            try:
+                for relative in tombstone['cleanup_paths']:
+                    target = self.workspace / relative
+                    if not target.resolve().is_relative_to(self.workspace):
+                        raise WorkspaceError('deletion_path_invalid', 'Deletion path escapes knowledge base')
+                    if target.is_symlink() or target.is_file():
+                        target.unlink()
+                    elif target.is_dir():
+                        shutil.rmtree(target)
+                tombstone['pending_cleanup'] = False
+                _write_document(state_path, state)
+            except OSError:
+                # Canonical references are gone; retry file cleanup on the next open.
+                continue
 
     def _sources(self) -> list[dict[str, Any]]:
         sources: list[dict[str, Any]] = []
+        staging = {p for t in self.deleted_sources().values() for p in t.get('cleanup_paths', [])}
         for source_path in sorted((self.workspace / "sources").glob("*/source.yaml")):
+            if source_path.parent.relative_to(self.workspace).as_posix() in staging:
+                continue
             source = _read_document(source_path)
             self._validate_source(source, source_path.parent.name)
             sources.append(source)
@@ -127,6 +153,7 @@ class SourceLibrary:
     def _allocate_id(self, short_name: str, source_kind: str, published_at: str | None) -> str:
         suffix = "paper" if source_kind == "paper_pdf" else "article"
         used = {source["source_id"] for source in self._sources()}
+        used.update(self.deleted_sources())
         base = f"{short_name}-{suffix}"
         if base not in used:
             return validate_source_id(base)
@@ -488,24 +515,77 @@ class SourceLibrary:
                 _restore(path, snapshot)
             raise
 
+    def deleted_sources(self) -> dict:
+        return _read_document(self.workspace / 'state.json', {}).get('deleted_sources', {})
+
+    def deletion_impact(self, source_id: str) -> dict:
+        root = self._safe_root(source_id)
+        state = _read_document(self.workspace / 'state.json', {})
+        return {'sourceId': source_id, 'title': self.get(source_id)['title'],
+                'topics': [t for t in self.topics() if source_id in t['sourceIds']],
+                'assets': {'bundle': (root / 'parser-bundle').exists(), 'blog': (root / 'blog').exists(),
+                           'notes': (root / 'notes').exists() or any((root / 'reading').glob('plans/*/records/*')),
+                           'plans': len(list((root / 'reading/plans').glob('*'))),
+                           'progress': source_id in state.get('sources', {})}}
+
     def delete(self, source_id: str) -> None:
         """Detach references before permanently removing the one authoritative directory."""
         root = self._safe_root(source_id)
         state_path = self.workspace / 'state.json'
         state = _read_document(state_path)
+        source = self.get(source_id)
+        state.setdefault('deleted_sources', {})[source_id] = {'title': source['title'], 'identity': source['identity']}
+        progress_ids = {key for key, value in state.get('reading_progress', {}).items() if value.get('source_id') == source_id}
+        state['reading_progress'] = {k: v for k, v in state.get('reading_progress', {}).items() if k not in progress_ids}
+        state['progress_requests'] = {k: v for k, v in state.get('progress_requests', {}).items() if v.get('input', {}).get('progress_id') not in progress_ids}
+        state['reading_requests'] = {k: v for k, v in state.get('reading_requests', {}).items() if v.get('input', {}).get('source_id') != source_id}
         state.setdefault('current_topic_id', None)
         state['sources'].pop(source_id, None)
         if state.get('current_source_id') == source_id:
             state['current_source_id'] = None
             state['current_topic_id'] = None
         updates = {state_path: state}
+        original = next((p for p in (root / 'parser-bundle').glob('source.*') if p.is_file()), None)
+        fingerprint = hashlib.sha256(original.read_bytes()).hexdigest() if original else None
+        deleted_items = []
+        for path in (self.workspace / 'inbox').glob('*/item.json'):
+            item = _read_document(path)
+            if (item.get('source_id') != source_id and item.get('identity') != source['identity']
+                    and (fingerprint is None or item.get('fingerprint') != fingerprint)):
+                continue
+            item.update(deleted=True, deleted_source_id=source_id, source_id=None, status='cancelled', confirmation=None)
+            for step in (item.get('run') or {}).get('steps', {}).values():
+                for attempt in step.get('attempts', []):
+                    attempt['commit_allowed'] = False
+            updates[path] = item
+            deleted_items.append(path.parent.name)
+        processing = self.workspace / 'ingestion/processing.json'
+        if processing.is_file():
+            updates[processing] = {k: v for k, v in _read_document(processing).items() if k not in deleted_items}
+        for core_path in (self.workspace / 'ingestion/core.json', self.workspace / 'blog/core.json'):
+            if core_path.is_file():
+                core_state = _read_document(core_path)
+                core_state['requests'] = {k: v for k, v in core_state.get('requests', {}).items() if v.get('source_id') != source_id}
+                core_state['version'] = core_state.get('version', 0) + 1
+                updates[core_path] = core_state
+        runs_path = self.workspace / 'blog/runs.json'
+        if runs_path.is_file():
+            updates[runs_path] = {k: v for k, v in _read_document(runs_path).items() if k != source_id}
         for topic in self.topics():
             path = self.workspace / 'topics' / topic['topicId'] / 'topic.yaml'
             value = _read_document(path)
             value['sources'] = [s for s in value['sources'] if s != source_id]
             updates[path] = value
-        snapshots = {p: p.read_bytes() for p in updates}
         removing = root.with_name(f'.{root.name}.{uuid.uuid4().hex}.deleting')
+        cleanup_paths = [removing.relative_to(self.workspace).as_posix()]
+        cleanup_paths.extend(p.relative_to(self.workspace).as_posix()
+                             for p in (self.workspace / 'blog/candidates').glob('*')
+                             if p.name.rsplit('-', 1)[0] == source_id)
+        for item_id in deleted_items:
+            cleanup_paths.extend(p.relative_to(self.workspace).as_posix()
+                                 for p in (self.workspace / 'inbox' / item_id).iterdir() if p.name != 'item.json')
+        state['deleted_sources'][source_id].update(pending_cleanup=True, cleanup_paths=cleanup_paths)
+        snapshots = {p: p.read_bytes() for p in updates}
         root.replace(removing)
         try:
             for path, value in updates.items():
@@ -515,4 +595,6 @@ class SourceLibrary:
             for path, snapshot in snapshots.items():
                 _restore(path, snapshot)
             raise
-        shutil.rmtree(removing)
+        self._recover_deletions()
+        if self.deleted_sources()[source_id]['pending_cleanup']:
+            raise WorkspaceError('deletion_cleanup_pending', 'Source references removed; file cleanup will retry when the knowledge base opens')

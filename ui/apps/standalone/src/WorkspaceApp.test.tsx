@@ -28,6 +28,7 @@ function setup(initialInbox: readonly IngestionItem[] = []) {
     startBatch: vi.fn(async () => readerSuccess({ batchId: "batch-1", topicId: "topic", status: "confirmed" as const, error: null, items: [] })),
     controlBatch: vi.fn(async () => readerSuccess({ batchId: "batch-1", topicId: "topic", status: "paused" as const, error: null, items: [] })),
     createTopic: vi.fn(async () => readerSuccess({})), manageTopic: vi.fn(async () => readerSuccess({})),
+    deletionImpact: vi.fn(async id => readerSuccess({ sourceId: id, title: "A Paper", topics: [{ topicId: "topic", title: "编译", sourceIds: [id] }], assets: { bundle: true, blog: true, notes: true, plans: 1, progress: true } })),
     renameSource: vi.fn(async () => readerSuccess({})),
     startIngestion: vi.fn(async () => readerSuccess(confirmed)),
     confirmIngestion: vi.fn(async () => readerSuccess(confirmed)),
@@ -140,7 +141,7 @@ it("starts parsing and blog with one explicit confirmation", async () => {
   await waitFor(() => expect(screen.getByRole("button", { name: "删除" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "删除" }));
   expect(host.deleteSource).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "永久删除" }));
+  fireEvent.click(await screen.findByRole("button", { name: "永久删除" }));
   await waitFor(() => expect(host.deleteSource).toHaveBeenCalledWith("a-paper"));
   await waitFor(() => expect(screen.getByRole("button", { name: "从头阅读" })).toBeDisabled());
   expect(host.rereadSource).not.toHaveBeenCalled();

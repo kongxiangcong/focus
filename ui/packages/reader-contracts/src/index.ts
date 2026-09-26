@@ -81,6 +81,7 @@ export interface ReaderMessage {
   role: ReaderMessageRole;
   content: string;
   sourceId?: string | null;
+  sourceDeleted?: boolean;
 }
 
 export interface SourceNote {
@@ -281,6 +282,11 @@ export type IngestionStatus =
   | "interrupted"
   | "completed";
 
+export interface SourceDeletionImpact {
+  sourceId: string; title: string; topics: readonly LibraryTopic[];
+  assets: { bundle: boolean; blog: boolean; notes: boolean; plans: number; progress: boolean };
+}
+
 export interface ProcessingBatch {
   batchId: string;
   topicId: string;
@@ -289,7 +295,7 @@ export interface ProcessingBatch {
   executing?: boolean;
   items: readonly {
     itemId: string; fileName: string; sourceId: string | null;
-    status: "queued" | "processing" | "completed" | "failed" | "cancelled" | "partial";
+    status: "queued" | "processing" | "completed" | "failed" | "cancelled" | "partial" | "deleted";
     ingestionStatus: string; blog: BlogStatus | null;
     error: { error_id: string; message: string } | null;
     remoteReference?: boolean;
@@ -345,6 +351,7 @@ export interface ReaderHost {
   createTopic?(title: string): Promise<ReaderHostResult<unknown>>;
   manageTopic?(topicId: string, action: "rename" | "delete" | "attach" | "detach" | "reorder", input: { title?: string; sourceId?: string; sourceIds?: readonly string[] }): Promise<ReaderHostResult<unknown>>;
   renameSource?(sourceId: string, title: string): Promise<ReaderHostResult<unknown>>;
+  deletionImpact?(sourceId: string): Promise<ReaderHostResult<SourceDeletionImpact>>;
   startBatch?(itemIds: readonly string[], requestId: string): Promise<ReaderHostResult<ProcessingBatch>>;
   controlBatch?(batchId: string, action: "stop" | "continue" | "cancel-item" | "remove-item" | "retry-item" | "resubmit-item", requestId: string, itemId?: string, riskChoiceId?: string): Promise<ReaderHostResult<ProcessingBatch>>;
   stageIngestion?(file: File, target: IngestionTarget): Promise<ReaderHostResult<IngestionItem>>;

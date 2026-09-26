@@ -29,6 +29,8 @@ class ProcessingApplication:
         with self.lock:
             scopes = _read_document(self.path, {})
             item = self.ingestion.get(item_id)
+            if item.get('deleted'):
+                raise WorkspaceError('source_deleted', '来源已删除，旧任务不能恢复。')
             if any(key != item_id and value['request_id'] == request_id for key, value in scopes.items()):
                 raise WorkspaceError('request_conflict', 'Request identity belongs to another original')
             existing = scopes.get(item_id)

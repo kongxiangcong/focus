@@ -4,6 +4,7 @@ import { createReaderId,
   type LibrarySource,
   type IngestionItem,
   type ProcessingBatch,
+  type SourceDeletionImpact,
   type IngestionTarget,
   type LibraryTopic,
   type ContinueReadingInput,
@@ -153,7 +154,7 @@ function isBatch(value: unknown): value is ProcessingBatch {
     ["confirmed", "running", "paused", "completed", "partial"].includes(String(b.status)) &&
     Array.isArray(b.items) && b.items.every(i => i && typeof i.itemId === "string" &&
       typeof i.fileName === "string" && (i.sourceId === null || typeof i.sourceId === "string") &&
-      ["queued", "processing", "completed", "failed", "cancelled", "partial"].includes(i.status));
+      ["queued", "processing", "completed", "failed", "cancelled", "partial", "deleted"].includes(i.status));
 }
 
 export class HttpReaderHost implements ReaderHost {
@@ -181,6 +182,17 @@ export class HttpReaderHost implements ReaderHost {
   }
   renameSource(sourceId: string, title: string): Promise<ReaderHostResult<unknown>> {
     return this.managementRequest(`/library/sources/${encodeURIComponent(sourceId)}/title`, { title });
+  }
+  async deletionImpact(sourceId: string): Promise<ReaderHostResult<SourceDeletionImpact>> {
+    try {
+      const response = await this.fetch(this.baseUrl + `/library/sources/${encodeURIComponent(sourceId)}/deletion-impact`);
+      const body = await response.json();
+      if (body.ok === false) return body;
+      if (body.ok && body.value?.sourceId === sourceId && Array.isArray(body.value.topics) && body.value.assets) return body;
+      return { ok: false, error: { code: 'invalid-response', message: '删除摘要响应格式错误', retryable: false } };
+    } catch {
+      return { ok: false, error: { code: 'unavailable', message: '无法读取删除影响', retryable: true } };
+    }
   }
   private async managementRequest(path: string, input: unknown): Promise<ReaderHostResult<unknown>> {
     try {

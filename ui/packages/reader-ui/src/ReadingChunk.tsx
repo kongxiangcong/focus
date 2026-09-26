@@ -23,7 +23,7 @@ export function ReadingChunk({ chunk, onReference }: { chunk: ReaderChunk; onRef
 
 export function ReaderConversation({ messages }: { messages: readonly ReaderMessage[] }) {
   return <>{messages.map(message => <article className={`focus-message${message.role === "assistant" ? " focus-reader__chunk" : ""}`} data-message-id={message.messageId} data-role={message.role} key={message.messageId}>
-    <header>{message.role === "user" ? "你" : "Agent"}</header>
+    <header>{message.role === "user" ? "你" : "Agent"}{message.sourceDeleted && <small> · 来源已删除</small>}</header>
     <MarkdownContent text={message.content} sourceId={message.reference?.sourceId} />
   </article>)}</>;
 }
