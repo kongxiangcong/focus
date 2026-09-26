@@ -37,6 +37,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [readyNotice, setReadyNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [confirm, setConfirm] = useState<{ source: LibrarySource; action: "delete" | "reread" | "replan" } | null>(null);
@@ -44,12 +45,12 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadTopic, setUploadTopic] = useState("");
   const [blogs, setBlogs] = useState<Readonly<Record<string, BlogStatus>>>({});
-  const [generateBlogs, setGenerateBlogs] = useState(false);
   const [blogViewer, setBlogViewer] = useState("");
   const uploadDialog = useRef<HTMLDialogElement>(null);
   const confirmation = useRef<HTMLDialogElement>(null);
   const locked = useRef(false);
   const requestVersion = useRef(0);
+  const seenPreparation = useRef<Record<string, string>>({});
   const active = !!view?.agent?.run && ["running", "approval", "stopping"].includes(view.agent.run.status);
 
   function navigate(next: Route) { history.pushState(null, "", next); setRoute(next); setError(""); }
@@ -94,6 +95,15 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   useEffect(() => { if (confirm) confirmation.current?.showModal(); else confirmation.current?.close(); }, [confirm]);
   useEffect(() => { if (view?.blog) setBlogs(view.blog); }, [view?.blog]);
   useEffect(() => {
+    if (!view?.preparations) return;
+    for (const [sourceId, preparation] of Object.entries(view.preparations)) {
+      if (preparation.ready && seenPreparation.current[sourceId] === "running") {
+        setReadyNotice(`${sources.find(source => source.sourceId === sourceId)?.shortName ?? sourceId} 已就绪`);
+      }
+      seenPreparation.current[sourceId] = preparation.status;
+    }
+  }, [view?.preparations, sources]);
+  useEffect(() => {
     const running = Object.values(blogs).filter(blog => blog.runStatus === "running").map(blog => blog.sourceId);
     if (running.length === 0 || !host.blogStatus) return;
     const timer = window.setInterval(() => running.forEach(id => void refreshBlog(id)), 1500);
@@ -115,6 +125,29 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       await refresh();
     } catch (e) { setError(String(e)); }
     finally { locked.current = false; setBusy(""); }
+  }
+  async function discuss(sourceId: string) {
+    if (!host.selectDiscussionSource) return;
+    const result = await host.selectDiscussionSource(sourceId);
+    if (!result.ok) { setError(result.error.message); return; }
+    setView(result.value);
+    navigate("/reading");
+  }
+  async function enterReading(sourceId: string) {
+    if (!host.openSource) return;
+    const prepared = view?.preparations?.[sourceId];
+    if (prepared && !prepared.selected_ready && ["failed", "cancelled", "interrupted"].includes(prepared.status)) {
+      setError("准备已中断，请选择恢复阅读准备。");
+      return;
+    }
+    await operate("阅读", () => host.openSource!(sourceId), !!(prepared?.ready || prepared?.selected_ready));
+  }
+  async function activateCandidate(sourceId: string) {
+    const preparation = view?.preparations?.[sourceId];
+    if (!host.activateReadingCandidate || !preparation?.candidate || !preparation.ready ||
+        !preparation.plan_id || view?.readingRevision === undefined) return;
+    await operate("打开新计划", () => host.activateReadingCandidate!(sourceId, preparation.plan_id!,
+      view.readingRevision!, createReaderId()), true);
   }
   function replaceInbox(item: IngestionItem) { setInbox(current => [item, ...current.filter(existing => existing.itemId !== item.itemId)]); }
   async function ingest(label: string, operation: () => Promise<ReaderHostResult<IngestionItem>>, closeUpload = false) {
@@ -162,7 +195,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     if (!host.confirmIngestion || !host.processIngestion || locked.current) return;
     locked.current = true; setBusy("确认"); setError(""); setNotice("");
     try {
-      const confirmed = await host.confirmIngestion(item.itemId, generateBlogs);
+      const confirmed = await host.confirmIngestion(item.itemId, true);
       if (!confirmed.ok) { setError(confirmed.error.message); return; }
       replaceInbox(confirmed.value); setBusy("入库");
       const started = await host.processIngestion(item.itemId, createReaderId());
@@ -172,13 +205,37 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     finally { locked.current = false; setBusy(""); }
   }
   const filtered = sources.filter(s => (!topic || s.topicIds.includes(topic)) && (s.title + " " + (s.shortName ?? "")).toLowerCase().includes(query.toLowerCase()));
+  function rereadReceipt(sourceId: string) {
+    if (!view || view.source.sourceId !== sourceId || view.readingRevision === undefined) return null;
+    const chunk = view.current ?? view.history.at(-1);
+    return chunk ? { sourceId, planId: chunk.planId, chunkId: view.current?.chunkId ?? null,
+      readingRevision: view.readingRevision } : null;
+  }
+  async function uploadAndStart() {
+    if (locked.current || !selectedFile || !uploadTopic.trim() || !host.stageIngestion || !host.startIngestion) return;
+    locked.current = true; setBusy("开始处理"); setError("");
+    try {
+      const staged = await host.stageIngestion(selectedFile, { topicTitle: uploadTopic.trim() });
+      if (!staged.ok) { setError(staged.error.message); return; }
+      replaceInbox(staged.value);
+      if (staged.value.duplicate && !["awaiting_confirmation", "confirmed"].includes(staged.value.status)) {
+        setNotice("该原件已有未完成任务，已回到原任务；不会重复解析。");
+      } else {
+        const started = await host.startIngestion(staged.value.itemId, createReaderId());
+        if (!started.ok) { setError(started.error.message); return; }
+        replaceInbox(started.value);
+      }
+      setUploadOpen(false); setSelectedFile(null); await refresh();
+    } catch (e) { setError(String(e)); }
+    finally { locked.current = false; setBusy(""); }
+  }
   function chooseUpload(selected?: File) {
-    if (selected && !/\.pdf$/i.test(selected.name)) { setError("请选择 PDF"); return; }
+    if (selected && !/\.(pdf|html)$/i.test(selected.name)) { setError("请选择 PDF 或 SingleFile HTML"); return; }
     setSelectedFile(selected ?? null);
     setUploadTopic(topics.find(t => t.topicId === topic)?.title ?? "");
     setError(""); setUploadOpen(true);
   }
-  const uploadDisabled = !!busy || active || !host.stageIngestion;
+  const uploadDisabled = !!busy || active || !host.stageIngestion || !host.startIngestion;
   const statusText: Record<IngestionItem["status"], string> = {
     awaiting_confirmation: "待确认", confirmed: "已确认，等待开始", processing: "处理中", status_check_required: "远端状态待核对",
     retry_waiting: "等待继续", failed: "处理失败，可继续", commit_conflict: "提交冲突，可继续", topic_attachment_pending: "文档已入库，专题关联待恢复",
@@ -193,8 +250,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     </header>
     {!uploadOpen && error && <div className="workspace-error" role="alert">{error}<button onClick={() => { setError(""); void refresh(); }}>重试</button></div>}
     {notice && <div className="workspace-notice" role="status">{notice}<button onClick={() => setNotice("")}>知道了</button></div>}
+    {readyNotice && <div className="workspace-ready-notice" role="status">{readyNotice}<button onClick={() => setReadyNotice("")}>关闭</button></div>}
     <div className="workspace-reading" hidden={route !== "/reading"}>
-      <div className="reading-library-picker"><select aria-label="阅读专题" value={topic} onChange={e => setTopic(e.target.value)}><option value="">全部专题</option>{topics.map(t => <option key={t.topicId} value={t.topicId}>{t.title}</option>)}</select><select aria-label="选择阅读材料" value={sources.some(s => s.sourceId === view?.source.sourceId && (!topic || s.topicIds.includes(topic))) ? view?.source.sourceId : ""} disabled={!!busy || active} onChange={e => { if (e.target.value && host.openSource) void operate("打开", () => host.openSource!(e.target.value)); }}><option value="">选择材料</option>{sources.filter(s => !topic || s.topicIds.includes(topic)).map(s => <option key={s.sourceId} value={s.sourceId}>{s.shortName || s.title}</option>)}</select></div>
+      <div className="reading-library-picker"><select aria-label="阅读专题" value={topic} onChange={e => setTopic(e.target.value)}><option value="">全部专题</option>{topics.map(t => <option key={t.topicId} value={t.topicId}>{t.title}</option>)}</select><select aria-label="选择阅读材料" value={sources.some(s => s.sourceId === view?.source.sourceId && (!topic || s.topicIds.includes(topic))) ? view?.source.sourceId : ""} disabled={!!busy || active} onChange={e => { if (e.target.value) void enterReading(e.target.value); }}><option value="">选择材料</option>{sources.filter(s => !topic || s.topicIds.includes(topic)).map(s => <option key={s.sourceId} value={s.sourceId}>{s.shortName || s.title}</option>)}</select></div>
       <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} /></div>
     {route === "/library" && <main className="library-page" data-dragging={dragging}
       onDragOver={e => { e.preventDefault(); if (!uploadDisabled) setDragging(true); }}
@@ -206,9 +264,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       {view?.agent?.run && <div className="library-run"><TaskProgress run={view.agent.run} /><button onClick={() => navigate("/reading")}>查看</button></div>}
       {inbox.length > 0 && <section className="library-inbox" aria-label="Inbox"><div className="library-inbox-heading"><h2>Inbox</h2><button disabled={!!busy} onClick={() => void refresh()}>刷新状态</button></div>{inbox.map(item => <article key={item.itemId} className="library-inbox-item" data-status={item.status}>
         <div><strong>{item.fileName}</strong><span>{statusText[item.status]}</span><small>{item.topicTitle ?? topics.find(t => t.topicId === item.topicId)?.title ?? "不关联专题"}</small></div>
-        {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>将调用 {(item.services ?? item.confirmation?.services ?? ["mineru"]).map(service => service === "mineru" ? "MinerU" : service).join("、")} 处理此 PDF，仅用于建立 Source 并关联专题；不会创建翻译或阅读计划，也不做 AI 内容审核。</p>
-          <label className="inbox-blog-option"><input type="checkbox" checked={generateBlogs} onChange={e => setGenerateBlogs(e.target.checked)} />同时生成博客（入库完成后自动接续带读博客，架构类论文另生成价值分析）</label>
-          <button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>确认并开始</button></div>}
+        {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>将调用 {(item.services ?? item.confirmation?.services ?? ["mineru"]).map(service => service === "mineru" ? "MinerU" : service === "local-html" ? "本地 HTML 解析器（不上传）" : service).join("、")} 处理此材料，仅用于建立 Source 并关联专题；不会创建翻译或阅读计划，也不做 AI 内容审核。</p>
+          <button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>开始解析并生成博客</button></div>}
         {item.status === "processing" && <button disabled={!!busy || !host.cancelIngestion} onClick={() => host.cancelIngestion && void ingest("取消", () => host.cancelIngestion!(item.itemId))}>取消</button>}
         {(item.status === "status_check_required" || (item.status === "cancelled" && item.resubmitRisk)) && <div className="inbox-confirmation inbox-resubmission">
           <p>上次提交结果未知，重新提交可能重复解析。</p>
@@ -220,23 +277,24 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         {["retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "interrupted"].includes(item.status) && <button disabled={!!busy || !host.continueIngestion} onClick={() => host.continueIngestion && void ingest("继续", () => host.continueIngestion!(item.itemId, createReaderId()))}>继续</button>}
         {item.status === "cancelled" && !item.resubmitRisk && <button disabled={!!busy || !host.continueIngestion} onClick={() => host.continueIngestion && void ingest("继续", () => host.continueIngestion!(item.itemId, createReaderId()))}>继续</button>}
         {["status_check_required", ...resumableStatuses].includes(item.status) && <button disabled={!!busy || !host.confirmIngestion || !host.processIngestion} onClick={() => void confirmAndStart(item)}>重新确认并开始</button>}
-        {item.sourceId && <div className="inbox-links">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(item.sourceId)} target="_blank" rel="noreferrer">PDF 原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(item.sourceId)} target="_blank" rel="noreferrer">正文</a>}</div>}
+        {item.sourceId && <div className="inbox-links">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(item.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(item.sourceId)} target="_blank" rel="noreferrer">正文</a>}</div>}
         {(item.error || item.topicError) && <p className="inbox-error">{item.topicError?.message ?? item.error?.message}</p>}
       </article>)}</section>}
       <div className="library-layout"><aside className="library-topics" aria-label="专题"><h2>专题</h2><button aria-pressed={!topic} onClick={() => setTopic("")}>全部 <span>{sources.length}</span></button>{topics.map(t => <button key={t.topicId} aria-pressed={topic === t.topicId} onClick={() => setTopic(t.topicId)}>{t.title}<span>{t.sourceIds.length}</span></button>)}</aside>
         <section className="library-sources" aria-label="材料列表"><div className="library-toolbar"><h2>{topics.find(t => t.topicId === topic)?.title ?? "全部材料"}<small>{filtered.length}</small></h2><input type="search" aria-label="搜索材料" placeholder="搜索标题" value={query} onChange={e => setQuery(e.target.value)} /></div>
           {loading ? <p role="status" className="library-empty">读取中…</p> : filtered.length === 0 ? <div className="library-empty"><span aria-hidden="true">▤</span><p>{query || topic ? "暂无匹配材料" : "放入第一份材料"}</p><button className="workspace-primary" disabled={uploadDisabled} onClick={() => { if (query || topic) { setQuery(""); setTopic(""); } else chooseUpload(); }}>{query || topic ? "重置" : "上传"}</button></div> : <div className="library-cards">{filtered.map(s => <article className="library-card" data-reading-status={readingStatus(s)} key={s.sourceId}>
             <div className="library-card-top"><span className="source-badge">{s.format ?? (s.kind === "paper" ? "PDF" : "HTML")}</span>{s.parseStatus !== "ready" && <span title={s.error ?? undefined}>需检查</span>}</div>
-            <h3><button className="library-title" disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready"} onClick={() => void operate("打开", () => host.openSource!(s.sourceId), true)}>{s.shortName || s.title}</button></h3>
+            <h3><button className="library-title" disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready"} onClick={() => void enterReading(s.sourceId)}>{s.shortName || s.title}</button></h3>
             <p className="library-metadata" title={s.title}>{[s.publishedAt, s.venue].filter(Boolean).join(" · ")}</p>
             <div className="library-progress"><progress aria-label={`${s.title} 阅读进度`} value={s.progress.completed} max={s.progress.total || 1} /><span>{s.progress.completed} / {s.progress.total}</span></div>
-            <p className="library-metadata">{s.preparation && (s.preparation.ready ? "阅读已准备好" : `准备阅读 ${s.preparation.completed}/${s.preparation.total} · 点击阅读继续准备`)}</p>
-            <div className="library-card-bottom"><small>{({ ready: "待阅读", reading: "阅读中", completed: "已读完", unplanned: "待规划" })[readingStatus(s)]}</small><div className="library-row-actions">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(s.sourceId)} target="_blank" rel="noreferrer">PDF 原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(s.sourceId)} target="_blank" rel="noreferrer">正文</a>}<button disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready"} onClick={() => void operate("打开", () => host.openSource!(s.sourceId), true)}>阅读</button><button disabled={!!busy || active || !host.rereadSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "reread" })}>从头阅读</button><button disabled={!!busy || active || !host.replanSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "replan" })}>重新规划</button><button disabled={!!busy || active || !host.deleteSource} onClick={() => setConfirm({ source: s, action: "delete" })}>删除</button></div></div>
+            <p className="library-metadata">{view?.preparations?.[s.sourceId] ? (() => { const p = view.preparations![s.sourceId]; return p.ready ? (p.candidate ? "新计划已就绪；旧阅读仍保留" : "阅读已准备好，可手动打开") : `${p.candidate ? "新计划" : "阅读"}${p.status === "running" ? "准备中" : p.status === "failed" ? "准备失败" : p.status === "interrupted" ? "准备已中断" : "准备已取消"} · ${p.step} · ${p.completed}/${p.total}${p.error ? ` · ${p.error}` : ""}`; })() : "尚未初始化精读"}</p>
+            <div className="library-card-bottom"><small>{({ ready: "待阅读", reading: "阅读中", completed: "已读完", unplanned: "待规划" })[readingStatus(s)]}</small><div className="library-row-actions">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(s.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(s.sourceId)} target="_blank" rel="noreferrer">正文</a>}<button disabled={!host.selectDiscussionSource || s.parseStatus !== "ready"} onClick={() => void discuss(s.sourceId)}>讨论</button><button disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready" || (view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready)} onClick={() => void enterReading(s.sourceId)}>{view?.preparations?.[s.sourceId]?.candidate ? "打开旧阅读" : view?.preparations?.[s.sourceId]?.ready ? "打开阅读" : "进入精读"}</button>{["failed", "cancelled", "interrupted"].includes(view?.preparations?.[s.sourceId]?.status ?? "") && host.resumePreparation && <button onClick={() => void operate("恢复准备", () => host.resumePreparation!(s.sourceId, createReaderId()))}>恢复准备</button>}{view?.preparations?.[s.sourceId]?.status === "running" && host.cancelPreparation && <button onClick={() => void operate("取消准备", () => host.cancelPreparation!(s.sourceId))}>取消准备</button>}<button disabled={!!busy || active || !host.rereadReading || !rereadReceipt(s.sourceId)} onClick={() => setConfirm({ source: s, action: "reread" })}>从头阅读</button><button disabled={!!busy || active || !host.replanSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "replan" })}>重新规划</button><button disabled={!!busy || active || !host.deleteSource} onClick={() => setConfirm({ source: s, action: "delete" })}>删除</button></div></div>
+            {view?.preparations?.[s.sourceId]?.candidate && view.preparations[s.sourceId].ready && <button className="workspace-primary" disabled={!!busy || active || !host.activateReadingCandidate || view.readingRevision === undefined} onClick={() => void activateCandidate(s.sourceId)}>打开新计划</button>}
             <div className="library-tags" aria-label="专题标签">{s.topicIds.map(id => <button key={id} onClick={() => setTopic(id)}>{topics.find(t => t.topicId === id)?.title ?? id}</button>)}</div>
             <section className="library-blog" aria-label={`${s.title} 博客`}>
               {!blogs[s.sourceId]?.generated ? <button disabled={!!busy || !host.generateBlog || s.parseStatus !== "ready"} onClick={() => void generateBlog(s.sourceId)}>生成博客</button> : <>
                 <ul className="blog-statuses">{blogArtifacts.map(([name, label]) => <li key={name} data-status={blogs[s.sourceId].artifacts?.[name]?.status ?? "pending"}><span>{label}</span><small>{blogStatusText[(blogs[s.sourceId].artifacts?.[name]?.status ?? "pending") as BlogArtifactStatus]}</small></li>)}</ul>
-                {blogs[s.sourceId].valueAnalysis.applicable === false && <p className="blog-note">论文价值分析不适用：{blogs[s.sourceId].valueAnalysis.reason}</p>}
+                {blogs[s.sourceId].valueAnalysis.applicable === false && <p className="blog-note">架构价值分析不适用：{blogs[s.sourceId].valueAnalysis.reason}</p>}
                 {blogs[s.sourceId].warnings.length > 0 && <p className="blog-note" role="status">降级与证据缺口：{blogs[s.sourceId].warnings.join("；")}</p>}
                 {blogs[s.sourceId].error && <p className="blog-note" role="alert">{blogs[s.sourceId].error?.message}</p>}
                 <div className="blog-actions">
@@ -258,14 +316,14 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <div className="settings-row"><label htmlFor="network">网络</label><span className="settings-network" title="当前后端协议未提供网络控制接口"><small>待接入</small><input id="network" className="focus-reader__toggle" type="checkbox" role="switch" checked={false} disabled /></span></div></section>
     </main>}
     <dialog className="workspace-confirm workspace-upload" ref={uploadDialog} onCancel={() => setUploadOpen(false)}>
-      <form onSubmit={e => { e.preventDefault(); if (selectedFile && host.stageIngestion) { const existing = topics.find(t => t.title === uploadTopic.trim()); void ingest("暂存", () => host.stageIngestion!(selectedFile, existing ? { topicId: existing.topicId } : uploadTopic.trim() ? { topicTitle: uploadTopic.trim() } : {}), true); } }}>
-        <h2>暂存 PDF</h2>
+      <form onSubmit={e => { e.preventDefault(); void uploadAndStart(); }}>
+        <h2>解析并生成博客</h2>
         <label>专题<input list="upload-topics" required maxLength={120} value={uploadTopic} onChange={e => setUploadTopic(e.target.value)} placeholder="选择或新建专题" /></label>
         <datalist id="upload-topics">{topics.map(t => <option key={t.topicId} value={t.title} />)}</datalist>
-        <label className="upload-file">{selectedFile?.name ?? "PDF"}<input aria-label="上传材料" type="file" accept=".pdf,application/pdf" onChange={e => setSelectedFile(e.target.files?.[0] ?? null)} /></label>
-        <p>此步只把文件放入 Inbox，不调用任何解析服务，也不做 AI 内容审核。暂存后可核对目标专题与处理范围，再明确确认。</p>
+        <label className="upload-file">{selectedFile?.name ?? "PDF / HTML"}<input aria-label="上传材料" type="file" accept=".pdf,.html,application/pdf,text/html" onChange={e => setSelectedFile(e.target.files?.[0] ?? null)} /></label>
+        <p>{selectedFile?.name.toLowerCase().endsWith(".html") ? "本地 HTML 解析器（不上传原件）" : "MinerU 云解析"}；博客由 Codex 模型服务生成。点击开始即确认文件、专题和服务范围，不自动进入精读。</p>
         {error && <p role="alert">{error}</p>}
-        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFile || !uploadTopic.trim()}>{busy ? "暂存中…" : "放入 Inbox"}</button></div>
+        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFile || !uploadTopic.trim()}>{busy ? "开始中…" : "开始解析并生成博客"}</button></div>
       </form>
     </dialog>
     {blogViewer && host.blogUrl && <dialog className="workspace-blog-viewer" open onCancel={() => setBlogViewer("")}>
@@ -276,7 +334,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     <dialog className="workspace-confirm" ref={confirmation} onCancel={() => setConfirm(null)}><h2>{confirm?.action === "delete" ? "删除材料？" : confirm?.action === "replan" ? "重新规划？" : "从头阅读？"}</h2><p>{confirm?.source.title}</p><p>{confirm?.action === "delete" ? "原文、图片、计划与笔记将永久删除，专题引用也会移除。" : confirm?.action === "replan" ? "重新分段并准备译文；保留旧计划、译文和笔记，不重复解析。" : "回到第一段，保留现有分段、译文和笔记。"}</p><div><button disabled={!!busy} onClick={() => setConfirm(null)}>取消</button><button className="workspace-primary" disabled={!!busy || active} onClick={() => {
       if (!confirm) return;
       const { source, action } = confirm;
-      void operate(action === "delete" ? "删除" : action === "replan" ? "重新规划" : "从头阅读", () => action === "delete" ? host.deleteSource!(source.sourceId) : action === "replan" ? host.replanSource!(source.sourceId) : host.rereadSource!(source.sourceId), action === "reread");
+      const receipt = rereadReceipt(source.sourceId);
+      if (action === "reread" && (!receipt || !host.rereadReading)) { setError("阅读位置已变化，请先打开这篇材料。"); return; }
+      void operate(action === "delete" ? "删除" : action === "replan" ? "重新规划" : "从头阅读", () => action === "delete" ? host.deleteSource!(source.sourceId) : action === "replan" ? host.replanSource!(source.sourceId) : host.rereadReading!({ receipt: receipt!, requestId: createReaderId(), sessionId: view?.sessionId }), action === "reread");
     }}>{busy || (confirm?.action === "delete" ? "永久删除" : confirm?.action === "replan" ? "确认重新规划" : "确认从头阅读")}</button></div>{error && <p role="alert">{error}</p>}</dialog>
   </div>;
 }

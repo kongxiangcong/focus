@@ -82,3 +82,4 @@
 @media(prefers-contrast:more) { .focus-mist { --reader-muted:#4c5662;--reader-faint:#626b76;--reader-line:#687380; }.focus-mist .focus-output{opacity:1}.focus-mist .focus-reader__chunk{border-color:var(--reader-line)} }
 
 @media(max-width:540px){.mist-history-rail{right:0;width:24px}.mist-history-rail button{width:24px}.focus-mist .focus-content{padding-right:28px}}
+.focus-review-banner { display:flex; align-items:center; gap:12px; padding:10px 14px; border-radius:10px; background:var(--reader-paper); color:var(--reader-muted); font-size:13px; }

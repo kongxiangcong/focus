@@ -116,7 +116,7 @@ class Handler(BaseHTTPRequestHandler):
                            headers={'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"})
             else:
                 self._send(404, {'ok': False})
-        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError):
             self.close_connection = True
         except Exception as exc:
             self.close_connection = True
@@ -190,6 +190,11 @@ class Handler(BaseHTTPRequestHandler):
             target = service.core.image(source, relative)
             self._send(200, target.read_bytes(), content_type=mimetypes.guess_type(target)[0] or 'image/png')
             return
+        if method == 'GET' and path.startswith('/reader/historical-assets/'):
+            source, version, relative = unquote(path[len('/reader/historical-assets/'):]).split('/', 2)
+            target = service.core.historical_image(source, version, relative)
+            self._send(200, target.read_bytes(), content_type=mimetypes.guess_type(target)[0] or 'image/png')
+            return
         if method == 'GET' and path == '/library/topics':
             result = service.library_topics()
         elif method == 'GET' and path == '/library/inbox':
@@ -198,8 +203,8 @@ class Handler(BaseHTTPRequestHandler):
             result = service.library_sources()
         elif method == 'POST' and path == '/library/inbox':
             name = parse_qs(urlsplit(self.path).query).get('name', [''])[0]
-            if Path(name).name != name or '\\' in name or len(name) > 180 or Path(name).suffix.lower() != '.pdf':
-                raise ValueError('请选择 PDF。')
+            if Path(name).name != name or '\\' in name or len(name) > 180 or Path(name).suffix.lower() not in ('.pdf', '.html'):
+                raise ValueError('请选择 PDF 或 SingleFile HTML。')
             fields = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
             topic = fields.get('topic', [None])[0]
             topic_id = fields.get('topicId', [None])[0]
@@ -223,9 +228,9 @@ class Handler(BaseHTTPRequestHandler):
                             raise ValueError('Upload interrupted')
                         out.write(data)
                         remaining -= len(data)
-                if target.read_bytes()[:4] != b'%PDF':
+                if target.suffix.lower() == '.pdf' and target.read_bytes()[:4] != b'%PDF':
                     raise ValueError('文件内容不是 PDF。')
-                result = service.ingestion.stage_pdf(target, topic_title=topic, topic_id=topic_id)
+                result = service.ingestion.stage_file(target, topic_title=topic, topic_id=topic_id)
             finally:
                 target.unlink(missing_ok=True)
                 root.rmdir()
@@ -237,6 +242,36 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) >= 2 and parts[1] == 'blog':
                 self._blog(method, path, source_id, parts)
                 return
+            if len(parts) >= 2 and parts[1] == 'notes':
+                if method == 'GET' and len(parts) == 4 and parts[2] == 'requests':
+                    self._send(200, {'ok': True, 'value': service.source_note_request(source_id, unquote(parts[3]))})
+                    return
+                if method == 'POST' and len(parts) == 4 and parts[3] in ('edit', 'delete', 'undo'):
+                    result = service.source_note_change(source_id, unquote(parts[2]), self._body(), parts[3])
+                    self._send(200, {'ok': True, 'value': result})
+                    return
+                raise ValueError('Unknown Source Note operation')
+            if len(parts) >= 2 and parts[1] == 'preparation':
+                if method == 'GET' and len(parts) == 2:
+                    self._send(200, {'ok': True, 'value': service.snapshot()['preparations'].get(source_id)})
+                    return
+                if method == 'POST' and len(parts) == 3:
+                    payload = self._body()
+                    if parts[2] == 'resume':
+                        result = service.resume_preparation(source_id, request_id=payload.get('requestId'))
+                    elif parts[2] == 'cancel':
+                        result = service.cancel_preparation(source_id, request_id=payload.get('requestId'))
+                    elif parts[2] == 'glossary':
+                        result = service.revise_candidate_glossary(source_id, payload)
+                    else:
+                        raise ValueError('Unknown Reading Preparation operation')
+                    self._send(200, {'ok': True, 'value': result})
+                    return
+                raise ValueError('Unknown Reading Preparation operation')
+            if method == 'GET' and len(parts) == 4 and parts[1] == 'historical' and parts[3] == 'content':
+                target = service.core.historical_content(source_id, parts[2])
+                self._send(200, target.read_bytes(), content_type='text/markdown; charset=utf-8')
+                return
             if method == 'GET' and len(parts) >= 3 and parts[1] == 'images':
                 target = service.core.image(source_id, unquote('/'.join(parts[1:])))
                 self._send(200, target.read_bytes(), content_type=mimetypes.guess_type(target)[0] or 'image/png')
@@ -244,14 +279,24 @@ class Handler(BaseHTTPRequestHandler):
             elif method == 'GET' and len(parts) == 2 and parts[1] in ('original', 'content'):
                 target = service.core.source_resource(source_id, parts[1])
                 content_type = 'text/markdown; charset=utf-8' if parts[1] == 'content' else mimetypes.guess_type(target)[0] or 'application/octet-stream'
+                headers = {'Content-Disposition': ('inline; filename="' + target.name.replace('"', '') + '"')}
+                if parts[1] == 'original' and target.suffix.lower() == '.html':
+                    # Preserve original bytes without granting saved pages Host privileges.
+                    headers['Content-Security-Policy'] = "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'"
                 self._send(200, target.read_bytes(), content_type=content_type,
-                           headers={'Content-Disposition': ('inline; filename="' + target.name.replace('"', '') + '"')})
+                           headers=headers)
                 return
+            elif method == 'POST' and len(parts) == 2 and parts[1] == 'discuss':
+                self._body()
+                result = service.select_discussion_source(source_id)
             elif method == 'DELETE' and len(parts) == 1:
                 result = service.library_delete(source_id)
+            elif method == 'POST' and len(parts) == 2 and parts[1] == 'activate':
+                result = service.activate_reading_candidate(source_id, self._body())
             elif method == 'POST' and len(parts) == 2 and parts[1] in ('reread', 'replan', 'open'):
-                self._body()
-                result = service.library_read(source_id, reread=parts[1] == 'reread', replan=parts[1] == 'replan')
+                payload = self._body()
+                result = service.library_read(source_id, reread=parts[1] == 'reread', replan=parts[1] == 'replan',
+                                              request_id=payload.get('requestId'))
             else:
                 raise ValueError('Unknown Library operation')
         elif method == 'GET' and path == '/reader/window':
@@ -266,6 +311,26 @@ class Handler(BaseHTTPRequestHandler):
             result = service.start(self._body())
         elif method == 'POST' and path == '/reader/continue':
             result = service.start(self._body(), continuing=True)
+        elif method == 'POST' and path == '/reader/finish':
+            result = service.finish_reading(self._body())
+        elif method == 'POST' and path == '/reader/reread':
+            result = service.reread_reading(self._body())
+        elif method == 'POST' and path.startswith('/reader/progress/'):
+            parts = path[len('/reader/progress/'):].split('/')
+            if len(parts) != 2 or parts[1] not in ('retry', 'edit', 'delete', 'cancel'):
+                raise ValueError('Unknown Reading Progress operation')
+            progress_id, operation = unquote(parts[0]), parts[1]
+            payload = self._body()
+            result = (service.retry_progress(progress_id, payload.get('requestId')) if operation == 'retry'
+                      else service.cancel_progress(progress_id) if operation == 'cancel'
+                      else service.change_progress(progress_id, payload, operation))
+        elif method == 'GET' and path.startswith('/reader/requests/'):
+            result = service.reading_request_result(unquote(path[len('/reader/requests/'):]))
+        elif method == 'GET' and path.startswith('/reader/review/'):
+            parts = path[len('/reader/review/'):].split('/')
+            if len(parts) != 3:
+                raise ValueError('Invalid review target')
+            result = service.review_chunk(*(unquote(part) for part in parts))
         elif method == 'POST' and path == '/reader/stop':
             self._body()
             result = service.stop()
@@ -274,9 +339,11 @@ class Handler(BaseHTTPRequestHandler):
         elif path.startswith('/library/inbox/'):
             parts = path[len('/library/inbox/'):].split('/')
             item_id = unquote(parts[0])
-            if len(parts) != 2 or method != 'POST' or parts[1] not in ('confirm', 'process', 'continue', 'cancel', 'resubmit'):
+            if len(parts) != 2 or method != 'POST' or parts[1] not in ('start', 'confirm', 'process', 'continue', 'cancel', 'resubmit'):
                 raise ValueError('Unknown Inbox operation')
-            if parts[1] == 'confirm':
+            if parts[1] == 'start':
+                result = service.inbox_start(item_id, request_id=self._body().get('requestId'))
+            elif parts[1] == 'confirm':
                 payload = self._body()
                 generate_blog = payload.get('generateBlog', False)
                 if not isinstance(generate_blog, bool):

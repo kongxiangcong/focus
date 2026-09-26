@@ -9,6 +9,7 @@ export interface CursorReceipt {
   sourceId: string;
   planId: string;
   chunkId: string;
+  readingRevision?: number;
 }
 
 export interface SourceAnchor {
@@ -78,9 +79,61 @@ export interface ReaderMessage {
   chunkId: string;
   role: ReaderMessageRole;
   content: string;
+  sourceId?: string | null;
 }
 
+export interface SourceNote {
+  noteId: string;
+  sourceId: string;
+  revision: number;
+  content: string;
+  kind: "example" | "conclusion" | "question" | "thought" | "concept";
+  origin: "user" | "dialogue";
+  evidenceRole: "source_claim" | "explanation" | "unresolved_question";
+  bundle: string;
+  anchor: { sourceId: string; bundle: string; sourceLines: readonly [number, number]; quote?: string } | null;
+  referenceStatus: "current" | "historical" | "unavailable";
+  sourceUpdated: boolean;
+  deleted: boolean;
+  canUndo: boolean;
+}
+
+export interface ReadingProgressEntry {
+  progress_id: string;
+  trigger_request_id: string;
+  source_id: string;
+  bundle: string;
+  plan_id: string;
+  chunk_id: string;
+  reading_pass: number;
+  operation: "continue" | "finish";
+  status: "pending" | "generating" | "saved" | "failed" | "interrupted" | "deleted";
+  revision: number;
+  fact: string;
+  topic: string | null;
+  user_understanding: string | null;
+  deleted: boolean;
+  error: string | null;
+}
+
+export interface SourceNoteOperation {
+  sourceId: string;
+  status: "changed" | "conflict";
+  operation?: "edit" | "delete" | "undo";
+  note?: SourceNote;
+  current?: SourceNote;
+  attemptedContent?: string | null;
+}
+export type SourceNoteRequestResult = SourceNoteOperation | { status: "saved"; note: SourceNote } | { status: "cancelled" };
+
 export interface ReadingWindow {
+  reviewChunk?: ReaderChunk | null;
+  readingUnavailable?: string;
+  unavailableReferences?: readonly { sourceId: string; planId: string; chunkId: string; reason: string }[];
+  readingRevision?: number;
+  readingOperation?: { operation: string; source_id: string; run_id?: string; status?: string;
+    plan_id?: string; previous_chunk_id?: string | null; chunk_id?: string | null; reading_revision?: number } | null;
+  preparations?: Readonly<Record<string, ReadingPreparation>>;
   outline?: readonly { chunkId: string; index: number; sectionPath: readonly string[] }[];
   revision?: number;
   sessionId?: string;
@@ -95,6 +148,26 @@ export interface ReadingWindow {
   agent?: ReaderAgentState;
   /** Blog Output projection per Source id; absent when the Host has no blog surface. */
   blog?: Readonly<Record<string, BlogStatus>>;
+  sourceNotes?: readonly SourceNote[];
+  readingProgress?: readonly ReadingProgressEntry[];
+  progressOperation?: { status: "changed" | "conflict"; entry?: ReadingProgressEntry; current?: ReadingProgressEntry; attempted_content?: string | null } | null;
+  noteFeedback?: { sourceId: string; status: "saved" | "failed" } | null;
+  noteOperation?: SourceNoteOperation | null;
+}
+
+export interface ReadingPreparation {
+  source_id: string;
+  status: "running" | "ready" | "failed" | "cancelled" | "interrupted" | "bundle_changed" | "commit_conflict";
+  step: string;
+  total: number;
+  completed: number;
+  ready: boolean;
+  error: string | null;
+  plan_id: string | null;
+  glossary_revision?: string | null;
+  selected_plan_id?: string | null;
+  selected_ready?: boolean;
+  candidate?: boolean;
 }
 
 export interface ReaderApproval {
@@ -148,10 +221,23 @@ export interface ContinueReadingInput {
   pendingNotes?: readonly ReaderNoteDraft[];
 }
 
+export interface FinishReadingInput {
+  sessionId?: string;
+  receipt: CursorReceipt;
+  requestId?: string;
+}
+
+export interface RereadReadingInput {
+  sessionId?: string;
+  receipt: { sourceId: string; planId: string; chunkId: string | null; readingRevision: number };
+  requestId?: string;
+}
+
 export interface SendReaderMessageInput {
   sessionId?: string;
   receipt: CursorReceipt | null;
   content: string;
+  sourceId?: string;
   requestId?: string;
   attachmentIds?: readonly string[];
 }
@@ -241,6 +327,7 @@ export interface ReaderHost {
   stageIngestion?(file: File, target: IngestionTarget): Promise<ReaderHostResult<IngestionItem>>;
   /** `generateBlog` is the Inbox checkbox: one confirmation, one authorized follow-up. */
   confirmIngestion?(itemId: string, generateBlog?: boolean): Promise<ReaderHostResult<IngestionItem>>;
+  startIngestion?(itemId: string, requestId: string): Promise<ReaderHostResult<IngestionItem>>;
   blogStatus?(sourceId: string): Promise<ReaderHostResult<BlogStatus>>;
   generateBlog?(sourceId: string, requestId: string): Promise<ReaderHostResult<BlogStatus>>;
   regenerateBlog?(sourceId: string, requestId: string, artifact: BlogRegenerationTarget): Promise<ReaderHostResult<BlogStatus>>;
@@ -257,6 +344,17 @@ export interface ReaderHost {
   replanSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   openSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  activateReadingCandidate?(sourceId: string, planId: string, readingRevision: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  resumePreparation?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  cancelPreparation?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  selectDiscussionSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  changeSourceNote?(sourceId: string, noteId: string, operation: "edit" | "delete" | "undo",
+    expectedRevision: number, requestId: string, content?: string): Promise<ReaderHostResult<ReadingWindow>>;
+  sourceNoteRequestResult?(sourceId: string, requestId: string): Promise<ReaderHostResult<SourceNoteRequestResult | null>>;
+  retryReadingProgress?(progressId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  cancelReadingProgress?(progressId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  changeReadingProgress?(progressId: string, operation: "edit" | "delete", expectedRevision: number,
+    requestId: string, content?: string): Promise<ReaderHostResult<ReadingWindow>>;
   selectBackend?(backend: string, sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
   newSession?(sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
   resumeReading?(sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
@@ -269,6 +367,10 @@ export interface ReaderHost {
     input: ContinueReadingInput,
     signal?: AbortSignal,
   ): Promise<ReaderHostResult<ReadingWindow>>;
+  finishReading?(input: FinishReadingInput): Promise<ReaderHostResult<ReadingWindow>>;
+  rereadReading?(input: RereadReadingInput): Promise<ReaderHostResult<ReadingWindow>>;
+  reviewChunk?(sourceId: string, planId: string, chunkId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  readingRequestResult?(requestId: string): Promise<ReaderHostResult<ReadingWindow["readingOperation"]>>;
   sendMessage(
     input: SendReaderMessageInput,
     signal?: AbortSignal,
@@ -284,6 +386,7 @@ export function cursorReceipt(window: ReadingWindow): CursorReceipt | null {
     sourceId: chunk.sourceId,
     planId: chunk.planId,
     chunkId: chunk.chunkId,
+    ...(window.readingRevision === undefined ? {} : { readingRevision: window.readingRevision }),
   };
 }
 

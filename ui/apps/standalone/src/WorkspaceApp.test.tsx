@@ -24,6 +24,7 @@ function setup(initialInbox: readonly IngestionItem[] = []) {
     listTopics: vi.fn(async () => readerSuccess([{ topicId: "topic", title: "编译", sourceIds: ["a-paper"] }])),
     listSources: vi.fn(async () => readerSuccess([{ sourceId: "a-paper", title: "A Paper", kind: "paper" as const, parseStatus: "ready" as const, error: null, noteCount: 2, topicIds: ["topic"], progress: { completed: 1, total: 4, planId: "plan-001", chunkId: "chunk-002" } }])),
     listInbox: vi.fn(async () => readerSuccess(initialInbox)), stageIngestion: vi.fn(async () => readerSuccess(staged)),
+    startIngestion: vi.fn(async () => readerSuccess(confirmed)),
     confirmIngestion: vi.fn(async () => readerSuccess(confirmed)),
     processIngestion: vi.fn(async () => readerSuccess(processing)), continueIngestion: vi.fn(async () => readerSuccess(processing)), cancelIngestion: vi.fn(async () => readerSuccess(cancelled)),
     resubmitIngestion: vi.fn(async () => readerSuccess(processing)),
@@ -49,6 +50,22 @@ beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
   HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
 });
+
+it("accepts saved HTML and explains local parsing in the Inbox confirmation", async () => {
+  const { host } = setup();
+  const staged: IngestionItem = { itemId: "html-1", fileName: "article.html", status: "awaiting_confirmation", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["local-html"] };
+  vi.mocked(host.stageIngestion!).mockResolvedValue(readerSuccess(staged));
+  await screen.findByRole("button", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "上传" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "专题" }), { target: { value: "编译" } });
+  const file = new File(["<html>article</html>"], "article.html", { type: "text/html" });
+  fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [file] } });
+  expect(screen.getByText(/本地 HTML 解析器（不上传原件）/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  await waitFor(() => expect(host.startIngestion).toHaveBeenCalledWith("html-1", expect.any(String)));
+  expect(host.stageIngestion).toHaveBeenCalled();
+  expect(host.processIngestion).not.toHaveBeenCalled();
+});
 afterEach(cleanup);
 it("lands in Library and persists the chosen font across remounts", async () => {
   const app = setup(); await screen.findByRole("button", { name: "A Paper" });
@@ -61,36 +78,27 @@ it("lands in Library and persists the chosen font across remounts", async () => 
   fireEvent.click(screen.getByRole("link", { name: "阅读" }));
   expect(screen.getByRole("complementary", { name: "阅读进度与操作" })).toBeVisible();
 });
-it("stages a PDF without processing and starts only after explicit confirmation", async () => {
+it("starts parsing and blog with one explicit confirmation", async () => {
   const { host } = setup(); await screen.findByRole("button", { name: "A Paper" });
   const pdf = new File(["%PDF test"], "test.pdf", { type: "application/pdf" });
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
   fireEvent.change(screen.getByRole("combobox", { name: "专题" }), { target: { value: "编译" } });
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [pdf] } });
   expect(host.stageIngestion).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "放入 Inbox" }));
-  await waitFor(() => expect(host.stageIngestion).toHaveBeenCalledWith(pdf, { topicId: "topic" }));
-  const statement = await screen.findByText(/仅用于建立 Source 并关联专题/);
-  expect(statement).toHaveTextContent("将调用 MinerU 处理此 PDF");
-  expect(statement).not.toHaveTextContent("Codex");
-  expect(statement).toHaveTextContent("不做 AI 内容审核");
+  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  await waitFor(() => expect(host.stageIngestion).toHaveBeenCalledWith(pdf, { topicTitle: "编译" }));
+  await waitFor(() => expect(host.startIngestion).toHaveBeenCalledWith("item-1", expect.any(String)));
   expect(host.confirmIngestion).not.toHaveBeenCalled();
   expect(host.processIngestion).not.toHaveBeenCalled();
-  fireEvent.click(await screen.findByRole("button", { name: "确认并开始" }));
-  await waitFor(() => expect(host.confirmIngestion).toHaveBeenCalledWith("item-1", false));
-  await waitFor(() => expect(host.processIngestion).toHaveBeenCalledWith("item-1", expect.any(String)));
   await waitFor(() => expect(screen.getByRole("button", { name: "删除" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "删除" }));
   expect(host.deleteSource).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "永久删除" }));
   await waitFor(() => expect(host.deleteSource).toHaveBeenCalledWith("a-paper"));
-  await waitFor(() => expect(screen.getByRole("button", { name: "从头阅读" })).toBeEnabled());
-  fireEvent.click(screen.getByRole("button", { name: "从头阅读" }));
-  fireEvent.click(screen.getByRole("button", { name: "确认从头阅读" }));
-  await waitFor(() => expect(host.rereadSource).toHaveBeenCalledWith("a-paper"));
-  await waitFor(() => expect(location.pathname).toBe("/reading"));
+  await waitFor(() => expect(screen.getByRole("button", { name: "从头阅读" })).toBeDisabled());
+  expect(host.rereadSource).not.toHaveBeenCalled();
 });
-it("filters source cards, exposes source resources, and only accepts PDF ingestion", async () => {
+it("filters source cards, exposes source resources, and rejects unsupported ingestion formats", async () => {
   const { host } = setup(); await screen.findByRole("button", { name: "A Paper" });
   expect(document.querySelector(".source-badge")?.closest("article")).toBeInTheDocument();
   expect(screen.getByRole("progressbar", { name: "A Paper 阅读进度" })).toHaveAttribute("value", "1");
@@ -98,11 +106,11 @@ it("filters source cards, exposes source resources, and only accepts PDF ingesti
   expect(screen.getByText("暂无匹配材料")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "重置" }));
   const page = screen.getByRole("main");
-  expect(screen.getByRole("link", { name: "PDF 原件" })).toHaveAttribute("href", "/library/sources/a-paper/original");
+  expect(screen.getByRole("link", { name: "原件" })).toHaveAttribute("href", "/library/sources/a-paper/original");
   expect(screen.getByRole("link", { name: "正文" })).toHaveAttribute("href", "/library/sources/a-paper/content");
-  fireEvent.drop(page, { dataTransfer: { files: [new File(["text"], "file.html")] } });
+  fireEvent.drop(page, { dataTransfer: { files: [new File(["text"], "file.txt")] } });
   expect(host.stageIngestion).not.toHaveBeenCalled();
-  expect(screen.getByRole("alert")).toHaveTextContent("请选择 PDF");
+  expect(screen.getByRole("alert")).toHaveTextContent("请选择 PDF 或 SingleFile HTML");
 });
 
 it("restores authoritative Inbox state after refresh and continues attachment recovery", async () => {
@@ -116,7 +124,7 @@ it("offers explicit reconfirmation for a recoverable Inbox item", async () => {
   const interrupted: IngestionItem = { itemId: "recover", fileName: "paper.pdf", status: "interrupted", topicTitle: "系统", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"] };
   const { host } = setup([interrupted]);
   fireEvent.click(await screen.findByRole("button", { name: "重新确认并开始" }));
-  await waitFor(() => expect(host.confirmIngestion).toHaveBeenCalledWith("recover", false));
+  await waitFor(() => expect(host.confirmIngestion).toHaveBeenCalledWith("recover", true));
   await waitFor(() => expect(host.processIngestion).toHaveBeenCalledWith("recover", expect.any(String)));
 });
 it("persists brightness and leaves unsupported network control disabled", async () => {
@@ -130,11 +138,12 @@ it("shows the original unfinished task instead of a new one when the same file i
   const { host } = setup();
   const existing: IngestionItem = { itemId: "item-1", fileName: "test.pdf", status: "status_check_required", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"], duplicate: true };
   vi.mocked(host.stageIngestion!).mockResolvedValue(readerSuccess(existing));
+  vi.mocked(host.listInbox!).mockResolvedValue(readerSuccess([existing]));
   await screen.findByRole("button", { name: "A Paper" });
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
   fireEvent.change(screen.getByRole("combobox", { name: "专题" }), { target: { value: "编译" } });
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF test"], "test.pdf", { type: "application/pdf" })] } });
-  fireEvent.click(screen.getByRole("button", { name: "放入 Inbox" }));
+  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
 
   const notice = await screen.findByText(/该原件已有未完成任务/);
   expect(notice.closest("[role=status]")).not.toBeNull();
@@ -208,7 +217,7 @@ it("explains a skipped value analysis instead of showing it as pending", async (
     warnings: ["本次运行环境无网络，未检索论文内链接与官方仓库"],
   }, { value_analysis: { status: "not_applicable", updatedAt: null } })));
   fireEvent.click(await screen.findByRole("button", { name: "生成博客" }));
-  expect(await screen.findByText(/论文价值分析不适用：主贡献是数据集与训练技巧/)).toBeInTheDocument();
+  expect(await screen.findByText(/架构价值分析不适用：主贡献是数据集与训练技巧/)).toBeInTheDocument();
   expect(screen.getByText(/降级与证据缺口：/)).toBeInTheDocument();
 });
 it("opens the blog in the embedded viewer from the same host surface", async () => {
@@ -220,11 +229,12 @@ it("opens the blog in the embedded viewer from the same host surface", async () 
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   expect(screen.queryByTitle("博客")).not.toBeInTheDocument();
 });
-it("carries the generate-blog checkbox into the ingestion confirmation", async () => {
+it("always includes blog in the explicit ingestion confirmation", async () => {
   const staged: IngestionItem = { itemId: "item-1", fileName: "paper.pdf", status: "awaiting_confirmation", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"] };
   const { host } = setup([staged]);
-  fireEvent.click(await screen.findByRole("checkbox", { name: /同时生成博客/ }));
-  fireEvent.click(screen.getByRole("button", { name: "确认并开始" }));
+  expect(screen.queryByRole("checkbox", { name: /同时生成博客/ })).not.toBeInTheDocument();
+  await screen.findByRole("button", { name: "开始解析并生成博客" });
+  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
   await waitFor(() => expect(host.confirmIngestion).toHaveBeenCalledWith("item-1", true));
 });
 it("offers querying the original task first when a remote reference exists", async () => {

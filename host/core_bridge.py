@@ -1,5 +1,6 @@
 """Browser-safe projection and bounded Core tools; no chat in the Workspace."""
 import json
+import re
 import sys
 from pathlib import Path
 from urllib.parse import quote
@@ -9,39 +10,30 @@ sys.path.insert(0, str(ROOT / '.agents'))
 from core.reading_workspace import (WorkspaceCore, WorkspaceError, validate_source_id, _identifier, _read_chunk_records,
     _read_reading_record, _chunk_presentation, _validate_parser_bundle, _needs_translation)
 from core.source_library import SourceLibrary
+from core.source_notes import SourceNotes
+from core.discussion_application import DiscussionApplication
 
 ACTIONS = {
-    'preparation': ('preparation_status', {'source_id': 'string'}),
-    'prepare_chunk': ('preparation_chunk', {'source_id': 'string', 'plan_id': 'string', 'chunk_id': 'string'}),
-    'prepare_translation': ('save_prepared_translation', {'source_id': 'string', 'plan_id': 'string', 'chunk_id': 'string', 'translation': 'string'}),
-    'state': ('get_reading_state', {}),
-    'current': ('get_current_chunk', {}),
-    'map': ('map_reading_plan', {'source_id': 'string', 'draft': 'object|null', 'scope': 'string|null'}),
-    'switch': ('switch_source', {'source_id': 'string'}),
-    'topic': ('select_topic', {'topic_id': 'string'}),
-    'search': ('search_source', {'query': 'string', 'limit': 'integer'}),
-    'read_range': ('read_source_range', {'start': 'integer', 'end': 'integer', 'source_id': 'string|null'}),
-    'append_note': ('append_note', {'expected_plan_id': 'string', 'expected_chunk_id': 'string',
-                                   'kind': 'thought|emphasis|question|clarification', 'origin': 'user|dialogue',
-                                   'content': 'string', 'anchor': 'object|null'}),
-    'list_notes': ('list_notes', {'plan_id': 'string', 'chunk_id': 'string', 'limit': 'integer'}),
-    'translate': ('retranslate_current_chunk', {'expected_plan_id': 'string', 'expected_chunk_id': 'string', 'translation': 'string'}),
-    'continue': ('continue_reading', {'expected_plan_id': 'string', 'expected_chunk_id': 'string', 'pending_notes': 'array'}),
+    'search': ('search_source', {'query': 'string', 'limit': 'integer', 'source_id': 'string|null', 'bundle_version': 'string|null'}),
+    'read_range': ('read_source_range', {'start': 'integer', 'end': 'integer', 'source_id': 'string|null', 'bundle_version': 'string|null'}),
     'topic_search': ('search_topic', {'topic_id': 'string', 'query': 'string', 'limit': 'integer'}),
     'topic_range': ('read_topic_range', {'topic_id': 'string', 'source_id': 'string', 'start': 'integer', 'end': 'integer'}),
     'topic_notes': ('topic_notes', {'topic_id': 'string'}),
-    'synthesize_topic': ('synthesize_topic', {'topic_id': 'string', 'draft': 'object'}),
 }
 TOOL = {
     'type': 'function',
     'name': 'focus',
-    'description': 'FOCUS Core is the only authority for reading assets. Arguments is a JSON object encoded as a string. '
-                   'catalog lists sources/topics. Other action argument fields: ' + json.dumps({k: v[1] for k, v in ACTIONS.items()}) +
-                   '. map: call draft=null first; only supply a draft if reading_plan_input_missing. '
-                   'continue requires the current source_id too; the Host requests explicit user confirmation if not already authorized. '
-                   'Never edit Cursor, plans or records with shell/patch. Use parser skills for new sources.',
+    'description': 'Source evidence and Source Note candidates. source_note is accepted only in a Host-bound discussion '
+                   'with explicit user save intent; Host/Core owns validation and persistence. Reading preparation and navigation use ReaderHost operations. '
+                   'Arguments is a JSON object encoded as a string. Fields: ' + json.dumps({k: ACTIONS[k][1] for k in
+                       ('search', 'read_range', 'topic_search', 'topic_range', 'topic_notes')}) +
+                   ' source_note fields: {content:string, kind:example|conclusion|question|thought|concept, '
+                   'origin:user|dialogue, evidence_role:source_claim|explanation|unresolved_question, '
+                   'anchor?:{sourceId:string,bundle:string,sourceLines:[start,end],quote?:string}}. '
+                   'source_claim requires an anchor matching the bound scope. Use search/read_range to verify exact lines first. '
+                   'Do not include request IDs or intent fields; the Host supplies them. Only a saved tool result proves success.',
     'inputSchema': {'type': 'object', 'properties': {
-        'action': {'type': 'string', 'enum': ['catalog', *ACTIONS]},
+        'action': {'type': 'string', 'enum': ['catalog', 'search', 'read_range', 'topic_search', 'topic_range', 'topic_notes', 'source_note']},
         'arguments': {'type': 'string'}}, 'required': ['action', 'arguments'], 'additionalProperties': False},
 }
 
@@ -71,23 +63,35 @@ class CoreBridge:
             return self.catalog()
         if action not in ACTIONS:
             raise ValueError('Unsupported FOCUS operation')
-        if action in ('search', 'topic_search', 'list_notes'):
+        if action in ('search', 'topic_search'):
             args['limit'] = min(max(int(args.get('limit', 5)), 1), 20)
         if action in ('read_range', 'topic_range') and args['end'] - args['start'] > 500:
             raise ValueError('Read at most 501 lines per request')
-        if action == 'continue':
-            self.check_receipt({'sourceId': args.pop('source_id'), 'planId': args['expected_plan_id'], 'chunkId': args['expected_chunk_id']})
         method, fields = ACTIONS[action]
         if set(args) - set(fields):
             raise ValueError('Unexpected Core arguments')
-        if action == 'map':
-            args.setdefault('draft', None)
-        result = getattr(self.core, method)(**args)
-        if action == 'current' and result.get('source_id'):
-            SourceLibrary(self.workspace).start_reading(result['source_id'])
-        return result
+        return getattr(self.core, method)(**args)
 
     def window(self):
+        state_path = self.workspace / 'state.json'
+        if state_path.is_file():
+            state = json.loads(state_path.read_text(encoding='utf-8'))
+            source_id = state.get('current_source_id')
+            selected = state.get('sources', {}).get(source_id, {}) if source_id else {}
+            plan_id = selected.get('current_plan_id')
+            if source_id and plan_id:
+                provenance = self.workspace / 'sources' / source_id / 'reading' / 'plans' / plan_id / 'provenance.json'
+                if provenance.is_file():
+                    from core.article_blog import bundle_fingerprint
+                    expected = json.loads(provenance.read_text(encoding='utf-8')).get('bundle')
+                    current = bundle_fingerprint(self.workspace / 'sources' / source_id / 'parser-bundle')
+                    if expected != current:
+                        source = SourceLibrary(self.workspace).get(source_id)
+                        return {'status': 'empty', 'source': {'sourceId': source_id,
+                            'title': source['title'], 'topicId': None}, 'current': None,
+                            'history': [], 'conversation': [],
+                            'readingRevision': int(state.get('reading_revision', 0)),
+                            'readingUnavailable': '此计划属于旧版原文，请重新准备新计划；旧引用仍可查看。'}
         try:
             result = self.core.reading_window()
         except WorkspaceError as exc:
@@ -102,6 +106,7 @@ class CoreBridge:
         outline = [{'chunkId': c['chunk_id'], 'index': c['index'], 'sectionPath': c['section_path']}
                    for c in _read_chunk_records(plan_root / 'chunks.jsonl')]
         return {'outline': outline, 'status': 'reading' if result['current'] else 'completed',
+                'readingRevision': int(json.loads((self.workspace / 'state.json').read_text(encoding='utf-8')).get('reading_revision', 0)),
                 'source': {'sourceId': result['source']['source_id'], 'title': result['source']['title'],
                            'topicId': result['state']['topic_id']},
                 'current': self.project_chunk(result['current']) if result['current'] else None,
@@ -115,6 +120,34 @@ class CoreBridge:
         target = (root / relative).resolve()
         if not target.is_relative_to(root) or target.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.webp', '.gif') or not target.is_file():
             raise ValueError('Invalid image path')
+        return target
+
+    def historical_image(self, source_id, bundle_version, relative):
+        SourceLibrary(self.workspace).get(source_id)
+        if not isinstance(bundle_version, str) or not re.fullmatch(r'[0-9a-f]{64}', bundle_version):
+            raise ValueError('Invalid Bundle version')
+        root = (self.workspace / 'sources' / source_id / 'reading' / 'bundles' / bundle_version).resolve()
+        if not root.is_relative_to(self.workspace) or not root.is_dir():
+            raise ValueError('Original Bundle is unavailable')
+        from core.article_blog import bundle_fingerprint
+        if bundle_fingerprint(root) != bundle_version:
+            raise ValueError('Original Bundle is unavailable')
+        target = (root / relative).resolve()
+        if not target.is_relative_to(root) or target.suffix.lower() not in ('.png', '.jpg', '.jpeg', '.webp', '.gif') or not target.is_file():
+            raise ValueError('Invalid historical image path')
+        return target
+
+    def historical_content(self, source_id, bundle_version):
+        SourceLibrary(self.workspace).get(source_id)
+        if not isinstance(bundle_version, str) or not re.fullmatch(r'[0-9a-f]{64}', bundle_version):
+            raise ValueError('Invalid Bundle version')
+        root = (self.workspace / 'sources' / source_id / 'reading' / 'bundles' / bundle_version).resolve()
+        from core.article_blog import bundle_fingerprint
+        if not root.is_relative_to(self.workspace) or not root.is_dir() or bundle_fingerprint(root) != bundle_version:
+            raise ValueError('Original Bundle is unavailable')
+        target = root / 'content.md'
+        if not target.is_file():
+            raise ValueError('Original Bundle is unavailable')
         return target
 
     def source_resource(self, source_id, resource):
@@ -136,11 +169,19 @@ class CoreBridge:
         return target
 
     def project_chunk(self, c):
+        def image_url(image):
+            path = Path(image['path']).resolve()
+            current = (self.workspace / 'sources' / c['source_id'] / 'parser-bundle').resolve()
+            if path.is_relative_to(current):
+                return '/reader/assets/' + quote(c['source_id'], safe='') + '/' + quote(str(path.relative_to(current)).replace('\\', '/'), safe='/')
+            archived = (self.workspace / 'sources' / c['source_id'] / 'reading' / 'bundles').resolve()
+            if path.is_relative_to(archived) and len(path.relative_to(archived).parts) > 1:
+                return '/reader/historical-assets/' + quote(c['source_id'], safe='') + '/' + quote(str(path.relative_to(archived)).replace('\\', '/'), safe='/')
+            raise ValueError('Image reference is outside a Source Bundle')
         return {'sourceId': c['source_id'], 'planId': c['plan_id'], 'chunkId': c['chunk_id'],
                 'index': c['index'], 'total': c['total'], 'sectionPath': c['section_path'],
                 'sourceLines': c['source_lines'], 'sourceMarkdown': c['source_text'], 'translation': c['translation'],
-                'images': [{'src': '/reader/assets/' + quote(c['source_id'], safe='') + '/' +
-                            quote(str(Path(i['path']).relative_to(self.workspace / 'sources' / c['source_id'] / 'parser-bundle')).replace('\\', '/'), safe='/'),
+                'images': [{'src': image_url(i),
                             'caption': i['caption']} for i in c['images']],
                 'relevantGlossary': c['relevant_glossary'], 'presentationStatus': c['status'].replace('_', '-')}
 
@@ -148,15 +189,27 @@ class CoreBridge:
         source = validate_source_id(receipt['sourceId'])
         plan, chunk_id = (_identifier(receipt[k], k) for k in ('planId', 'chunkId'))
         SourceLibrary(self.workspace).get(source)
-        bundle = self.workspace / 'sources' / source / 'parser-bundle'
-        root = bundle.parent / 'reading' / 'plans' / plan
-        metadata = _validate_parser_bundle(bundle)
+        source_root = self.workspace / 'sources' / source
+        root = source_root / 'reading' / 'plans' / plan
         chunks = _read_chunk_records(root / 'chunks.jsonl')
         chunk = next((c for c in chunks if c['chunk_id'] == chunk_id), None)
         if chunk is None:
             raise ValueError('引用段落不存在')
+        provenance_path = root / 'provenance.json'
+        current = source_root / 'parser-bundle'
+        from core.article_blog import bundle_fingerprint
+        if provenance_path.is_file():
+            expected_bundle = json.loads(provenance_path.read_text(encoding='utf-8')).get('bundle')
+            bundle = current if expected_bundle == bundle_fingerprint(current) else source_root / 'reading' / 'bundles' / str(expected_bundle)
+            if not bundle.is_dir() or bundle_fingerprint(bundle) != expected_bundle:
+                raise ValueError('原版本引用不可定位')
+        else:
+            raise ValueError('原版本引用不可定位')
+        metadata = _validate_parser_bundle(bundle)
         record = _read_reading_record(root / 'records' / f'{chunk_id}.json', chunk_id)
         item = _chunk_presentation(bundle, root, source_id=source, plan_id=plan,
                                   chunk=chunk, reading_record=record, total=len(chunks))
         item['status'] = 'source_ready' if not _needs_translation(metadata, chunk) else 'presented' if record['translation'] else 'translation_required'
-        return self.project_chunk(item)
+        projected = self.project_chunk(item)
+        projected['bundleVersion'] = expected_bundle
+        return projected

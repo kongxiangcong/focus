@@ -103,7 +103,7 @@ describe("Agent Reader", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
     await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session-2" })));
   });
-  it("ignores a late upload after reset and sends a fresh question without the saved cursor", async () => {
+  it("ignores a late upload after reset and keeps the selected reading reference", async () => {
     const { host, update } = setup(); await screen.findByText("打开一份材料");
     let resolve!: (v: ReaderHostResult<{ attachmentId: string; name: string }>) => void;
     vi.mocked(host.upload!).mockReturnValue(new Promise(r => { resolve = r; }));
@@ -116,7 +116,8 @@ describe("Agent Reader", () => {
       current: { sourceId: "saved", planId: "plan", chunkId: "old", index: 2, total: 4, sectionPath: [], sourceLines: [1,2], sourceMarkdown: "old text", translation: null, images: [], relevantGlossary: [], presentationStatus: "source-ready" } });
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "新话题" } });
     fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
-    await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: null, attachmentIds: [] })));
+    await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      receipt: { sourceId: "saved", planId: "plan", chunkId: "old" }, attachmentIds: [] })));
   });
   it("does not pull an upward reader to streaming output", async () => {
     const { update } = setup(); await screen.findByText("打开一份材料"); update(running);

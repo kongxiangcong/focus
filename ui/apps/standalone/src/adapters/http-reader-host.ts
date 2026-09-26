@@ -6,6 +6,8 @@ import { createReaderId,
   type IngestionTarget,
   type LibraryTopic,
   type ContinueReadingInput,
+  type FinishReadingInput,
+  type RereadReadingInput,
   type ReaderApprovalResponse,
   type ReaderAttachment,
   type ReaderFailureCode,
@@ -13,6 +15,7 @@ import { createReaderId,
   type ReaderHostResult,
   type ReadingWindow,
   type SendReaderMessageInput,
+  type SourceNoteRequestResult,
 } from "@focus/reader-contracts";
 
 type Fetch = typeof fetch;
@@ -194,6 +197,11 @@ export class HttpReaderHost implements ReaderHost {
   confirmIngestion(itemId: string, generateBlog = false): Promise<ReaderHostResult<IngestionItem>> {
     return this.ingestionRequest(`/library/inbox/${encodeURIComponent(itemId)}/confirm`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ generateBlog }) });
   }
+  startIngestion(itemId: string, requestId: string): Promise<ReaderHostResult<IngestionItem>> {
+    return this.ingestionRequest(`/library/inbox/${encodeURIComponent(itemId)}/start`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }),
+    });
+  }
   blogStatus(sourceId: string): Promise<ReaderHostResult<BlogStatus>> {
     return this.blogRequest(`/library/sources/${encodeURIComponent(sourceId)}/blog`, { method: "GET" });
   }
@@ -256,13 +264,49 @@ export class HttpReaderHost implements ReaderHost {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}`, { method: "DELETE" });
   }
   replanSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
-    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/replan`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/replan`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: createReaderId() }) });
   }
   rereadSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/reread`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   }
   openSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
-    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/open`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/open`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: createReaderId() }) });
+  }
+  activateReadingCandidate(sourceId: string, planId: string, readingRevision: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/activate`, { method: "POST",
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ planId, readingRevision, requestId }) });
+  }
+
+  resumePreparation(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/preparation/resume`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });
+  }
+
+  cancelPreparation(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/preparation/cancel`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: createReaderId() }) });
+  }
+
+  selectDiscussionSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/discuss`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  }
+
+  changeSourceNote(sourceId: string, noteId: string, operation: "edit" | "delete" | "undo",
+    expectedRevision: number, requestId: string, content?: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/notes/${encodeURIComponent(noteId)}/${operation}`,
+      { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ expectedRevision, requestId, ...(content === undefined ? {} : { content }) }) });
+  }
+
+  async sourceNoteRequestResult(sourceId: string, requestId: string): Promise<ReaderHostResult<SourceNoteRequestResult | null>> {
+    try {
+      const response = await this.fetch(`${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/notes/requests/${encodeURIComponent(requestId)}`);
+      const body = await response.json();
+      if (response.ok && body?.ok === true) return { ok: true, value: body.value ?? null };
+      return { ok: false, error: { code: "invalid-request", message: body?.error?.message ?? "笔记请求结果不可用", retryable: false } };
+    } catch (error) {
+      return { ok: false, error: { code: "unavailable", message: String(error), retryable: true } };
+    }
   }
 
   getReadingWindow(signal?: AbortSignal): Promise<ReaderHostResult<ReadingWindow>> {
@@ -279,6 +323,49 @@ export class HttpReaderHost implements ReaderHost {
       body: JSON.stringify({ ...input, requestId: input.requestId ?? createReaderId() }),
       signal,
     });
+  }
+
+  finishReading(input: FinishReadingInput): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request("/reader/finish", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...input, requestId: input.requestId ?? createReaderId() }) });
+  }
+
+  rereadReading(input: RereadReadingInput): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request("/reader/reread", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...input, requestId: input.requestId ?? createReaderId() }) });
+  }
+
+  retryReadingProgress(progressId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/reader/progress/${encodeURIComponent(progressId)}/retry`, { method: "POST",
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });
+  }
+
+  cancelReadingProgress(progressId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/reader/progress/${encodeURIComponent(progressId)}/cancel`, { method: "POST",
+      headers: { "content-type": "application/json" }, body: "{}" });
+  }
+
+  changeReadingProgress(progressId: string, operation: "edit" | "delete", expectedRevision: number,
+    requestId: string, content?: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/reader/progress/${encodeURIComponent(progressId)}/${operation}`, { method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ expectedRevision, requestId, content }) });
+  }
+
+  reviewChunk(sourceId: string, planId: string, chunkId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/reader/review/${encodeURIComponent(sourceId)}/${encodeURIComponent(planId)}/${encodeURIComponent(chunkId)}`,
+      { method: "GET" });
+  }
+
+  async readingRequestResult(requestId: string): Promise<ReaderHostResult<ReadingWindow["readingOperation"]>> {
+    try {
+      const response = await this.fetch(`${this.baseUrl}/reader/requests/${encodeURIComponent(requestId)}`);
+      const body = await response.json();
+      if (response.ok && body?.ok === true) return { ok: true, value: body.value ?? null };
+      return { ok: false, error: { code: "invalid-request", message: body?.error?.message ?? "阅读请求结果不可用", retryable: false } };
+    } catch (error) {
+      return { ok: false, error: { code: "unavailable", message: String(error), retryable: true } };
+    }
   }
 
   sendMessage(
