@@ -1,6 +1,6 @@
 # FOCUS Reading Workspace
 
-FOCUS 是一个以来源原文为锚点的私人阅读工作台。它保存可跨会话恢复的阅读位置和精简阅读资产，但不复制宿主对话，也不评价读者的理解、掌握或能力。
+FOCUS 是一个以来源原文为锚点的私人阅读工作台。它保存可跨会话恢复的阅读位置、精简阅读资产及自己的来源讨论，不把外部宿主或 Runtime 的原生日志复制为讨论，也不评价读者的理解、掌握或能力。
 
 ## Language
 
@@ -114,6 +114,14 @@ _Avoid_: Chat history, plan row, learner record
 **Reading Note**:
 用户明确要求记录后保留的 Source 级精简笔记，脱离原始对话仍可理解，通常以例子和总结后的结论表达，也可包含理解链、澄清的概念或待解的问题；不依附某个 Topic 或 Reading Plan。
 _Avoid_: Transcript, discussion log, assessment result, cognitive evidence
+
+**FOCUS Discussion**:
+FOCUS 中固定绑定一份 Reading Source 的持续讨论，独立于所选 Backend；切换 Backend 不拆分或重建讨论。讨论历史与显式 Reading Notes、Reading Cursor 分开，保留至用户明确清除。
+_Avoid_: Backend-specific chat, native Runtime Session, Reading Note, reading checkpoint
+
+**Clear Source Discussion and Notes**:
+用户确认后清除一份 Reading Source 的全部 FOCUS Discussions、派生讨论摘要和 Reading Notes，并使关联运行上下文失效。它保留 Reading Plan、Reading Cursor、Blog Output 和 Reading Progress Entries，不等于删除来源。
+_Avoid_: Delete Source, reset reading progress, clear one Backend chat
 
 **Reading Progress Entry**:
 每个 Reading Chunk 推进或完成本篇时系统简短保存的阅读进度记录，记载读过的段落、实际讨论的话题及用户明确表达的理解；与主动 Reading Note 分开，不表示系统对能力的评价，也不决定阅读位置。
