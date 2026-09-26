@@ -8,9 +8,10 @@ import time
 import uuid
 import tempfile
 import copy
+from contextlib import contextmanager
 from pathlib import Path
 
-from .backends import BACKENDS, DEFAULT_BACKEND, BackendError, check_backend, create_backend
+from .backends import BACKENDS, DEFAULT_BACKEND, BackendError, create_backend
 from .backends.base import APPROVAL_TITLES, COMMAND_APPROVAL, FILE_APPROVAL, PERMISSIONS_APPROVAL, USER_INPUT
 from .core_bridge import CoreBridge, ROOT, WorkspaceError, SourceLibrary, DiscussionApplication
 from .store import Store
@@ -24,6 +25,7 @@ from core.processing_application import ProcessingApplication
 from core.batch_application import BatchApplication
 from .reading_runtime import AgentReadingRuntime
 from .candidates import CandidateTurns
+from .configuration import UserSettings, DEFAULT_MODELS, normalize
 
 #: The Workbench offers one retry entry per artifact, named by granularity.
 BLOG_ARTIFACT_LABELS = {'value_analysis': '重新生成价值分析', 'reading_blog': '重新生成带读博客', 'html': '重新生成 HTML'}
@@ -35,7 +37,7 @@ SKILLS = ('article-parser', 'focus-map', 'focus-read')
 class HostService:
     def __init__(self, workspace, data, *, model=None, codex_bin=None, backend=None,
                  backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None,
-                 blog_runtime=None, reading_runtime=None, progress_runtime=None):
+                 blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None):
         workspace.mkdir(parents=True, exist_ok=True)
         self.workspace = workspace.resolve()
         self.core = CoreBridge(self.workspace)
@@ -56,7 +58,7 @@ class HostService:
         self.generation = int(time.time() * 1000)
         self.model, self.codex_bin = model, codex_bin
         self.network, self.approval_policy = network, approval_policy
-        backend = backend or self.store.get('selectedBackend') or DEFAULT_BACKEND
+        backend = backend or DEFAULT_BACKEND
         self.backend_name, self.backend_factory = backend, backend_factory
         self.setup = BackendSetup()
         self.discussion_summaries = CandidateTurns(self._build_backend)
@@ -71,9 +73,17 @@ class HostService:
             AgentReadingRuntime(self._build_backend, self._backend_configuration))
         self.progress_workers = {}
         self.progress_serial = threading.Lock()
-        self.models = {name: os.getenv(f'FOCUS_{name.upper()}_MODEL') for name in BACKENDS}
+        self.models = {name: os.getenv(f'FOCUS_{name.upper()}_MODEL') or DEFAULT_MODELS.get(name) for name in BACKENDS}
         if model:
             self.models[backend] = model
+        self.settings = UserSettings(settings_path)
+        self.deepseek_bin = None
+        self.deepseek_credentials = None
+        self.refresh_blocked = False
+        self.batch_admissions = 0
+        saved = self.settings.read()
+        if saved:
+            self._apply_configuration(saved)
         self.backend = None
         self.worker = None
         self.ingestion_workers = {}
@@ -92,7 +102,6 @@ class HostService:
         self.resetting = False
         if backend_factory is None and backend not in BACKENDS:
             raise BackendError(f'未知 Agent 后端 {backend!r}；可选：{", ".join(sorted(BACKENDS))}')
-        self.store.put('selectedBackend', backend)
         if not self.state['timeline'] and self.state['displayReading']:
             window = self.core.window()
             for c in [*window['history'], *([window['current']] if window['current'] else [])]:
@@ -127,6 +136,7 @@ class HostService:
             note_source = discussion_source or window['source']['sourceId']
             window['revision'] = self.generation
             window['sessionId'] = self.state['sessionId']
+            window['configuration'] = self.configuration_status()
             window['sessionFresh'] = not self.state['displayReading'] and not self.state['conversation']
             projected = {(c['sourceId'], c['planId'], c['chunkId']): c for c in [*window['history'], *([window['current']] if window['current'] else [])]}
             window['timeline'] = []
@@ -384,7 +394,7 @@ class HostService:
 
     def batch_start(self, item_ids, *, request_id):
         app = self._batch_app()
-        with app.lock:
+        with self._batch_admission(), app.lock:
             with self.lock:
                 if isinstance(item_ids, list) and any(self.ingestion_workers.get(i) and self.ingestion_workers[i].is_alive() for i in item_ids if isinstance(i, str)):
                     raise WorkspaceError('batch_item_busy', '材料正在处理中，请等待原任务结束。')
@@ -406,7 +416,7 @@ class HostService:
 
     def batch_control(self, batch_id, action, *, request_id, item_id=None, risk_choice_id=None):
         app = self._batch_app()
-        with app.lock:
+        with self._batch_admission(), app.lock:
             with self.lock:
                 worker = self.batch_workers.get(batch_id)
                 if action in ('continue', 'retry-item', 'resubmit-item') and worker and worker.is_alive() and batch_id not in app.running:
@@ -414,6 +424,19 @@ class HostService:
             batch = app.control(batch_id, action, request_id=request_id, item_id=item_id,
                                 risk_choice_id=risk_choice_id, cancel=self._cancel_batch_item)
             return self._launch_batch(app, batch)
+
+    @contextmanager
+    def _batch_admission(self):
+        # Reserve configuration before taking the Application lock; never hold
+        # the Host lock while waiting for batch cancellation or dispatch.
+        with self.lock:
+            self.batch_admissions += 1
+        try:
+            yield
+        finally:
+            with self.lock:
+                self.batch_admissions -= 1
+                self.changed()
 
     def _launch_batch(self, app, batch):
         with self.lock:
@@ -902,6 +925,62 @@ class HostService:
         with self.lock:
             return {'adapter': self.backend_name, 'model': self.models.get(self.backend_name)}
 
+    def _configuration(self):
+        return {'backend': self.backend_name, 'model': self.models.get(self.backend_name),
+                'runtimePath': self.codex_bin if self.backend_name == 'codex' else self.deepseek_bin,
+                'credentialFile': self.deepseek_credentials if self.backend_name == 'deepseek' else None}
+
+    def _configuration_busy(self):
+        return bool(self.resetting or self.shutting_down or self.batch_admissions
+                    or (self.state['run'] and self.state['run']['status'] in ACTIVE)
+                    or (self.worker and self.worker.is_alive())
+                    or any(worker.is_alive() for workers in (self.reading_workers, self.progress_workers,
+                        self.ingestion_workers, self.blog_workers, self.batch_workers) for worker in workers.values()))
+
+    def configuration_status(self):
+        with self.lock:
+            effective = self._configuration()
+            saved = self.settings.read() or effective
+            pending = saved != effective
+            return {'saved': saved, 'effective': effective, 'pending': pending,
+                    'busy': self._configuration_busy(), 'refreshBlocked': pending and self.refresh_blocked}
+
+    def save_configuration(self, value):
+        value = normalize(value)
+        with self.lock:
+            if self._configuration_busy():
+                raise ValueError('任务运行中，不能保存后端配置。')
+            self.settings.save(value)
+            if value == self._configuration():
+                self.refresh_blocked = False
+            self.changed()
+            return self.snapshot()
+
+    def _apply_configuration(self, value):
+        self.backend_name = value['backend']
+        self.models[self.backend_name] = value['model']
+        if self.backend_name == 'codex':
+            self.codex_bin = value['runtimePath']
+        else:
+            self.deepseek_bin = value['runtimePath']
+            self.deepseek_credentials = value['credentialFile']
+        self.state.update(threadId=None, resumeBackend=None)
+
+    def refresh_configuration(self):
+        with self.lock:
+            saved = self.settings.read()
+            if saved and saved != self._configuration():
+                if self._configuration_busy():
+                    self.refresh_blocked = True
+                else:
+                    status = self.setup.inspect(saved)
+                    if status['status'] == 'unavailable':
+                        raise ValueError(status['message'])
+                    self._apply_configuration(saved)
+                    self.refresh_blocked = False
+            self.changed()
+            return self.snapshot()
+
     def _build_backend(self, *, workspace=None, purpose='business', tools=None):
         with self.lock:
             name = self.backend_name
@@ -910,7 +989,7 @@ class HostService:
             if tools is not None:
                 options['tools'] = tools
             if name == 'deepseek':
-                options.update(runtime_path=runtime_path(name), api_key=deepseek_key())
+                options.update(runtime_path=runtime_path(name, self.deepseek_bin), api_key=deepseek_key(self.deepseek_credentials))
         workspace = workspace or self.workspace
         if self.backend_factory is not None:
             return self.backend_factory(workspace, **options)
@@ -1275,23 +1354,7 @@ class HostService:
                     'status': 'failed', 'message': '后端设置操作失败，请检查 Runtime、认证和网络后重试。'}
 
     def select_backend(self, payload):
-        with self.lock:
-            name = payload.get('backend')
-            if not isinstance(name, str) or name not in BACKENDS:
-                raise ValueError('请选择 Codex 或 WorkBuddy。')
-            if payload.get('sessionId') != self.state['sessionId']:
-                raise ValueError('会话已更新，请重新连接。')
-            if self.resetting or self.shutting_down or (self.worker and self.worker.is_alive()) or (self.state['run'] and self.state['run']['status'] in ACTIVE):
-                raise ValueError('请先停止当前任务，等待结束后再切换 Agent。')
-            if name == self.backend_name:
-                return self.snapshot()
-            # Runtime changes never archive FOCUS-owned discussion history.
-            check_backend(name, self.codex_bin)
-            self.state.update(threadId=None, resumeBackend=None)
-            self.backend_name = name
-            self.store.put('selectedBackend', name)
-            self.changed()
-            return self.snapshot()
+        raise ValueError('请在设置页保存配置，并刷新页面以应用。')
 
     def _archive_session(self):
         self.store.put('session:' + self.state['sessionId'], self.state)

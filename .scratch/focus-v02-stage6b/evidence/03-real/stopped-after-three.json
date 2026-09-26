@@ -1,0 +1,227 @@
+{
+  "batch": {
+    "batchId": "582e98e521594796973f91be271b1ed6",
+    "topicId": "批次切换验收",
+    "status": "paused",
+    "error": null,
+    "items": [
+      {
+        "itemId": "0f6a331f4d69451e9357d670f79f46ee",
+        "fileName": "plant-1.html",
+        "sourceId": "盆栽浇水观察记录 1-article",
+        "status": "completed",
+        "ingestionStatus": "completed",
+        "blog": {
+          "sourceId": "盆栽浇水观察记录 1-article",
+          "generated": true,
+          "artifacts": {
+            "value_analysis": {
+              "status": "not_applicable",
+              "updatedAt": "2026-09-26T16:14:25+00:00"
+            },
+            "reading_blog": {
+              "status": "completed",
+              "updatedAt": "2026-09-26T16:15:18+00:00"
+            },
+            "html": {
+              "status": "completed",
+              "updatedAt": "2026-09-26T16:15:18+00:00"
+            }
+          },
+          "valueAnalysis": {
+            "applicable": false,
+            "direction": null,
+            "reason": "该来源是盆栽浇水观察记录，内容仅涉及园艺浇水与观察流程，未讨论硬件架构、设计空间探索、编译器、仿真器或性能建模等任何相关方向。"
+          },
+          "verificationLevel": null,
+          "warnings": [
+            "实现检索笔记记录了未核查范围（未运行、未找到、没有访问权限、未公开）；实现相关结论只按静态阅读对待"
+          ],
+          "methodVersion": "article-blog-v1",
+          "runStatus": "completed",
+          "error": null
+        },
+        "error": null,
+        "remoteReference": false,
+        "resubmitRisk": null
+      },
+      {
+        "itemId": "d5610439118a4369b5b1e873cb38af91",
+        "fileName": "plant-2.html",
+        "sourceId": "盆栽浇水观察记录 2-article",
+        "status": "completed",
+        "ingestionStatus": "completed",
+        "blog": {
+          "sourceId": "盆栽浇水观察记录 2-article",
+          "generated": true,
+          "artifacts": {
+            "value_analysis": {
+              "status": "not_applicable",
+              "updatedAt": "2026-09-26T16:15:26+00:00"
+            },
+            "reading_blog": {
+              "status": "completed",
+              "updatedAt": "2026-09-26T16:16:07+00:00"
+            },
+            "html": {
+              "status": "completed",
+              "updatedAt": "2026-09-26T16:16:07+00:00"
+            }
+          },
+          "valueAnalysis": {
+            "applicable": false,
+            "direction": null,
+            "reason": "该来源是盆栽浇水观察记录，内容涉及土壤湿度观察与浇水方法，与硬件架构、设计空间探索、编译器、仿真器或性能建模均无关。"
+          },
+          "verificationLevel": null,
+          "warnings": [
+            "实现检索笔记记录了未核查范围（未运行、未找到、没有访问权限、未公开）；实现相关结论只按静态阅读对待"
+          ],
+          "methodVersion": "article-blog-v1",
+          "runStatus": "completed",
+          "error": null
+        },
+        "error": null,
+        "remoteReference": false,
+        "resubmitRisk": null
+      },
+      {
+        "itemId": "55a5eb2f797f4c7d91b6ba63ec283bae",
+        "fileName": "plant-3.html",
+        "sourceId": "盆栽浇水观察记录 3-article",
+        "status": "completed",
+        "ingestionStatus": "completed",
+        "blog": {
+          "sourceId": "盆栽浇水观察记录 3-article",
+          "generated": true,
+          "artifacts": {
+            "value_analysis": {
+              "status": "not_applicable",
+              "updatedAt": "2026-09-26T16:16:15+00:00"
+            },
+            "reading_blog": {
+              "status": "completed",
+              "updatedAt": "2026-09-26T16:19:13+00:00"
+            },
+            "html": {
+              "status": "completed",
+              "updatedAt": "2026-09-26T16:19:13+00:00"
+            }
+          },
+          "valueAnalysis": {
+            "applicable": false,
+            "direction": null,
+            "reason": "来源文本是盆栽浇水观察记录，内容属于园艺养护流程，与硬件架构、DSE、编译器、仿真器或性能建模无关。"
+          },
+          "verificationLevel": null,
+          "warnings": [
+            "实现检索笔记记录了未核查范围（未运行、未找到、没有访问权限、未公开）；实现相关结论只按静态阅读对待"
+          ],
+          "methodVersion": "article-blog-v1",
+          "runStatus": "completed",
+          "error": null
+        },
+        "error": null,
+        "remoteReference": false,
+        "resubmitRisk": null
+      },
+      {
+        "itemId": "46e2bd3fb6ea47db8ec6d2d2c415a525",
+        "fileName": "plant-4.html",
+        "sourceId": "盆栽浇水观察记录 4-article",
+        "status": "cancelled",
+        "ingestionStatus": "completed",
+        "blog": {
+          "sourceId": "盆栽浇水观察记录 4-article",
+          "generated": true,
+          "artifacts": {
+            "value_analysis": {
+              "status": "not_applicable",
+              "updatedAt": "2026-09-26T16:17:10+00:00"
+            },
+            "reading_blog": {
+              "status": "pending",
+              "updatedAt": null
+            },
+            "html": {
+              "status": "pending",
+              "updatedAt": null
+            }
+          },
+          "valueAnalysis": {
+            "applicable": false,
+            "direction": null,
+            "reason": "该来源是盆栽浇水的观察与记录指南，内容涉及土壤湿度判断和浇水频率调整，与硬件架构、DSE、编译器、仿真器或性能建模均无关。"
+          },
+          "verificationLevel": null,
+          "warnings": [],
+          "methodVersion": "article-blog-v1",
+          "runStatus": "cancelled",
+          "error": {
+            "error_id": "blog_cancelled",
+            "message": "Blog generation was cancelled"
+          }
+        },
+        "error": {
+          "error_id": "blog_cancelled",
+          "message": "Blog generation was cancelled"
+        },
+        "remoteReference": false,
+        "resubmitRisk": null
+      }
+    ],
+    "executing": false
+  },
+  "configuration": {
+    "saved": {
+      "backend": "codex",
+      "model": "gpt-6-astra",
+      "runtimePath": null,
+      "credentialFile": null
+    },
+    "effective": {
+      "backend": "deepseek",
+      "model": "deepseek-v4-flash",
+      "runtimePath": null,
+      "credentialFile": null
+    },
+    "pending": true,
+    "busy": false,
+    "refreshBlocked": true
+  },
+  "completedHashes": {
+    "sources\\盆栽浇水观察记录 1-article\\source.yaml": "a47943646a84f9c7a81053b2a32e954c46bd8b5af09cab0b438258227247ad60",
+    "sources\\盆栽浇水观察记录 1-article\\blog\\blog.md": "b65b876fd9ffd3befbba24620013705c6b84a0053aa86aa847b64804f928ce9c",
+    "sources\\盆栽浇水观察记录 1-article\\blog\\index.html": "fb1b99b809b4e7f489628bde3c6d69ee667a82b3e1ea8a77a10ffa74998535e7",
+    "sources\\盆栽浇水观察记录 1-article\\blog\\metadata.json": "dec20f61d5add8fc3bb30803ba13ec807c0c9be8c481beba8d257aeb1a6c0205",
+    "sources\\盆栽浇水观察记录 1-article\\parser-bundle\\content.md": "61606dd73bf9b3aa01ccc857d09d0bc5ba06ad9a85877150458f93a0211e39ec",
+    "sources\\盆栽浇水观察记录 1-article\\parser-bundle\\ingestion-result.json": "8dc513f678cd8f09c30fba286b8b98b7bad700b16354442d3c822babde28ba07",
+    "sources\\盆栽浇水观察记录 1-article\\parser-bundle\\metadata.json": "31c0657176d13b793aa54dbcb949bfdffd38592ab2ba6ffd38c49b5a06d9c3d8",
+    "sources\\盆栽浇水观察记录 1-article\\parser-bundle\\source.html": "853236ed3c7d9bdc7fddb6fbf3c264743f1244122e49ea34d75206ed44aed83d",
+    "sources\\盆栽浇水观察记录 1-article\\parser-bundle\\validation.json": "fd9e25d5c4e2bbc4555d10cf69b01d501e9c0a88789cd242742696a06fb7ab61",
+    "sources\\盆栽浇水观察记录 1-article\\blog\\evidence\\evidence-map.md": "1571ce4f86a7576e9061c8027be999f470bdeeca6cd8a4abfec707a598fbab09",
+    "sources\\盆栽浇水观察记录 1-article\\blog\\evidence\\implementation-notes.md": "cc1c1466db2576466a5ba43babcde4bfdadf623dafdc3f2d27307407b5f4fe2a",
+    "sources\\盆栽浇水观察记录 2-article\\source.yaml": "f1f4d8e4a54a85dec0674cac09fbe917291c40dce5319cdca120da4da20cc794",
+    "sources\\盆栽浇水观察记录 2-article\\blog\\blog.md": "7f3c385d34a0c0b4e7934fb49636a146c39d47e7d1b2188ced91fbcc64a99f24",
+    "sources\\盆栽浇水观察记录 2-article\\blog\\index.html": "0b8c39694c821415adba2e36cf9bca7f78b580659004921b95b346ea78af79da",
+    "sources\\盆栽浇水观察记录 2-article\\blog\\metadata.json": "413b2eb8ed7cd5391d14b79897e67204f3fbc713e586436f8fb4a76d3afe10dd",
+    "sources\\盆栽浇水观察记录 2-article\\parser-bundle\\content.md": "7208a837f5fe46f958990acabb23612afb9e3adf185d8d662428034634f4cc52",
+    "sources\\盆栽浇水观察记录 2-article\\parser-bundle\\ingestion-result.json": "e46a0ffefd1c4867ac62056f268b6833437ded104cd69fb1e8a6c60ab1e444da",
+    "sources\\盆栽浇水观察记录 2-article\\parser-bundle\\metadata.json": "dc6e2c49b7f131d5102de307e44825bff65ab5d9e6f7d849563363271049d224",
+    "sources\\盆栽浇水观察记录 2-article\\parser-bundle\\source.html": "a4dbd72a2f95f58de3abf72f36bb56d6de0d2d03f50c8e16450951083253987e",
+    "sources\\盆栽浇水观察记录 2-article\\parser-bundle\\validation.json": "fd9e25d5c4e2bbc4555d10cf69b01d501e9c0a88789cd242742696a06fb7ab61",
+    "sources\\盆栽浇水观察记录 2-article\\blog\\evidence\\evidence-map.md": "dd0402efa5d3621c71e5c12680ebb343996414faf9f0bcc7d1963c096ce5aef3",
+    "sources\\盆栽浇水观察记录 2-article\\blog\\evidence\\implementation-notes.md": "cc1c1466db2576466a5ba43babcde4bfdadf623dafdc3f2d27307407b5f4fe2a",
+    "sources\\盆栽浇水观察记录 3-article\\source.yaml": "78458f7615924632cd5d5bba0df247c9a6593df82c6f6259f681cdfa309fa8d7",
+    "sources\\盆栽浇水观察记录 3-article\\blog\\blog.md": "b51aa0a4b1288dda1f483d8c62ba149141ea3a2a667f07d712ff96e6865f8cac",
+    "sources\\盆栽浇水观察记录 3-article\\blog\\index.html": "f75aae91a5664731cb7d1d89ee6dc0a24d22047dd94f66822bb9be42ead98df8",
+    "sources\\盆栽浇水观察记录 3-article\\blog\\metadata.json": "b0e0a4f75a4957ae1859e142c41f25e7d9e7bccd42ce4b6b7ff7eb816a342feb",
+    "sources\\盆栽浇水观察记录 3-article\\parser-bundle\\content.md": "79e48ad561550cae79d5d412ba4ab484d95cf6e9b5991b170cc1da10fc6d0e92",
+    "sources\\盆栽浇水观察记录 3-article\\parser-bundle\\ingestion-result.json": "dcf4265f70f0bb945c44963e6b7e33168f04493813fb9575872a8675ec67a88d",
+    "sources\\盆栽浇水观察记录 3-article\\parser-bundle\\metadata.json": "6eb09bf38f26e5f1041eaa03fba805461bff3f25fb2473f3e525455c246086d5",
+    "sources\\盆栽浇水观察记录 3-article\\parser-bundle\\source.html": "08965f20bd7c0b997538b9acef5ec90aab97428c3d82aa300d9b30d49d7e4b38",
+    "sources\\盆栽浇水观察记录 3-article\\parser-bundle\\validation.json": "fd9e25d5c4e2bbc4555d10cf69b01d501e9c0a88789cd242742696a06fb7ab61",
+    "sources\\盆栽浇水观察记录 3-article\\blog\\evidence\\evidence-map.md": "bf0334b288ff6eb517e2c424916fc5ac6bbbf373bf91557649eab9ee5e946727",
+    "sources\\盆栽浇水观察记录 3-article\\blog\\evidence\\implementation-notes.md": "cc1c1466db2576466a5ba43babcde4bfdadf623dafdc3f2d27307407b5f4fe2a"
+  }
+}

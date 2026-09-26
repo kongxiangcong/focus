@@ -7,6 +7,20 @@ import { BackendSetupPanel } from "./BackendSetupPanel";
 
 afterEach(cleanup);
 
+it("saves the selected configuration without applying it", async () => {
+  const saveBackendConfiguration = vi.fn(async () => readerSuccess({ status: "empty" as const, source: { sourceId: "", title: "", topicId: null },
+    current: null, history: [], conversation: [] }));
+  const refreshBackendConfiguration = vi.fn();
+  const host = { saveBackendConfiguration, refreshBackendConfiguration } as unknown as ReaderHost;
+  render(<BackendSetupPanel host={host} effective="codex" />);
+  fireEvent.click(screen.getByRole("radio", { name: "DeepSeek" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存配置" }));
+  await act(async () => {});
+  expect(saveBackendConfiguration).toHaveBeenCalledWith(expect.objectContaining({ backend: "deepseek", model: "deepseek-v4-flash" }));
+  expect(refreshBackendConfiguration).not.toHaveBeenCalled();
+  expect(screen.getByText(/当前生效：Codex/)).toBeInTheDocument();
+});
+
 it("discards a late success after the selected configuration changes without activating a backend", async () => {
   let resolve!: (value: ReaderHostResult<BackendSetupResult>) => void;
   const backendSetup = vi.fn(() => new Promise<ReaderHostResult<BackendSetupResult>>(done => { resolve = done; }));

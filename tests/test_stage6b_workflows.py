@@ -433,7 +433,9 @@ class SharedWorkflowTests(unittest.TestCase):
             self.host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': '例子叫量子香蕉'})
             self.host.worker.join(5)
             before = self.host.snapshot()
-            after = self.host.select_backend({'sessionId': before['sessionId'], 'backend': 'deepseek'})
+            with self.assertRaisesRegex(ValueError, '设置页'):
+                self.host.select_backend({'sessionId': before['sessionId'], 'backend': 'deepseek'})
+            after = self.host.snapshot()
             self.assertEqual(before['discussionId'], after['discussionId'])
             self.assertEqual(before['conversation'], after['conversation'])
             self.assertEqual(before['sessionId'], after['sessionId'])

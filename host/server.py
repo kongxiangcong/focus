@@ -333,6 +333,11 @@ class Handler(BaseHTTPRequestHandler):
         elif method == 'POST' and path == '/reader/backend/setup':
             payload = self._body()
             result = service.backend_setup(payload.get('action'), payload)
+        elif method == 'POST' and path == '/reader/configuration':
+            result = service.save_configuration(self._body())
+        elif method == 'POST' and path == '/reader/configuration/refresh':
+            self._body()
+            result = service.refresh_configuration()
         elif method == 'POST' and path == '/reader/resume':
             result = service.resume_reading(self._body())
         elif method == 'POST' and path == '/reader/messages':

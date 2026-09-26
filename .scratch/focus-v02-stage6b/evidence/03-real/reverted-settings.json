@@ -1,0 +1,17 @@
+{
+  "saved": {
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "runtimePath": "D:\\dsh-proj\\focus\\.venv\\Lib\\site-packages\\codex_cli_bin\\bin\\codex.exe",
+    "credentialFile": null
+  },
+  "effective": {
+    "backend": "codex",
+    "model": "gpt-6-astra",
+    "runtimePath": "D:\\dsh-proj\\focus\\.venv\\Lib\\site-packages\\codex_cli_bin\\bin\\codex.exe",
+    "credentialFile": null
+  },
+  "pending": false,
+  "busy": false,
+  "refreshBlocked": false
+}

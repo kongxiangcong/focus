@@ -31,6 +31,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [brightness, setBrightness] = useState(() => { try { return Math.max(85, Math.min(110, Number(localStorage.getItem("focus.brightness") ?? 100) || 100)); } catch { return 100; } });
   const [dragging, setDragging] = useState(false);
   const [view, setView] = useState<ReadingWindow | null>(null);
+  function acceptView(next: ReadingWindow) {
+    setView(old => old?.revision !== undefined && next.revision !== undefined && old.revision > next.revision ? old : next);
+  }
   const [sources, setSources] = useState<readonly LibrarySource[]>([]);
   const [topics, setTopics] = useState<readonly LibraryTopic[]>([]);
   const [inbox, setInbox] = useState<readonly IngestionItem[]>([]);
@@ -86,10 +89,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     let alive = true;
     const accept = (result: ReaderHostResult<ReadingWindow>) => {
       if (!alive) return;
-      if (result.ok) setView(old => old?.revision !== undefined && result.value.revision !== undefined && old.revision > result.value.revision ? old : result.value);
+      if (result.ok) acceptView(result.value);
       else setError(result.error.message);
     };
-    void host.getReadingWindow().then(accept);
+    void (host.refreshBackendConfiguration ? host.refreshBackendConfiguration() : host.getReadingWindow()).then(accept);
     const unsubscribe = host.subscribe?.(accept);
     return () => { alive = false; unsubscribe?.(); window.removeEventListener("popstate", pop); requestVersion.current++; };
   }, [host]);
@@ -127,7 +130,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     try {
       const result = await operation();
       if (!result.ok) { setError(result.error.message); return; }
-      setView(result.value); setConfirm(null);
+      acceptView(result.value); setConfirm(null);
       if (read) navigate("/reading");
       if (label === "上传") { setUploadOpen(false); setSelectedFiles([]); }
       await refresh();
@@ -138,7 +141,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     if (!host.selectDiscussionSource) return;
     const result = await host.selectDiscussionSource(sourceId);
     if (!result.ok) { setError(result.error.message); return; }
-    setView(result.value);
+    acceptView(result.value);
     navigate("/reading");
   }
   async function enterReading(sourceId: string) {
@@ -403,7 +406,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       {busy && <p role="status">{busy}中…</p>}
     </main>}
     {route === "/settings" && <main className="settings-page"><h1>设置</h1>
-      <BackendSetupPanel host={host} effective={view?.agent?.backend} />
+      <BackendSetupPanel host={host} effective={view?.agent?.backend} configuration={view?.configuration}
+        onSaved={acceptView} />
       <section className="focus-reader__appearance-panel">
       <div className="settings-row"><label htmlFor="brightness">亮度</label><input id="brightness" type="range" min="85" max="110" value={brightness} onChange={e => { setBrightness(Number(e.target.value)); try { localStorage.setItem("focus.brightness", e.target.value); } catch { setError("无法保存亮度"); } }} /></div>
       <div className="settings-row"><label htmlFor="font-size">字号</label><input id="font-size" type="range" min="0" max="3" step="1" value={fontOptions.findIndex(([key]) => key === fontSize)} aria-valuetext={fontOptions.find(([key]) => key === fontSize)?.[1]} onChange={e => { const value = fontOptions[Number(e.target.value)][0]; setFontSize(value); try { localStorage.setItem("focus.fontSize", value); } catch { setError("无法保存字号"); } }} /></div>
@@ -425,7 +429,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <label>专题<input list="upload-topics" disabled={!!busy} required maxLength={120} value={uploadTopic} onChange={e => setUploadTopic(e.target.value)} placeholder="选择或新建专题" /></label>
         <datalist id="upload-topics">{topics.map(t => <option key={t.topicId} value={t.title} />)}</datalist>
         <label className="upload-file">{selectedFiles.map(f => f.name).join("、") || "PDF / HTML"}<input aria-label="上传材料" type="file" multiple disabled={!!busy} accept=".pdf,.html,application/pdf,text/html" onChange={e => setSelectedFiles(Array.from(e.target.files ?? []))} /></label>
-        <p>PDF 使用 MinerU 云解析，HTML 使用本地 HTML 解析器（不上传原件）；博客由 Codex 模型服务生成。点击开始即确认文件、专题和服务范围，不自动进入精读。</p>
+        <p>PDF 使用 MinerU 云解析，HTML 使用本地 HTML 解析器（不上传原件）；博客由当前生效的 {view?.agent?.backend === "deepseek" ? "DeepSeek" : "Codex"} 模型服务生成。点击开始即确认文件、专题和服务范围，不自动进入精读。</p>
         {error && <p role="alert">{error}</p>}
         <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length || !uploadTopic.trim()}>{busy ? "开始中…" : "开始解析并生成博客"}</button></div>
       </form>
@@ -448,5 +452,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       if (action === "reread" && (!receipt || !host.rereadReading)) { setError("阅读位置已变化，请先打开这篇材料。"); return; }
       void operate(action === "delete" ? "删除" : action === "replan" ? "重新规划" : "从头阅读", () => action === "delete" ? host.deleteSource!(source.sourceId) : action === "replan" ? host.replanSource!(source.sourceId) : host.rereadReading!({ receipt: receipt!, requestId: createReaderId(), sessionId: view?.sessionId }), action === "reread");
     }}>{busy || (confirm?.action === "delete" ? "永久删除" : confirm?.action === "replan" ? "确认重新规划" : "确认从头阅读")}</button></div>{error && <p role="alert">{error}</p>}</dialog>
+    {view?.configuration?.pending && <aside role="status" className="configuration-notice"
+      style={{ position: "fixed", right: 20, bottom: 20, zIndex: 100, padding: "12px 16px", background: "var(--surface, #fff)", color: "#252525", border: "1px solid #b8b8b8", borderRadius: 12, boxShadow: "0 4px 20px #0002" }}>
+      <p>{view.configuration.refreshBlocked ? "任务运行中，完成后请刷新以应用配置" : "配置更改，需要刷新页面"}</p>
+      <button onClick={() => window.location.reload()}>Reload</button>
+    </aside>}
   </div>;
 }

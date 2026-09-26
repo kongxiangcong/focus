@@ -461,6 +461,14 @@ export class HttpReaderHost implements ReaderHost {
       body: JSON.stringify({ backend, sessionId }) });
   }
 
+  saveBackendConfiguration(input: BackendSetupInput): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request('/reader/configuration', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });
+  }
+
+  refreshBackendConfiguration(): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request('/reader/configuration/refresh', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+  }
+
   async backendSetup(action: BackendSetupAction, input: BackendSetupInput): Promise<ReaderHostResult<BackendSetupResult>> {
     try {
       const response = await this.fetch(this.baseUrl + '/reader/backend/setup', { method: 'POST', headers: { 'content-type': 'application/json' },

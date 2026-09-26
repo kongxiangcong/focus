@@ -357,17 +357,6 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
             </li>)}</ol>}
         </details>}
         {mist && <button className="mist-composer-toggle" aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>{collapsed ? "展开" : "收起"}</button>}
-        {!mist && agent?.backend && agent.backends && host.selectBackend && view?.sessionId && <div className="focus-backend">
-          <label>Agent <select aria-label="选择 Agent" value={agent.backend} disabled={blocked || uploading}
-            onChange={e => { const name = e.target.value; const id = view.sessionId!;
-              void perform("切换 Agent", () => host.selectBackend!(name, id)); }}>
-            {agent.backends.map(b => <option key={b.id} value={b.id} disabled={!!b.unavailableReason}>{b.label}</option>)}
-          </select></label>
-          <small>切换将开启新对话，保留材料、笔记和阅读位置</small>
-          {agent.backends.filter(b => b.unavailableReason).map(b => <details key={b.id}>
-            <summary>{b.label}</summary><p>{b.unavailableReason}</p>
-          </details>)}
-        </div>}
         {connection && <div className="focus-error" role="alert">{connection}<button onClick={() => void reconnect()}>重新连接</button></div>}
         {failure && <div className="focus-error" role="alert">{failure.message}<button disabled={!!operation} onClick={failure.retry}>{failure.label}</button><button aria-label="关闭错误" onClick={() => setFailure(null)}>×</button></div>}
         {operation && !active && <p className="focus-operation" role="status">{operation === "下一段" ? "正在打开下一段…" : `${operation}中…`}</p>}

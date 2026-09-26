@@ -1,0 +1,191 @@
+{
+  "batch": {
+    "batchId": "582e98e521594796973f91be271b1ed6",
+    "topicId": "批次切换验收",
+    "status": "completed",
+    "error": null,
+    "items": [
+      {
+        "itemId": "0f6a331f4d69451e9357d670f79f46ee",
+        "fileName": "plant-1.html",
+        "sourceId": "盆栽浇水观察记录 1-article",
+        "status": "completed",
+        "ingestionStatus": "completed",
+        "blog": {
+          "sourceId": "盆栽浇水观察记录 1-article",
+          "generated": true,
+          "artifacts": {
+            "value_analysis": {
+              "status": "not_applicable",
+              "updatedAt": "2026-09-26T16:14:25+00:00"
+            },
+            "reading_blog": {
+              "status": "completed",
+              "updatedAt": "2026-09-26T16:15:18+00:00"
+            },
+            "html": {
+              "status": "completed",
+              "updatedAt": "2026-09-26T16:15:18+00:00"
+            }
+          },
+          "valueAnalysis": {
+            "applicable": false,
+            "direction": null,
+            "reason": "该来源是盆栽浇水观察记录，内容仅涉及园艺浇水与观察流程，未讨论硬件架构、设计空间探索、编译器、仿真器或性能建模等任何相关方向。"
+          },
+          "verificationLevel": null,
+          "warnings": [
+            "实现检索笔记记录了未核查范围（未运行、未找到、没有访问权限、未公开）；实现相关结论只按静态阅读对待"
+          ],
+          "methodVersion": "article-blog-v1",
+          "runStatus": "completed",
+          "error": null
+        },
+        "error": null,
+        "remoteReference": false,
+        "resubmitRisk": null
+      },
+      {
+        "itemId": "d5610439118a4369b5b1e873cb38af91",
+        "fileName": "plant-2.html",
+        "sourceId": "盆栽浇水观察记录 2-article",
+        "status": "completed",
+        "ingestionStatus": "completed",
+        "blog": {
+          "sourceId": "盆栽浇水观察记录 2-article",
+          "generated": true,
+          "artifacts": {
+            "value_analysis": {
+              "status": "not_applicable",
+              "updatedAt": "2026-09-26T16:15:26+00:00"
+            },
+            "reading_blog": {
+              "status": "completed",
+              "updatedAt": "2026-09-26T16:16:07+00:00"
+            },
+            "html": {
+              "status": "completed",
+              "updatedAt": "2026-09-26T16:16:07+00:00"
+            }
+          },
+          "valueAnalysis": {
+            "applicable": false,
+            "direction": null,
+            "reason": "该来源是盆栽浇水观察记录，内容涉及土壤湿度观察与浇水方法，与硬件架构、设计空间探索、编译器、仿真器或性能建模均无关。"
+          },
+          "verificationLevel": null,
+          "warnings": [
+            "实现检索笔记记录了未核查范围（未运行、未找到、没有访问权限、未公开）；实现相关结论只按静态阅读对待"
+          ],
+          "methodVersion": "article-blog-v1",
+          "runStatus": "completed",
+          "error": null
+        },
+        "error": null,
+        "remoteReference": false,
+        "resubmitRisk": null
+      },
+      {
+        "itemId": "55a5eb2f797f4c7d91b6ba63ec283bae",
+        "fileName": "plant-3.html",
+        "sourceId": "盆栽浇水观察记录 3-article",
+        "status": "completed",
+        "ingestionStatus": "completed",
+        "blog": {
+          "sourceId": "盆栽浇水观察记录 3-article",
+          "generated": true,
+          "artifacts": {
+            "value_analysis": {
+              "status": "not_applicable",
+              "updatedAt": "2026-09-26T16:16:15+00:00"
+            },
+            "reading_blog": {
+              "status": "completed",
+              "updatedAt": "2026-09-26T16:19:13+00:00"
+            },
+            "html": {
+              "status": "completed",
+              "updatedAt": "2026-09-26T16:19:13+00:00"
+            }
+          },
+          "valueAnalysis": {
+            "applicable": false,
+            "direction": null,
+            "reason": "来源文本是盆栽浇水观察记录，内容属于园艺养护流程，与硬件架构、DSE、编译器、仿真器或性能建模无关。"
+          },
+          "verificationLevel": null,
+          "warnings": [
+            "实现检索笔记记录了未核查范围（未运行、未找到、没有访问权限、未公开）；实现相关结论只按静态阅读对待"
+          ],
+          "methodVersion": "article-blog-v1",
+          "runStatus": "completed",
+          "error": null
+        },
+        "error": null,
+        "remoteReference": false,
+        "resubmitRisk": null
+      },
+      {
+        "itemId": "46e2bd3fb6ea47db8ec6d2d2c415a525",
+        "fileName": "plant-4.html",
+        "sourceId": "盆栽浇水观察记录 4-article",
+        "status": "completed",
+        "ingestionStatus": "completed",
+        "blog": {
+          "sourceId": "盆栽浇水观察记录 4-article",
+          "generated": true,
+          "artifacts": {
+            "value_analysis": {
+              "status": "not_applicable",
+              "updatedAt": "2026-09-26T16:17:10+00:00"
+            },
+            "reading_blog": {
+              "status": "completed",
+              "updatedAt": "2026-09-26T16:26:33+00:00"
+            },
+            "html": {
+              "status": "completed",
+              "updatedAt": "2026-09-26T16:26:34+00:00"
+            }
+          },
+          "valueAnalysis": {
+            "applicable": false,
+            "direction": null,
+            "reason": "该来源是盆栽浇水的观察与记录指南，内容涉及土壤湿度判断和浇水频率调整，与硬件架构、DSE、编译器、仿真器或性能建模均无关。"
+          },
+          "verificationLevel": null,
+          "warnings": [
+            "实现检索笔记记录了未核查范围（未运行、未找到、没有访问权限、未公开）；实现相关结论只按静态阅读对待"
+          ],
+          "methodVersion": "article-blog-v1",
+          "runStatus": "completed",
+          "error": null
+        },
+        "error": null,
+        "remoteReference": false,
+        "resubmitRisk": null
+      }
+    ],
+    "executing": false
+  },
+  "configuration": {
+    "saved": {
+      "backend": "codex",
+      "model": "gpt-6-astra",
+      "runtimePath": "D:\\dsh-proj\\focus\\.venv\\Lib\\site-packages\\codex_cli_bin\\bin\\codex.exe",
+      "credentialFile": null
+    },
+    "effective": {
+      "backend": "codex",
+      "model": "gpt-6-astra",
+      "runtimePath": "D:\\dsh-proj\\focus\\.venv\\Lib\\site-packages\\codex_cli_bin\\bin\\codex.exe",
+      "credentialFile": null
+    },
+    "pending": false,
+    "busy": false,
+    "refreshBlocked": false
+  },
+  "preservedCompletedFiles": true,
+  "completedFileCount": 33,
+  "reusedFourthClassification": true
+}

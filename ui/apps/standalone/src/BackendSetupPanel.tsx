@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import type { BackendSetupAction, BackendSetupInput, BackendSetupResult, ReaderHost } from "@focus/reader-contracts";
+import type { BackendSetupAction, BackendSetupInput, BackendSetupResult, BackendConfigurationState, ReadingWindow, ReaderHost } from "@focus/reader-contracts";
 
 const defaults = { codex: "gpt-6-astra", deepseek: "deepseek-v4-flash" } as const;
 
-export function BackendSetupPanel({ host, effective }: { host: ReaderHost; effective?: string }) {
+export function BackendSetupPanel({ host, effective, configuration, onSaved }: {
+  host: ReaderHost; effective?: string; configuration?: BackendConfigurationState; onSaved?: (view: ReadingWindow) => void;
+}) {
   const [input, setInput] = useState<BackendSetupInput>({ backend: "codex", model: defaults.codex });
   const [result, setResult] = useState<BackendSetupResult | null>(null);
   const [checking, setChecking] = useState(false);
@@ -11,9 +13,15 @@ export function BackendSetupPanel({ host, effective }: { host: ReaderHost; effec
   const [installations, setInstallations] = useState<BackendSetupResult[]>([]);
   const [error, setError] = useState("");
   const [login, setLogin] = useState<BackendSetupResult | null>(null);
+  const [saving, setSaving] = useState(false);
   const revision = useRef(0);
   const alive = useRef(true);
   const firstPreparation = useRef(false);
+  const saved = configuration?.saved;
+  useEffect(() => {
+    if (saved) change({ backend: saved.backend, model: saved.model,
+      runtimePath: saved.runtimePath ?? undefined, credentialFile: saved.credentialFile ?? undefined });
+  }, [saved?.backend, saved?.model, saved?.runtimePath, saved?.credentialFile]);
   useEffect(() => { alive.current = true; return () => { alive.current = false; revision.current++; }; }, []);
   useEffect(() => {
     if (!firstPreparation.current && host.backendSetup) {
@@ -60,14 +68,25 @@ export function BackendSetupPanel({ host, effective }: { host: ReaderHost; effec
     finally { if (alive.current) setPreparing(false); }
   }
 
+  async function save() {
+    if (!host.saveBackendConfiguration) return;
+    setSaving(true); setError("");
+    try {
+      const response = await host.saveBackendConfiguration(input);
+      if (response.ok) onSaved?.(response.value);
+      else setError(response.error.message);
+    } catch { setError("保存失败，请重试。"); }
+    finally { setSaving(false); }
+  }
+
   return <section className="backend-setup focus-reader__appearance-panel" aria-label="Backend 准备与检查">
     <h2>后端</h2>
-    <p>当前生效：{effective === "deepseek" ? "DeepSeek" : "Codex"}。此处准备和检查不会切换任务使用的后端。</p>
+    <p>当前生效：{effective === "deepseek" ? "DeepSeek" : "Codex"} {configuration?.effective.model}。保存后刷新页面生效；准备和检查不会应用配置。</p>
     <button disabled={preparing || !host.backendSetup} onClick={() => void prepare()}>{preparing ? "正在准备依赖…" : "准备两套后端依赖"}</button>
     <p>只安装缺失依赖，不会自动登录或调用模型。</p>
     {installations.map(item => <p key={item.backend}>{item.backend}：{item.message} {item.runtimePath}</p>)}
     <fieldset disabled={!!login}>
-      <legend>选择要检查的后端</legend>
+      <legend>选择后端配置</legend>
       {(["codex", "deepseek"] as const).map(backend => <label key={backend}>
         <input type="radio" name="setup-backend" checked={input.backend === backend}
           onChange={() => change({ backend, model: defaults[backend] })} />{backend === "codex" ? "Codex" : "DeepSeek"}
@@ -80,6 +99,8 @@ export function BackendSetupPanel({ host, effective }: { host: ReaderHost; effec
       {input.backend === "deepseek" && <label>Host 凭据文件路径（默认读取 .env）<input value={input.credentialFile ?? ""}
         onChange={event => change({ ...input, credentialFile: event.target.value })} /></label>}
     </fieldset>
+    <button disabled={saving || configuration?.busy || !!login || !host.saveBackendConfiguration} onClick={() => void save()}>{saving ? "保存中…" : "保存配置"}</button>
+    {configuration?.busy && <p>任务运行中，不能保存后端配置。</p>}
     <button disabled={checking || !!login || !host.backendSetup} onClick={() => void run("inspect")}>检查安装路径</button>
     {input.backend === "codex" && <>
       <button disabled={checking || !!login || !host.backendSetup} onClick={() => void run("account")}>检查 Codex 登录</button>

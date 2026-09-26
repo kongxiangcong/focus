@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ReaderHost, type ReadingWindow } from "@focus/reader-contracts";
 import { WorkspaceApp } from "./WorkspaceApp";
@@ -73,6 +73,38 @@ it("accepts saved HTML and explains local parsing in the Inbox confirmation", as
   expect(host.processIngestion).not.toHaveBeenCalled();
 });
 afterEach(cleanup);
+it.each(["save", "discussion"])("retains the newest shared configuration when a late %s response arrives after another page refreshed", async action => {
+  history.replaceState(null, "", action === "save" ? "/settings" : "/library");
+  const codex = { backend: "codex" as const, model: "gpt-6-astra", runtimePath: null, credentialFile: null };
+  const deepseek = { ...codex, backend: "deepseek" as const, model: "deepseek-v4-flash" };
+  const initial = { ...empty, revision: 1, configuration: { saved: codex, effective: codex, pending: false, busy: false, refreshBlocked: false } };
+  let publish!: (result: ReturnType<typeof readerSuccess<ReadingWindow>>) => void;
+  let resolveSave!: (result: ReturnType<typeof readerSuccess<ReadingWindow>>) => void;
+  const host: ReaderHost = {
+    getReadingWindow: vi.fn(async () => readerSuccess(initial)),
+    sendMessage: vi.fn(async () => readerSuccess(initial)),
+    refreshBackendConfiguration: vi.fn(async () => readerSuccess(initial)),
+    continueReading: vi.fn(async () => readerSuccess(initial)),
+    listSources: vi.fn(async () => readerSuccess([{ sourceId: "a-paper", title: "A Paper", kind: "paper" as const, parseStatus: "ready" as const, error: null, noteCount: 0, topicIds: [], progress: { completed: 0, total: 0, planId: null, chunkId: null } }])),
+    listTopics: vi.fn(async () => readerSuccess([])),
+    subscribe: callback => { publish = callback; return () => {}; },
+    saveBackendConfiguration: vi.fn(() => new Promise<ReturnType<typeof readerSuccess<ReadingWindow>>>(resolve => { resolveSave = resolve; })),
+    selectDiscussionSource: vi.fn(() => new Promise<ReturnType<typeof readerSuccess<ReadingWindow>>>(resolve => { resolveSave = resolve; })),
+  };
+  render(<WorkspaceApp host={host} />);
+  if (action === "save") {
+    await screen.findByText(/当前生效：Codex/);
+    fireEvent.click(screen.getByRole("radio", { name: "DeepSeek" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存配置" }));
+  } else {
+    fireEvent.click(await screen.findByRole("button", { name: "讨论" }));
+  }
+  await act(async () => publish(readerSuccess({ ...initial, revision: 3, agent: { ...empty.agent!, backend: "deepseek" }, configuration: { ...initial.configuration, saved: deepseek, effective: deepseek } })));
+  await act(async () => resolveSave(readerSuccess({ ...initial, revision: 2, configuration: { ...initial.configuration, saved: deepseek, pending: true } })));
+  expect(screen.queryByText("配置更改，需要刷新页面")).not.toBeInTheDocument();
+  if (action === "discussion") fireEvent.click(screen.getByRole("link", { name: "设置" }));
+  expect(screen.getByText(/当前生效：DeepSeek/)).toBeInTheDocument();
+});
 it("edits original metadata and Topic membership through Host actions", async () => {
   const { host } = setup();
   await screen.findByRole("button", { name: "A Paper" });

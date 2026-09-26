@@ -129,6 +129,7 @@ export interface SourceNoteOperation {
 export type SourceNoteRequestResult = SourceNoteOperation | { status: "saved"; note: SourceNote } | { status: "cancelled" };
 
 export interface ReadingWindow {
+  configuration?: BackendConfigurationState;
   reviewChunk?: ReaderChunk | null;
   readingUnavailable?: string;
   unavailableReferences?: readonly { sourceId: string; planId: string; chunkId: string; reason: string }[];
@@ -388,6 +389,8 @@ export interface ReaderHost {
   changeReadingProgress?(progressId: string, operation: "edit" | "delete", expectedRevision: number,
     requestId: string, content?: string): Promise<ReaderHostResult<ReadingWindow>>;
   backendSetup?(action: BackendSetupAction, input: BackendSetupInput): Promise<ReaderHostResult<BackendSetupResult>>;
+  saveBackendConfiguration?(input: BackendSetupInput): Promise<ReaderHostResult<ReadingWindow>>;
+  refreshBackendConfiguration?(): Promise<ReaderHostResult<ReadingWindow>>;
   selectBackend?(backend: string, sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
   newSession?(sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
   resumeReading?(sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
@@ -447,6 +450,19 @@ export function createReaderId(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 export type BackendSetupAction = "inspect" | "prepare" | "account" | "login-start" | "login-status" | "login-cancel" | "check";
+export interface BackendConfiguration {
+  backend: "codex" | "deepseek";
+  model: string;
+  runtimePath: string | null;
+  credentialFile: string | null;
+}
+export interface BackendConfigurationState {
+  saved: BackendConfiguration;
+  effective: BackendConfiguration;
+  pending: boolean;
+  busy: boolean;
+  refreshBlocked: boolean;
+}
 export interface BackendSetupInput {
   backend: "codex" | "deepseek";
   runtimePath?: string;
