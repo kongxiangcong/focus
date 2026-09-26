@@ -90,7 +90,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }, [host]);
   useEffect(() => { if (route !== "/settings") void refresh(); }, [route, view?.agent?.run?.status, host]);
   useEffect(() => {
-    if (!inbox.some(item => item.status === "processing") && !batches.some(b => ["confirmed", "running"].includes(b.status))) return;
+    if (!inbox.some(item => item.status === "processing") && !batches.some(b => b.executing || ["confirmed", "running"].includes(b.status))) return;
     const timer = window.setInterval(() => void refresh(), 1200);
     return () => window.clearInterval(timer);
   }, [inbox, batches, host]);
@@ -210,6 +210,15 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     return chunk ? { sourceId, planId: chunk.planId, chunkId: view.current?.chunkId ?? null,
       readingRevision: view.readingRevision } : null;
   }
+  async function controlBatch(batchId: string, action: Parameters<NonNullable<ReaderHost["controlBatch"]>>[1], itemId?: string, riskChoiceId?: string) {
+    if (!host.controlBatch || locked.current) return;
+    locked.current = true; setBusy("更新批次"); setError("");
+    try {
+      const result = await host.controlBatch(batchId, action, createReaderId(), itemId, riskChoiceId);
+      if (!result.ok) setError(result.error.message);
+      await refresh();
+    } finally { locked.current = false; setBusy(""); }
+  }
   async function uploadAndStart() {
     if (locked.current || !selectedFiles.length || !uploadTopic.trim() || !host.stageIngestion || !host.startBatch) return;
     const files = [...selectedFiles], topicTitle = uploadTopic.trim();
@@ -271,11 +280,20 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       {view?.agent?.run && <div className="library-run"><TaskProgress run={view.agent.run} /><button onClick={() => navigate("/reading")}>查看</button></div>}
       {batches.length > 0 && <section className="library-inbox" aria-label="处理批次"><h2>处理批次</h2>{batches.map(batch => <article key={batch.batchId}>
         <h3>{topics.find(t => t.topicId === batch.topicId)?.title ?? batch.topicId} · {batchStatusText[batch.status]}</h3>
+        {["confirmed", "running"].includes(batch.status) && <button disabled={!!busy || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "stop")}>停止整批</button>}
+        {["paused", "partial"].includes(batch.status) && <button disabled={!!busy || batch.executing || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "continue")}>继续剩余工作</button>}
         {batch.error && <p role="status">{batch.error.message}</p>}
         {batch.items.map(item => <div className="library-inbox-item" key={item.itemId}>
           <strong>{item.fileName}</strong><span>{itemStatusText[item.status]}</span>
           <small>{item.ingestionStatus === "completed" ? "解析完成" : "解析：" + (statusText[item.ingestionStatus as IngestionItem["status"]] ?? "待处理")}{item.blog ? " · 博客：" + ({ running: "生成中", completed: "已完成", failed: "失败", cancelled: "已取消", interrupted: "已中断" }[item.blog.runStatus ?? ""] ?? "待生成") : ""}</small>
           {item.error && <p>{item.error.message}</p>}
+          {item.status === "processing" && <button disabled={!!busy || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "cancel-item", item.itemId)}>取消此项</button>}
+          {item.status === "queued" && <button disabled={!!busy || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "remove-item", item.itemId)}>移出队列</button>}
+          {["failed", "partial", "cancelled"].includes(item.status) && !item.resubmitRisk && <button disabled={!!busy || batch.executing || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "retry-item", item.itemId)}>重试未完成步骤</button>}
+          {item.resubmitRisk && <div><p>上次提交结果未知，重新提交可能重复解析。</p>
+            {item.remoteReference && <button disabled={!!busy || batch.executing || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "retry-item", item.itemId)}>查询并续接原任务</button>}
+            <button disabled={!!busy || batch.executing || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "resubmit-item", item.itemId, item.resubmitRisk!.choice_id)}>重新提交</button>
+          </div>}
           {item.sourceId && <div className="inbox-links">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(item.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(item.sourceId)} target="_blank" rel="noreferrer">正文</a>}</div>}
         </div>)}
       </article>)}</section>}

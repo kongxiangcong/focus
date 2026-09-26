@@ -270,35 +270,38 @@ class BlogApplication:
     # --------------------------------------------------------------- pipeline
 
     def _prepare(self, source_id: str, request_id: str) -> None:
-        run = self._run(source_id)
-        step = run["steps"]["prepare"]
-        if step["status"] == STEP_COMPLETED and blog_root(self.workspace, source_id).is_dir():
-            return
-        method = _load_method_script(self.method_dir)
-        candidate = self._candidates / f"{source_id}-{uuid.uuid4().hex}"
-        attempt = {"attempt_id": uuid.uuid4().hex, "status": "running", "commit_allowed": True}
-        step["attempts"].append(attempt)
-        step["status"] = STEP_RUNNING
-        run["status"] = RUN_RUNNING
-        run["request_id"] = request_id
-        self._save_run(run)
-        try:
-            result = method._prepare_registered(self.workspace, source_id, candidate)
-            if not isinstance(result, dict) or not result.get("ok"):
-                raise WorkspaceError("blog_candidate_invalid", "Blog Output skeleton could not be prepared")
-        except Exception as exc:
-            error_id = getattr(exc, "error_id", "blog_prepare_failed")
-            step["status"] = STEP_FAILED
-            run["status"] = RUN_FAILED
-            run["error"] = {"error_id": error_id, "message": str(exc)}
+        with self._lock:
+            run = self._run(source_id)
+            step = run["steps"]["prepare"]
+            if run['status'] == RUN_CANCELLED:
+                raise WorkspaceError('blog_cancelled', 'Blog generation was cancelled')
+            if step["status"] == STEP_COMPLETED and blog_root(self.workspace, source_id).is_dir():
+                return
+            method = _load_method_script(self.method_dir)
+            candidate = self._candidates / f"{source_id}-{uuid.uuid4().hex}"
+            attempt = {"attempt_id": uuid.uuid4().hex, "status": "running", "commit_allowed": True}
+            step["attempts"].append(attempt)
+            step["status"] = STEP_RUNNING
+            run["status"] = RUN_RUNNING
+            run["request_id"] = request_id
             self._save_run(run)
-            raise
-        self.core.install_prepared(
-            source_id=source_id, candidate=candidate, writer_id=self.writer_id, request_id=request_id + ":prepare"
-        )
-        attempt["status"] = "completed"
-        step["status"] = STEP_COMPLETED
-        self._save_run(run)
+            try:
+                result = method._prepare_registered(self.workspace, source_id, candidate)
+                if not isinstance(result, dict) or not result.get("ok"):
+                    raise WorkspaceError("blog_candidate_invalid", "Blog Output skeleton could not be prepared")
+            except Exception as exc:
+                error_id = getattr(exc, "error_id", "blog_prepare_failed")
+                step["status"] = STEP_FAILED
+                run["status"] = RUN_FAILED
+                run["error"] = {"error_id": error_id, "message": str(exc)}
+                self._save_run(run)
+                raise
+            self.core.install_prepared(
+                source_id=source_id, candidate=candidate, writer_id=self.writer_id, request_id=request_id + ":prepare"
+            )
+            attempt["status"] = "completed"
+            step["status"] = STEP_COMPLETED
+            self._save_run(run)
 
     def _candidate_dir(self, source_id: str) -> Path:
         target = self._candidates / f"{source_id}-{uuid.uuid4().hex}"
@@ -342,17 +345,20 @@ class BlogApplication:
     def _classify(self, source_id: str, request_id: str) -> dict[str, Any]:
         """Decide whether the paper's main contribution is in scope for Value Analysis."""
         _, bundle = self._source_bundle(source_id)
-        run = self._run(source_id)
-        step = run["steps"]["classify"]
-        decided = self._applicability(source_id)
-        if isinstance(decided, dict) and isinstance(decided.get("applicable"), bool):
-            step["status"] = STEP_COMPLETED
+        with self._lock:
+            run = self._run(source_id)
+            step = run["steps"]["classify"]
+            if run['status'] == RUN_CANCELLED:
+                raise WorkspaceError('blog_cancelled', 'Blog generation was cancelled')
+            decided = self._applicability(source_id)
+            if isinstance(decided, dict) and isinstance(decided.get("applicable"), bool):
+                step["status"] = STEP_COMPLETED
+                self._save_run(run)
+                return decided
+            step["status"] = STEP_RUNNING
+            run["status"] = RUN_RUNNING
+            run["request_id"] = request_id
             self._save_run(run)
-            return decided
-        step["status"] = STEP_RUNNING
-        run["status"] = RUN_RUNNING
-        run["request_id"] = request_id
-        self._save_run(run)
         try:
             judged = validate_applicability(
                 self.runtime.classify(
@@ -362,23 +368,27 @@ class BlogApplication:
                 )
             )
         except Exception as exc:
-            step["status"] = STEP_FAILED
-            run["status"] = RUN_FAILED
-            run["error"] = {"error_id": getattr(exc, "error_id", "blog_classification_failed"),
-                            "message": "博客适用性判定失败；来源已保留，可重试博客。"}
-            self._save_run(run)
+            with self._lock:
+                run = self._run(source_id)
+                if run['status'] != RUN_CANCELLED:
+                    run['steps']['classify']['status'] = STEP_FAILED
+                    run['status'] = RUN_FAILED
+                    run['error'] = {'error_id': getattr(exc, 'error_id', 'blog_classification_failed'),
+                                    'message': '博客适用性判定失败；来源已保留，可重试博客。'}
+                    self._save_run(run)
             raise
-        self.core.commit(
-            source_id=source_id,
-            files={},
-            statuses={VALUE_ANALYSIS: STATUS_NOT_APPLICABLE if not judged["applicable"] else STATUS_PENDING},
-            writer_id=self.writer_id,
-            request_id=request_id + ":classify",
-            applicability=judged,
-        )
-        step["status"] = STEP_COMPLETED
-        self._save_run(run)
-        return judged
+        with self._lock:
+            run = self._run(source_id)
+            if run['status'] == RUN_CANCELLED:
+                raise WorkspaceError('blog_cancelled', 'Blog generation was cancelled')
+            self.core.commit(
+                source_id=source_id, files={},
+                statuses={VALUE_ANALYSIS: STATUS_NOT_APPLICABLE if not judged['applicable'] else STATUS_PENDING},
+                writer_id=self.writer_id, request_id=request_id + ':classify', applicability=judged,
+            )
+            run['steps']['classify']['status'] = STEP_COMPLETED
+            self._save_run(run)
+            return judged
 
     def _implementation_notes(self, source_id: str, request_id: str) -> dict[str, Any]:
         """Implementation retrieval is conditional: no network means an honest degrade, never a failure."""
@@ -416,16 +426,19 @@ class BlogApplication:
             )
             if not warnings:
                 warnings.append(reason + "；实现相关结论只来自论文陈述")
-        self.core.commit(
-            source_id=source_id,
-            files={"evidence/implementation-notes.md": notes},
-            statuses={EVIDENCE: STATUS_COMPLETED},
-            writer_id=self.writer_id,
-            request_id=request_id + ":implementation-notes",
-            warnings=self._record_warnings(source_id, warnings),
-            verification_level=level,
-        )
-        return {"verification_level": level, "warnings": warnings}
+        with self._lock:
+            if self._run(source_id)['status'] == RUN_CANCELLED:
+                raise WorkspaceError('blog_cancelled', 'Blog generation was cancelled')
+            self.core.commit(
+                source_id=source_id,
+                files={"evidence/implementation-notes.md": notes},
+                statuses={EVIDENCE: STATUS_COMPLETED},
+                writer_id=self.writer_id,
+                request_id=request_id + ":implementation-notes",
+                warnings=self._record_warnings(source_id, warnings),
+                verification_level=level,
+            )
+            return {"verification_level": level, "warnings": warnings}
 
     def _fresh(self, source_id: str, artifact: str, attempt_id: str):
         """Re-read the attempt from disk: a concurrent cancel must be visible here."""
@@ -526,54 +539,55 @@ class BlogApplication:
                 failure = {"error_id": "blog_candidate_invalid", "errors": checked["errors"], "message": "; ".join(checked["errors"])}
                 warnings = list(checked["warnings"])
 
-        run, step, attempt = self._fresh(source_id, artifact, attempt_id)
-        if attempt is None or attempt.get("commit_allowed") is False:
-            shutil.rmtree(candidate, ignore_errors=True)
-            if attempt is not None:
-                self._close_attempt(
-                    run=run, step=step, attempt=attempt, step_status=STEP_REJECTED, attempt_status="cancelled"
-                )
-            return {"status": "rejected", "error_id": "blog_rejected"}
+        with self._lock:
+            run, step, attempt = self._fresh(source_id, artifact, attempt_id)
+            if attempt is None or attempt.get("commit_allowed") is False:
+                shutil.rmtree(candidate, ignore_errors=True)
+                if attempt is not None:
+                    self._close_attempt(
+                        run=run, step=step, attempt=attempt, step_status=STEP_REJECTED, attempt_status="cancelled"
+                    )
+                return {"status": "rejected", "error_id": "blog_rejected"}
 
-        if failure is not None:
-            shutil.rmtree(candidate, ignore_errors=True)
-            self._close_attempt(
-                run=run,
-                step=step,
-                attempt=attempt,
-                step_status=STEP_FAILED,
-                attempt_status="failed",
-                run_status=RUN_FAILED,
-                error={"error_id": failure["error_id"], "message": failure["message"]},
+            if failure is not None:
+                shutil.rmtree(candidate, ignore_errors=True)
+                self._close_attempt(
+                    run=run,
+                    step=step,
+                    attempt=attempt,
+                    step_status=STEP_FAILED,
+                    attempt_status="failed",
+                    run_status=RUN_FAILED,
+                    error={"error_id": failure["error_id"], "message": failure["message"]},
+                )
+                self.core.commit(
+                    source_id=source_id,
+                    files={},
+                    statuses={artifact: STATUS_FAILED},
+                    writer_id=self.writer_id,
+                    request_id=request_id + ":fail:" + attempt_id,
+                    warnings=self._record_warnings(source_id, warnings) or None,
+                )
+                return {"status": "failed", **failure}
+
+            merged = self._record_warnings(
+                source_id, list(checked["warnings"]) + [item for item in warnings if item not in checked["warnings"]]
             )
             self.core.commit(
                 source_id=source_id,
-                files={},
-                statuses={artifact: STATUS_FAILED},
+                files=produced,
+                statuses={artifact: STATUS_COMPLETED},
                 writer_id=self.writer_id,
-                request_id=request_id + ":fail:" + attempt_id,
-                warnings=self._record_warnings(source_id, warnings) or None,
+                request_id=request_id + ":" + artifact + ":" + attempt_id,
+                warnings=merged,
             )
-            return {"status": "failed", **failure}
-
-        merged = self._record_warnings(
-            source_id, list(checked["warnings"]) + [item for item in warnings if item not in checked["warnings"]]
-        )
-        self.core.commit(
-            source_id=source_id,
-            files=produced,
-            statuses={artifact: STATUS_COMPLETED},
-            writer_id=self.writer_id,
-            request_id=request_id + ":" + artifact + ":" + attempt_id,
-            warnings=merged,
-        )
-        shutil.rmtree(candidate, ignore_errors=True)
-        self._close_attempt(
-            run=run, step=step, attempt=attempt, step_status=STEP_COMPLETED, attempt_status="completed"
-        )
-        run["error"] = None
-        self._save_run(run)
-        return {"status": "completed", "artifact": artifact, "files": sorted(produced), "warnings": merged}
+            shutil.rmtree(candidate, ignore_errors=True)
+            self._close_attempt(
+                run=run, step=step, attempt=attempt, step_status=STEP_COMPLETED, attempt_status="completed"
+            )
+            run["error"] = None
+            self._save_run(run)
+            return {"status": "completed", "artifact": artifact, "files": sorted(produced), "warnings": merged}
 
     def _render_html(self, source_id: str, request_id: str) -> dict[str, Any]:
         """Render index.html from the published Markdown.
@@ -629,55 +643,56 @@ class BlogApplication:
                     "message": "; ".join(checked["errors"]),
                 }
 
-        run, step, attempt = self._fresh(source_id, HTML, attempt_id)
-        if attempt is None or attempt.get("commit_allowed") is False:
-            shutil.rmtree(candidate, ignore_errors=True)
-            if attempt is not None:
-                self._close_attempt(
-                    run=run, step=step, attempt=attempt, step_status=STEP_REJECTED, attempt_status="cancelled"
-                )
-            return {"status": "rejected", "error_id": "blog_rejected"}
+        with self._lock:
+            run, step, attempt = self._fresh(source_id, HTML, attempt_id)
+            if attempt is None or attempt.get("commit_allowed") is False:
+                shutil.rmtree(candidate, ignore_errors=True)
+                if attempt is not None:
+                    self._close_attempt(
+                        run=run, step=step, attempt=attempt, step_status=STEP_REJECTED, attempt_status="cancelled"
+                    )
+                return {"status": "rejected", "error_id": "blog_rejected"}
 
-        if failure is not None:
-            shutil.rmtree(candidate, ignore_errors=True)
-            self._close_attempt(
-                run=run,
-                step=step,
-                attempt=attempt,
-                step_status=STEP_FAILED,
-                attempt_status="failed",
-                run_status=RUN_FAILED,
-                error={"error_id": failure["error_id"], "message": failure["message"]},
-            )
+            if failure is not None:
+                shutil.rmtree(candidate, ignore_errors=True)
+                self._close_attempt(
+                    run=run,
+                    step=step,
+                    attempt=attempt,
+                    step_status=STEP_FAILED,
+                    attempt_status="failed",
+                    run_status=RUN_FAILED,
+                    error={"error_id": failure["error_id"], "message": failure["message"]},
+                )
+                self.core.commit(
+                    source_id=source_id,
+                    files={},
+                    statuses={HTML: STATUS_FAILED},
+                    writer_id=self.writer_id,
+                    request_id=request_id + ":fail:" + attempt_id,
+                )
+                return {"status": "failed", **failure}
+
+            merged = self._record_warnings(source_id, list(checked["warnings"]))
             self.core.commit(
                 source_id=source_id,
-                files={},
-                statuses={HTML: STATUS_FAILED},
+                files={ARTIFACT_FILES[HTML]: document},
+                statuses={HTML: STATUS_COMPLETED},
                 writer_id=self.writer_id,
-                request_id=request_id + ":fail:" + attempt_id,
+                request_id=request_id + ":html:" + attempt_id,
+                warnings=merged,
             )
-            return {"status": "failed", **failure}
-
-        merged = self._record_warnings(source_id, list(checked["warnings"]))
-        self.core.commit(
-            source_id=source_id,
-            files={ARTIFACT_FILES[HTML]: document},
-            statuses={HTML: STATUS_COMPLETED},
-            writer_id=self.writer_id,
-            request_id=request_id + ":html:" + attempt_id,
-            warnings=merged,
-        )
-        shutil.rmtree(candidate, ignore_errors=True)
-        self._close_attempt(
-            run=run, step=step, attempt=attempt, step_status=STEP_COMPLETED, attempt_status="completed"
-        )
-        run["error"] = None
-        self._save_run(run)
-        return {"status": "completed", "artifact": HTML, "files": [ARTIFACT_FILES[HTML]], "warnings": merged}
+            shutil.rmtree(candidate, ignore_errors=True)
+            self._close_attempt(
+                run=run, step=step, attempt=attempt, step_status=STEP_COMPLETED, attempt_status="completed"
+            )
+            run["error"] = None
+            self._save_run(run)
+            return {"status": "completed", "artifact": HTML, "files": [ARTIFACT_FILES[HTML]], "warnings": merged}
 
     # ----------------------------------------------------------- user actions
 
-    def generate(self, source_id: str, *, request_id: str, authorized_by: str) -> dict[str, Any]:
+    def generate(self, source_id: str, *, request_id: str, authorized_by: str, start_allowed=None) -> dict[str, Any]:
         """Generate the Blog Output for a Source, retrying only uncommitted steps."""
         source_id = validate_source_id(source_id)
         self._require_authorization(authorized_by)
@@ -685,6 +700,8 @@ class BlogApplication:
         if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 200:
             raise WorkspaceError("request_id_invalid", "Request id is invalid")
         with self._lock:
+            if start_allowed is not None and not start_allowed():
+                return {**self.status(source_id), 'outcome': {'status': 'rejected'}}
             run = self._run(source_id)
             if run.get("request_id") == request_id and run.get("status") in {RUN_COMPLETED, RUN_FAILED, RUN_CANCELLED}:
                 return {**self.status(source_id), "replayed": True}
@@ -694,8 +711,7 @@ class BlogApplication:
                 for name in DISPLAY_ARTIFACTS
             ):
                 return {**self.status(source_id), "replayed": True}
-        self._source_bundle(source_id)
-        with self._lock:
+            self._source_bundle(source_id)
             started = self._run(source_id)
             started["warnings"] = []
             started["status"] = RUN_RUNNING

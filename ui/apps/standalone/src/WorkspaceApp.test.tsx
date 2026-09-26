@@ -26,6 +26,7 @@ function setup(initialInbox: readonly IngestionItem[] = []) {
     listInbox: vi.fn(async () => readerSuccess(initialInbox)), stageIngestion: vi.fn(async () => readerSuccess(staged)),
     listBatches: vi.fn(async () => readerSuccess([])),
     startBatch: vi.fn(async () => readerSuccess({ batchId: "batch-1", topicId: "topic", status: "confirmed" as const, error: null, items: [] })),
+    controlBatch: vi.fn(async () => readerSuccess({ batchId: "batch-1", topicId: "topic", status: "paused" as const, error: null, items: [] })),
     startIngestion: vi.fn(async () => readerSuccess(confirmed)),
     confirmIngestion: vi.fn(async () => readerSuccess(confirmed)),
     processIngestion: vi.fn(async () => readerSuccess(processing)), continueIngestion: vi.fn(async () => readerSuccess(processing)), cancelIngestion: vi.fn(async () => readerSuccess(cancelled)),
@@ -94,6 +95,9 @@ it("freezes a mixed selection into one Topic batch and exposes each result", asy
   expect(host.stageIngestion).toHaveBeenNthCalledWith(2, files[1], { topicTitle: "编译" });
   expect(await screen.findByText("编译 · 部分完成")).toBeVisible();
   expect(screen.getByText("图片缺失")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "继续剩余工作" }));
+  await waitFor(() => expect(host.controlBatch).toHaveBeenCalledWith("batch-1", "continue", expect.any(String), undefined, undefined));
+  expect(host.confirmIngestion).not.toHaveBeenCalled();
 });
 it("lands in Library and persists the chosen font across remounts", async () => {
   const app = setup(); await screen.findByRole("button", { name: "A Paper" });

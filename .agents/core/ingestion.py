@@ -559,8 +559,8 @@ class IngestionApplication:
             raise WorkspaceError("confirmation_required", "A current ingestion confirmation is required")
         return confirmation
 
-    def process(self, item_id: str, *, request_id: str) -> dict[str, Any]:
-        return self._process(item_id, request_id=request_id, resubmission=False)
+    def process(self, item_id: str, *, request_id: str, start_allowed=None) -> dict[str, Any]:
+        return self._process(item_id, request_id=request_id, resubmission=False, start_allowed=start_allowed)
 
     def prepare_queued(self, item_id: str) -> None:
         """Refresh only the library revision, retaining the exact confirmed scope."""
@@ -583,9 +583,11 @@ class IngestionApplication:
             if entry.get("status") != "completed":
                 entry["commit_allowed"] = False
 
-    def _process(self, item_id: str, *, request_id: str, resubmission: bool = False) -> dict[str, Any]:
+    def _process(self, item_id: str, *, request_id: str, resubmission: bool = False, start_allowed=None) -> dict[str, Any]:
         with self._state_lock:
             item = self._read(item_id)
+            if start_allowed is not None and not start_allowed():
+                return self._public(item)
             if resubmission and self._resubmit_replayed(item, request_id):
                 return self._public(item)
             root = self._root(item_id)
@@ -700,22 +702,27 @@ class IngestionApplication:
                 def save_checkpoint(value):
                     if not isinstance(value, dict) or not value.get("reference_id"):
                         raise WorkspaceError("parser_checkpoint_invalid", "Parser checkpoint is invalid")
-                    parse_step["checkpoint"] = dict(value)
-                    current = self._read(item_id)
-                    current_step = current["run"]["steps"]["parse"]
-                    current_attempt = next(
-                        entry for entry in current_step["attempts"]
-                        if entry["attempt_id"] == attempt["attempt_id"]
-                    )
-                    if current_attempt.get("commit_allowed") is not True:
-                        if hasattr(self.parser, "cancel"):
-                            try:
-                                self.parser.cancel(value)
-                            except Exception:
-                                pass
-                        return
-                    current_step["checkpoint"] = dict(value)
-                    self._write(item_id, current)
+                    with self._state_lock:
+                        parse_step["checkpoint"] = dict(value)
+                        current = self._read(item_id)
+                        current_step = current["run"]["steps"]["parse"]
+                        current_attempt = next(
+                            entry for entry in current_step["attempts"]
+                            if entry["attempt_id"] == attempt["attempt_id"]
+                        )
+                        if current_attempt.get("commit_allowed") is not True:
+                            current_attempt['checkpoint'] = dict(value)
+                            if current_step['attempts'][-1]['attempt_id'] == current_attempt['attempt_id']:
+                                current_step['checkpoint'] = dict(value)
+                            self._write(item_id, current)
+                            if hasattr(self.parser, "cancel"):
+                                try:
+                                    self.parser.cancel(value)
+                                except Exception:
+                                    pass
+                            return
+                        current_step["checkpoint"] = dict(value)
+                        self._write(item_id, current)
 
                 try:
                     checkpoint = parse_step.get("checkpoint")
@@ -748,44 +755,54 @@ class IngestionApplication:
                     item.pop("error", None)
                     break
                 except Exception as exc:
-                    current = self._read(item_id)
-                    current_run = current["run"]
-                    current_step = current_run["steps"]["parse"]
-                    current_attempt = next(
-                        entry for entry in current_step["attempts"]
-                        if entry["attempt_id"] == attempt["attempt_id"]
-                    )
-                    if current_attempt.get("commit_allowed") is not True:
-                        current["document_status"] = "candidate_retained" if candidate.exists() else "not_started"
-                        current_run["steps"]["publish"]["status"] = "rejected"
-                        self._write(item_id, current)
-                        return self._public(current)
-                    item, run, parse_step, attempt = current, current_run, current_step, current_attempt
-                    attempt["status"] = "failed"
-                    attempt["error_id"] = getattr(exc, "error_id", "parser_failed")
-                    item["error"] = {"error_id": attempt["error_id"], "message": str(exc)}
-                    if getattr(exc, "acceptance_unknown", False):
-                        parse_step["status"] = "status_check_required"
-                        item["status"] = "status_check_required"
-                        item["resubmit_risk"] = {
-                            "choice_id": uuid.uuid4().hex,
-                            "attempt_id": attempt["attempt_id"],
-                            "error_id": attempt.get("error_id", "acceptance_unknown"),
-                        }
+                    with self._state_lock:
+                        current = self._read(item_id)
+                        current_run = current["run"]
+                        current_step = current_run["steps"]["parse"]
+                        current_attempt = next(
+                            entry for entry in current_step["attempts"]
+                            if entry["attempt_id"] == attempt["attempt_id"]
+                        )
+                        if current_attempt.get("commit_allowed") is not True:
+                            if getattr(exc, 'acceptance_unknown', False):
+                                current_attempt['error_id'] = getattr(exc, 'error_id', 'acceptance_unknown')
+                                current_attempt['acceptance_unknown'] = True
+                                if current_step['attempts'][-1]['attempt_id'] == current_attempt['attempt_id']:
+                                    current_step['status'] = 'status_check_required'
+                                    current['error'] = {'error_id': current_attempt['error_id'],
+                                                        'message': '提交结果未知；请查询原任务，或明确选择重新提交。'}
+                                    current['resubmit_risk'] = {'choice_id': uuid.uuid4().hex,
+                                        'attempt_id': current_attempt['attempt_id'], 'error_id': current_attempt['error_id']}
+                            current["document_status"] = "candidate_retained" if candidate.exists() else "not_started"
+                            current_run["steps"]["publish"]["status"] = "rejected"
+                            self._write(item_id, current)
+                            return self._public(current)
+                        item, run, parse_step, attempt = current, current_run, current_step, current_attempt
+                        attempt["status"] = "failed"
+                        attempt["error_id"] = getattr(exc, "error_id", "parser_failed")
+                        item["error"] = {"error_id": attempt["error_id"], "message": str(exc)}
+                        if getattr(exc, "acceptance_unknown", False):
+                            parse_step["status"] = "status_check_required"
+                            item["status"] = "status_check_required"
+                            item["resubmit_risk"] = {
+                                "choice_id": uuid.uuid4().hex,
+                                "attempt_id": attempt["attempt_id"],
+                                "error_id": attempt.get("error_id", "acceptance_unknown"),
+                            }
+                            self._write(item_id, item)
+                            return self._public(item)
+                        if getattr(exc, "transient", False):
+                            if automatic_index < 2:
+                                continue
+                            parse_step["status"] = "retry_waiting"
+                            item["status"] = "retry_waiting"
+                            self._write(item_id, item)
+                            return self._public(item)
+                        parse_step["status"] = "failed"
+                        item["status"] = "failed"
+                        item["document_status"] = "candidate_rejected"
                         self._write(item_id, item)
                         return self._public(item)
-                    if getattr(exc, "transient", False):
-                        if automatic_index < 2:
-                            continue
-                        parse_step["status"] = "retry_waiting"
-                        item["status"] = "retry_waiting"
-                        self._write(item_id, item)
-                        return self._public(item)
-                    parse_step["status"] = "failed"
-                    item["status"] = "failed"
-                    item["document_status"] = "candidate_rejected"
-                    self._write(item_id, item)
-                    return self._public(item)
             assert parsed is not None
             run["steps"]["parse"]["status"] = "completed"
             self._write(item_id, item)
@@ -902,6 +919,11 @@ class IngestionApplication:
         )
 
     def continue_run(self, item_id: str, *, request_id: str) -> dict[str, Any]:
+        with self._state_lock:
+            self.prepare_continuation(item_id)
+        return self.process(item_id, request_id=request_id)
+
+    def prepare_continuation(self, item_id: str) -> dict[str, Any]:
         item = self._read(item_id)
         if item.get("status") not in {
             "status_check_required",
@@ -932,7 +954,7 @@ class IngestionApplication:
         if item.get("status") == "commit_conflict":
             item["confirmation"]["expected_version"] = self.core.version
             self._write(item_id, item)
-        return self.process(item_id, request_id=request_id)
+        return self._public(item)
 
     @staticmethod
     def _resubmit_replayed(item: dict[str, Any], request_id: str) -> bool:
@@ -990,7 +1012,7 @@ class IngestionApplication:
             return self._public(item)
 
     def resubmit(
-        self, item_id: str, *, request_id: str, risk_choice_id: str
+        self, item_id: str, *, request_id: str, risk_choice_id: str, start_allowed=None
     ) -> dict[str, Any]:
         """Start a new parse attempt after an explicit risk choice.
 
@@ -1001,6 +1023,8 @@ class IngestionApplication:
         """
         with self._state_lock:
             item = self._read(item_id)
+            if start_allowed is not None and not start_allowed():
+                return self._public(item)
             if self._resubmit_replayed(item, request_id):
                 return self._public(item)
             self._require_resubmittable(item, request_id, risk_choice_id)
@@ -1020,14 +1044,16 @@ class IngestionApplication:
             item["resubmit_pending"] = request_id
             if not self._write(item_id, item):
                 return self._public(self._read(item_id))
-        return self._process(item_id, request_id=request_id, resubmission=True)
+        return self._process(item_id, request_id=request_id, resubmission=True, start_allowed=start_allowed)
 
     def cancel(self, item_id: str) -> dict[str, Any]:
         with self._state_lock:
             item = self._read(item_id)
             run = item.get("run")
             if not isinstance(run, dict):
-                raise WorkspaceError("ingestion_not_cancellable", "Ingestion has not started")
+                item['status'] = 'cancelled'
+                self._write(item_id, item)
+                return self._public(item)
             parse_step = run.get("steps", {}).get("parse", {})
             attempts = parse_step.get("attempts", [])
             active = next((entry for entry in reversed(attempts) if entry.get("commit_allowed") is True), None)

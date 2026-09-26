@@ -318,33 +318,64 @@ class HostService:
         return self.ingestion.get(item_id)
 
     def _batch_app(self):
-        if self.batches is None:
-            self.batches = BatchApplication(self._processing_app())
-        return self.batches
+        with self.lock:
+            if self.batches is None:
+                self.batches = BatchApplication(self._processing_app())
+            return self.batches
 
     def batch_list(self):
+        batches = self._batch_app().list()
         with self.lock:
-            return self._batch_app().list()
+            for batch in batches:
+                worker = self.batch_workers.get(batch['batchId'])
+                batch['executing'] = bool(worker and worker.is_alive())
+        return batches
 
     def batch_start(self, item_ids, *, request_id):
-        with self.lock:
-            app = self._batch_app()
-            if isinstance(item_ids, list) and any(self.ingestion_workers.get(i) and self.ingestion_workers[i].is_alive() for i in item_ids if isinstance(i, str)):
-                raise WorkspaceError('batch_item_busy', '材料正在处理中，请等待原任务结束。')
+        app = self._batch_app()
+        with app.lock:
+            with self.lock:
+                if isinstance(item_ids, list) and any(self.ingestion_workers.get(i) and self.ingestion_workers[i].is_alive() for i in item_ids if isinstance(i, str)):
+                    raise WorkspaceError('batch_item_busy', '材料正在处理中，请等待原任务结束。')
             batch = app.create(item_ids, request_id=request_id)
+            return self._launch_batch(app, batch)
+
+    def _cancel_batch_item(self, item_id):
+        item = self.ingestion.get(item_id)
+        if item['status'] != 'completed':
+            self.ingestion.cancel(item_id)
+        if item.get('source_id'):
+            with self.lock:
+                worker = self.blog_workers.get(item['source_id'])
+                if worker and worker.is_alive() and self._blog_app().status(item['source_id']).get('runStatus') == 'running':
+                    self._blog_app().cancel(item['source_id'])
+                    runtime = self._blog_app().runtime
+                    if hasattr(runtime, 'cancel'):
+                        runtime.cancel()
+
+    def batch_control(self, batch_id, action, *, request_id, item_id=None, risk_choice_id=None):
+        app = self._batch_app()
+        with app.lock:
+            with self.lock:
+                worker = self.batch_workers.get(batch_id)
+                if action in ('continue', 'retry-item', 'resubmit-item') and worker and worker.is_alive() and batch_id not in app.running:
+                    raise WorkspaceError('batch_busy', '请等待当前处理停止。')
+            batch = app.control(batch_id, action, request_id=request_id, item_id=item_id,
+                                risk_choice_id=risk_choice_id, cancel=self._cancel_batch_item)
+            return self._launch_batch(app, batch)
+
+    def _launch_batch(self, app, batch):
+        with self.lock:
             batch_id = batch['batchId']
             worker = self.batch_workers.get(batch_id)
-            if worker and worker.is_alive():
-                return batch
-            if batch['status'] != 'confirmed':
+            if (worker and worker.is_alive()) or batch['status'] != 'confirmed':
                 return batch
 
             def submit_blog(source_id, **kwargs):
                 self.blog_generate(source_id, **kwargs)
                 with self.lock:
                     blog_worker = self.blog_workers.get(source_id)
-                if blog_worker:
-                    blog_worker.join()
+                return blog_worker.join if blog_worker else None
 
             def run():
                 try:
@@ -367,10 +398,11 @@ class HostService:
             return self.ingestion.process(item_id, request_id=request_id)
 
     def inbox_start_process(self, item_id, *, request_id, continuing=False, resubmit=False, risk_choice_id=None):
-        with self.lock:
-            self._library_idle()
-            if self._batch_app().owns(item_id):
+        app = self._batch_app()
+        with app.lock, self.lock:
+            if app.owns(item_id):
                 raise WorkspaceError('batch_item_busy', '请在原批次中管理此材料。')
+            self._library_idle()
             processing = self._processing_app()
             if item_id in self.ingestion_workers and self.ingestion_workers[item_id].is_alive():
                 raise ValueError('该材料正在处理中。')
@@ -494,8 +526,8 @@ class HostService:
             status['error'] = self.blog_errors[source_id]
         return status
 
-    def blog_generate(self, source_id, *, request_id=None, authorized_by='manual_trigger'):
-        return self._blog_start(source_id, request_id=request_id, authorized_by=authorized_by)
+    def blog_generate(self, source_id, *, request_id=None, authorized_by='manual_trigger', start_allowed=None):
+        return self._blog_start(source_id, request_id=request_id, authorized_by=authorized_by, start_allowed=start_allowed)
 
     def blog_regenerate(self, source_id, *, artifact, request_id=None, authorized_by='manual_trigger'):
         if artifact not in (*BLOG_ARTIFACT_LABELS, 'all'):
@@ -525,7 +557,7 @@ class HostService:
             opened = self._blog_app().open_artifact(source_id, 'html')
         return Path(opened['path'])
 
-    def _blog_start(self, source_id, *, request_id, authorized_by, artifact=None):
+    def _blog_start(self, source_id, *, request_id, authorized_by, artifact=None, start_allowed=None):
         """Generation runs in the background: reading the Source never blocks on it."""
         with self.lock:
             app = self._blog_app()
@@ -537,7 +569,7 @@ class HostService:
             def run():
                 try:
                     if artifact is None:
-                        app.generate(source_id, request_id=request_id, authorized_by=authorized_by)
+                        app.generate(source_id, request_id=request_id, authorized_by=authorized_by, start_allowed=start_allowed)
                     elif artifact == 'all':
                         app.regenerate_all(source_id, request_id=request_id, authorized_by=authorized_by)
                     else:
@@ -1158,6 +1190,10 @@ class HostService:
 
     def close(self):
         self.shutting_down = True
+        if self.batches:
+            for batch in self.batches.list():
+                if batch['status'] in ('confirmed', 'running'):
+                    self.batch_control(batch['batchId'], 'stop', request_id='shutdown-' + uuid.uuid4().hex)
         with self.condition:
             self.condition.notify_all()
         self.reading_app.core.interrupt_running()

@@ -58,7 +58,7 @@ class ProcessingApplication:
             _write_document(self.path, scopes)
             return item
 
-    def process(self, item_id, *, submit_blog=None):
+    def process(self, item_id, *, submit_blog=None, request_id=None, risk_choice_id=None, start_allowed=None):
         with self.lock:
             scope = _read_document(self.path, {}).get(item_id)
             if not scope:
@@ -69,6 +69,7 @@ class ProcessingApplication:
             if any(scope[key] != value for key, value in self._binding(item).items()):
                 raise WorkspaceError('confirmation_required', 'The confirmed input or model service has changed')
             self.running.add(item_id)
+            execution_id = request_id or scope.get('execution_request_id', scope['request_id'])
         try:
             if item['status'] == 'confirmed':
                 # A queued item starts against the latest library revision. Its
@@ -76,11 +77,28 @@ class ProcessingApplication:
                 # items in this same batch may already have published Sources.
                 self.ingestion.prepare_queued(item_id)
             if item['status'] != 'completed':
-                item = self.ingestion.process(item_id, request_id=scope['request_id'])
+                if risk_choice_id:
+                    item = self.ingestion.resubmit(item_id, request_id=execution_id, risk_choice_id=risk_choice_id,
+                                                  start_allowed=start_allowed)
+                else:
+                    item = self.ingestion.process(item_id, request_id=execution_id, start_allowed=start_allowed)
             if item['status'] == 'completed':
-                (submit_blog or self.blog.generate)(item['source_id'], request_id=scope['request_id'] + ':blog',
+                (submit_blog or self.blog.generate)(item['source_id'], request_id=execution_id + ':blog',
                                                     authorized_by='ingestion_confirmation')
             return item
         finally:
             with self.lock:
                 self.running.discard(item_id)
+
+    def prepare_resume(self, item_id, *, request_id):
+        """Continue missing work under the original immutable service grant."""
+        with self.lock, self.ingestion._state_lock:
+            scopes = _read_document(self.path, {})
+            scope = scopes.get(item_id)
+            item = self.ingestion.get(item_id)
+            if not scope or any(scope[k] != v for k, v in self._binding(item).items()):
+                raise WorkspaceError('confirmation_required', 'The confirmed input or service has changed')
+            if item['status'] not in ('confirmed', 'completed'):
+                self.ingestion.prepare_continuation(item_id)
+            scope['execution_request_id'] = request_id
+            _write_document(self.path, scopes)

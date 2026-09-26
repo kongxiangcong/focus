@@ -286,11 +286,14 @@ export interface ProcessingBatch {
   topicId: string;
   status: "confirmed" | "running" | "paused" | "completed" | "partial";
   error: { error_id: string; message: string } | null;
+  executing?: boolean;
   items: readonly {
     itemId: string; fileName: string; sourceId: string | null;
     status: "queued" | "processing" | "completed" | "failed" | "cancelled" | "partial";
     ingestionStatus: string; blog: BlogStatus | null;
     error: { error_id: string; message: string } | null;
+    remoteReference?: boolean;
+    resubmitRisk?: { choice_id: string } | null;
   }[];
 }
 
@@ -340,6 +343,7 @@ export interface ReaderHost {
   listInbox?(): Promise<ReaderHostResult<readonly IngestionItem[]>>;
   listBatches?(): Promise<ReaderHostResult<readonly ProcessingBatch[]>>;
   startBatch?(itemIds: readonly string[], requestId: string): Promise<ReaderHostResult<ProcessingBatch>>;
+  controlBatch?(batchId: string, action: "stop" | "continue" | "cancel-item" | "remove-item" | "retry-item" | "resubmit-item", requestId: string, itemId?: string, riskChoiceId?: string): Promise<ReaderHostResult<ProcessingBatch>>;
   stageIngestion?(file: File, target: IngestionTarget): Promise<ReaderHostResult<IngestionItem>>;
   /** `generateBlog` is the Inbox checkbox: one confirmation, one authorized follow-up. */
   confirmIngestion?(itemId: string, generateBlog?: boolean): Promise<ReaderHostResult<IngestionItem>>;

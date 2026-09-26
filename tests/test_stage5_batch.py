@@ -22,7 +22,7 @@ class BatchTests(unittest.TestCase):
         deadline = time.monotonic() + 20
         while time.monotonic() < deadline:
             batches = self.request('GET', '/library/batches')
-            if batches and batches[0]['status'] == status:
+            if batches and batches[0]['status'] == status and not batches[0].get('executing'):
                 return batches[0]
             time.sleep(.05)
         self.fail(str(batches))

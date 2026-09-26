@@ -204,6 +204,12 @@ class Handler(BaseHTTPRequestHandler):
         elif method == 'POST' and path == '/library/batches':
             payload = self._body()
             result = service.batch_start(payload.get('itemIds'), request_id=payload.get('requestId'))
+        elif method == 'POST' and path.startswith('/library/batches/'):
+            parts = path[len('/library/batches/'):].split('/')
+            if len(parts) != 2:
+                raise ValueError('Unknown batch operation')
+            payload = self._body()
+            result = service.batch_control(unquote(parts[0]), parts[1], request_id=payload.get('requestId'), item_id=payload.get('itemId'), risk_choice_id=payload.get('riskChoiceId'))
         elif method == 'GET' and path == '/library/sources':
             result = service.library_sources()
         elif method == 'POST' and path == '/library/inbox':

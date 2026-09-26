@@ -174,9 +174,17 @@ export class HttpReaderHost implements ReaderHost {
   }
 
   async startBatch(itemIds: readonly string[], requestId: string): Promise<ReaderHostResult<ProcessingBatch>> {
+    return this.batchRequest('/library/batches', { itemIds, requestId });
+  }
+
+  controlBatch(batchId: string, action: Parameters<NonNullable<ReaderHost['controlBatch']>>[1], requestId: string, itemId?: string, riskChoiceId?: string): Promise<ReaderHostResult<ProcessingBatch>> {
+    return this.batchRequest(`/library/batches/${encodeURIComponent(batchId)}/${action}`, { requestId, itemId, riskChoiceId });
+  }
+
+  private async batchRequest(path: string, payload: unknown): Promise<ReaderHostResult<ProcessingBatch>> {
     try {
-      const response = await this.fetch(this.baseUrl + "/library/batches", {
-        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ itemIds, requestId }),
+      const response = await this.fetch(this.baseUrl + path, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
       });
       const body = await response.json();
       if (body.ok === false) return body;
