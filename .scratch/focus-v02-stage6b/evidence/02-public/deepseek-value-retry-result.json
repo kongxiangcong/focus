@@ -1,0 +1,42 @@
+{
+  "sourceId": "DeepStack-paper",
+  "generated": true,
+  "artifacts": {
+    "value_analysis": {
+      "status": "completed",
+      "updatedAt": "2026-09-26T15:40:11+00:00"
+    },
+    "reading_blog": {
+      "status": "completed",
+      "updatedAt": "2026-09-26T15:34:43+00:00"
+    },
+    "html": {
+      "status": "completed",
+      "updatedAt": "2026-09-26T15:40:13+00:00"
+    }
+  },
+  "valueAnalysis": {
+    "applicable": true,
+    "direction": "design_space_exploration",
+    "reason": "论文提出 DeepStack，一个面向分布式 3D-stacked AI 加速器的性能模型与 DSE 框架，核心贡献是跨约 2.5×10^14 个配置的系统-硬件协同设计空间探索。"
+  },
+  "verificationLevel": "paper_reading",
+  "warnings": [
+    "未在公开 GitHub 等可检索范围内找到 DeepStack 的任何官方仓库、项目页或 artifact 链接；输入论文文本本身也未包含任何代码/链接。",
+    "论文原文使用未来时表述（'We intend to open source DeepStack'），与当前未检索到公开实现一致，不能据此声称实现已发布。",
+    "未能定位源码，故无法进行核心路径静态核查；本结果为 paper_reading 级，非 static_review，更非 executed。",
+    "未发现任何第三方复现项目，因此不存在可单独标注的第三方实现。",
+    "论文中的量化声明（约 100,000× 加速、NS-3 2.12%、vLLM 12.18% 误差、9.5× 吞吐、~2.5e14 设计点）均未获独立证据核实，仅供阅读参考。",
+    "对若干推测性仓库名的读取尝试均失败（越界/不可访问），这些名称并非已确认存在的官方仓库，不应被引用为证据。",
+    "未在所提供的论文文本中发现任何代码仓库、项目页或 artifact 链接。",
+    "论文仅声明 \"We intend to open source DeepStack\"，为开源意向而非已发布的实现，当前很可能尚无公开仓库。",
+    "多组官方/第三方仓库检索均返回 0 结果，未发现 DeepStack 的官方实现或第三方复现。",
+    "后续多次 implementation_lookup 调用返回错误（\"检索失败或请求不在允许范围内\"），检索覆盖存在缺口，未找到的结论具不确定性。",
+    "未进行任何源码静态核查，也未执行任何实验；不构成对论文量化声明的验证。",
+    "实现检索笔记记录了未核查范围（未找到）；实现相关结论只按静态阅读对待"
+  ],
+  "methodVersion": "article-blog-v1",
+  "runStatus": "completed",
+  "error": null,
+  "executing": false
+}

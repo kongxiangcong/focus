@@ -35,7 +35,7 @@ def describe_missing(name):
     if adapter is CodexBackend:
         return '需要可用 Codex Runtime 与 ChatGPT / Codex 登录。'
     if adapter is DeepSeekBackend:
-        return DeepSeekBackend.unavailable_reason
+        return '需要可用 DeepSeek Harness SDK、Runtime 与 Host 凭据。'
     if adapter is WorkBuddyBackend:
         return WorkBuddyBackend.unavailable_reason
     return ''
@@ -50,7 +50,16 @@ def check_backend(name, codex_bin=None):
     if adapter is WorkBuddyBackend:
         raise BackendError(hint)
     if adapter is DeepSeekBackend:
-        raise BackendError(hint)
+        from pathlib import Path
+        from ..backend_setup import runtime_path
+        try:
+            import deepseek_harness
+            path = runtime_path('deepseek')
+            if not path or not Path(path).is_file():
+                raise BackendError(hint)
+            return f'DeepSeek Harness SDK: {path}'
+        except ImportError as exc:
+            raise BackendError(hint) from exc
     if adapter is CodexBackend:
         try:
             from ..runtime import codex_command

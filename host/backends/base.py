@@ -74,16 +74,18 @@ class Backend:
     """One Agent turn inside one Host-owned workspace."""
 
     name = 'abstract'
-    option_keys = frozenset({'network', 'approval_policy', 'model'})
+    option_keys = frozenset({'network', 'approval_policy', 'model', 'tools'})
     stream_supported = True
 
-    def __init__(self, workspace, *, network=False, approval_policy='on-request', model=None):
+    def __init__(self, workspace, *, network=False, approval_policy='on-request', model=None, tools=None):
         self.workspace = workspace
         self.network = bool(network)
         self.approval_policy = approval_policy
         self.model = model
+        self.tools = tools
         self.events = queue.Queue()
         self.closed = False
+        self._lifecycle_lock = threading.RLock()
         self._requests = {}
         self._request_lock = threading.Lock()
         self._next_id = 0

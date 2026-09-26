@@ -316,6 +316,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     {notice && <div className="workspace-notice" role="status">{notice}<button onClick={() => setNotice("")}>知道了</button></div>}
     {readyNotice && <div className="workspace-ready-notice" role="status">{readyNotice}<button onClick={() => setReadyNotice("")}>关闭</button></div>}
     <div className="workspace-reading" hidden={route !== "/reading"}>
+      {(view?.discussions?.length ?? 0) > 1 && <label>本篇讨论 <select aria-label="本篇讨论" value={view?.discussionId ?? ""}
+        onChange={event => { const id = event.target.value; if (view && host.selectDiscussionSource) void operate("恢复讨论", () => host.selectDiscussionSource!(view.source.sourceId, id)); }}>
+        {view?.discussions?.map((discussion, index) => <option key={discussion.discussionId} value={discussion.discussionId}>讨论 {index + 1}</option>)}
+      </select></label>}
       <div className="reading-library-picker"><select aria-label="阅读专题" value={topic} onChange={e => setTopic(e.target.value)}><option value="">全部专题</option>{topics.map(t => <option key={t.topicId} value={t.topicId}>{t.title}</option>)}</select><select aria-label="选择阅读材料" value={sources.some(s => s.sourceId === view?.source.sourceId && (!topic || s.topicIds.includes(topic))) ? view?.source.sourceId : ""} disabled={!!busy || active} onChange={e => { if (e.target.value) void enterReading(e.target.value); }}><option value="">选择材料</option>{sources.filter(s => !topic || s.topicIds.includes(topic)).map(s => <option key={s.sourceId} value={s.sourceId}>{s.shortName || s.title}</option>)}</select></div>
       <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} /></div>
     {route === "/library" && <main className="library-page" data-dragging={dragging}

@@ -139,6 +139,8 @@ export interface ReadingWindow {
   outline?: readonly { chunkId: string; index: number; sectionPath: readonly string[] }[];
   revision?: number;
   sessionId?: string;
+  discussionId?: string;
+  discussions?: readonly { discussionId: string; sourceId: string }[];
   sessionFresh?: boolean;
   timeline?: readonly ({ kind: "reading"; chunk: ReaderChunk } | { kind: "message"; messageId: string })[];
   status: ReaderStatus;
@@ -377,7 +379,7 @@ export interface ReaderHost {
   activateReadingCandidate?(sourceId: string, planId: string, readingRevision: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   resumePreparation?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   cancelPreparation?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
-  selectDiscussionSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  selectDiscussionSource?(sourceId: string, discussionId?: string): Promise<ReaderHostResult<ReadingWindow>>;
   changeSourceNote?(sourceId: string, noteId: string, operation: "edit" | "delete" | "undo",
     expectedRevision: number, requestId: string, content?: string): Promise<ReaderHostResult<ReadingWindow>>;
   sourceNoteRequestResult?(sourceId: string, requestId: string): Promise<ReaderHostResult<SourceNoteRequestResult | null>>;

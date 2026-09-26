@@ -53,7 +53,11 @@ class HarnessRuntime:
     def start(self):
         pass
 
-    def run(self, prompt, *, session_id):
+    def start_session(self, session_id):
+        self.start()
+        return self
+
+    def run(self, prompt):
         return SimpleNamespace(final_response='FOCUS_OK', finish_reason='completed', events=[])
 
     def close(self):

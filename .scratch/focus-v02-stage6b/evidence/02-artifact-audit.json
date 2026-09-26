@@ -1,0 +1,76 @@
+[
+  {
+    "backend": "codex",
+    "source": "DeepStack-paper",
+    "artifacts": {
+      "value_analysis": {
+        "status": "completed",
+        "updated_at": "2026-09-26T15:40:12+00:00"
+      },
+      "reading_blog": {
+        "status": "completed",
+        "updated_at": "2026-09-26T15:35:46+00:00"
+      },
+      "html": {
+        "status": "completed",
+        "updated_at": "2026-09-26T15:40:13+00:00"
+      }
+    },
+    "verificationLevel": "paper_reading",
+    "files": {
+      "blog.md": {
+        "bytes": 17431,
+        "sha256": "6b8bc728349d9378a5587115fe70420d58f5b8ba33e656bb45172872826b6309"
+      },
+      "value-analysis.md": {
+        "bytes": 18575,
+        "sha256": "30127dd0041ff7bbc503ebd7fa4bbf0297be52c97da0e1297936da61404acc41"
+      },
+      "index.html": {
+        "bytes": 1165476,
+        "sha256": "e33844e2533fbe79fdf7184e1f484c85a5093f89360fc33632bb7a4fd9884686"
+      }
+    },
+    "assets": 27,
+    "allAssetsMatchSource": true,
+    "embeddedImages": 5,
+    "sourceAnchorLinks": 50
+  },
+  {
+    "backend": "deepseek",
+    "source": "DeepStack-paper",
+    "artifacts": {
+      "value_analysis": {
+        "status": "completed",
+        "updated_at": "2026-09-26T15:40:11+00:00"
+      },
+      "reading_blog": {
+        "status": "completed",
+        "updated_at": "2026-09-26T15:34:43+00:00"
+      },
+      "html": {
+        "status": "completed",
+        "updated_at": "2026-09-26T15:40:13+00:00"
+      }
+    },
+    "verificationLevel": "paper_reading",
+    "files": {
+      "blog.md": {
+        "bytes": 19475,
+        "sha256": "39a863e7905d9df8767fb561455a4a8952f986b36291c689bd285fac67bef041"
+      },
+      "value-analysis.md": {
+        "bytes": 23584,
+        "sha256": "2a9958b63891f8c15795d134e3233a6ecc404f3bd8edc908c11d38a2e4f3078b"
+      },
+      "index.html": {
+        "bytes": 1326937,
+        "sha256": "454bb9dd5abe8db569f628ce8effe21839b04f29b68cd0c92afd13158ee7e6e3"
+      }
+    },
+    "assets": 27,
+    "allAssetsMatchSource": true,
+    "embeddedImages": 11,
+    "sourceAnchorLinks": 18
+  }
+]

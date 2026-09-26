@@ -359,8 +359,8 @@ export class HttpReaderHost implements ReaderHost {
       { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: createReaderId() }) });
   }
 
-  selectDiscussionSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
-    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/discuss`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+  selectDiscussionSource(sourceId: string, discussionId?: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/discuss`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ discussionId }) });
   }
 
   changeSourceNote(sourceId: string, noteId: string, operation: "edit" | "delete" | "undo",

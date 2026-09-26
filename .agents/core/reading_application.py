@@ -47,7 +47,7 @@ class ReadingRuntime(Protocol):
                   glossary: list[dict], neighbors: list[dict], issue: str | None) -> str: ...
     def check(self, *, source_id: str, chunks: list[dict],
               context: dict, glossary: list[dict]) -> dict: ...
-    def cancel(self) -> None: ...
+    def cancel(self, source_id: str | None = None) -> None: ...
 
 
 class ReadingCore:
@@ -743,7 +743,7 @@ class ReadingApplication:
     def cancel(self, source_id: str, *, request_id: str) -> dict:
         result = self.core.cancel(source_id, request_id=request_id)
         if result["status"] == "cancelled":
-            self.runtime.cancel()
+            self.runtime.cancel(source_id)
         return result
 
     def _call(self, run: dict, operation, **kwargs):

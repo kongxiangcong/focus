@@ -5,14 +5,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from host.blog_runtime import CodexBlogRuntime, READING_BLOG_SCHEMA, VALUE_ANALYSIS_SCHEMA
+from host.blog_runtime import AgentBlogRuntime, READING_BLOG_SCHEMA, VALUE_ANALYSIS_SCHEMA
 
 
-class RecordingCodexBlogRuntime(CodexBlogRuntime):
+class RecordingAgentBlogRuntime(AgentBlogRuntime):
     def __init__(self):
         self.calls = []
 
-    def _run(self, prompt, *, cwd, schema=None):
+    def _run(self, prompt, *, cwd, schema=None, scope=None):
         self.calls.append((prompt, cwd, schema))
         if schema is READING_BLOG_SCHEMA:
             return {"evidence_map": "# 原文证据", "blog": "# 带读博客"}
@@ -33,7 +33,7 @@ class BlogRuntimeTests(unittest.TestCase):
             (candidate / "evidence").mkdir()
             (candidate / "evidence" / "evidence-map.md").write_text("# 共享证据", encoding="utf-8")
             (candidate / "evidence" / "implementation-notes.md").write_text("仅论文阅读", encoding="utf-8")
-            runtime = RecordingCodexBlogRuntime()
+            runtime = RecordingAgentBlogRuntime()
 
             reading = runtime.write_artifact(
                 artifact="reading_blog", bundle=bundle, candidate=candidate,

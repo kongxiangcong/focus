@@ -1,0 +1,36 @@
+{
+  "sourceId": "DeepStack-paper",
+  "generated": true,
+  "artifacts": {
+    "value_analysis": {
+      "status": "completed",
+      "updatedAt": "2026-09-26T15:40:12+00:00"
+    },
+    "reading_blog": {
+      "status": "completed",
+      "updatedAt": "2026-09-26T15:35:46+00:00"
+    },
+    "html": {
+      "status": "completed",
+      "updatedAt": "2026-09-26T15:40:13+00:00"
+    }
+  },
+  "valueAnalysis": {
+    "applicable": true,
+    "direction": "design_space_exploration",
+    "reason": "主要贡献是面向分布式3D堆叠AI加速器的全栈性能建模与设计空间探索框架，通过分层搜索联合优化硬件配置、并行策略和执行调度。"
+  },
+  "verificationLevel": "paper_reading",
+  "warnings": [
+    "官方归属及论文版本对应关系尚缺作者信息或交叉链接佐证。",
+    "仓库描述提及 MICRO 2026 AE artifact，但 artifact 内容及评审状态未核实。",
+    "源码读取受阻，未开展核心路径静态审查。",
+    "论文全文及论文内代码、项目页、artifact 链接未取得。",
+    "未运行任何实验；性能与误差数字仅转述论文节选。",
+    "实现检索笔记记录了未核查范围（未运行）；实现相关结论只按静态阅读对待"
+  ],
+  "methodVersion": "article-blog-v1",
+  "runStatus": "completed",
+  "error": null,
+  "executing": false
+}

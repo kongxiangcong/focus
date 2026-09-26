@@ -1,0 +1,36 @@
+[
+  {
+    "backend": "deepseek",
+    "preparation": {
+      "source_id": "fixture-paper",
+      "status": "ready",
+      "step": "ready",
+      "total": 3,
+      "completed": 3,
+      "ready": true,
+      "error": null,
+      "plan_id": "plan-002",
+      "glossary_revision": "83864d24bd02638c9878bb5b45358441c781c1853680da772d96fe8b6bb65742",
+      "selected_plan_id": "plan-001",
+      "selected_ready": false,
+      "candidate": true
+    }
+  },
+  {
+    "backend": "codex",
+    "preparation": {
+      "source_id": "fixture-paper",
+      "status": "ready",
+      "step": "ready",
+      "total": 3,
+      "completed": 3,
+      "ready": true,
+      "error": null,
+      "plan_id": "plan-002",
+      "glossary_revision": "f34b9674518d424927e225f874b87dc48f6f7ecb088a5803c53f93f2c73a6981",
+      "selected_plan_id": "plan-001",
+      "selected_ready": false,
+      "candidate": true
+    }
+  }
+]

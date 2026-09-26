@@ -7,13 +7,14 @@ this file is visible to the Host above `host.backends.base`.
 """
 import queue
 import threading
+from .task_tools import discussion_tools, library_tools
 
 from ..core_bridge import TOOL
 from ..runtime import AppServer, codex_command
 from ..proxy import backend_environment
 from .base import (ACTIVITY, Backend, BackendError, COMMAND_APPROVAL, FILE_APPROVAL, MESSAGE_COMPLETED,
                    MESSAGE_DELTA, PERMISSIONS_APPROVAL, SESSION_OPENED, TOOL_CALL, TRANSPORT_ERROR,
-                   TURN_COMPLETED, TURN_STARTED, USER_INPUT, UNSUPPORTED_REQUEST)
+                   TURN_COMPLETED, TURN_STARTED, USER_INPUT, UNSUPPORTED_REQUEST, safe_backend_error)
 
 ACTIVITY_ITEM_TYPES = ('commandExecution', 'fileChange', 'dynamicToolCall', 'mcpToolCall')
 APPROVAL_DECISIONS = ('accept', 'decline', 'cancel')
@@ -23,23 +24,35 @@ class CodexBackend(Backend):
     name = 'codex'
     option_keys = Backend.option_keys | {'codex_bin', 'purpose'}
 
-    def __init__(self, workspace, *, network=False, approval_policy='on-request', model=None, codex_bin=None, purpose='business'):
-        super().__init__(workspace, network=network, approval_policy=approval_policy, model=model)
+    def __init__(self, workspace, *, network=False, approval_policy='on-request', model=None, codex_bin=None, purpose='business', tools=None):
+        super().__init__(workspace, network=network, approval_policy=approval_policy, model=model, tools=tools)
         self.codex_bin = codex_bin
         self.rpc = None
         self.thread_id = None
         self.turn_id = None
         self.purpose = purpose
+        self._close_done = threading.Event()
 
     # --- lifecycle -------------------------------------------------
 
     def open_session(self, resume_key, *, instructions, skills=()):
+        with self._lifecycle_lock:
+            if self.closed:
+                raise BackendError('任务已关闭。')
+            try:
+                return self._open_session(resume_key, instructions=instructions, skills=skills)
+            except BackendError:
+                raise
+            except Exception as exc:
+                raise BackendError(safe_backend_error(exc)) from exc
+
+    def _open_session(self, resume_key, *, instructions, skills=()):
         command = codex_command(self.codex_bin)
         env = backend_environment(self.name)
         for key in ('OPENAI_API_KEY', 'CODEX_API_KEY'):
             env.pop(key, None)
         command += ['-c', 'forced_login_method="chatgpt"']
-        if self.purpose == 'connectivity':
+        if self.purpose in ('connectivity', 'candidate', 'discussion', 'business'):
             command += ['-c', 'mcp_servers={}',
                         '-c', 'features.shell_tool=false', '-c', 'features.apply_patch_freeform=false',
                         '-c', 'web_search="disabled"']
@@ -54,13 +67,20 @@ class CodexBackend(Backend):
                   'developerInstructions': instructions}
         if self.model:
             params['model'] = self.model
-        if self.purpose == 'connectivity':
+        if self.purpose in ('connectivity', 'candidate', 'discussion', 'business'):
             params.update(sandbox='read-only', approvalPolicy='never', ephemeral=True)
         if resume_key:
             params['threadId'] = resume_key
             result = self.rpc.request('thread/resume', params)
         else:
-            params['dynamicTools'] = [] if self.purpose == 'connectivity' else [TOOL]
+            params['dynamicTools'] = [] if self.purpose in ('connectivity', 'candidate') else [TOOL]
+            if self.purpose == 'discussion':
+                params['dynamicTools'] = discussion_tools()
+            elif self.purpose == 'business':
+                params['dynamicTools'] = library_tools()
+            if self.tools is not None:
+                params['dynamicTools'] = self.tools
+            params['dynamicTools'] = [dict(tool, type='function') for tool in params['dynamicTools']]
             result = self.rpc.request('thread/start', params)
         self.thread_id = result['thread']['id']
         threading.Thread(target=self._pump, daemon=True).start()
@@ -68,15 +88,24 @@ class CodexBackend(Backend):
         return self.thread_id
 
     def start_turn(self, *, prompt, skills=()):
+        with self._lifecycle_lock:
+            if self.closed:
+                raise BackendError('任务已关闭。')
+            try:
+                return self._start_turn(prompt=prompt, skills=skills)
+            except Exception as exc:
+                raise BackendError(safe_backend_error(exc)) from exc
+
+    def _start_turn(self, *, prompt, skills=()):
         inputs = [{'type': 'text', 'text': prompt}]
         inputs += [{'type': 'skill', 'name': name, 'path': path} for name, path in skills]
         policy = {'type': 'workspaceWrite', 'writableRoots': [str(self.workspace)],
                   'networkAccess': self.network, 'excludeTmpdirEnvVar': True, 'excludeSlashTmp': True}
-        if self.purpose == 'connectivity':
+        if self.purpose in ('connectivity', 'candidate', 'discussion', 'business'):
             policy = {'type': 'readOnly'}
         result = self.rpc.request('turn/start', {'threadId': self.thread_id, 'input': inputs,
                                                 'cwd': str(self.workspace),
-                                                'approvalPolicy': 'never' if self.purpose == 'connectivity' else self.approval_policy,
+                                                'approvalPolicy': 'never' if self.purpose in ('connectivity', 'candidate', 'discussion', 'business') else self.approval_policy,
                                                 'sandboxPolicy': policy})
         self.turn_id = result['turn']['id']
         self.emit(TURN_STARTED, {'turnId': self.turn_id})
@@ -114,16 +143,20 @@ class CodexBackend(Backend):
             self.close()
 
     def close(self):
-        if self.closed:
+        with self._lifecycle_lock:
+            already_closing = self.closed
+            if not already_closing:
+                super().close()
+                rpc, self.rpc = self.rpc, None
+        if already_closing:
+            self._close_done.wait()
             return
-        super().close()
-        rpc, self.rpc = self.rpc, None
-        if rpc:
-            try:
+        try:
+            if rpc:
                 rpc.close()
-            except Exception:
-                pass
-        self.fail('Codex App Server 连接已关闭。')
+        finally:
+            self.fail('Codex App Server 连接已关闭。')
+            self._close_done.set()
 
     # --- JSON-RPC translation --------------------------------------
 
@@ -137,7 +170,7 @@ class CodexBackend(Backend):
             except queue.Empty:
                 continue
             except Exception as exc:
-                self.fail(str(exc))
+                self.fail(safe_backend_error(exc))
                 return
             if self.closed:
                 return
@@ -149,7 +182,7 @@ class CodexBackend(Backend):
         method, params = event.get('method'), event.get('params', {})
         request_id = event.get('id')
         if method == TRANSPORT_ERROR:
-            self.fail(params.get('message', 'Codex App Server transport failed'))
+            self.fail(safe_backend_error(params.get('message')))
             return True
         if self.thread_id and params.get('threadId') and params['threadId'] != self.thread_id:
             return False
@@ -158,13 +191,13 @@ class CodexBackend(Backend):
         if method == TURN_COMPLETED:
             turn = params.get('turn', {})
             self.emit(TURN_COMPLETED, {'status': turn.get('status'),
-                                       'error': (turn.get('error') or {}).get('message')})
+                                       'error': safe_backend_error(turn['error']) if turn.get('error') else None})
         elif method == MESSAGE_DELTA or method == 'item/agentMessage/delta':
             self.emit(MESSAGE_DELTA, {'itemId': params['itemId'], 'delta': params.get('delta', '')})
         elif method in ('item/started', 'item/completed'):
             self._translate_item(method, params.get('item', {}))
         elif method == 'error':
-            self.emit('error', {'message': (params.get('error') or {}).get('message', 'Unknown runtime error'),
+            self.emit('error', {'message': safe_backend_error(params.get('error')),
                                 'willRetry': params.get('willRetry', False)})
         elif method == 'item/tool/call':
             self.emit(TOOL_CALL, {'tool': params.get('tool'), 'arguments': params.get('arguments', {})},

@@ -72,7 +72,7 @@ class ControlledBlogRuntime:
             }
         return {"files": {"value-analysis.md": DUAL.VALUE_ANALYSIS}, "warnings": []}
 
-    def cancel(self):
+    def cancel(self, source_id=None):
         self.release.set()
         return True
 

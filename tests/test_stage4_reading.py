@@ -46,7 +46,7 @@ class ReadingRuntimeDouble:
         self.calls.append("check")
         return {"passed": True, "issues": {}, "coverage": [chunk["chunk_id"] for chunk in kwargs["chunks"]]}
 
-    def cancel(self):
+    def cancel(self, source_id=None):
         self.calls.append("cancel")
 
 
@@ -685,7 +685,7 @@ class QuestionRuntime:
     def start_turn(self, *, prompt, skills=()):
         self.prompts.append(prompt)
         if "记下来" in prompt:
-            bundle = SourceNotes(self.workspace).bundle_version("fixture-paper")
+            bundle = json.loads(prompt.split('[Bound Source discussion scope]: ', 1)[1])['bundle']
             self.events.put({'id': 42, 'method': 'tool/call', 'params': {'tool': 'focus', 'arguments': {
                 'action': 'source_note', 'arguments': json.dumps({'content': '第 1 段说明别名地址。',
                     'kind': 'conclusion', 'origin': 'dialogue', 'evidence_role': 'explanation',
