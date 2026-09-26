@@ -3,6 +3,7 @@ import { createReaderId,
   type BlogStatus,
   type LibrarySource,
   type IngestionItem,
+  type ProcessingBatch,
   type IngestionTarget,
   type LibraryTopic,
   type ContinueReadingInput,
@@ -145,6 +146,16 @@ function decodeIngestionItem(value: unknown): IngestionItem | null {
   };
 }
 
+function isBatch(value: unknown): value is ProcessingBatch {
+  if (!value || typeof value !== "object") return false;
+  const b = value as Record<string, unknown>;
+  return typeof b.batchId === "string" && typeof b.topicId === "string" &&
+    ["confirmed", "running", "paused", "completed", "partial"].includes(String(b.status)) &&
+    Array.isArray(b.items) && b.items.every(i => i && typeof i.itemId === "string" &&
+      typeof i.fileName === "string" && (i.sourceId === null || typeof i.sourceId === "string") &&
+      ["queued", "processing", "completed", "failed", "cancelled", "partial"].includes(i.status));
+}
+
 export class HttpReaderHost implements ReaderHost {
   private readonly baseUrl: string;
   private readonly fetch: Fetch;
@@ -156,6 +167,24 @@ export class HttpReaderHost implements ReaderHost {
 
   async listTopics(): Promise<ReaderHostResult<readonly LibraryTopic[]>> {
     return this.libraryList<LibraryTopic>("/library/topics", item => typeof item.topicId === "string" && typeof item.title === "string" && isStringArray(item.sourceIds));
+  }
+
+  listBatches(): Promise<ReaderHostResult<readonly ProcessingBatch[]>> {
+    return this.libraryList<ProcessingBatch>("/library/batches", isBatch);
+  }
+
+  async startBatch(itemIds: readonly string[], requestId: string): Promise<ReaderHostResult<ProcessingBatch>> {
+    try {
+      const response = await this.fetch(this.baseUrl + "/library/batches", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ itemIds, requestId }),
+      });
+      const body = await response.json();
+      if (body.ok === false) return body;
+      if (body.ok && isBatch(body.value)) return { ok: true, value: body.value };
+      return { ok: false, error: { code: "invalid-response", message: "Invalid batch response", retryable: false } };
+    } catch {
+      return { ok: false, error: { code: "unavailable", message: "无法连接材料处理服务", retryable: true } };
+    }
   }
 
   async listSources(): Promise<ReaderHostResult<readonly LibrarySource[]>> {

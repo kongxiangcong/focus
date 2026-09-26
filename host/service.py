@@ -17,6 +17,7 @@ from core import INGESTION_SERVICES, BlogApplication, IngestionApplication, Mine
 from core.reading_application import ReadingApplication
 from core.reading_progress import ReadingProgress, ProgressApplication
 from core.processing_application import ProcessingApplication
+from core.batch_application import BatchApplication
 from .reading_runtime import AgentReadingRuntime
 
 #: The Workbench offers one retry entry per artifact, named by granularity.
@@ -75,6 +76,9 @@ class HostService:
         self.blog_runtime = blog_runtime
         self.blog = None
         self.processing = None
+        self.batches = None
+        self.batch_workers = {}
+        self.batch_serial = threading.Lock()
         self.pending = {}
         self.active_discussion = None
         self.stop_requested = False
@@ -310,16 +314,52 @@ class HostService:
         return self.processing
 
     def inbox_start(self, item_id, *, request_id):
+        self.batch_start([item_id], request_id=request_id)
+        return self.ingestion.get(item_id)
+
+    def _batch_app(self):
+        if self.batches is None:
+            self.batches = BatchApplication(self._processing_app())
+        return self.batches
+
+    def batch_list(self):
         with self.lock:
-            app = self._processing_app()
-            item = app.confirm(item_id, request_id=request_id)
-            worker = self.ingestion_workers.get(item_id)
+            return self._batch_app().list()
+
+    def batch_start(self, item_ids, *, request_id):
+        with self.lock:
+            app = self._batch_app()
+            if isinstance(item_ids, list) and any(self.ingestion_workers.get(i) and self.ingestion_workers[i].is_alive() for i in item_ids if isinstance(i, str)):
+                raise WorkspaceError('batch_item_busy', '材料正在处理中，请等待原任务结束。')
+            batch = app.create(item_ids, request_id=request_id)
+            batch_id = batch['batchId']
+            worker = self.batch_workers.get(batch_id)
             if worker and worker.is_alive():
-                return item
-            blog_worker = self.blog_workers.get(item.get('source_id'))
-            if blog_worker and blog_worker.is_alive():
-                return item
-            return self.inbox_start_process(item_id, request_id=request_id)
+                return batch
+            if batch['status'] != 'confirmed':
+                return batch
+
+            def submit_blog(source_id, **kwargs):
+                self.blog_generate(source_id, **kwargs)
+                with self.lock:
+                    blog_worker = self.blog_workers.get(source_id)
+                if blog_worker:
+                    blog_worker.join()
+
+            def run():
+                try:
+                    with self.batch_serial:
+                        app.run(batch_id, submit_blog=submit_blog, should_stop=lambda: self.shutting_down)
+                finally:
+                    with self.lock:
+                        self.batch_workers.pop(batch_id, None)
+                        self.generation += 1
+                        self.condition.notify_all()
+
+            worker = threading.Thread(target=run, name='focus-batch-' + batch_id[:8], daemon=True)
+            self.batch_workers[batch_id] = worker
+            worker.start()
+            return batch
 
     def inbox_process(self, item_id, *, request_id):
         with self.lock:
@@ -329,6 +369,8 @@ class HostService:
     def inbox_start_process(self, item_id, *, request_id, continuing=False, resubmit=False, risk_choice_id=None):
         with self.lock:
             self._library_idle()
+            if self._batch_app().owns(item_id):
+                raise WorkspaceError('batch_item_busy', '请在原批次中管理此材料。')
             processing = self._processing_app()
             if item_id in self.ingestion_workers and self.ingestion_workers[item_id].is_alive():
                 raise ValueError('该材料正在处理中。')
@@ -1142,6 +1184,8 @@ class HostService:
                     pass
                 worker.join(timeout=15)
         self.stop()
+        for worker in list(self.batch_workers.values()):
+            worker.join(timeout=15)
         if self.worker:
             self.worker.join(timeout=15)
         if self.backend:

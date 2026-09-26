@@ -68,6 +68,10 @@ IMPLEMENTATION_SCHEMA = {
 class BlogRuntimeError(RuntimeError):
     """The Runtime could not produce the artifact; the step fails, nothing is published."""
 
+    def __init__(self, message, *, error_id='blog_output_invalid'):
+        super().__init__(message)
+        self.error_id = error_id
+
 
 def _excerpt(content: str, limit: int = 12000) -> str:
     return content[:limit]
@@ -81,7 +85,7 @@ class CodexBlogRuntime:
         self.model = model
         self.timeout = timeout
         if not self.codex_bin.is_file():
-            raise BlogRuntimeError("Codex executable does not exist")
+            raise BlogRuntimeError("Codex executable does not exist", error_id='service_unavailable')
         self._lock = threading.Lock()
         self._process = None
 
@@ -125,12 +129,12 @@ class CodexBlogRuntime:
             except subprocess.TimeoutExpired as exc:
                 process.kill()
                 process.communicate()
-                raise BlogRuntimeError("Codex blog turn timed out") from exc
+                raise BlogRuntimeError("Codex blog turn timed out", error_id='service_unavailable') from exc
             finally:
                 with self._lock:
                     self._process = None
             if process.returncode != 0:
-                raise BlogRuntimeError(f"Codex blog turn failed with exit code {process.returncode}")
+                raise BlogRuntimeError(f"Codex blog turn failed with exit code {process.returncode}", error_id='service_unavailable')
             if schema is None:
                 return output_path.read_text(encoding="utf-8", errors="replace") if output_path.is_file() else ""
             try:

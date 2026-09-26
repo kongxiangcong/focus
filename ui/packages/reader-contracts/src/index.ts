@@ -281,6 +281,19 @@ export type IngestionStatus =
   | "interrupted"
   | "completed";
 
+export interface ProcessingBatch {
+  batchId: string;
+  topicId: string;
+  status: "confirmed" | "running" | "paused" | "completed" | "partial";
+  error: { error_id: string; message: string } | null;
+  items: readonly {
+    itemId: string; fileName: string; sourceId: string | null;
+    status: "queued" | "processing" | "completed" | "failed" | "cancelled" | "partial";
+    ingestionStatus: string; blog: BlogStatus | null;
+    error: { error_id: string; message: string } | null;
+  }[];
+}
+
 export interface IngestionItem {
   itemId: string;
   fileName: string;
@@ -325,6 +338,8 @@ export interface ReaderHost {
   listTopics?(): Promise<ReaderHostResult<readonly LibraryTopic[]>>;
   listSources?(): Promise<ReaderHostResult<readonly LibrarySource[]>>;
   listInbox?(): Promise<ReaderHostResult<readonly IngestionItem[]>>;
+  listBatches?(): Promise<ReaderHostResult<readonly ProcessingBatch[]>>;
+  startBatch?(itemIds: readonly string[], requestId: string): Promise<ReaderHostResult<ProcessingBatch>>;
   stageIngestion?(file: File, target: IngestionTarget): Promise<ReaderHostResult<IngestionItem>>;
   /** `generateBlog` is the Inbox checkbox: one confirmation, one authorized follow-up. */
   confirmIngestion?(itemId: string, generateBlog?: boolean): Promise<ReaderHostResult<IngestionItem>>;

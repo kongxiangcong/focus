@@ -70,6 +70,11 @@ class ProcessingApplication:
                 raise WorkspaceError('confirmation_required', 'The confirmed input or model service has changed')
             self.running.add(item_id)
         try:
+            if item['status'] == 'confirmed':
+                # A queued item starts against the latest library revision. Its
+                # original, Topic and service grant were verified above; earlier
+                # items in this same batch may already have published Sources.
+                self.ingestion.prepare_queued(item_id)
             if item['status'] != 'completed':
                 item = self.ingestion.process(item_id, request_id=scope['request_id'])
             if item['status'] == 'completed':

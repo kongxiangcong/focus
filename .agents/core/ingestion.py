@@ -562,6 +562,16 @@ class IngestionApplication:
     def process(self, item_id: str, *, request_id: str) -> dict[str, Any]:
         return self._process(item_id, request_id=request_id, resubmission=False)
 
+    def prepare_queued(self, item_id: str) -> None:
+        """Refresh only the library revision, retaining the exact confirmed scope."""
+        with self._state_lock:
+            item = self._read(item_id)
+            if item['status'] != 'confirmed':
+                return
+            confirmation = self._require_current_confirmation(item, self._root(item_id) / _original_name(item))
+            confirmation['expected_version'] = self.core.version
+            self._write(item_id, item)
+
     @staticmethod
     def _supersede_unfinished_attempts(parse_step: dict[str, Any]) -> None:
         """Permanently close every unfinished attempt of a step.

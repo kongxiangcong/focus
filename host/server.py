@@ -199,6 +199,11 @@ class Handler(BaseHTTPRequestHandler):
             result = service.library_topics()
         elif method == 'GET' and path == '/library/inbox':
             result = service.inbox_items()
+        elif method == 'GET' and path == '/library/batches':
+            result = service.batch_list()
+        elif method == 'POST' and path == '/library/batches':
+            payload = self._body()
+            result = service.batch_start(payload.get('itemIds'), request_id=payload.get('requestId'))
         elif method == 'GET' and path == '/library/sources':
             result = service.library_sources()
         elif method == 'POST' and path == '/library/inbox':

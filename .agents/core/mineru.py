@@ -116,10 +116,13 @@ def _request(
         raise ParserError(
             f"MinerU HTTP {exc.code}",
             recoverable=exc.code not in {400, 401, 403},
-            error_id="authentication_failed" if exc.code in {401, 403} else "mineru_http_error",
+            error_id=("authentication_failed" if exc.code in {401, 403} else
+                      "quota_exceeded" if exc.code == 402 else
+                      "rate_limit_exceeded" if exc.code == 429 else
+                      "service_unavailable" if exc.code >= 500 else "mineru_http_error"),
         ) from exc
     except urllib.error.URLError as exc:
-        raise ParserError(f"MinerU network error: {exc.reason}") from exc
+        raise ParserError("MinerU network unavailable", error_id="service_unavailable") from exc
 
 
 def _curl_transfer(url: str, config_lines: list[str], operation: str) -> None:
