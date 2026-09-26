@@ -56,6 +56,9 @@ def apply_proxy(backend, env=None):
 
 def backend_environment(backend):
     env = dict(os.environ)
+    if backend == 'codex':
+        for key in ('OPENAI_API_KEY', 'CODEX_API_KEY'):
+            env.pop(key, None)
     apply_proxy(backend, env)
     # SDK transports may merge env over os.environ. Empty values override inherited proxies.
     if proxy_mode(backend) == BYPASS:

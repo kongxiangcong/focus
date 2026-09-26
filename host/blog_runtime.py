@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import threading
 from pathlib import Path
+from .proxy import backend_environment
 
 from core import BlogExternalError
 
@@ -96,6 +97,7 @@ class CodexBlogRuntime:
             str(self.codex_bin),
             "exec",
             "--ephemeral",
+            "-c", 'forced_login_method="chatgpt"',
             "--ignore-user-config",
             "--ignore-rules",
             "--skip-git-repo-check",
@@ -121,6 +123,7 @@ class CodexBlogRuntime:
                 stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
+                env=backend_environment('codex'),
             )
             with self._lock:
                 self._process = process

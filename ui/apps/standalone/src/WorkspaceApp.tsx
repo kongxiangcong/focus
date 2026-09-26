@@ -1,6 +1,7 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingWindow } from "@focus/reader-contracts";
 import { FocusReader, TaskProgress } from "@focus/reader-ui";
+import { BackendSetupPanel } from "./BackendSetupPanel";
 
 type Route = "/library" | "/reading" | "/settings";
 type FontSize = "small" | "standard" | "large" | "extra";
@@ -398,7 +399,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       {busy && <p role="status">{busy}中…</p>}
     </main>}
     {route === "/settings" && <main className="settings-page"><h1>设置</h1>
-      <section className="focus-reader__appearance-panel"><div className="settings-row"><h2>后端</h2><div className="settings-options">{(view?.agent?.backends ?? [{ id: "codex", label: "Codex" }, { id: "workbuddy", label: "WorkBuddy", unavailableReason: "待接入" }]).map(b => <label className="backend-option" key={b.id}><input type="radio" name="backend" checked={view?.agent?.backend === b.id} disabled={b.id === "workbuddy" || !!b.unavailableReason || !!busy || active || !host.selectBackend || !view?.sessionId} onChange={() => view?.sessionId && void operate("切换", () => host.selectBackend!(b.id, view.sessionId!))} /><span>{b.label}<small>{b.id === "workbuddy" ? "待接入" : b.unavailableReason ? "不可用" : "可用"}</small></span></label>)}</div></div>
+      <BackendSetupPanel host={host} effective={view?.agent?.backend} />
+      <section className="focus-reader__appearance-panel">
       <div className="settings-row"><label htmlFor="brightness">亮度</label><input id="brightness" type="range" min="85" max="110" value={brightness} onChange={e => { setBrightness(Number(e.target.value)); try { localStorage.setItem("focus.brightness", e.target.value); } catch { setError("无法保存亮度"); } }} /></div>
       <div className="settings-row"><label htmlFor="font-size">字号</label><input id="font-size" type="range" min="0" max="3" step="1" value={fontOptions.findIndex(([key]) => key === fontSize)} aria-valuetext={fontOptions.find(([key]) => key === fontSize)?.[1]} onChange={e => { const value = fontOptions[Number(e.target.value)][0]; setFontSize(value); try { localStorage.setItem("focus.fontSize", value); } catch { setError("无法保存字号"); } }} /></div>
       <div className="settings-row"><label htmlFor="network">网络</label><span className="settings-network" title="当前后端协议未提供网络控制接口"><small>待接入</small><input id="network" className="focus-reader__toggle" type="checkbox" role="switch" checked={false} disabled /></span></div></section>

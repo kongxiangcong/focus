@@ -1,6 +1,7 @@
 # Bundles the matching official Codex app-server runtime. HTTP Host uses stdlib.
 # Only needed for the default `codex` backend; see requirements-workbuddy.txt.
-openai-codex==0.154.0
+openai-codex
+deepseek-harness-sdk
 
 # Offline SingleFile HTML article extraction (also required without an AI backend).
 beautifulsoup4==4.13.4

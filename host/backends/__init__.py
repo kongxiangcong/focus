@@ -7,8 +7,9 @@ registering it here; no change lands in `service.py`, `server.py` or the UI.
 from .base import Backend, BackendError
 from .codex import CodexBackend
 from .workbuddy import WorkBuddyBackend
+from .deepseek import DeepSeekBackend
 
-BACKENDS = {'codex': CodexBackend, 'workbuddy': WorkBuddyBackend}
+BACKENDS = {'codex': CodexBackend, 'workbuddy': WorkBuddyBackend, 'deepseek': DeepSeekBackend}
 DEFAULT_BACKEND = 'codex'
 
 
@@ -32,7 +33,9 @@ def describe_missing(name):
     if adapter is None:
         return f'未知 Agent 后端 {name!r}；可选：{", ".join(backend_names())}'
     if adapter is CodexBackend:
-        return '需要 openai-codex==0.154.0（host/requirements.txt）与可用 Codex 登录或 OPENAI_API_KEY。'
+        return '需要可用 Codex Runtime 与 ChatGPT / Codex 登录。'
+    if adapter is DeepSeekBackend:
+        return DeepSeekBackend.unavailable_reason
     if adapter is WorkBuddyBackend:
         return WorkBuddyBackend.unavailable_reason
     return ''
@@ -46,11 +49,11 @@ def check_backend(name, codex_bin=None):
     hint = describe_missing(name)
     if adapter is WorkBuddyBackend:
         raise BackendError(hint)
+    if adapter is DeepSeekBackend:
+        raise BackendError(hint)
     if adapter is CodexBackend:
         try:
-            from ..runtime import RUNTIME_VERSION, codex_command
-            # An explicit binary must win: it is how a host reuses an installed
-            # 0.154.0 without the pinned packaging helper.
+            from ..runtime import codex_command
             command = codex_command(codex_bin)
         except Exception as exc:  # missing pinned package / binary
             raise BackendError(f'{hint}（{exc}）') from exc
@@ -60,9 +63,7 @@ def check_backend(name, codex_bin=None):
                                      text=True, timeout=15).stdout.strip()
         except (OSError, subprocess.SubprocessError) as exc:
             raise BackendError(f'Codex 运行时不可用：{exc}') from exc
-        if version != f'codex-cli {RUNTIME_VERSION}':
-            raise BackendError(f'Expected codex-cli {RUNTIME_VERSION}, got {version}; install host/requirements.txt')
-        return f'codex-cli {RUNTIME_VERSION}: {command[0]}'
+        return f'{version}: {command[0]}'
     raise BackendError(hint)
 
 

@@ -1,11 +1,10 @@
 """Official Codex App Server backend: stdio JSON-RPC translated to Host vocabulary.
 
-This keeps the deliberate choice from ADR 0006: drive the pinned `0.154.0`
+This keeps the deliberate choice from ADR 0006: drive the selected
 app-server protocol directly instead of a high-level SDK wrapper, because dynamic
 tools and the three approval round-trips are not stably wrapped there. Nothing in
 this file is visible to the Host above `host.backends.base`.
 """
-import os
 import queue
 import threading
 
@@ -22,34 +21,46 @@ APPROVAL_DECISIONS = ('accept', 'decline', 'cancel')
 
 class CodexBackend(Backend):
     name = 'codex'
-    option_keys = Backend.option_keys | {'codex_bin'}
+    option_keys = Backend.option_keys | {'codex_bin', 'purpose'}
 
-    def __init__(self, workspace, *, network=False, approval_policy='on-request', model=None, codex_bin=None):
+    def __init__(self, workspace, *, network=False, approval_policy='on-request', model=None, codex_bin=None, purpose='business'):
         super().__init__(workspace, network=network, approval_policy=approval_policy, model=model)
         self.codex_bin = codex_bin
         self.rpc = None
         self.thread_id = None
         self.turn_id = None
+        self.purpose = purpose
 
     # --- lifecycle -------------------------------------------------
 
     def open_session(self, resume_key, *, instructions, skills=()):
-        self.rpc = AppServer(codex_command(self.codex_bin), self.workspace, env=backend_environment(self.name))
+        command = codex_command(self.codex_bin)
+        env = backend_environment(self.name)
+        for key in ('OPENAI_API_KEY', 'CODEX_API_KEY'):
+            env.pop(key, None)
+        command += ['-c', 'forced_login_method="chatgpt"']
+        if self.purpose == 'connectivity':
+            command += ['-c', 'mcp_servers={}',
+                        '-c', 'features.shell_tool=false', '-c', 'features.apply_patch_freeform=false',
+                        '-c', 'web_search="disabled"']
+        self.rpc = AppServer(command, self.workspace, env=env)
         self.rpc.initialize()
         self.rpc.send({'method': 'initialized', 'params': {}})
-        api_key = os.getenv('OPENAI_API_KEY')
-        if api_key:
-            self.rpc.request('account/login/start', {'type': 'apiKey', 'apiKey': api_key})
+        account = self.rpc.request('account/read', {'refreshToken': True}, timeout=15).get('account')
+        if not account or account.get('type') != 'chatgpt':
+            raise BackendError('请先使用 ChatGPT / Codex 登录。')
         params = {'cwd': str(self.workspace), 'approvalPolicy': self.approval_policy,
                   'approvalsReviewer': 'user', 'sandbox': 'workspace-write',
                   'developerInstructions': instructions}
         if self.model:
             params['model'] = self.model
+        if self.purpose == 'connectivity':
+            params.update(sandbox='read-only', approvalPolicy='never', ephemeral=True)
         if resume_key:
             params['threadId'] = resume_key
             result = self.rpc.request('thread/resume', params)
         else:
-            params['dynamicTools'] = [TOOL]
+            params['dynamicTools'] = [] if self.purpose == 'connectivity' else [TOOL]
             result = self.rpc.request('thread/start', params)
         self.thread_id = result['thread']['id']
         threading.Thread(target=self._pump, daemon=True).start()
@@ -61,9 +72,11 @@ class CodexBackend(Backend):
         inputs += [{'type': 'skill', 'name': name, 'path': path} for name, path in skills]
         policy = {'type': 'workspaceWrite', 'writableRoots': [str(self.workspace)],
                   'networkAccess': self.network, 'excludeTmpdirEnvVar': True, 'excludeSlashTmp': True}
+        if self.purpose == 'connectivity':
+            policy = {'type': 'readOnly'}
         result = self.rpc.request('turn/start', {'threadId': self.thread_id, 'input': inputs,
                                                 'cwd': str(self.workspace),
-                                                'approvalPolicy': self.approval_policy,
+                                                'approvalPolicy': 'never' if self.purpose == 'connectivity' else self.approval_policy,
                                                 'sandboxPolicy': policy})
         self.turn_id = result['turn']['id']
         self.emit(TURN_STARTED, {'turnId': self.turn_id})

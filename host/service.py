@@ -12,6 +12,7 @@ from .backends import BACKENDS, DEFAULT_BACKEND, BackendError, check_backend, cr
 from .backends.base import APPROVAL_TITLES, COMMAND_APPROVAL, FILE_APPROVAL, PERMISSIONS_APPROVAL, USER_INPUT
 from .core_bridge import CoreBridge, ROOT, WorkspaceError, SourceLibrary, DiscussionApplication
 from .store import Store
+from .backend_setup import BackendSetup
 from .progress import CORE_LABELS, activity_label
 from core import INGESTION_SERVICES, BlogApplication, IngestionApplication, MinerUIngestionParser
 from core.reading_application import ReadingApplication
@@ -53,6 +54,7 @@ class HostService:
         self.network, self.approval_policy = network, approval_policy
         backend = backend or self.store.get('selectedBackend') or DEFAULT_BACKEND
         self.backend_name, self.backend_factory = backend, backend_factory
+        self.setup = BackendSetup()
         if reading_runtime is None:
             reading_runtime = AgentReadingRuntime(self.workspace, backend_name=backend,
                                                   codex_bin=codex_bin, model=model)
@@ -162,7 +164,7 @@ class HostService:
             window['preparations'] = preparations
             window['agent'] = {'run': self.state['run'], 'catalog': self.core.catalog(),
                                'backend': self.backend_name,
-                               'backends': [{'id': name, 'label': 'Codex' if name == 'codex' else 'WorkBuddy（国内，待接入）',
+                               'backends': [{'id': name, 'label': {'codex': 'Codex', 'deepseek': 'DeepSeek（实验接入）', 'workbuddy': 'WorkBuddy（国内，待接入）'}[name],
                                              'unavailableReason': getattr(adapter, 'unavailable_reason', None)}
                                             for name, adapter in BACKENDS.items()]}
             if discussion_source and self.state['run'] and self.state['run'].get('sourceId') != discussion_source:
@@ -1201,6 +1203,17 @@ class HostService:
         threading.Thread(target=watchdog, daemon=True).start()
         return self.snapshot()
 
+    def backend_setup(self, action, payload):
+        if payload.get('backend') == 'codex' and not payload.get('runtimePath') and self.codex_bin:
+            payload = {**payload, 'runtimePath': self.codex_bin}
+        try:
+            return self.setup.operate(action, payload)
+        except Exception:
+            # Runtime errors can include provider URLs, keys or personal config.
+            # They are never copied into an HTTP response or business state.
+            return {'backend': payload.get('backend', ''), 'runtimePath': payload.get('runtimePath') or None,
+                    'status': 'failed', 'message': '后端设置操作失败，请检查 Runtime、认证和网络后重试。'}
+
     def select_backend(self, payload):
         with self.lock:
             name = payload.get('backend')
@@ -1261,6 +1274,7 @@ class HostService:
 
     def close(self):
         self.shutting_down = True
+        self.setup.close()
         if self.batches:
             for batch in self.batches.list():
                 if batch['status'] in ('confirmed', 'running'):

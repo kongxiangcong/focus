@@ -1,4 +1,5 @@
 import { createReaderId,
+  type BackendSetupAction, type BackendSetupInput, type BackendSetupResult,
   type BlogRegenerationTarget,
   type BlogStatus,
   type LibrarySource,
@@ -458,6 +459,22 @@ export class HttpReaderHost implements ReaderHost {
   selectBackend(backend: string, sessionId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request('/reader/backend', { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ backend, sessionId }) });
+  }
+
+  async backendSetup(action: BackendSetupAction, input: BackendSetupInput): Promise<ReaderHostResult<BackendSetupResult>> {
+    try {
+      const response = await this.fetch(this.baseUrl + '/reader/backend/setup', { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, action }) });
+      const body = await response.json();
+      if (body.ok === false) return body;
+      const value = body.value;
+      if (response.ok && body.ok === true && value && typeof value.backend === 'string' &&
+          typeof value.status === 'string' && typeof value.message === 'string' &&
+          (value.runtimePath === null || typeof value.runtimePath === 'string')) return { ok: true, value };
+      return { ok: false, error: { code: 'invalid-response', message: '后端设置响应格式错误', retryable: false } };
+    } catch {
+      return { ok: false, error: { code: 'unavailable', message: '无法连接后端设置服务', retryable: true } };
+    }
   }
 
   resumeReading(sessionId: string): Promise<ReaderHostResult<ReadingWindow>> {

@@ -113,3 +113,11 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
 .blog-viewer-head div{display:flex;align-items:center;gap:12px}
 .blog-viewer-head a{color:var(--reader-accent);font-size:12px}
 .workspace-blog-viewer iframe{flex:1;width:100%;height:calc(100% - 52px);border:0}
+.backend-setup { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
+.backend-setup h2, .backend-setup p { margin: 0; }
+.backend-setup fieldset { display: flex; flex-wrap: wrap; gap: 16px; padding: 16px; border: 1px solid #b8bec5; border-radius: 12px; }
+.backend-setup label { display: flex; align-items: center; gap: 8px; }
+.backend-setup label:has(input:not([type="radio"])), .backend-setup label:has(select) { flex-direction: column; align-items: stretch; width: 100%; }
+.backend-setup input:not([type="radio"]), .backend-setup select { width: 100%; min-width: 0; box-sizing: border-box; padding: 9px 12px; border: 1px solid #b8bec5; border-radius: 8px; background: #ffffff80; color: inherit; }
+.backend-setup button { align-self: flex-start; }
+.backend-setup code { overflow-wrap: anywhere; }

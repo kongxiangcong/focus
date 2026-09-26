@@ -61,7 +61,11 @@ def main():
     lock = workspace_lock(workspace)
     service = HostService(workspace, data, model=args.model, codex_bin=args.codex_bin,
                           backend=args.backend, network=args.network, approval_policy=args.approval_policy)
-    backend = check_backend(service.backend_name, args.codex_bin)
+    try:
+        backend = check_backend(service.backend_name, args.codex_bin)
+    except BackendError:
+        # Setup must remain reachable on a machine without either Runtime.
+        backend = '未就绪，请在设置页准备依赖并检查认证'
     server = Server((args.bind, args.port), service, token=token, public_origin=args.public_origin)
     print(f'FOCUS http://{args.bind}:{args.port}\nWorkspace: {workspace}\nBackend: {service.backend_name} ({backend})', flush=True)
     if not server.local_access and not token:

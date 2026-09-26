@@ -120,7 +120,7 @@ it("lands in Library and persists the chosen font across remounts", async () => 
   expect(location.pathname).toBe("/library");
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
-  expect(screen.getByRole("radio", { name: /WorkBuddy/ })).toBeDisabled();
+  expect(screen.getByRole("radio", { name: "DeepSeek" })).toBeEnabled();
   app.unmount(); setup();
   expect(await screen.findByRole("slider", { name: "字号" })).toHaveValue("3");
   fireEvent.click(screen.getByRole("link", { name: "阅读" }));

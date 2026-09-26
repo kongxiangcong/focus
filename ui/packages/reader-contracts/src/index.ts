@@ -385,6 +385,7 @@ export interface ReaderHost {
   cancelReadingProgress?(progressId: string): Promise<ReaderHostResult<ReadingWindow>>;
   changeReadingProgress?(progressId: string, operation: "edit" | "delete", expectedRevision: number,
     requestId: string, content?: string): Promise<ReaderHostResult<ReadingWindow>>;
+  backendSetup?(action: BackendSetupAction, input: BackendSetupInput): Promise<ReaderHostResult<BackendSetupResult>>;
   selectBackend?(backend: string, sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
   newSession?(sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
   resumeReading?(sessionId: string): Promise<ReaderHostResult<ReadingWindow>>;
@@ -442,4 +443,20 @@ export function createReaderId(): string {
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+export type BackendSetupAction = "inspect" | "prepare" | "account" | "login-start" | "login-status" | "login-cancel" | "check";
+export interface BackendSetupInput {
+  backend: "codex" | "deepseek";
+  runtimePath?: string;
+  model?: string;
+  credentialFile?: string;
+  loginId?: string;
+}
+export interface BackendSetupResult {
+  backend: string;
+  runtimePath: string | null;
+  status: string;
+  message: string;
+  authUrl?: string;
+  loginId?: string;
 }

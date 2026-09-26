@@ -54,6 +54,22 @@ class BackendError(RuntimeError):
     """A backend cannot be selected, started or driven. Surfaced as a task failure."""
 
 
+def safe_backend_error(error):
+    """Classify diagnostics without returning provider-controlled text or secrets."""
+    text = str(error).lower()
+    if any(word in text for word in ('quota', 'insufficient', '402', '额度不足')):
+        return '服务额度不足，请检查所选 Backend 的账号额度。'
+    if any(word in text for word in ('credential', 'unauthorized', '401', 'api key', '登录', '凭据')):
+        return '认证失败或未配置，请重新登录或检查 Host 凭据。'
+    if any(word in text for word in ('timeout', 'timed out', '超时')):
+        return '请求超时，请检查网络和 Runtime。'
+    if any(word in text for word in ('network', 'connection', 'fetch failed', 'dns', '网络')):
+        return '网络请求失败，请检查连接和代理配置。'
+    if any(word in text for word in ('configuration', 'unknown variant', 'config', 'not supported', '配置')):
+        return 'Runtime 或模型配置不兼容，请检查当前选择；没有自动更换路径或服务。'
+    return 'Runtime 调用失败，请检查实际使用的 Runtime 后重试。'
+
+
 class Backend:
     """One Agent turn inside one Host-owned workspace."""
 

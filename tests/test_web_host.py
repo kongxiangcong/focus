@@ -44,6 +44,8 @@ class ProtocolDouble:
 
     def request(self, method, params, timeout=60):
         self.calls.append({'method': method, 'params': params})
+        if method == 'account/read':
+            return {'account': {'type': 'chatgpt'}}
         if method.startswith('thread/'):
             return {'thread': {'id': 'thread-fixture'}}
         if method == 'turn/interrupt':

@@ -4,13 +4,14 @@ import os
 import queue
 import subprocess
 import threading
-
-RUNTIME_VERSION = '0.154.0'
-
+import shutil
 
 def codex_command(explicit=None):
     if explicit:
         return [explicit]
+    installed = shutil.which('codex')
+    if installed:
+        return [installed]
     from codex_cli_bin import bundled_codex_path
     return [str(bundled_codex_path())]
 
@@ -80,11 +81,17 @@ class AppServer:
 
     def initialize(self):
         return self.request('initialize', {'clientInfo': {'name': 'focus_web', 'version': '0.1.0'},
-                                          'capabilities': {'experimentalApi': True}})
+                                          'capabilities': {'experimentalApi': True}}, timeout=15)
 
     def close(self):
         if self.process.poll() is None:
-            self.process.terminate()
+            if os.name == 'nt':
+                # PATH may select an npm .cmd launcher. Terminating that wrapper
+                # alone leaves its Node/Codex child alive with the stdio handles.
+                subprocess.run(['taskkill', '/PID', str(self.process.pid), '/T', '/F'],
+                               capture_output=True, timeout=10, check=False)
+            else:
+                self.process.terminate()
             try:
                 self.process.wait(timeout=5)
             except subprocess.TimeoutExpired:

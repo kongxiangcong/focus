@@ -11,7 +11,7 @@ from host.proxy import apply_proxy, proxy_mode, backend_environment
 
 class BackendRegistryTests(unittest.TestCase):
     def test_registry_exposes_both_runtimes_and_rejects_unknown(self):
-        self.assertEqual(['codex', 'workbuddy'], sorted(BACKENDS))
+        self.assertEqual(['codex', 'deepseek', 'workbuddy'], sorted(BACKENDS))
         with self.assertRaisesRegex(BackendError, '未知 Agent 后端'):
             create_backend('gemini', Path(tempfile.gettempdir()))
 
