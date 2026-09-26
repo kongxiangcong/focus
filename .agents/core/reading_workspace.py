@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import time
 import unicodedata
 import urllib.parse
 import uuid
@@ -73,7 +74,15 @@ def _read_document(path: Path, default: dict[str, Any] | None = None) -> dict[st
             return default
         raise WorkspaceError("workspace_object_missing", f"Required Workspace object is missing: {path.name}")
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        for attempt in range(5):
+            try:
+                raw = path.read_text(encoding="utf-8")
+                break
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.02)
+        value = json.loads(raw)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise WorkspaceError("workspace_object_invalid", f"Workspace object is invalid: {path.name}") from exc
     if not isinstance(value, dict):
@@ -84,8 +93,18 @@ def _read_document(path: Path, default: dict[str, Any] | None = None) -> dict[st
 def _write_document(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    try:
+        temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        for attempt in range(5):
+            try:
+                temporary.replace(path)
+                break
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                time.sleep(0.02)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _restore(path: Path, snapshot: bytes | None) -> None:
@@ -118,13 +137,15 @@ def _current_source_state(
         raise WorkspaceError("source_missing", "No current Reading Source is selected")
     source_id = validate_source_id(source_id)
     source_state = source_states.get(source_id)
-    if not isinstance(source_state, dict) or (set(source_state) - {"reading_started"}) != {
+    if not isinstance(source_state, dict) or (set(source_state) - {"reading_started", "reading_pass"}) != {
         "current_plan_id",
         "current_chunk_id",
     }:
         raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
     if "reading_started" in source_state and not isinstance(source_state["reading_started"], bool):
         raise WorkspaceError("workspace_state_invalid", "Reading start marker must be boolean")
+    if "reading_pass" in source_state and (type(source_state["reading_pass"]) is not int or source_state["reading_pass"] < 1):
+        raise WorkspaceError("workspace_state_invalid", "Reading pass must be positive")
     return state_path, state, source_state, source_id, workspace / "sources" / source_id
 
 
@@ -229,7 +250,10 @@ def _validate_parser_bundle(bundle: Path) -> dict[str, Any]:
         if parsed_source_url.scheme not in {"http", "https"} or not parsed_source_url.netloc:
             errors.append("metadata source URL is invalid")
     reference_keys = [key for key in ("task_id", "batch_id") if key in metadata]
-    if len(reference_keys) != 1:
+    if source_kind == "article_html" and metadata.get("model_version") == "local-html-v1":
+        if reference_keys:
+            errors.append("local HTML must not claim a remote task reference")
+    elif len(reference_keys) != 1:
         errors.append("metadata task reference is invalid")
     elif not isinstance(metadata[reference_keys[0]], str) or not re.fullmatch(
         r"[A-Za-z0-9._-]{1,200}", metadata[reference_keys[0]]
@@ -243,10 +267,16 @@ def _validate_parser_bundle(bundle: Path) -> dict[str, Any]:
         errors.append("structural validation warnings are invalid")
     if content.is_file():
         linked: list[Path] = []
-        for match in MARKDOWN_IMAGE_RE.finditer(content.read_text(encoding="utf-8", errors="replace")):
+        markdown_text = content.read_text(encoding="utf-8", errors="replace")
+        local_html = source_kind == "article_html" and metadata.get("model_version") == "local-html-v1"
+        if local_html and re.search(r"<\s*(?:img|iframe|script|svg)\b", markdown_text, re.I):
+            errors.append("local HTML content contains unnormalized media")
+        for match in MARKDOWN_IMAGE_RE.finditer(markdown_text):
             target = _split_image_target(match.group(1))
             parsed = urllib.parse.urlsplit(target)
             if parsed.scheme or parsed.netloc or target.startswith("#"):
+                if local_html:
+                    errors.append("HTML article images must be local Bundle files")
                 continue
             relative = PurePosixPath(urllib.parse.unquote(parsed.path).replace("\\", "/"))
             candidate = (bundle / Path(*relative.parts)).resolve()
@@ -258,6 +288,8 @@ def _validate_parser_bundle(bundle: Path) -> dict[str, Any]:
         actual = sorted(path.resolve() for path in images.glob("*") if path.is_file()) if images.is_dir() else []
         if set(linked) != set(actual):
             errors.append("referenced local images do not resolve")
+        if local_html and metadata.get("image_count") != len(linked):
+            errors.append("HTML image count does not match referenced images")
         numbers = []
         for path in linked:
             match = SEQUENTIAL_IMAGE_RE.fullmatch(path.name.lower())
@@ -315,8 +347,18 @@ def _protected_source_ranges(lines: list[str]) -> list[tuple[int, int]]:
 def _source_heading_paths(lines: list[str]) -> list[tuple[str, ...]]:
     headings: dict[int, str] = {}
     paths: list[tuple[str, ...]] = []
+    fence: str | None = None
     for line in lines:
-        match = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        in_code = fence is not None
+        if marker:
+            token, suffix = marker.groups()
+            if fence is None:
+                fence = token
+                in_code = True
+            elif token[0] == fence[0] and len(token) >= len(fence) and not suffix.strip():
+                fence = None
+        match = None if in_code else re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
         if match:
             level = len(match.group(1))
             headings = {key: value for key, value in headings.items() if key < level}
@@ -325,12 +367,14 @@ def _source_heading_paths(lines: list[str]) -> list[tuple[str, ...]]:
     return paths
 
 
-def _reading_plan_records(bundle: Path, draft: dict[str, Any]) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
+def _reading_plan_records(bundle: Path, draft: dict[str, Any], *,
+                          excluded_ranges: list[list[int]] | None = None) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
     chunks = draft.get("chunks")
     glossary = draft.get("glossary", [])
     if not isinstance(chunks, list) or not chunks or not isinstance(glossary, list):
         raise WorkspaceError("reading_plan_invalid", "Reading Plan draft is invalid")
     lines = (bundle / "content.md").read_text(encoding="utf-8", errors="replace").splitlines()
+    bundle_language = _read_document(bundle / "metadata.json")["language"]
     protected = _protected_source_ranges(lines)
     heading_paths = _source_heading_paths(lines)
     records: list[dict[str, Any]] = []
@@ -340,6 +384,8 @@ def _reading_plan_records(bundle: Path, draft: dict[str, Any]) -> tuple[list[dic
             raise WorkspaceError("reading_plan_invalid", "Reading Chunk draft is invalid")
         if "language" in chunk and chunk["language"] not in ("zh", "en", "mixed"):
             raise WorkspaceError("reading_plan_invalid", "Chunk language must be zh, en or mixed")
+        if bundle_language == "mixed" and "language" not in chunk:
+            raise WorkspaceError("reading_plan_invalid", "Mixed-language Source requires each Chunk language")
         section_path = chunk["section_path"]
         source_lines = chunk["source_lines"]
         images = chunk["images"]
@@ -355,7 +401,8 @@ def _reading_plan_records(bundle: Path, draft: dict[str, Any]) -> tuple[list[dic
         ):
             raise WorkspaceError("reading_plan_invalid", "Reading Chunk draft is invalid")
         start, end = source_lines
-        if start < 1 or end < start or end > len(lines) or (previous_end is not None and start != previous_end + 1):
+        gap = [1 if previous_end is None else previous_end + 1, start - 1]
+        if start < 1 or end < start or end > len(lines) or (gap[0] <= gap[1] and gap not in (excluded_ranges or [])):
             raise WorkspaceError("reading_plan_invalid", "Reading Chunk source ranges must be ordered and continuous")
         if tuple(section_path) not in set(heading_paths[start - 1 : end]):
             raise WorkspaceError("reading_plan_invalid", "Reading Chunk section path is not anchored to source headings")
@@ -400,6 +447,23 @@ def _reading_plan_records(bundle: Path, draft: dict[str, Any]) -> tuple[list[dic
 def _needs_translation(metadata: dict, chunk: dict) -> bool:
     # Existing plans inherit bundle language; new mixed sources specify it per chunk.
     return chunk.get("language", metadata["language"]).lower().replace("_", "-").split("-")[0] not in ("zh", "ch")
+
+
+def _source_bundle_at_version(source_root: Path, bundle_version: str | None) -> Path:
+    bundle = source_root / "parser-bundle"
+    _validate_parser_bundle(bundle)
+    if bundle_version is None:
+        return bundle
+    if not isinstance(bundle_version, str) or not re.fullmatch(r"[0-9a-f]{64}", bundle_version):
+        raise WorkspaceError("source_bundle_invalid", "Source Bundle version is invalid")
+    from .article_blog import bundle_fingerprint
+    if bundle_fingerprint(bundle) == bundle_version:
+        return bundle
+    historical = source_root / "reading" / "bundles" / bundle_version
+    if not historical.is_dir() or bundle_fingerprint(historical) != bundle_version:
+        raise WorkspaceError("source_bundle_unavailable", "Original Source Bundle is unavailable")
+    _validate_parser_bundle(historical)
+    return historical
 
 
 def _read_chunk_records(path: Path) -> list[dict[str, Any]]:
@@ -461,7 +525,7 @@ def _validate_note(note: Any) -> bool:
 def _read_reading_record(path: Path, chunk_id: str) -> dict[str, Any]:
     value = _read_document(path)
     if (
-        set(value) != READING_RECORD_KEYS
+        (set(value) - {"translation_meta"}) != READING_RECORD_KEYS
         or value.get("chunk_id") != chunk_id
         or (
             value.get("translation") is not None
@@ -471,6 +535,9 @@ def _read_reading_record(path: Path, chunk_id: str) -> dict[str, Any]:
             )
         )
         or not isinstance(value.get("notes"), list)
+        or ("translation_meta" in value and (not isinstance(value["translation_meta"], dict)
+            or value.get("translation") is None
+            or not isinstance(value["translation_meta"].get("revision"), str)))
         or any(not _validate_note(note) for note in value["notes"])
     ):
         raise WorkspaceError("reading_record_invalid", f"Reading Record is invalid: {chunk_id}")
@@ -848,7 +915,7 @@ class WorkspaceCore:
         if not isinstance(source_states, dict) or not isinstance(source_states.get(source_id), dict):
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         source_state = source_states[source_id]
-        if (set(source_state) - {"reading_started"}) != {"current_plan_id", "current_chunk_id"}:
+        if (set(source_state) - {"reading_started", "reading_pass"}) != {"current_plan_id", "current_chunk_id"}:
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         current_plan_id = source_state.get("current_plan_id")
         current_chunk_id = source_state.get("current_chunk_id")
@@ -1326,14 +1393,20 @@ class WorkspaceCore:
             "status": "continued",
         }
 
-    def search_source(self, *, query: str, limit: int = 5) -> dict[str, Any]:
+    def search_source(self, *, query: str, limit: int = 5, source_id: str | None = None,
+                      bundle_version: str | None = None) -> dict[str, Any]:
         if not isinstance(query, str) or not query.strip():
             raise WorkspaceError("source_query_invalid", "Source query is empty or invalid")
         if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
             raise WorkspaceError("source_query_limit_invalid", "Source query limit is invalid")
-        _, _, _, source_id, source_root = _current_source_state(self.workspace)
-        bundle = source_root / "parser-bundle"
-        _validate_parser_bundle(bundle)
+        if source_id is None:
+            _, _, _, source_id, source_root = _current_source_state(self.workspace)
+        else:
+            source_id = validate_source_id(source_id)
+            from .source_library import SourceLibrary
+            SourceLibrary(self.workspace).get(source_id)
+            source_root = self.workspace / "sources" / source_id
+        bundle = _source_bundle_at_version(source_root, bundle_version)
         lines = (bundle / "content.md").read_text(encoding="utf-8", errors="replace").splitlines()
         paths = _source_heading_paths(lines)
         terms = [term.casefold() for term in re.findall(r"[\w]+", query) if len(term) > 1]
@@ -1362,7 +1435,8 @@ class WorkspaceCore:
             "matches": matches,
         }
 
-    def read_source_range(self, *, start: int, end: int, source_id: str | None = None) -> dict[str, Any]:
+    def read_source_range(self, *, start: int, end: int, source_id: str | None = None,
+                          bundle_version: str | None = None) -> dict[str, Any]:
         if any(not isinstance(value, int) or isinstance(value, bool) for value in (start, end)):
             raise WorkspaceError("source_range_invalid", "Source range is invalid")
         if source_id is None:
@@ -1373,8 +1447,7 @@ class WorkspaceCore:
             from .source_library import SourceLibrary
 
             SourceLibrary(self.workspace).get(source_id)
-        bundle = source_root / "parser-bundle"
-        _validate_parser_bundle(bundle)
+        bundle = _source_bundle_at_version(source_root, bundle_version)
         lines = (bundle / "content.md").read_text(encoding="utf-8", errors="replace").splitlines()
         if start < 1 or end < start or end > len(lines):
             raise WorkspaceError("source_range_invalid", "Source range is invalid")
@@ -1416,7 +1489,7 @@ class WorkspaceCore:
         if not isinstance(source_states, dict) or not isinstance(source_states.get(source_id), dict):
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         source_state = source_states[source_id]
-        if (set(source_state) - {"reading_started"}) != {"current_plan_id", "current_chunk_id"}:
+        if (set(source_state) - {"reading_started", "reading_pass"}) != {"current_plan_id", "current_chunk_id"}:
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         state["current_source_id"] = source_id
         try:
@@ -1476,7 +1549,7 @@ class WorkspaceCore:
                     found_after = True
                 continue
             source_state = source_states.get(source_id)
-            if not isinstance(source_state, dict) or (set(source_state) - {"reading_started"}) != {"current_plan_id", "current_chunk_id"}:
+            if not isinstance(source_state, dict) or (set(source_state) - {"reading_started", "reading_pass"}) != {"current_plan_id", "current_chunk_id"}:
                 raise WorkspaceError("workspace_state_invalid", f"Workspace state is invalid for Source: {source_id}")
             if source_state["current_plan_id"] is None:
                 raise WorkspaceError("reading_plan_missing", f"Topic Source has no Reading Plan: {source_id}")
