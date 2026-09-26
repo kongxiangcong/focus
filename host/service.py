@@ -439,13 +439,15 @@ class HostService:
         except Exception:
             return {}
         try:
-            return {entry['sourceId']: app.status(entry['sourceId']) for entry in SourceLibrary(self.workspace).overview()}
+            return {entry['sourceId']: self.blog_status(entry['sourceId']) for entry in SourceLibrary(self.workspace).overview()}
         except Exception:
             return {}
 
     def blog_status(self, source_id):
         with self.lock:
             status = self._blog_app().status(source_id)
+            worker = self.blog_workers.get(source_id)
+            status['executing'] = bool(worker and worker.is_alive())
         if status.get('error') is None and source_id in self.blog_errors:
             status['error'] = self.blog_errors[source_id]
         return status

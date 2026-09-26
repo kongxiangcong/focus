@@ -45,7 +45,7 @@ class SingleIngestionTests(unittest.TestCase):
         self.stop_host()
         self.temp.cleanup()
 
-    def request(self, method, path, body=None):
+    def request(self, method, path, body=None, *, expected_status=None):
         headers = {}
         if isinstance(body, dict):
             body = json.dumps(body)
@@ -55,10 +55,106 @@ class SingleIngestionTests(unittest.TestCase):
             conn.request(method, quote(path, safe="/?=&%+"), body, headers)
             response = conn.getresponse()
             data = response.read()
-            self.assertLess(response.status, 400, data)
-            return json.loads(data)['value']
+            if expected_status is None:
+                self.assertLess(response.status, 400, data)
+            else:
+                self.assertEqual(expected_status, response.status, data)
+            decoded = json.loads(data)
+            return decoded.get('value', decoded.get('error'))
         finally:
             conn.close()
+
+    def wait_blog(self, item_id, expected='completed'):
+        deadline = time.monotonic() + 20
+        status = None
+        while time.monotonic() < deadline:
+            item = next(i for i in self.request('GET', '/library/inbox') if i['item_id'] == item_id)
+            if item.get('source_id'):
+                status = self.request('GET', '/library/sources/' + item['source_id'] + '/blog')
+                if status['runStatus'] == expected and not status.get('executing'):
+                    return item, status
+            time.sleep(.05)
+        self.fail(str(status or item))
+
+    def test_confirmed_scope_survives_restart_before_processing(self):
+        item = self.request('POST', '/library/inbox?name=test.pdf&topic=Systems', b'%PDF restarted')
+        self.request('POST', '/library/inbox/' + item['item_id'] + '/confirm', {'generateBlog': True})
+        self.stop_host()
+        self.start_host()
+        self.assertEqual([], self.runtime.calls)
+        self.request('POST', '/library/inbox/' + item['item_id'] + '/process', {'requestId': 'restart'})
+        self.wait_blog(item['item_id'])
+
+    def test_explicit_reconfirmation_of_changed_model_can_complete(self):
+        item = self.request('POST', '/library/inbox?name=test.pdf&topic=Systems', b'%PDF model change')
+        self.request('POST', '/library/inbox/' + item['item_id'] + '/confirm', {'generateBlog': True})
+        self.runtime.model = 'replacement-model'
+        self.request('POST', '/library/inbox/' + item['item_id'] + '/start', {'requestId': 'new-model-confirm'})
+        self.wait_blog(item['item_id'])
+
+    def test_missing_topic_and_damaged_html_cannot_publish(self):
+        item = self.request('POST', '/library/inbox?name=test.pdf', b'%PDF no topic')
+        self.request('POST', '/library/inbox/' + item['item_id'] + '/start', {'requestId': 'no-topic'}, expected_status=400)
+        item = self.request('POST', '/library/inbox?name=bad.html&topic=Systems', saved_html(missing=True).encode())
+        self.request('POST', '/library/inbox/' + item['item_id'] + '/start', {'requestId': 'bad-html'})
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            current = next(i for i in self.request('GET', '/library/inbox') if i['item_id'] == item['item_id'])
+            if current['status'] == 'failed':
+                break
+            time.sleep(.05)
+        self.assertEqual('article_image_missing', current['error']['error_id'])
+        self.assertEqual([], self.request('GET', '/library/sources'))
+        self.assertEqual([], self.runtime.calls)
+
+    def test_classification_service_failure_is_persisted_and_recoverable(self):
+        original = self.runtime.classify
+        def fail(**kwargs):
+            raise RuntimeError('provider unavailable')
+        self.runtime.classify = fail
+        item = self.request('POST', '/library/inbox?name=test.pdf&topic=Systems', b'%PDF classification')
+        self.request('POST', '/library/inbox/' + item['item_id'] + '/start', {'requestId': 'classify-fail'})
+        item, status = self.wait_blog(item['item_id'], 'failed')
+        self.assertEqual('blog_classification_failed', status['error']['error_id'])
+        self.stop_host()
+        self.start_host()
+        status = self.request('GET', '/library/sources/' + item['source_id'] + '/blog')
+        self.assertEqual('failed', status['runStatus'])
+        self.runtime.classify = original
+        self.request('POST', '/library/sources/' + item['source_id'] + '/blog/generate', {'requestId': 'classify-retry'})
+        self.wait_blog(item['item_id'])
+
+    def test_failed_blog_retry_keeps_published_original_and_successful_artifacts(self):
+        good_body = self.runtime.reading_body
+        self.runtime.reading_body = '# invalid'
+        item = self.request('POST', '/library/inbox?name=test.pdf&topic=Systems', b'%PDF blog failure')
+        self.request('POST', '/library/inbox/' + item['item_id'] + '/start', {'requestId': 'failure'})
+        item, _ = self.wait_blog(item['item_id'], 'failed')
+        source = self.root / 'knowledge-base/sources' / item['source_id']
+        before = {p.name: p.read_bytes() for p in (source / 'parser-bundle').iterdir() if p.is_file()}
+        self.runtime.reading_body = good_body
+        retry_path = '/library/sources/' + item['source_id'] + '/blog/regenerate'
+        self.request('POST', retry_path, {'requestId': 'retry', 'artifact': 'reading_blog'})
+        self.wait_blog(item['item_id'])
+        calls = list(self.runtime.calls)
+        self.request('POST', retry_path, {'requestId': 'retry', 'artifact': 'reading_blog'})
+        self.wait_blog(item['item_id'])
+        self.assertEqual(calls, self.runtime.calls)
+        self.assertEqual(before, {p.name: p.read_bytes() for p in (source / 'parser-bundle').iterdir() if p.is_file()})
+
+    def test_automatic_blog_cancellation_and_explicit_retry(self):
+        self.runtime.release.clear()
+        item = self.request('POST', '/library/inbox?name=test.pdf&topic=Systems', b'%PDF cancel')
+        self.request('POST', '/library/inbox/' + item['item_id'] + '/start', {'requestId': 'cancel'})
+        self.assertTrue(self.runtime.entered.wait(10))
+        item = next(i for i in self.request('GET', '/library/inbox') if i['item_id'] == item['item_id'])
+        self.request('POST', '/library/sources/' + item['source_id'] + '/blog/cancel', {})
+        self.runtime.release.set()
+        self.wait_blog(item['item_id'], 'cancelled')
+        for worker in list(self.host.blog_workers.values()):
+            worker.join(10)
+        self.request('POST', '/library/sources/' + item['source_id'] + '/blog/generate', {'requestId': 'retry-cancel'})
+        self.wait_blog(item['item_id'])
 
     def test_single_confirmation_publishes_blog_and_replay_survives_restart(self):
         staged = self.request('POST', '/library/inbox?' + urlencode({'name': 'paper.pdf', 'topic': '  Systems  '}), b'%PDF example')

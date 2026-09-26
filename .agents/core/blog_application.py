@@ -686,23 +686,38 @@ class BlogApplication:
             raise WorkspaceError("request_id_invalid", "Request id is invalid")
         with self._lock:
             run = self._run(source_id)
-            if run.get("request_id") == request_id and run.get("status") in {RUN_COMPLETED, RUN_FAILED}:
+            if run.get("request_id") == request_id and run.get("status") in {RUN_COMPLETED, RUN_FAILED, RUN_CANCELLED}:
                 return {**self.status(source_id), "replayed": True}
             published = blog_status(self.workspace, source_id)
-            if published["generated"] and published["artifacts"][READING_BLOG]["status"] == STATUS_COMPLETED:
+            if published["generated"] and all(
+                published["artifacts"][name]["status"] in {STATUS_COMPLETED, STATUS_NOT_APPLICABLE}
+                for name in DISPLAY_ARTIFACTS
+            ):
                 return {**self.status(source_id), "replayed": True}
         self._source_bundle(source_id)
         with self._lock:
             started = self._run(source_id)
             started["warnings"] = []
+            started["status"] = RUN_RUNNING
+            started["request_id"] = request_id
+            started["error"] = None
             self._save_run(started)
+        return self._finish_missing(source_id, request_id)
+
+    def _finish_missing(self, source_id: str, request_id: str) -> dict[str, Any]:
+        """Continue the same authorized run without resetting cancellation or its request."""
+        if self._run(source_id)['status'] == RUN_CANCELLED:
+            return {**self.status(source_id), 'outcome': {'status': 'rejected'}}
         self._prepare(source_id, request_id)
         judged = self._classify(source_id, request_id)
-        outcome = self._generate_article(source_id, READING_BLOG, request_id)
+        published = blog_status(self.workspace, source_id)
+        outcome = {"status": "completed"}
+        if published["artifacts"][READING_BLOG]["status"] != STATUS_COMPLETED:
+            outcome = self._generate_article(source_id, READING_BLOG, request_id)
         if outcome.get("status") != "completed":
             status = self.status(source_id)
             return {**status, "outcome": outcome, "applicability": judged}
-        if judged["applicable"]:
+        if judged["applicable"] and published["artifacts"][VALUE_ANALYSIS]["status"] != STATUS_COMPLETED:
             self._implementation_notes(source_id, request_id)
             outcome = self._generate_article(
                 source_id, VALUE_ANALYSIS, request_id, require_value_analysis=True
@@ -725,6 +740,14 @@ class BlogApplication:
             raise WorkspaceError("request_id_invalid", "Request id is invalid")
         if not blog_root(self.workspace, source_id).is_dir():
             raise WorkspaceError("blog_output_missing", f"Blog Output does not exist: {source_id}")
+        with self._lock:
+            run = self._run(source_id)
+            if run.get("request_id") == request_id and run.get("status") in {RUN_COMPLETED, RUN_FAILED, RUN_CANCELLED}:
+                return {**self.status(source_id), "replayed": True}
+            run["status"] = RUN_RUNNING
+            run["request_id"] = request_id
+            run["error"] = None
+            self._save_run(run)
         if artifact == HTML:
             outcome = self._render_html(source_id, request_id)
             self._complete_run_after_render(source_id, outcome)
@@ -743,9 +766,12 @@ class BlogApplication:
         if outcome.get("status") != "completed":
             return {**self.status(source_id), "outcome": outcome}
         # index.html is derived from both articles, so it follows a successful rewrite.
+        published = blog_status(self.workspace, source_id)
+        if any(published['artifacts'][name]['status'] == STATUS_PENDING for name in (READING_BLOG, VALUE_ANALYSIS)):
+            return self._finish_missing(source_id, request_id)
         html = self._render_html(source_id, request_id)
         self._complete_run_after_render(source_id, html)
-        return {**self.status(source_id), "outcome": outcome, "html": html}
+        return {**self.status(source_id), 'outcome': outcome, 'html': html}
 
     def regenerate_all(self, source_id: str, *, request_id: str, authorized_by: str) -> dict[str, Any]:
         """Rewrite both applicable articles, then replace HTML once they are valid."""

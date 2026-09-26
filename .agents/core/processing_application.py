@@ -19,6 +19,10 @@ class ProcessingApplication:
     def authorized(self, item_id):
         return item_id in _read_document(self.path, {})
 
+    def _binding(self, item):
+        return {'fingerprint': item['fingerprint'], 'topic_id': item['topic_id'],
+                'services': item['services'], 'blog_config': _component_config(self.blog.runtime)}
+
     def confirm(self, item_id, *, request_id):
         if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 160:
             raise WorkspaceError('request_id_invalid', 'A stable request identity is required')
@@ -31,6 +35,11 @@ class ProcessingApplication:
             if existing:
                 if existing['fingerprint'] != item['fingerprint'] or existing['topic_id'] != item['topic_id']:
                     raise WorkspaceError('confirmation_required', 'The confirmed original or Topic has changed')
+                if any(existing[key] != value for key, value in self._binding(item).items()):
+                    if request_id == existing['request_id'] or item_id in self.running or item['status'] == 'processing':
+                        raise WorkspaceError('request_conflict', 'Confirm the changed service with a new request')
+                    scopes[item_id] = {**existing, **self._binding(item), 'request_id': request_id}
+                    _write_document(self.path, scopes)
                 return item
             library = SourceLibrary(self.ingestion.workspace)
             if item.get('topic_id'):
@@ -43,9 +52,7 @@ class ProcessingApplication:
             item = self.ingestion.confirm(item_id, services=item['services'],
                                           purpose='register source and generate blog', scope='ingestion')
             scopes[item_id] = {
-                'request_id': request_id, 'fingerprint': item['fingerprint'],
-                'topic_id': topic['topicId'], 'services': item['services'],
-                'blog_config': _component_config(self.blog.runtime),
+                'request_id': request_id, **self._binding(item),
                 'scope': ['ingestion', 'reading_blog', 'conditional_value_analysis', 'html'],
             }
             _write_document(self.path, scopes)
@@ -59,7 +66,7 @@ class ProcessingApplication:
             if item_id in self.running:
                 return self.ingestion.get(item_id)
             item = self.ingestion.get(item_id)
-            if scope['fingerprint'] != item['fingerprint'] or scope['blog_config'] != _component_config(self.blog.runtime):
+            if any(scope[key] != value for key, value in self._binding(item).items()):
                 raise WorkspaceError('confirmation_required', 'The confirmed input or model service has changed')
             self.running.add(item_id)
         try:

@@ -68,6 +68,7 @@ export interface BlogStatus {
   warnings: readonly string[];
   methodVersion: string | null;
   runStatus?: string | null;
+  executing?: boolean;
   error?: { errorId: string; message: string } | null;
 }
 

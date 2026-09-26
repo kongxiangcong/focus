@@ -104,7 +104,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     }
   }, [view?.preparations, sources]);
   useEffect(() => {
-    const running = Object.values(blogs).filter(blog => blog.runStatus === "running").map(blog => blog.sourceId);
+    const running = Object.values(blogs).filter(blog => blog.runStatus === "running" || blog.executing).map(blog => blog.sourceId);
     if (running.length === 0 || !host.blogStatus) return;
     const timer = window.setInterval(() => running.forEach(id => void refreshBlog(id)), 1500);
     return () => window.clearInterval(timer);
@@ -299,8 +299,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
                 {blogs[s.sourceId].error && <p className="blog-note" role="alert">{blogs[s.sourceId].error?.message}</p>}
                 <div className="blog-actions">
                   {blogs[s.sourceId].runStatus === "running" && <button disabled={!!busy || !host.cancelBlog} onClick={() => void cancelBlog(s.sourceId)}>取消生成</button>}
-                  {blogArtifacts.filter(([name]) => blogs[s.sourceId].artifacts?.[name]?.status === "failed").map(([name]) => <button key={name} disabled={!!busy || !host.regenerateBlog} onClick={() => void regenerateBlog(s.sourceId, name)}>{blogRetryLabel[name]}</button>)}
-                  {blogArtifacts.every(([name]) => blogs[s.sourceId].artifacts?.[name]?.status !== "failed") && <button disabled={!!busy || !host.regenerateBlog} onClick={() => void regenerateBlog(s.sourceId, "all")}>重新生成</button>}
+                  {blogArtifacts.filter(([name]) => blogs[s.sourceId].artifacts?.[name]?.status === "failed").map(([name]) => <button key={name} disabled={!!busy || blogs[s.sourceId]?.executing || !host.regenerateBlog} onClick={() => void regenerateBlog(s.sourceId, name)}>{blogRetryLabel[name]}</button>)}
+                  {blogArtifacts.every(([name]) => blogs[s.sourceId].artifacts?.[name]?.status !== "failed") && <button disabled={!!busy || blogs[s.sourceId]?.executing || !host.regenerateBlog} onClick={() => void regenerateBlog(s.sourceId, "all")}>重新生成</button>}
                   {host.blogUrl && <button disabled={blogs[s.sourceId].artifacts?.html?.status !== "completed"} onClick={() => setBlogViewer(s.sourceId)}>打开博客</button>}
                 </div>
               </>}
