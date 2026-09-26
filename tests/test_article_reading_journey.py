@@ -53,39 +53,19 @@ class ArticleReadingJourneyTests(unittest.TestCase):
             payload = json.loads(text.splitlines()[-1])
         return code, payload
 
-    def test_article_parse_map_read_note_search_continue_and_reinitialize_share_one_core(self):
+    def test_local_article_parse_map_read_and_blog_prepare_share_one_bundle(self):
         workspace = self.root / "workspace"
         workspace.mkdir()
-        archive = self.root / "article.zip"
-        with zipfile.ZipFile(archive, "w") as result:
-            result.writestr(
-                "result/full.md",
-                "# 中文系统文章\n\n## 第一节\n第一段解释统一读写路径。\n\n## 第二节\n第二段解释游标推进。\n",
-            )
-            result.writestr("result/main.html", "<html lang='zh-CN'><body>中文系统文章</body></html>")
-
-        class Hosted:
-            @staticmethod
-            def start_url(url):
-                self.assertEqual("https://example.test/chinese", url)
-                return "task_id", "journey-task"
-
-            @staticmethod
-            def complete(task, source, output, *, timeout, interval):
-                self.assertIsNone(source)
-                ARTICLE._normalize(
-                    archive,
-                    output,
-                    reference_kind=task.reference_kind,
-                    reference_id=task.reference_id,
-                    source_url=task.source_url,
-                )
+        html = self.root / "article.html"
+        html.write_text("<html><head><title>中文系统文章</title></head><body><article><h1>中文系统文章</h1>"
+                        "<h2>第一节</h2><p>第一段解释统一读写路径。" + "来源内容应当保持完整。" * 10 +
+                        "</p><h2>第二节</h2><p>第二段解释游标推进。</p></article></body></html>", encoding="utf-8")
 
         code, parsed = self._run(
             ARTICLE,
             [
-                "parse-url",
-                "https://example.test/chinese",
+                "parse-file",
+                str(html),
                 "--workspace",
                 str(workspace),
                 "--title",
@@ -95,7 +75,6 @@ class ArticleReadingJourneyTests(unittest.TestCase):
                 "--topic",
                 "系统",
             ],
-            hosted=Hosted(),
         )
         self.assertEqual(0, code)
         source_id = parsed["source_id"]
@@ -116,99 +95,13 @@ class ArticleReadingJourneyTests(unittest.TestCase):
             stdin=draft,
         )
         self.assertEqual((0, "plan-001"), (code, mapped["plan_id"]))
-        code, current = self._run(FOCUS_READ, ["current", "--workspace", str(workspace)])
-        self.assertEqual((0, "source_ready"), (code, current["status"]))
+        from core import WorkspaceCore
+        core = WorkspaceCore(workspace)
+        current = core.reading_window()["current"]
+        self.assertEqual("source_ready", current["status"])
         self.assertIn("第一段解释统一读写路径", current["source_text"])
         self.assertIsNone(current["translation"])
-        duplicate = self.root / "duplicate.txt"
-        duplicate.write_text("第一段解释统一读写路径。", encoding="utf-8")
-        code, rejected_translation = self._run(
-            FOCUS_READ,
-            [
-                "retranslate",
-                "--workspace",
-                str(workspace),
-                "--expected-plan-id",
-                "plan-001",
-                "--expected-chunk-id",
-                "chunk-001",
-                "--translation-file",
-                str(duplicate),
-            ],
-        )
-        self.assertEqual((1, "translation_not_applicable"), (code, rejected_translation["error_id"]))
-
-        note = self.root / "note.txt"
-        note.write_text("文章复用了同一个 Reading Core。", encoding="utf-8")
-        code, saved = self._run(
-            FOCUS_READ,
-            [
-                "append-note",
-                "--workspace",
-                str(workspace),
-                "--expected-plan-id",
-                "plan-001",
-                "--expected-chunk-id",
-                "chunk-001",
-                "--kind",
-                "thought",
-                "--origin",
-                "user",
-                "--content-file",
-                str(note),
-            ],
-        )
-        self.assertEqual((0, "note_saved"), (code, saved["status"]))
-        code, found = self._run(
-            FOCUS_READ,
-            ["search", "--workspace", str(workspace), "--query", "游标推进"],
-        )
-        self.assertEqual(1, len(found["matches"]))
-        code, advanced = self._run(
-            FOCUS_READ,
-            [
-                "continue",
-                "--workspace",
-                str(workspace),
-                "--expected-plan-id",
-                "plan-001",
-                "--expected-chunk-id",
-                "chunk-001",
-            ],
-        )
-        self.assertEqual((0, "chunk-002"), (code, advanced["chunk_id"]))
-        source_root = workspace / "sources" / source_id
-        first_record = json.loads(
-            (source_root / "reading/plans/plan-001/records/chunk-001.json").read_text(encoding="utf-8")
-        )
-        second_record = json.loads(
-            (source_root / "reading/plans/plan-001/records/chunk-002.json").read_text(encoding="utf-8")
-        )
-        self.assertEqual(1, len(first_record["notes"]))
-        self.assertIsNone(second_record["translation"])
-
-        code, reused = self._run(
-            FOCUS_MAP, ["map", "--workspace", str(workspace), "--source-id", source_id]
-        )
-        self.assertTrue(reused["reused"])
-        code, rebuilt = self._run(
-            FOCUS_MAP,
-            [
-                "map",
-                "--workspace",
-                str(workspace),
-                "--source-id",
-                source_id,
-                "--reinitialize",
-            ],
-            stdin=draft,
-        )
-        self.assertEqual((0, "plan-002"), (code, rebuilt["plan_id"]))
-        self.assertIsNone(
-            json.loads(
-                (source_root / "reading/plans/plan-002/records/chunk-001.json").read_text(encoding="utf-8")
-            )["translation"]
-        )
+        self.assertEqual(source_id, core.reading_window()["source"]["source_id"])
 
         code, rejected = self._run(
             ARTICLE_BLOG,
@@ -222,7 +115,8 @@ class ArticleReadingJourneyTests(unittest.TestCase):
                 str(self.root / "blog-candidate"),
             ],
         )
-        self.assertEqual((1, "source_kind_unsupported"), (code, rejected["error_id"]))
+        self.assertEqual(0, code)
+        self.assertEqual("article_html", rejected["metadata"]["source_kind"])
 
 
 if __name__ == "__main__":

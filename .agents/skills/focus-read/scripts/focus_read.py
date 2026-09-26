@@ -124,6 +124,10 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     try:
         args = _build_parser().parse_args(argv)
+        if args.command in {"current", "continue", "append-note", "list-notes", "update-glossary",
+                            "retranslate", "switch", "topic", "topic-notes", "synthesize-topic"}:
+            raise WorkspaceError("legacy_reading_retired",
+                                 "Stage 4 reading and Source Notes use explicit ReaderHost operations")
         core = WorkspaceCore(args.workspace)
         if args.command == "state":
             result = core.get_reading_state()

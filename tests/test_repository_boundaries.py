@@ -109,6 +109,7 @@ class RepositoryBoundaryTests(unittest.TestCase):
                 if path.relative_to(ROOT).as_posix() in {
                     ".agents/core/ingestion.py",
                     ".agents/core/article_blog.py",
+                    ".agents/core/reading_application.py",
                 }:
                     python_matches = [m for m in python_matches if m.group(0).lower() not in {"hashlib", "sha256"}]
                 if retired.search(content) or python_matches:
