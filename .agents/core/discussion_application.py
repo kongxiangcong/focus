@@ -39,6 +39,7 @@ class DiscussionApplication:
         if bundle != current:
             self.core.read_source_range(start=1, end=1, source_id=source_id, bundle_version=bundle)
         return {"sourceId": source_id, "bundle": bundle, "currentBundleAtBind": current,
+                "generation": self.notes.generation(source_id),
                 "requestId": request_id, "requestContent": content,
                 "saveIntent": bool(_SAVE.search(content) and not _NEGATIVE.search(content))}
 
@@ -46,6 +47,8 @@ class DiscussionApplication:
         if not isinstance(arguments, dict):
             raise WorkspaceError("source_scope_invalid", "Tool arguments must be an object")
         source_id, bundle = scope["sourceId"], scope["bundle"]
+        if scope.get('generation', 0) != self.notes.generation(source_id):
+            raise WorkspaceError("discussion_cleared", "This discussion was cleared")
         if scope["currentBundleAtBind"] == bundle and self.notes.bundle_version(source_id) != bundle:
             raise WorkspaceError("source_bundle_changed", "Source Bundle changed during discussion")
         if action in ("search", "read_range"):
@@ -70,6 +73,7 @@ class DiscussionApplication:
             if set(arguments) - {"content", "kind", "origin", "anchor", "evidence_role"}:
                 raise WorkspaceError("note_invalid", "Unexpected note candidate fields")
             return self.notes.save(source_id, bundle=bundle, request_id=scope["requestId"],
+                                   expected_generation=scope.get('generation', 0),
                                    intent_id=scope["requestId"], **arguments)
         raise WorkspaceError("source_scope_invalid", "This discussion cannot call that tool")
 

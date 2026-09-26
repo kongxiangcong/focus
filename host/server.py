@@ -312,6 +312,8 @@ class Handler(BaseHTTPRequestHandler):
             elif method == 'POST' and len(parts) == 2 and parts[1] == 'discuss':
                 payload = self._body()
                 result = service.select_discussion_source(source_id, discussion_id=payload.get('discussionId'))
+            elif method == 'POST' and len(parts) == 2 and parts[1] == 'clear':
+                result = service.clear_source(source_id, self._body())
             elif method == 'DELETE' and len(parts) == 1:
                 result = service.library_delete(source_id)
             elif method == 'GET' and len(parts) == 2 and parts[1] == 'deletion-impact':

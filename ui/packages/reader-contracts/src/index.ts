@@ -130,6 +130,7 @@ export type SourceNoteRequestResult = SourceNoteOperation | { status: "saved"; n
 
 export interface ReadingWindow {
   configuration?: BackendConfigurationState;
+  clearBusySources?: readonly string[];
   reviewChunk?: ReaderChunk | null;
   readingUnavailable?: string;
   unavailableReferences?: readonly { sourceId: string; planId: string; chunkId: string; reason: string }[];
@@ -374,6 +375,7 @@ export interface ReaderHost {
   sourceOriginalUrl?(sourceId: string): string;
   sourceContentUrl?(sourceId: string): string;
   deleteSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  clearSource?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   replanSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   openSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;

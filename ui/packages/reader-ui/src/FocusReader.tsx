@@ -323,7 +323,6 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
                 <button onClick={() => { setEditingNoteId(null); setEditBaseRevision(null); setNoteConflict(null); setNoteError(""); }}>取消</button></div> :
                 <><span>{note.deleted ? "已删除，可撤销" : note.content}</span>
                   {!note.deleted && <button onClick={() => { setEditingNoteId(note.noteId); setEditDraft(note.content); setEditBaseRevision(note.revision); setNoteConflict(null); setNoteError(""); }}>编辑</button>}
-                  {!note.deleted && <button onClick={() => void changeNote(note, "delete")}>删除</button>}
                   {note.canUndo && <button onClick={() => void changeNote(note, "undo")}>撤销</button>}
                   {note.sourceUpdated && <small>{note.referenceStatus === "historical" ? "来源已更新，待核对；原版本仍可查看" : "来源已更新，待核对；旧原文不可定位"}</small>}
                   {note.anchor && <details><summary>查看出处</summary>{note.referenceStatus === "current" ?

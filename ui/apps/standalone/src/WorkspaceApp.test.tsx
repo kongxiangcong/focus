@@ -29,6 +29,7 @@ function setup(initialInbox: readonly IngestionItem[] = []) {
     controlBatch: vi.fn(async () => readerSuccess({ batchId: "batch-1", topicId: "topic", status: "paused" as const, error: null, items: [] })),
     createTopic: vi.fn(async () => readerSuccess({})), manageTopic: vi.fn(async () => readerSuccess({})),
     deletionImpact: vi.fn(async id => readerSuccess({ sourceId: id, title: "A Paper", topics: [{ topicId: "topic", title: "编译", sourceIds: [id] }], assets: { bundle: true, blog: true, notes: true, plans: 1, progress: true } })),
+    clearSource: vi.fn(async () => readerSuccess(empty)),
     renameSource: vi.fn(async () => readerSuccess({})),
     startIngestion: vi.fn(async () => readerSuccess(confirmed)),
     confirmIngestion: vi.fn(async () => readerSuccess(confirmed)),
@@ -327,4 +328,16 @@ it("offers querying the original task first when a remote reference exists", asy
 
   await waitFor(() => expect(host.continueIngestion).toHaveBeenCalledWith("item-1", expect.any(String)));
   expect(host.resubmitIngestion).not.toHaveBeenCalled();
+});
+
+it("clears source discussion only after irreversible confirmation and supports cancellation", async () => {
+  const { host } = setup();
+  fireEvent.click(await screen.findByRole("button", { name: "清除讨论与笔记" }));
+  expect(screen.getByText(/不可撤销：删除本篇全部讨论/)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  expect(host.clearSource).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "清除讨论与笔记" }));
+  fireEvent.click(screen.getByRole("button", { name: "不可撤销地清除" }));
+  await waitFor(() => expect(host.clearSource).toHaveBeenCalledWith("a-paper", expect.any(String)));
+  expect(host.deleteSource).not.toHaveBeenCalled();
 });

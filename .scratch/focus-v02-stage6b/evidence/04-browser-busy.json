@@ -1,0 +1,11 @@
+{
+  "status": 400,
+  "response": {
+    "ok": false,
+    "error": {
+      "code": "invalid-request",
+      "message": "该材料有活动任务，请等待任务结束后再清除。",
+      "retryable": false
+    }
+  }
+}

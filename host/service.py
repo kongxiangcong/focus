@@ -16,6 +16,7 @@ from .backends.base import APPROVAL_TITLES, COMMAND_APPROVAL, FILE_APPROVAL, PER
 from .core_bridge import CoreBridge, ROOT, WorkspaceError, SourceLibrary, DiscussionApplication
 from .store import Store
 from . import discussions
+from .source_clear import SourceClear
 from .backend_setup import BackendSetup, deepseek_key, runtime_path
 from .progress import CORE_LABELS, activity_label
 from core import INGESTION_SERVICES, BlogApplication, IngestionApplication, MinerUIngestionParser
@@ -37,17 +38,20 @@ SKILLS = ('article-parser', 'focus-map', 'focus-read')
 class HostService:
     def __init__(self, workspace, data, *, model=None, codex_bin=None, backend=None,
                  backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None,
-                 blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None):
+                 blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None, clock=time.time):
         workspace.mkdir(parents=True, exist_ok=True)
         self.workspace = workspace.resolve()
         self.core = CoreBridge(self.workspace)
-        self.store = Store(data, self.workspace)
+        self.clock = clock
+        self.store = Store(data, self.workspace, clock=clock)
         writer_id = self.store.get('ingestionWriterId')
         if not isinstance(writer_id, str) or not writer_id:
             writer_id = 'focus-host-' + uuid.uuid4().hex
             self.store.put('ingestionWriterId', writer_id)
         self.discussion_app = DiscussionApplication(self.workspace, writer_id=writer_id)
         self.source_notes = self.discussion_app.notes
+        self.source_clear = SourceClear(self.store, self.source_notes)
+        self.source_clear.recover()
         self.ingestion = IngestionApplication(
             self.workspace,
             parser=ingestion_parser or MinerUIngestionParser(),
@@ -109,6 +113,20 @@ class HostService:
             self.state['timeline'].extend({'kind': 'message', 'messageId': m['messageId']} for m in self.state['conversation'])
             self.store.save()
 
+        self.store.expire_logs()
+        self.retention_stop = threading.Event()
+        self.retention_worker = threading.Thread(target=self._retain_logs, daemon=True)
+        self.retention_worker.start()
+
+    def _retain_logs(self):
+        while not self.retention_stop.wait(3600):
+            with self.lock:
+                try:
+                    self.store.expire_logs()
+                except Exception:
+                    # Also retried on the next public snapshot and startup.
+                    continue
+
     @property
     def state(self):
         return self.store.state
@@ -126,6 +144,8 @@ class HostService:
 
     def snapshot(self):
         with self.lock:
+            self.source_clear.recover()
+            self.store.expire_logs()
             self._reconcile_deleted_sources()
             window = self.core.window()
             discussion_source = self.state.get('discussionSourceId')
@@ -181,6 +201,7 @@ class HostService:
                          'glossary_revision',
                          'selected_plan_id', 'selected_ready', 'candidate')}
             window['preparations'] = preparations
+            window['clearBusySources'] = [source['sourceId'] for source in SourceLibrary(self.workspace).overview() if self.source_clear_busy(source['sourceId'])]
             window['agent'] = {'run': self.state['run'], 'catalog': self.core.catalog(),
                                'backend': self.backend_name,
                                'backends': [{'id': name, 'label': {'codex': 'Codex', 'deepseek': 'DeepSeek', 'workbuddy': 'WorkBuddy（国内，待接入）'}[name],
@@ -208,6 +229,7 @@ class HostService:
 
     def prepare_reading(self, source_id, *, request_id, rebuild=False):
         with self.lock:
+            self.source_clear.recover()
             run = self.reading_app.begin(source_id, request_id=request_id, rebuild=rebuild)
             worker = self.reading_workers.get(source_id)
             if run['status'] == 'running' and (worker is None or not worker.is_alive()):
@@ -220,6 +242,7 @@ class HostService:
 
     def resume_preparation(self, source_id, *, request_id):
         with self.lock:
+            self.source_clear.recover()
             run = self.reading_app.resume(source_id, request_id=request_id)
             worker = self.reading_workers.get(source_id)
             if run['status'] == 'running' and (worker is None or not worker.is_alive()):
@@ -232,6 +255,7 @@ class HostService:
 
     def revise_candidate_glossary(self, source_id, payload):
         with self.lock:
+            self.source_clear.recover()
             run = self.reading_app.core.revise_candidate_glossary(source_id,
                 plan_id=payload.get('planId'),
                 expected_glossary_revision=payload.get('expectedGlossaryRevision'),
@@ -273,6 +297,7 @@ class HostService:
     def select_discussion_source(self, source_id, *, discussion_id=None):
         """Select a Source for discussion without touching the Reading Cursor."""
         with self.lock:
+            self.source_clear.recover()
             SourceLibrary(self.workspace).get(source_id)
             self.source_notes.bundle_version(source_id)
             discussions.select(self.state, source_id, discussion_id=discussion_id)
@@ -282,6 +307,7 @@ class HostService:
 
     def source_note_change(self, source_id, note_id, payload, operation):
         with self.lock:
+            self.source_clear.recover()
             selected = self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']
             if source_id != selected:
                 raise ValueError('讨论材料已改变，请刷新后重试。')
@@ -430,6 +456,7 @@ class HostService:
         # Reserve configuration before taking the Application lock; never hold
         # the Host lock while waiting for batch cancellation or dispatch.
         with self.lock:
+            self.source_clear.recover()
             self.batch_admissions += 1
         try:
             yield
@@ -539,6 +566,7 @@ class HostService:
             return self.ingestion.cancel(item_id)
 
     def _library_idle(self):
+        self.source_clear.recover()
         if self.resetting or self.shutting_down or (self.worker and self.worker.is_alive()) or any(w.is_alive() for w in self.ingestion_workers.values()) or (self.state['run'] and self.state['run']['status'] in ACTIVE):
             raise ValueError('请等待当前任务结束后再管理材料。')
 
@@ -632,6 +660,7 @@ class HostService:
     def _blog_start(self, source_id, *, request_id, authorized_by, artifact=None, start_allowed=None):
         """Generation runs in the background: reading the Source never blocks on it."""
         with self.lock:
+            self.source_clear.recover()
             app = self._blog_app()
             if source_id in self.blog_workers and self.blog_workers[source_id].is_alive():
                 raise ValueError('该材料的博客正在生成中。')
@@ -733,6 +762,7 @@ class HostService:
 
     def retry_progress(self, progress_id, request_id):
         with self.lock:
+            self.source_clear.recover()
             if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9-]{8,80}', request_id):
                 raise ValueError('补记需要唯一请求身份。')
             entry = self.progress_core.get(progress_id)
@@ -785,6 +815,20 @@ class HostService:
             state = json.loads((self.workspace / 'state.json').read_text(encoding='utf-8'))
             return state.get('reading_requests', {}).get(request_id, {}).get('result')
 
+    def source_clear_busy(self, source_id):
+        run = self.state.get('run')
+        return bool(self.resetting or self.shutting_down or self.batch_admissions
+            or any(w.is_alive() for w in (*self.batch_workers.values(), *self.ingestion_workers.values()))
+            or ((self.worker and self.worker.is_alive()) and (not run or run.get('sourceId') in (None, source_id)))
+            or any(workers.get(source_id) and workers[source_id].is_alive() for workers in (self.reading_workers, self.blog_workers))
+            or any(w.is_alive() and self.progress_core.get(key)['source_id'] == source_id for key, w in self.progress_workers.items()))
+
+    def clear_source(self, source_id, payload):
+        with self.lock:
+            result = self.source_clear.execute(source_id, payload, busy=self.source_clear_busy(source_id))
+            self.changed()
+            return {**self.snapshot(), 'clearOperation': result}
+
     def library_delete(self, source_id):
         from .core_bridge import SourceLibrary
         with self.lock:
@@ -832,6 +876,7 @@ class HostService:
         if continuing or re.fullmatch(r'(请)?(继续阅读|下一段|回到文章继续)[。！!？?]?', payload.get('content', '').strip()):
             return self.continue_cached(payload)
         with self.lock:
+            self.source_clear.recover()
             request_id = payload.get('requestId')
             if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9-]{8,80}', request_id):
                 raise ValueError('A unique requestId is required')
@@ -841,6 +886,8 @@ class HostService:
             receipt = payload.get('receipt')
             previous = self.state['requests'].get(request_id)
             if previous is not None:
+                if isinstance(previous, dict) and previous.get('cleared'):
+                    raise WorkspaceError('discussion_cleared', '此讨论已清除，请重新发送。')
                 original = previous.get('discussion') if isinstance(previous, dict) else None
                 if source_id is not None and original is None:
                     raise ValueError('同一 requestId 已用于另一种阅读请求。')
@@ -993,7 +1040,21 @@ class HostService:
         workspace = workspace or self.workspace
         if self.backend_factory is not None:
             return self.backend_factory(workspace, **options)
-        return create_backend(name, workspace, **options)
+        backend = create_backend(name, workspace, **options)
+        receipt_id = uuid.uuid4().hex
+        backend.cleanup_callback = lambda receipt: self.store.put('runtimeCleanup:' + receipt_id,
+            {**receipt, 'purpose': purpose, 'recordedAt': self.clock()})
+        return backend
+
+    def runtime_cleanup(self):
+        """Minimal lifecycle evidence, distinct from logs or deletion claims."""
+        return self.store.runtime_cleanup()
+
+    def execution_log(self, run_id):
+        with self.lock:
+            self.store.expire_logs()
+            value = self.store.get('execution:' + run_id)
+            return value.get('run') if value else None
 
     def _run(self, content, attachments, receipt, discussion=None):
         backend = None
@@ -1080,11 +1141,15 @@ class HostService:
                 self.backend = None
                 self.active_discussion = None
                 self.pending.clear()
+                if backend and hasattr(backend, 'cleanup'):
+                    self.state['run']['runtimeCleanup'] = dict(backend.cleanup)
                 self.state['run']['approvals'] = []
                 if self.state['run']['status'] in ACTIVE:
                     self.state['run']['status'] = 'interrupted'
                 if self.state['run'].get('progress'):
                     self.state['run']['progress']['finishedAt'] = int(time.time() * 1000)
+                self.state['run']['terminalAt'] = self.clock()
+                self.store.put('execution:' + self.state['run']['runId'], {'run': self.state['run']})
                 self.changed()
 
     def _handle(self, event):
@@ -1402,6 +1467,8 @@ class HostService:
             return self.snapshot()
 
     def close(self):
+        self.retention_stop.set()
+        self.retention_worker.join(timeout=5)
         self.shutting_down = True
         self.setup.close()
         if self.batches:

@@ -70,6 +70,7 @@ class DeepSeekBackend(Backend):
         )
         self.session_id = 'focus-' + self.purpose + '-' + uuid.uuid4().hex
         self.session = self.harness.start_session(self.session_id)
+        self.cleanup.update(nativeSessionId=self.session_id, persistence='isolated_temporary_home')
         self.emit(SESSION_OPENED, {'key': self.session_id})
         return self.session_id
 
@@ -123,9 +124,16 @@ class DeepSeekBackend(Backend):
                 self.bridge.close()
             if self.harness:
                 self.harness.close()
+                self.cleanup['release'] = 'sdk_close_returned'
             if self.thread and self.thread is not threading.current_thread():
                 self.thread.join(timeout=5)
+                if self.thread.is_alive():
+                    self.cleanup['release'] = 'thread_still_alive'
             if self.temporary:
                 self.temporary.cleanup()
+                self.cleanup['managedTemporaryHome'] = 'removed'
         finally:
-            self._close_done.set()
+            try:
+                self.report_cleanup()
+            finally:
+                self._close_done.set()

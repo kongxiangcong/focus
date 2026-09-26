@@ -61,7 +61,26 @@ class SourceNotes:
                    "deleted INTEGER NOT NULL, undo TEXT)")
         db.execute("CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, digest TEXT, "
                    "result TEXT, cancelled INTEGER NOT NULL DEFAULT 0)")
+        db.execute("CREATE TABLE IF NOT EXISTS clears (id TEXT PRIMARY KEY)")
         return db
+
+    def generation(self, source_id: str) -> int:
+        with _LOCK, closing(self._connect(source_id)) as db:
+            return db.execute("SELECT count(*) FROM clears").fetchone()[0]
+
+    def clear(self, source_id: str, *, request_id: str) -> None:
+        """Erase notes and recovery payloads, retaining only revoked request IDs."""
+        self._check_request(request_id)
+        with _LOCK, closing(self._connect(source_id)) as db, db:
+            db.execute("PRAGMA secure_delete=ON")
+            db.execute("BEGIN IMMEDIATE")
+            if db.execute("SELECT 1 FROM clears WHERE id=?", (request_id,)).fetchone():
+                return
+            db.execute("DELETE FROM notes")
+            db.execute("UPDATE requests SET digest=NULL, result=NULL, cancelled=1")
+            db.execute("INSERT INTO clears VALUES (?)", (request_id,))
+        with closing(self._connect(source_id)) as db:
+            db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
     def _anchor(self, source_id: str, version: str, anchor: dict | None) -> str | None:
         if anchor is None:
@@ -125,7 +144,7 @@ class SourceNotes:
 
     def save(self, source_id: str, *, bundle: str, request_id: str, intent_id: str,
              content: str, kind: str, origin: str, evidence_role: str,
-             anchor: dict | None = None) -> dict:
+             anchor: dict | None = None, expected_generation: int | None = None) -> dict:
         """Commit a candidate only with the Host's bound explicit user intent."""
         self._check_request(request_id)
         self._check_request(intent_id)
@@ -140,6 +159,8 @@ class SourceNotes:
         digest = _payload_identity(payload)
         with _LOCK, closing(self._connect(source_id)) as db, db:
             db.execute("BEGIN IMMEDIATE")
+            if expected_generation is not None and expected_generation != db.execute("SELECT count(*) FROM clears").fetchone()[0]:
+                raise WorkspaceError("discussion_cleared", "This discussion was cleared")
             prior = db.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone()
             if prior:
                 if prior["cancelled"]:

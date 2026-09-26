@@ -1,0 +1,48 @@
+{
+  "backend": "deepseek",
+  "runtime": "D:\\dsh-proj\\focus\\.venv\\Lib\\site-packages\\deepseek_harness_runtime\\runtime\\deepseek-harness-sdk-runtime-win-x64.exe",
+  "before": {
+    "status": "completed",
+    "notes": 1,
+    "messages": 2
+  },
+  "clear": {
+    "operation": {
+      "sourceId": "fixture-paper",
+      "status": "completed"
+    },
+    "notes": 0,
+    "messages": 0
+  },
+  "after": {
+    "status": "completed",
+    "notes": 0,
+    "messages": 2
+  },
+  "lifecycle": [
+    {
+      "backend": "deepseek",
+      "stop": "terminal_event",
+      "release": "sdk_close_returned",
+      "archive": "not_requested",
+      "delete": "not_verified",
+      "nativeSessionId": "focus-discussion-7e33d0c6ab07438389dc13ade3824e97",
+      "persistence": "isolated_temporary_home",
+      "managedTemporaryHome": "removed",
+      "purpose": "discussion",
+      "recordedAt": 1790441888.6364706
+    },
+    {
+      "backend": "deepseek",
+      "stop": "terminal_event",
+      "release": "sdk_close_returned",
+      "archive": "not_requested",
+      "delete": "not_verified",
+      "nativeSessionId": "focus-discussion-15f6896439eb4d0ca6cd9bb2f2e1e04f",
+      "persistence": "isolated_temporary_home",
+      "managedTemporaryHome": "removed",
+      "purpose": "discussion",
+      "recordedAt": 1790441899.9652705
+    }
+  ]
+}

@@ -89,6 +89,17 @@ class Backend:
         self._requests = {}
         self._request_lock = threading.Lock()
         self._next_id = 0
+        self.cleanup = {'stop': 'not_requested', 'release': 'not_attempted',
+                        'archive': 'not_requested', 'delete': 'not_verified'}
+        self.cleanup_callback = None
+
+    def report_cleanup(self):
+        if self.cleanup_callback:
+            try:
+                self.cleanup_callback({'backend': self.name, **self.cleanup})
+            except Exception:
+                # Diagnostics cannot strand the lifecycle completion event.
+                self.cleanup['receipt'] = 'persistence_failed'
 
     # --- lifecycle -------------------------------------------------
 
@@ -112,6 +123,8 @@ class Backend:
     # --- shared helpers --------------------------------------------
 
     def emit(self, method, params=None, request_id=None):
+        if method == TURN_COMPLETED:
+            self.cleanup['stop'] = 'terminal_event'
         event = {'method': method, 'params': params or {}}
         if request_id is not None:
             event['id'] = request_id

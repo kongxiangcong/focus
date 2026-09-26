@@ -1,0 +1,33 @@
+{
+  "backend": "codex",
+  "afterClearNewTurn": {
+    "status": "completed",
+    "notes": 0,
+    "messages": 2,
+    "current": "chunk-002"
+  },
+  "lifecycle": [
+    {
+      "backend": "codex",
+      "stop": "terminal_event",
+      "release": "process_closed",
+      "archive": "not_requested",
+      "delete": "not_verified",
+      "nativeSessionId": "01a0dea6-6b6a-7670-9899-a4d18c901a0c",
+      "persistence": "ephemeral_requested",
+      "purpose": "discussion",
+      "recordedAt": 1790441863.2494364
+    },
+    {
+      "backend": "codex",
+      "stop": "terminal_event",
+      "release": "process_closed",
+      "archive": "not_requested",
+      "delete": "not_verified",
+      "nativeSessionId": "01a0deaa-15ad-79c3-b900-d10d6e1aabe7",
+      "persistence": "ephemeral_requested",
+      "purpose": "discussion",
+      "recordedAt": 1790442096.4582994
+    }
+  ]
+}

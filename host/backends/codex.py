@@ -83,6 +83,7 @@ class CodexBackend(Backend):
             params['dynamicTools'] = [dict(tool, type='function') for tool in params['dynamicTools']]
             result = self.rpc.request('thread/start', params)
         self.thread_id = result['thread']['id']
+        self.cleanup.update(nativeSessionId=self.thread_id, persistence='ephemeral_requested')
         threading.Thread(target=self._pump, daemon=True).start()
         self.emit(SESSION_OPENED, {'key': self.thread_id})
         return self.thread_id
@@ -139,6 +140,7 @@ class CodexBackend(Backend):
             return
         try:
             self.rpc.request('turn/interrupt', {'threadId': self.thread_id, 'turnId': self.turn_id}, timeout=10)
+            self.cleanup['stop'] = 'interrupt_acknowledged'
         except Exception:
             self.close()
 
@@ -154,9 +156,15 @@ class CodexBackend(Backend):
         try:
             if rpc:
                 rpc.close()
+                self.cleanup['release'] = 'process_closed'
+                if self.cleanup['stop'] == 'not_requested':
+                    self.cleanup['stop'] = 'process_closed'
         finally:
-            self.fail('Codex App Server 连接已关闭。')
-            self._close_done.set()
+            try:
+                self.report_cleanup()
+            finally:
+                self.fail('Codex App Server 连接已关闭。')
+                self._close_done.set()
 
     # --- JSON-RPC translation --------------------------------------
 

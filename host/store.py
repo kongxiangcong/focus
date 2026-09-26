@@ -8,7 +8,8 @@ from pathlib import Path
 
 
 class Store:
-    def __init__(self, directory: Path, workspace: Path):
+    def __init__(self, directory: Path, workspace: Path, *, clock=time.time):
+        self.clock = clock
         directory.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
         self.db = sqlite3.connect(directory / 'host.sqlite3', check_same_thread=False)
@@ -27,9 +28,14 @@ class Store:
         run = self.state['run']
         if run and run['status'] in ('running', 'stopping', 'approval'):
             run.update(status='interrupted', error='后台已重启；上次任务已中断，请检查已落盘的更改后再发送。', approvals=[])
+            run['terminalAt'] = self.clock()
             if run.get('progress'):
                 run['progress']['finishedAt'] = int(time.time() * 1000)
             self.save()
+        if run and run.get('runId') and run['status'] not in ('running', 'stopping', 'approval'):
+            key = 'execution:' + run['runId']
+            if self.get(key) is None:
+                self.put(key, {'run': run})
 
     def get(self, key):
         with self.lock:
@@ -42,6 +48,53 @@ class Store:
 
     def save(self):
         self.put('session', self.state)
+
+    def clear_discussions(self, source_id, request_id):
+        from .source_clear import scrub
+        with self.lock, self.db:
+            self.db.execute('PRAGMA secure_delete=ON')
+            current = scrub(self.state, source_id)
+            for key, raw in self.db.execute("SELECT key, value FROM state WHERE key LIKE 'session:%' OR key LIKE 'execution:%'").fetchall():
+                self.db.execute('UPDATE state SET value=? WHERE key=?',
+                    (json.dumps(scrub(json.loads(raw), source_id), ensure_ascii=False), key))
+            self.db.execute('UPDATE state SET value=? WHERE key=?', (json.dumps(current, ensure_ascii=False), 'session'))
+            operations = self.get('sourceClears')
+            operations[request_id]['status'] = 'completed'
+            self.db.execute('UPDATE state SET value=? WHERE key=?', (json.dumps(operations), 'sourceClears'))
+        self.state = current
+        self.db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+
+    def expire_logs(self):
+        """Only Host-owned diagnostics expire; history and receipts never do."""
+        now = self.clock()
+        with self.lock, self.db:
+            self.db.execute('PRAGMA secure_delete=ON')
+            for key, raw in self.db.execute("SELECT key, value FROM state WHERE key='session' OR key LIKE 'session:%' OR key LIKE 'execution:%'").fetchall():
+                state = json.loads(raw)
+                run = state.get('run')
+                if not run or run['status'] in ('running', 'stopping', 'approval'):
+                    continue
+                terminal = run.get('terminalAt')
+                if terminal is None:
+                    # Legacy terminal runs have milliseconds in their progress receipt.
+                    terminal = (run.get('progress') or {}).get('finishedAt')
+                    run['terminalAt'] = terminal / 1000 if terminal is not None else now
+                    terminal = run['terminalAt']
+                if now >= terminal + 7 * 86400:
+                    run['activity'] = []
+                    run['approvals'] = []
+                    run['error'] = None
+                    run['logsExpired'] = True
+                encoded = json.dumps(state, ensure_ascii=False)
+                if encoded != raw:
+                    self.db.execute('UPDATE state SET value=? WHERE key=?', (encoded, key))
+                    if key == 'session':
+                        self.state = state
+
+    def runtime_cleanup(self):
+        with self.lock:
+            return [json.loads(row[0]) for row in self.db.execute(
+                "SELECT value FROM state WHERE key LIKE 'runtimeCleanup:%' ORDER BY rowid")]
 
     def close(self):
         self.db.close()
