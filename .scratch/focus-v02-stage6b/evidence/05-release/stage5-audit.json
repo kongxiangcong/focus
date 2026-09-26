@@ -1,0 +1,19 @@
+{
+  "scope": "Read-only revalidation of Stage 5 artifacts, not Stage 6B execution",
+  "sources": [
+    {
+      "source": "AI Agent 真懂芯片架构吗？Microsoft Research 的实验结论有点微妙-article",
+      "bundleValidated": true,
+      "comparedFiles": 13,
+      "mismatches": []
+    },
+    {
+      "source": "Attention Is All You Need-paper",
+      "bundleValidated": true,
+      "comparedFiles": 20,
+      "mismatches": []
+    }
+  ],
+  "cursorMatches": true,
+  "deletedNoImageSourceAbsent": true
+}

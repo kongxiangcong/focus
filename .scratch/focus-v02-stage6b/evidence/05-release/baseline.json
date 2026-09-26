@@ -1,0 +1,85 @@
+{
+  "head": "da2844fccabbc653cbdd108ba68bcdcae8a7ed92",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "machine": "AMD64",
+  "python": "3.13.14 (main, Jun 11 2026, 04:04:46) [MSC v.1944 64 bit (AMD64)]",
+  "executable": "D:\\dsh-proj\\focus\\.venv\\Scripts\\python.exe",
+  "packages": {
+    "openai-codex": "0.154.0",
+    "deepseek-harness-sdk": "0.1.5rc1",
+    "deepseek-harness-runtime-bin": "0.1.5rc1"
+  },
+  "dirty": [
+    {
+      "status": " M",
+      "path": ".agents/core/batch_application.py",
+      "sha256": "31ffd9b6db6969eaa82d7e85b03265e975674dab6c11ebee8f9d46746702bd31"
+    },
+    {
+      "status": " M",
+      "path": ".agents/core/reading_application.py",
+      "sha256": "78e185b54feae8c2bb9afbcb537e2d1861ab18a8ba4c799b2e879dfc863a91a4"
+    },
+    {
+      "status": " M",
+      "path": "FOCUS_Shared_Workflow_MultiHost_Plan_v0.2.md",
+      "sha256": "cb06fab0249914ba9a810d69b3b20f39429343e2ba1d952177d7639cd9a37927"
+    },
+    {
+      "status": " M",
+      "path": "docs/requirements/v0.2/README.md",
+      "sha256": "0dffeb7280ba76a24515fc7e231fd6e2ad7a2a82d3eaf2596afc285cd823403a"
+    },
+    {
+      "status": " M",
+      "path": "docs/requirements/v0.2/stage-2d-acceptance.md",
+      "sha256": "31dccacc59f2dd9b3b2c73cf50128528b1b50a42c2275a9fc75719a61554e701"
+    },
+    {
+      "status": " M",
+      "path": "docs/requirements/v0.2/stage-2d-dsh-probe.md",
+      "sha256": "10b8814a41fae23029dd65436c78b5bd1845e3998ff127bc5796907d131e3bcc"
+    },
+    {
+      "status": " M",
+      "path": "docs/requirements/v0.2/stage-5-standalone-release.md",
+      "sha256": "758c95a8285c8b129ede5e5e34168258134205688a0ae054adada7861c473ee8"
+    },
+    {
+      "status": " M",
+      "path": "docs/requirements/v0.2/stage-6-dsh.md",
+      "sha256": "ea9da9e9322f32e4d8d3a6c57272589f06f548b01a226e0be5bc01f74c66208a"
+    },
+    {
+      "status": " M",
+      "path": "docs/requirements/v0.2/stage-7-runtimes.md",
+      "sha256": "9feea7c287f96523318ea09546ee45654a3d06bad13c54ab285f0d5c60a2739e"
+    },
+    {
+      "status": " M",
+      "path": "host/reading_runtime.py",
+      "sha256": "6702fa491e1f4c5ae16a5863454338e1469a0db629a0bbb2d8c35153ad014dff"
+    },
+    {
+      "status": " M",
+      "path": "integrations/dsh-focus/package.json",
+      "sha256": "3ede3b564f0e3ab57b3db634244650bcbc25ab1283c240257c6d2a7de9b62762"
+    },
+    {
+      "status": " M",
+      "path": "tests/test_stage4_reading.py",
+      "sha256": "dc7a56fa70328551eff3d29f34973ee42afcbe986bfe3dbfabfc1801d771fcfc"
+    },
+    {
+      "status": " M",
+      "path": "tests/test_stage5_batch_recovery.py",
+      "sha256": "e3931c266ae240f0244fc52279379de925c9c0e9531983bd3ff562ea6160a66e"
+    },
+    {
+      "status": "??",
+      "path": "docs/requirements/v0.2/stage-5-acceptance.md",
+      "sha256": "67ce20ab52a60e51ffecbb23906efd4574159afff50239878facb98f7a910c83"
+    }
+  ],
+  "scope": "Developer checkout; not a clean installation"
+}

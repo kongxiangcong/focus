@@ -1,0 +1,37 @@
+{
+  "kind": "Developer-checkout dependency isolation; NOT clean Windows installation",
+  "stage5InputHashAudit": [
+    {
+      "file": "ai-chip-architecture.html",
+      "exists": true,
+      "sha256Matches": true
+    },
+    {
+      "file": "attention-is-all-you-need.pdf",
+      "exists": true,
+      "sha256Matches": true
+    },
+    {
+      "file": "broken.html",
+      "exists": true,
+      "sha256Matches": true
+    },
+    {
+      "file": "functional-programming.html",
+      "exists": true,
+      "sha256Matches": true
+    }
+  ],
+  "normalPath": {
+    "status": "passed",
+    "title": "Functional Programming HOWTO",
+    "bodyCharacters": 44434
+  },
+  "pathWithoutNode": {
+    "status": "failed",
+    "code": "html_extractor_unavailable",
+    "message": "Mozilla Readability could not run; install Node dependencies with pnpm install",
+    "cause": "FileNotFoundError"
+  },
+  "probeCorrection": "Initial recorder used nonexistent WorkspaceError.code; rerun uses error_id. No product edits."
+}
