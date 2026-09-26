@@ -177,8 +177,8 @@ def _prepare(bundle: Path, candidate: Path) -> dict:
         raise BlogError("parser_bundle_invalid", f"Parser bundle is missing: {', '.join(missing)}")
     metadata = _read_json(bundle / "metadata.json")
     validation = _read_json(bundle / "validation.json")
-    if metadata.get("source_kind") != "paper_pdf":
-        raise BlogError("source_kind_unsupported", "article-blog accepts only paper_pdf Reading Sources")
+    if metadata.get("source_kind") not in {"paper_pdf", "article_html"}:
+        raise BlogError("source_kind_unsupported", "article-blog accepts PDF and HTML Reading Sources")
     if metadata.get("parser") != "article-parser":
         raise BlogError("parser_bundle_invalid", "Parser bundle is not from article-parser")
     if validation.get("ok") is not True:
@@ -232,15 +232,15 @@ def _prepare_registered(workspace: Path, source_id: str, candidate: Path) -> dic
     source = _read_json(source_path)
     if source.get("source_id") != source_id:
         raise BlogError("source_invalid", f"Reading Source is invalid: {source_id}")
-    if source.get("source_kind") != "paper_pdf":
-        raise BlogError("source_kind_unsupported", "article-blog accepts only paper_pdf Reading Sources")
+    if source.get("source_kind") not in {"paper_pdf", "article_html"}:
+        raise BlogError("source_kind_unsupported", "article-blog accepts PDF and HTML Reading Sources")
     bundle = workspace / "sources" / source_id / "parser-bundle"
     if not bundle.is_dir():
         raise BlogError("parser_bundle_missing", f"Parser Bundle does not exist: {source_id}")
     try:
         result = _prepare(bundle, candidate)
         result["metadata"] = new_blog_metadata(
-            source_id=source_id, source_kind="paper_pdf", bundle=bundle
+            source_id=source_id, source_kind=source["source_kind"], bundle=bundle
         )
         (candidate / "metadata.json").write_text(
             json.dumps(result["metadata"], ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -582,7 +582,7 @@ def _html_document(
 
 NOT_APPLICABLE_PAGE = (
     '<div class="not-applicable">'
-    "<h2>论文价值分析不适用</h2>"
+    "<h2>架构价值分析不适用</h2>"
     "<p><strong>判定：</strong>不适用</p>"
     "<p><strong>判定理由：</strong>{reason}</p>"
     "<p>{direction}</p>"
@@ -595,7 +595,7 @@ NOT_APPLICABLE_PAGE = (
 
 VALUE_PENDING_PAGE = (
     '<div class="not-applicable">'
-    "<h2>论文价值分析本次未生成</h2>"
+    "<h2>架构价值分析本次未生成</h2>"
     "<p>带读博客已生成；价值分析尚未写入本目录（生成失败或尚未完成）。</p>"
     "<p>可用「重新生成价值分析」单独重跑，带读博客与已有 HTML 不受影响。</p>"
     "</div>"
@@ -603,7 +603,7 @@ VALUE_PENDING_PAGE = (
 
 VALUE_UNDECIDED_PAGE = (
     '<div class="not-applicable">'
-    "<h2>论文价值分析尚未判定</h2>"
+    "<h2>架构价值分析尚未判定</h2>"
     "<p>本次运行还没有判定论文主要贡献是否落在价值分析的适用方向内。</p>"
     "</div>"
 )
@@ -762,7 +762,7 @@ def _render(blog_dir: Path, *, embed_images: bool = True, bundle: Path | None = 
     if value_path.is_file():
         panels.append(
             (
-                "论文价值分析",
+                "架构价值分析",
                 _link_bundle_mentions(
                     _markdown_to_html(value_path.read_text(encoding="utf-8", errors="replace"), image_src),
                     source_anchors, used_anchors,
@@ -771,7 +771,7 @@ def _render(blog_dir: Path, *, embed_images: bool = True, bundle: Path | None = 
             )
         )
     else:
-        panels.append(("论文价值分析", _value_page(metadata), "value_analysis"))
+        panels.append(("架构价值分析", _value_page(metadata), "value_analysis"))
     document = _html_document(
         title, panels, _footer(metadata), embed_katex="data-tex" in "".join(body for _, body, _ in panels),
         source_evidence=_source_evidence(source_anchors, used_anchors),

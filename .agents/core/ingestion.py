@@ -62,6 +62,33 @@ class CandidateParser(Protocol):
 INGESTION_SERVICES = ["mineru"]
 
 
+def _source_kind(item: dict[str, Any]) -> str:
+    return item.get("source_kind", "paper_pdf")
+
+
+def _original_name(item: dict[str, Any]) -> str:
+    return {"paper_pdf": "source.pdf", "article_html": "source.html"}[_source_kind(item)]
+
+
+def _service(item: dict[str, Any]) -> str:
+    return "local-html" if _source_kind(item) == "article_html" else "mineru"
+
+
+def _identity(item: dict[str, Any]) -> str:
+    return item.get("identity") or "paper-original:" + item["fingerprint"]
+
+
+def _inspect_source(source: Path) -> tuple[str, str]:
+    if not source.is_file():
+        raise WorkspaceError("source_file_missing", "Source file does not exist")
+    if source.suffix.lower() == ".html":
+        from .html_article import article_identity
+        return "article_html", article_identity(source)
+    if source.suffix.lower() == ".pdf" and source.read_bytes()[:4] == b"%PDF":
+        return "paper_pdf", "paper-original:" + _file_fingerprint(source)
+    raise WorkspaceError("source_pdf_invalid", "Source must be a PDF or complete saved HTML file")
+
+
 class CandidateRuntime(Protocol):
     """Independent Runtime capability.
 
@@ -121,10 +148,14 @@ class IngestionCore:
         item_path: Path,
         attempt_id: str,
     ) -> dict[str, Any]:
-        _validate_parser_bundle(candidate)
+        metadata = _validate_parser_bundle(candidate)
         item = _read_document(item_path)
-        candidate_fingerprint = _file_fingerprint(candidate / "source.pdf")
-        inbox_fingerprint = _file_fingerprint(item_path.parent / "source.pdf")
+        if identity != _identity(item):
+            raise WorkspaceError("candidate_original_mismatch", "Candidate identity does not match Inbox")
+        if metadata["source_kind"] != _source_kind(item):
+            raise WorkspaceError("candidate_original_mismatch", "Candidate source kind does not match Inbox")
+        candidate_fingerprint = _file_fingerprint(candidate / _original_name(item))
+        inbox_fingerprint = _file_fingerprint(item_path.parent / _original_name(item))
         confirmation = item.get("confirmation", {})
         if not (
             candidate_fingerprint
@@ -147,7 +178,8 @@ class IngestionCore:
             return {"status": "version_conflict", "version": state["version"]}
         result = SourceLibrary(self.workspace).register(
             candidate,
-            source_kind="paper_pdf",
+            source_kind=_source_kind(item),
+            source_url=metadata.get("source_url"),
             title=title,
             short_name=short_name,
             identity=identity,
@@ -193,7 +225,7 @@ class IngestionApplication:
     """Persistent single-document Inbox and ingestion application boundary.
 
     Default ingestion publishes a validated Parser Bundle without any AI review:
-    it declares and calls only the Parser it actually uses (`mineru`). Runtime
+    it declares only the selected Parser (`mineru` or local HTML). Runtime
     capabilities are verified on their own boundary and are not part of this flow.
     """
 
@@ -203,6 +235,7 @@ class IngestionApplication:
         *,
         parser: CandidateParser,
         writer_id: str,
+        html_parser: CandidateParser | None = None,
     ):
         self.workspace = Path(workspace).resolve()
         if not self.workspace.is_dir():
@@ -210,13 +243,20 @@ class IngestionApplication:
         if not isinstance(writer_id, str) or not writer_id.strip():
             raise WorkspaceError("writer_invalid", "Writer identity is required")
         self.parser = parser
+        self.html_parser = html_parser
         self.writer_id = writer_id.strip()
         self._state_lock = threading.RLock()
         self.core = IngestionCore(self.workspace)
         self._recover_interrupted()
 
-    def _service_config(self) -> dict[str, dict[str, Any]]:
-        return {"mineru": _component_config(self.parser)}
+    def _parser_for(self, item: dict[str, Any]) -> CandidateParser:
+        if _source_kind(item) == "article_html":
+            from .html_article import LocalHTMLParser
+            return self.html_parser or LocalHTMLParser()
+        return self.parser
+
+    def _service_config(self, item) -> dict[str, dict[str, Any]]:
+        return {_service(item): _component_config(self._parser_for(item))}
 
     def _attempt_binding(self, service: str, confirmation: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -289,7 +329,7 @@ class IngestionApplication:
         value["remote_reference"] = (
             isinstance(parse, dict)
             and parse.get("checkpoint") is not None
-            and hasattr(self.parser, "resume")
+            and hasattr(self._parser_for(item), "resume")
         )
         return value
 
@@ -308,7 +348,7 @@ class IngestionApplication:
             matches.append((path.stat().st_mtime, str(path), item))
         return max(matches, key=lambda match: match[:2])[2] if matches else None
 
-    def stage_pdf(
+    def stage_file(
         self,
         source: Path,
         *,
@@ -316,8 +356,7 @@ class IngestionApplication:
         topic_id: str | None = None,
     ) -> dict[str, Any]:
         source = Path(source).resolve()
-        if not source.is_file() or source.suffix.lower() != ".pdf" or source.read_bytes()[:4] != b"%PDF":
-            raise WorkspaceError("source_pdf_invalid", "Source must be an existing PDF file")
+        kind, identity = _inspect_source(source)
         if topic_title is not None and (not isinstance(topic_title, str) or not topic_title.strip()):
             raise WorkspaceError("topic_invalid", "Topic title is empty or invalid")
         if topic_id is not None:
@@ -332,15 +371,17 @@ class IngestionApplication:
             item_id = uuid.uuid4().hex
             root = self._root(item_id)
             root.mkdir(parents=True)
-            stored = root / "source.pdf"
+            stored = root / {"paper_pdf": "source.pdf", "article_html": "source.html"}[kind]
             shutil.copy2(source, stored)
             item = {
                 "item_id": item_id,
                 "file_name": source.name,
+                "source_kind": kind,
+                "identity": identity,
                 "fingerprint": fingerprint,
                 "topic_title": topic_title.strip() if topic_title else None,
                 "topic_id": topic_id,
-                "services": list(INGESTION_SERVICES),
+                "services": ["local-html" if kind == "article_html" else "mineru"],
                 "status": "awaiting_confirmation",
                 "confirmation": None,
                 "run": None,
@@ -350,6 +391,12 @@ class IngestionApplication:
             }
             self._write(item_id, item)
         return self._public(item)
+
+    def stage_pdf(self, source: Path, *, topic_title=None, topic_id=None):
+        """Explicit PDF entry; all formats use the same staging state machine."""
+        if Path(source).suffix.lower() != ".pdf":
+            raise WorkspaceError("source_pdf_invalid", "Source must be an existing PDF file")
+        return self.stage_file(source, topic_title=topic_title, topic_id=topic_id)
 
     def get(self, item_id: str) -> dict[str, Any]:
         return self._public(self._read(item_id))
@@ -375,8 +422,7 @@ class IngestionApplication:
             root = self._root(item_id)
             if source is not None:
                 source = Path(source).resolve()
-                if not source.is_file() or source.suffix.lower() != ".pdf" or source.read_bytes()[:4] != b"%PDF":
-                    raise WorkspaceError("source_pdf_invalid", "Source must be an existing PDF file")
+                kind, identity = _inspect_source(source)
                 # Editing may not sidestep identity reuse: the replacement original
                 # must not belong to a different unfinished Inbox task.
                 replacement_fingerprint = self._fingerprint(source)
@@ -386,7 +432,13 @@ class IngestionApplication:
                         "ingestion_duplicate_original",
                         "Another unfinished Inbox task already uses this original",
                     )
-                shutil.copy2(source, root / "source.pdf")
+                old_original = root / _original_name(item)
+                stored = root / {"paper_pdf": "source.pdf", "article_html": "source.html"}[kind]
+                shutil.copy2(source, stored)
+                if old_original != stored:
+                    old_original.unlink(missing_ok=True)
+                item.update(source_kind=kind, identity=identity,
+                            services=["local-html" if kind == "article_html" else "mineru"])
                 item["file_name"] = source.name
                 item["fingerprint"] = replacement_fingerprint
             if topic_title is not None:
@@ -428,7 +480,7 @@ class IngestionApplication:
                     "ingestion_not_confirmable",
                     "Only a staged or resumable Inbox item can be confirmed",
                 )
-            expected_services = list(INGESTION_SERVICES)
+            expected_services = [_service(item)]
             if (
                 scope != "ingestion"
                 or not purpose.strip()
@@ -439,7 +491,7 @@ class IngestionApplication:
                     "confirmation_scope_invalid",
                     "Confirmation services do not match this ingestion workflow",
                 )
-            if self._fingerprint(self._root(item_id) / "source.pdf") != item.get("fingerprint"):
+            if self._fingerprint(self._root(item_id) / _original_name(item)) != item.get("fingerprint"):
                 raise WorkspaceError("confirmation_required", "Inbox source changed and must be staged again")
             new_confirmation = {
                 "fingerprint": item["fingerprint"],
@@ -447,7 +499,7 @@ class IngestionApplication:
                 "topic_title": item["topic_title"],
                 "topic_id": item["topic_id"],
                 "services": list(services),
-                "service_config": self._service_config(),
+                "service_config": self._service_config(item),
                 "method_version": INGESTION_METHOD_VERSION,
                 "purpose": purpose.strip(),
                 "scope": scope,
@@ -490,7 +542,7 @@ class IngestionApplication:
         self, item: dict[str, Any], source: Path
     ) -> dict[str, Any]:
         confirmation = item.get("confirmation")
-        expected_services = list(INGESTION_SERVICES)
+        expected_services = [_service(item)]
         if (
             not isinstance(confirmation, dict)
             or confirmation.get("fingerprint") != item.get("fingerprint")
@@ -498,7 +550,7 @@ class IngestionApplication:
             or confirmation.get("topic_title") != item.get("topic_title")
             or confirmation.get("topic_id") != item.get("topic_id")
             or confirmation.get("services") != expected_services
-            or confirmation.get("service_config") != self._service_config()
+            or confirmation.get("service_config") != self._service_config(item)
             or confirmation.get("method_version") != INGESTION_METHOD_VERSION
             or confirmation.get("scope") != "ingestion"
             or not source.is_file()
@@ -527,7 +579,7 @@ class IngestionApplication:
             if resubmission and self._resubmit_replayed(item, request_id):
                 return self._public(item)
             root = self._root(item_id)
-            source = root / "source.pdf"
+            source = root / _original_name(item)
             confirmation = self._require_current_confirmation(item, source)
             if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 200:
                 raise WorkspaceError("request_id_invalid", "Request id is invalid")
@@ -572,7 +624,7 @@ class IngestionApplication:
             item["status"] = "processing"
             self._write(item_id, item)
 
-        existing = SourceLibrary(self.workspace).find("paper-original:" + item["fingerprint"])
+        existing = SourceLibrary(self.workspace).find(_identity(item))
         if existing is None:
             candidate = root / "candidate"
             parse_step = run["steps"]["parse"]
@@ -580,13 +632,13 @@ class IngestionApplication:
             reusable_candidate = False
             may_recover_candidate = any(
                 entry.get("status") in {"completed", "interrupted"}
-                and self._attempt_matches(entry, "mineru", confirmation)
+                and self._attempt_matches(entry, _service(item), confirmation)
                 for entry in parse_step.get("attempts", [])
             )
             if candidate.is_dir() and may_recover_candidate:
                 try:
                     _validate_parser_bundle(candidate)
-                    if _file_fingerprint(candidate / "source.pdf") != _file_fingerprint(source):
+                    if _file_fingerprint(candidate / _original_name(item)) != _file_fingerprint(source):
                         raise WorkspaceError(
                             "candidate_original_mismatch",
                             "Candidate original does not match the Inbox source",
@@ -597,7 +649,7 @@ class IngestionApplication:
                         attempt = next(
                             entry for entry in reversed(parse_step["attempts"])
                             if entry.get("status") == "completed" and entry.get("commit_allowed") is True
-                            and self._attempt_matches(entry, "mineru", confirmation)
+                            and self._attempt_matches(entry, _service(item), confirmation)
                         )
                     except StopIteration:
                         attempt = {
@@ -605,7 +657,7 @@ class IngestionApplication:
                             "status": "completed",
                             "commit_allowed": True,
                             "recovered_candidate": True,
-                            **self._attempt_binding("mineru", confirmation),
+                            **self._attempt_binding(_service(item), confirmation),
                         }
                         parse_step["attempts"].append(attempt)
                     parse_step["status"] = "completed"
@@ -623,7 +675,7 @@ class IngestionApplication:
                     "attempt_id": uuid.uuid4().hex,
                     "status": "running",
                     "commit_allowed": True,
-                    **self._attempt_binding("mineru", confirmation),
+                    **self._attempt_binding(_service(item), confirmation),
                 }
                 if resubmission:
                     attempt["resubmit_request_id"] = request_id
@@ -657,10 +709,10 @@ class IngestionApplication:
 
                 try:
                     checkpoint = parse_step.get("checkpoint")
-                    if checkpoint is not None and hasattr(self.parser, "resume"):
-                        parsed = self.parser.resume(source, candidate, checkpoint=checkpoint)
+                    if checkpoint is not None and hasattr(self._parser_for(item), "resume"):
+                        parsed = self._parser_for(item).resume(source, candidate, checkpoint=checkpoint)
                     else:
-                        parsed = self.parser.parse(source, candidate, checkpoint=save_checkpoint)
+                        parsed = self._parser_for(item).parse(source, candidate, checkpoint=save_checkpoint)
                     if not isinstance(parsed, dict):
                         raise WorkspaceError("parser_result_invalid", "Parser result is invalid")
                     _validate_parser_bundle(candidate)
@@ -738,7 +790,7 @@ class IngestionApplication:
                         writer_id=self.writer_id,
                         title=str(parsed.get("title") or ""),
                         short_name=str(parsed.get("short_name") or ""),
-                        identity="paper-original:" + item["fingerprint"],
+                        identity=_identity(item),
                         item_path=root / "item.json",
                         attempt_id=attempt["attempt_id"],
                     )
@@ -830,12 +882,12 @@ class IngestionApplication:
         return (
             isinstance(parse, dict)
             and parse.get("status") == "status_check_required"
-            and (parse.get("checkpoint") is None or not hasattr(self.parser, "resume"))
+            and (parse.get("checkpoint") is None or not hasattr(self._parser_for(item), "resume"))
         )
 
     def _unresolved_original_published(self, item: dict[str, Any]) -> bool:
         return (
-            SourceLibrary(self.workspace).find("paper-original:" + str(item.get("fingerprint", "")))
+            SourceLibrary(self.workspace).find(_identity(item))
             is not None
         )
 
@@ -898,7 +950,7 @@ class IngestionApplication:
         if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 200:
             raise WorkspaceError("request_id_invalid", "Request id is invalid")
         self._require_current_confirmation(
-            item, self._root(item["item_id"]) / "source.pdf"
+            item, self._root(item["item_id"]) / _original_name(item)
         )
         pending = item.get("resubmit_pending")
         if isinstance(pending, str) and pending != request_id:

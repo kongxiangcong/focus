@@ -1,4 +1,4 @@
-"""python -m host --workspace ./workspace [--backend codex|workbuddy]"""
+"""python -m host --workspace ./knowledge-base [--backend codex|workbuddy]"""
 import argparse
 import hashlib
 import os
@@ -31,7 +31,7 @@ def workspace_lock(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--workspace', type=Path, default=Path(os.getenv('FOCUS_WORKSPACE', 'workspace')))
+    parser.add_argument('--workspace', type=Path, default=Path(os.getenv('FOCUS_WORKSPACE', 'knowledge-base')))
     parser.add_argument('--host-data', type=Path, default=None)
     parser.add_argument('--bind', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=8765)

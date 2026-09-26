@@ -217,8 +217,8 @@ class BlogApplication:
     def _source_bundle(self, source_id: str) -> tuple[dict[str, Any], Path]:
         source_id = validate_source_id(source_id)
         source = SourceLibrary(self.workspace).get(source_id)
-        if source.get("source_kind") != "paper_pdf":
-            raise WorkspaceError("source_kind_unsupported", "article-blog accepts only paper_pdf Reading Sources")
+        if source.get("source_kind") not in {"paper_pdf", "article_html"}:
+            raise WorkspaceError("source_kind_unsupported", "article-blog accepts PDF and HTML Reading Sources")
         bundle = self.workspace / "sources" / source_id / "parser-bundle"
         if not bundle.is_dir():
             raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {source_id}")
@@ -361,9 +361,11 @@ class BlogApplication:
                     method_dir=self.method_dir,
                 )
             )
-        except WorkspaceError:
+        except Exception as exc:
             step["status"] = STEP_FAILED
             run["status"] = RUN_FAILED
+            run["error"] = {"error_id": getattr(exc, "error_id", "blog_classification_failed"),
+                            "message": "博客适用性判定失败；来源已保留，可重试博客。"}
             self._save_run(run)
             raise
         self.core.commit(

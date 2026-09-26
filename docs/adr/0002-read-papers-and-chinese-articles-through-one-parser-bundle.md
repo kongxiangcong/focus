@@ -9,3 +9,5 @@ FOCUS registers both PDF Paper Sources and Chinese Article Sources as Reading So
 The parsers keep only the remote task reference needed for resume and the installed Bundle metadata. FOCUS adds no capture adapters, parser receipts, source revision history, event ledger, compatibility model, or derived knowledge index for this extension.
 
 ADR-0003 supersedes this ADR's second-authorization requirement and permits explicit, source-anchored Topic Synthesis without introducing a derived knowledge index.
+
+ADR-0016 supersedes the MinerU-HTML selection and direct URL ingestion in this decision. The shared Parser Bundle and Core publication boundary remain.

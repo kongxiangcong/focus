@@ -1,7 +1,7 @@
 ---
 name: article-blog
 version: article-blog-v1
-description: Turn a published Paper Source Parser Bundle into a Chinese Blog Output — a Reading Blog (always), a Value Analysis (only for hardware architecture, DSE, compiler, simulator or performance modeling work), and one self-contained merged index.html. Use for paper interpretation or paper value analysis, not for generic summaries or unsupported promotional copy.
+description: Turn a published PDF or HTML Reading Source Parser Bundle into a Chinese Blog Output — a Reading Blog (always), a Value Analysis (only for hardware architecture, DSE, compiler, simulator or performance modeling work), and one self-contained merged index.html. Use for paper interpretation or paper value analysis, not for generic summaries or unsupported promotional copy.
 ---
 
 # article-blog
@@ -12,7 +12,7 @@ description: Turn a published Paper Source Parser Bundle into a Chinese Blog Out
 
 ## 输入前提
 
-输入必须是已发布并通过校验的 `paper_pdf` Reading Source：其规范 `parser-bundle/` 含 `content.md`、`metadata.json`、`validation.json`，且 `validation.json.ok=true`、`metadata.json.source_kind=paper_pdf`、`metadata.json.parser=article-parser`。Article Source 不在本轮范围内。若用户只给 PDF，先完成入库（解析 + 发布 Bundle），不要在此处重新解析。
+输入必须是已发布并通过校验的 `paper_pdf` 或 `article_html` Reading Source：其规范 `parser-bundle/` 含 `content.md`、`metadata.json`、`validation.json`，且 `validation.json.ok=true`、`metadata.json.source_kind` 为 `paper_pdf` 或 `article_html`、`metadata.json.parser=article-parser`。网页文章应区分文章作者的解读与原研究证据，不虚构论文贡献、实验或图表编号。若用户只给 PDF 或 HTML，先完成入库（解析 + 发布 Bundle），不要在此处重新解析。
 
 博客生成由共享 Application 编排：**Core 是唯一资产写入权威**，本资源包的脚本只写候选目录或读取产物，不直接发布 `sources/<source-id>/blog/`。
 
@@ -26,7 +26,7 @@ python -B -X utf8 scripts/article2blog.py render <blog-dir> [--no-embed-images]
 python -B -X utf8 scripts/article2blog.py check <blog-dir> [--require-html]
 ```
 
-- `prepare`：只读取 `sources/<source-id>/source.yaml` 与该 Source 的 `parser-bundle/`，在**候选目录**中生成 Blog Output 骨架（`evidence/evidence-map.md`、`evidence/implementation-notes.md`、`assets/`、`metadata.json`）。不复制 `source.pdf`，不读取 Workspace `state.json` 或 `sources/<id>/reading/` 下任何阅读资产。骨架提交由 Core 完成。
+- `prepare`：只读取 `sources/<source-id>/source.yaml` 与该 Source 的 `parser-bundle/`，在**候选目录**中生成 Blog Output 骨架（`evidence/evidence-map.md`、`evidence/implementation-notes.md`、`assets/`、`metadata.json`）。不复制 `source.pdf` 或 `source.html`，不读取 Workspace `state.json` 或 `sources/<id>/reading/` 下任何阅读资产。骨架提交由 Core 完成。
 - `render`：把 `blog.md` 与（存在且适用时的）`value-analysis.md` 渲染为**单文件自包含** `index.html`：样式与脚本内联、引用图片默认 base64 内嵌（`--no-embed-images` 才退回链接）、公式由资源包内置的 KaTeX 渲染（`assets/katex/`，无外网请求）。渲染只写 `index.html`；渲染失败不改写任何 Markdown，也不破坏已发布的旧 HTML。
 - `check`：对候选产物跑共用校验器，产出 `ok`、`errors`、`warnings` 与 `metrics`。`--require-html` 追加第④项：两页可渲染、默认打开带读博客、无外链资源、图片已内嵌、公式有渲染器、不适用页显示判定理由。校验只验形态合格；深度与证据缺口只报警告，不冒充质量通过。
 

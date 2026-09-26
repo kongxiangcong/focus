@@ -190,7 +190,7 @@ class BlogHostTests(unittest.TestCase):
             self.assertEqual(200, response.status)
             response.read()
             connection.close()
-            self.assertIs(self.host.store.get("blog:" + item["item_id"]), True)
+            self.assertTrue(self.host.processing.authorized(item["item_id"]))
         finally:
             server.shutdown()
             server.server_close()

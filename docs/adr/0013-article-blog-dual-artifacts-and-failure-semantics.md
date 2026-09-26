@@ -11,6 +11,8 @@
 
 ## Consequences
 
+2026-09-26 阶段 5 grill Q3、Q6 扩展并澄清：Reading Blog 同时适用于 Paper Source 和 Article Source；Value Analysis 根据上述领域及原文依据判断适用性，不按 PDF／HTML 判断，页面统一称“架构价值分析”。非论文来源解释工程设计与边界，不虚构实验或论文贡献。保留以下失败语义及无人工核查规则；阶段发布仍需真实 Parser／Runtime 与浏览器完整流程，自动校验通过不代表解释深度与内容质量已证实。这是已确认需求，不是实现或验收声明。
+
 - 重试粒度为单篇文档：一篇成功一篇失败时保留成功篇，只重跑失败篇再重渲染 index.html；渲染失败不污染两篇 md；任何博客失败不删 Bundle 与旧 HTML（沿用 ADR-0011 授权语义）。
 - 不做人工质量核查；自动校验器只验形态合格（结构、图片实际解码、引用可解析、平台可渲染），深度与证据质量以警告形式如实呈现，不冒充质量验收通过。
 - 旧 `.agents/skills/paper2blog/` 资产随 methods/article-blog/ 资源包建立而迁移废弃；CONTEXT.md 已收录 Reading Blog／Value Analysis／article-blog 术语。
