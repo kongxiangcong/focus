@@ -1,0 +1,66 @@
+{
+  "python": {
+    "tests": 367,
+    "seconds": 329.449,
+    "failures": 8,
+    "errors": 31,
+    "passed": false,
+    "failureIdentities": [
+      "test_approval_recovery_decline_and_serialization (test_web_host.WebHostTests.test_approval_recovery_decline_and_serialization)",
+      "test_attachment_start_delivers_card_contract_and_projects_saved_translation (test_web_host.WebHostTests.test_attachment_start_delivers_card_contract_and_projects_saved_translation)",
+      "test_browser_backend_switch_archives_chat_preserves_core_and_survives_restart (test_web_host.WebHostTests.test_browser_backend_switch_archives_chat_preserves_core_and_survives_restart)",
+      "test_chat_next_uses_cached_reading (test_web_host.WebHostTests.test_chat_next_uses_cached_reading)",
+      "test_chinese_paper_source_is_ready_without_translation (test_focus_read.FocusReadTests.test_chinese_paper_source_is_ready_without_translation)",
+      "test_continue_does_not_open_a_session (test_web_host.WebHostTests.test_continue_does_not_open_a_session)",
+      "test_continue_does_not_resume_previous_explanation (test_web_host.WebHostTests.test_continue_does_not_resume_previous_explanation)",
+      "test_continue_is_idempotent_and_checks_source (test_web_host.WebHostTests.test_continue_is_idempotent_and_checks_source)",
+      "test_continue_requires_preparation_before_moving (test_web_host.WebHostTests.test_continue_requires_preparation_before_moving)",
+      "test_continue_uses_expected_receipt_saves_pending_notes_and_does_not_pretranslate (test_focus_read.FocusReadTests.test_continue_uses_expected_receipt_saves_pending_notes_and_does_not_pretranslate)",
+      "test_core_note_written_without_chat_or_cursor (test_web_host.WebHostTests.test_core_note_written_without_chat_or_cursor)",
+      "test_default_state_and_chunk_projection_exclude_notes_and_unmatched_glossary (test_focus_read.FocusReadTests.test_default_state_and_chunk_projection_exclude_notes_and_unmatched_glossary)",
+      "test_explicit_continue_in_chat_advances_once (test_web_host.WebHostTests.test_explicit_continue_in_chat_advances_once)",
+      "test_explicit_explanation_summary_and_retranslation_are_not_suppressed (test_web_host.WebHostTests.test_explicit_explanation_summary_and_retranslation_are_not_suppressed) (content='总结这段')",
+      "test_explicit_explanation_summary_and_retranslation_are_not_suppressed (test_web_host.WebHostTests.test_explicit_explanation_summary_and_retranslation_are_not_suppressed) (content='解释这个公式')",
+      "test_explicit_explanation_summary_and_retranslation_are_not_suppressed (test_web_host.WebHostTests.test_explicit_explanation_summary_and_retranslation_are_not_suppressed) (content='请讲解这段')",
+      "test_explicit_explanation_summary_and_retranslation_are_not_suppressed (test_web_host.WebHostTests.test_explicit_explanation_summary_and_retranslation_are_not_suppressed) (content='请重新翻译这段')",
+      "test_failed_or_busy_switch_leaves_session_untouched (test_web_host.WebHostTests.test_failed_or_busy_switch_leaves_session_untouched)",
+      "test_failed_verification_never_publishes_completed (test_task_progress.TaskProgressTests.test_failed_verification_never_publishes_completed)",
+      "test_final_continue_completes_plan_and_old_receipt_cannot_restart_it (test_focus_read.FocusReadTests.test_final_continue_completes_plan_and_old_receipt_cannot_restart_it)",
+      "test_glossary_update_and_paper_switch_leave_plan_and_each_cursor_intact (test_focus_read.FocusReadTests.test_glossary_update_and_paper_switch_leave_plan_and_each_cursor_intact)",
+      "test_historical_reference_is_passed_to_agent_without_advancing (test_web_host.WebHostTests.test_historical_reference_is_passed_to_agent_without_advancing)",
+      "test_map_read_question_search_note_continue_and_restore_share_one_cursor (test_reading_journey.ReadingJourneyTests.test_map_read_question_search_note_continue_and_restore_share_one_cursor)",
+      "test_prepare_open_and_reference_preserve_registered_ids (test_source_id_contract.SourceIdHostTests.test_prepare_open_and_reference_preserve_registered_ids) (source_id='Model A-paper')",
+      "test_prepare_open_and_reference_preserve_registered_ids (test_source_id_contract.SourceIdHostTests.test_prepare_open_and_reference_preserve_registered_ids) (source_id='Model_v1.2 (A+B), #1 & test-paper')",
+      "test_prepare_open_and_reference_preserve_registered_ids (test_source_id_contract.SourceIdHostTests.test_prepare_open_and_reference_preserve_registered_ids) (source_id='Model： A／B-paper')",
+      "test_prepare_open_and_reference_preserve_registered_ids (test_source_id_contract.SourceIdHostTests.test_prepare_open_and_reference_preserve_registered_ids) (source_id='中文 架构研究-paper')",
+      "test_question_stream_persistence_and_resume_never_advance (test_web_host.WebHostTests.test_question_stream_persistence_and_resume_never_advance)",
+      "test_registered_ids_survive_plan_preparation_reading_and_topic (test_source_id_contract.SourceIdContractTests.test_registered_ids_survive_plan_preparation_reading_and_topic) (source_id='Model A-paper')",
+      "test_registered_ids_survive_plan_preparation_reading_and_topic (test_source_id_contract.SourceIdContractTests.test_registered_ids_survive_plan_preparation_reading_and_topic) (source_id='Model_v1.2 (A+B), #1 & test-paper')",
+      "test_registered_ids_survive_plan_preparation_reading_and_topic (test_source_id_contract.SourceIdContractTests.test_registered_ids_survive_plan_preparation_reading_and_topic) (source_id='Model： A／B-paper')",
+      "test_registered_ids_survive_plan_preparation_reading_and_topic (test_source_id_contract.SourceIdContractTests.test_registered_ids_survive_plan_preparation_reading_and_topic) (source_id='中文 架构研究-paper')",
+      "test_replan_preserves_previous_assets (test_prepared_reading.PreparedReadingTests.test_replan_preserves_previous_assets)",
+      "test_reread_keeps_notes_and_translation_and_plan (test_library_host.LibraryHostTests.test_reread_keeps_notes_and_translation_and_plan)",
+      "test_reset_keeps_core_assets_but_starts_new_thread_and_survives_restart (test_web_host.WebHostTests.test_reset_keeps_core_assets_but_starts_new_thread_and_survives_restart)",
+      "test_stop_and_reset_closes_approvals_and_isolates_old_events (test_web_host.WebHostTests.test_stop_and_reset_closes_approvals_and_isolates_old_events)",
+      "test_stop_reaches_runtime_while_approval_pending (test_web_host.WebHostTests.test_stop_reaches_runtime_while_approval_pending)",
+      "test_translation_and_notes_change_only_the_current_reading_record (test_focus_read.FocusReadTests.test_translation_and_notes_change_only_the_current_reading_record)",
+      "test_unauthorized_agent_advance_requires_confirmation (test_web_host.WebHostTests.test_unauthorized_agent_advance_requires_confirmation)"
+    ],
+    "newFailureIdentities": [],
+    "resolvedFailureIdentities": []
+  },
+  "workflows": {
+    "tests": 17,
+    "passed": true
+  },
+  "typecheck": {
+    "passed": true
+  },
+  "logs": {
+    "python-full.txt": "c380faeba0a3f5a55dd2dea50b7a9415de67271878070f8f410593801e4233f7",
+    "workflows.txt": "34a51b29fc9dae4710c5aa6f4757a148ee03d65565abc2e1a45c9beffedd258d",
+    "typecheck.txt": "5aa0d95d1dbe93d34a9d5cf134c361098b0b14ca623bb33c390055ea93ce4f7b",
+    "token-limit-red.txt": "45581d85afa94e4deb2dc7fe32a8b90c5cda3d65661b809fdb16f605bf50145f",
+    "token-limit-green.txt": "53a34490e19015cf67558d36349db742b30384d9bc3ceb9a91c530f4556a9495"
+  }
+}

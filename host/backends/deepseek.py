@@ -65,7 +65,9 @@ class DeepSeekBackend(Backend):
             cwd=str(root), dsh_home=str(root / 'runtime-home'), dsh_bin=self.runtime_path,
             profile='sdk-minimal', patches=(str(patch),), api_key=self.api_key or '',
             env=env, model=self.model or 'deepseek-v4-flash',
-            max_tokens=64 if self.purpose == 'connectivity' else 16000,
+            # Full-source structured candidates need room for reasoning plus JSON.
+            # Connectivity remains a small request; discussions retain their cap.
+            max_tokens={'connectivity': 64, 'candidate': 65536}.get(self.purpose, 16000),
             initialize_timeout_seconds=15, request_timeout_seconds=15,
         )
         self.session_id = 'focus-' + self.purpose + '-' + uuid.uuid4().hex
@@ -93,6 +95,8 @@ class DeepSeekBackend(Backend):
                 codes = [safe_backend_error(event['data']['reason'].get('error', {}))
                          for event in result.events if event.get('type') == 'turn/end'
                          and event.get('data', {}).get('reason', {}).get('kind') == 'error']
+                if result.finish_reason == 'max-tokens':
+                    codes.append(safe_backend_error('max-tokens'))
                 self.emit(TURN_COMPLETED, {'status': result.finish_reason, 'error': ','.join(codes) or None})
             except Exception as exc:
                 if not self.closed:

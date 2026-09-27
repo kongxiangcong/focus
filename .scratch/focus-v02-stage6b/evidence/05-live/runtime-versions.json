@@ -1,0 +1,17 @@
+{
+  "codex-selected": {
+    "path": "D:\\dsh-proj\\focus\\.venv\\Lib\\site-packages\\codex_cli_bin\\bin\\codex.exe",
+    "exitCode": 0,
+    "version": "codex-cli 0.154.0"
+  },
+  "codex-path": {
+    "path": "C:\\Users\\72449\\AppData\\Roaming\\npm\\codex.CMD",
+    "exitCode": 0,
+    "version": "codex-cli 0.130.0"
+  },
+  "deepseek-selected": {
+    "path": "D:\\dsh-proj\\focus\\.venv\\Lib\\site-packages\\deepseek_harness_runtime\\runtime\\deepseek-harness-sdk-runtime-win-x64.exe",
+    "exitCode": 0,
+    "version": "0.1.5-rc.1"
+  }
+}

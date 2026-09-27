@@ -57,6 +57,8 @@ class BackendError(RuntimeError):
 def safe_backend_error(error):
     """Classify diagnostics without returning provider-controlled text or secrets."""
     text = str(error).lower()
+    if 'max-tokens' in text or '输出长度上限' in text:
+        return '生成达到 Runtime 输出长度上限，结果未完成，请显式重试。'
     if any(word in text for word in ('quota', 'insufficient', '402', '额度不足')):
         return '服务额度不足，请检查所选 Backend 的账号额度。'
     if any(word in text for word in ('credential', 'unauthorized', '401', 'api key', '登录', '凭据')):

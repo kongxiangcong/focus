@@ -1,0 +1,593 @@
+{
+  "codex": {
+    "batches": [
+      {
+        "status": "partial",
+        "items": [
+          {
+            "itemId": "da413fb10d3d4ec99caa0588a37d3bb6",
+            "fileName": "attention-is-all-you-need.pdf",
+            "status": "completed",
+            "sourceId": "Attention Is All You Need-paper",
+            "error": null,
+            "blog": {
+              "sourceId": "Attention Is All You Need-paper",
+              "generated": true,
+              "artifacts": {
+                "value_analysis": {
+                  "status": "not_applicable",
+                  "updatedAt": "2026-09-27T04:06:33+00:00"
+                },
+                "reading_blog": {
+                  "status": "completed",
+                  "updatedAt": "2026-09-27T04:10:21+00:00"
+                },
+                "html": {
+                  "status": "completed",
+                  "updatedAt": "2026-09-27T04:10:23+00:00"
+                }
+              },
+              "valueAnalysis": {
+                "applicable": false,
+                "direction": null,
+                "reason": "来源的主要贡献是提出基于注意力机制的 Transformer 神经网络模型架构，提升序列建模质量与训练并行性，不属于硬件架构、设计空间探索、编译器、仿真器或性能建模。"
+              },
+              "verificationLevel": null,
+              "warnings": [
+                "实现检索笔记记录了未核查范围（未运行、未找到、没有访问权限、未公开）；实现相关结论只按静态阅读对待"
+              ],
+              "methodVersion": "article-blog-v1",
+              "runStatus": "completed",
+              "error": null
+            }
+          },
+          {
+            "itemId": "6d144d3f79ba4f4abb64131e282004f5",
+            "fileName": "broken.html",
+            "status": "failed",
+            "sourceId": null,
+            "error": {
+              "error_id": "article_image_missing",
+              "message": "Article image 1 is not a complete embedded image; save again with SingleFile"
+            },
+            "blog": null
+          },
+          {
+            "itemId": "2a916cfa1a4a414996ca64e5c8fbb294",
+            "fileName": "ai-chip-architecture.html",
+            "status": "completed",
+            "sourceId": "AI Agent 真懂芯片架构吗？Microsoft Research 的实验结论有点微妙-article",
+            "error": null,
+            "blog": {
+              "sourceId": "AI Agent 真懂芯片架构吗？Microsoft Research 的实验结论有点微妙-article",
+              "generated": true,
+              "artifacts": {
+                "value_analysis": {
+                  "status": "completed",
+                  "updatedAt": "2026-09-27T04:17:01+00:00"
+                },
+                "reading_blog": {
+                  "status": "completed",
+                  "updatedAt": "2026-09-27T04:13:39+00:00"
+                },
+                "html": {
+                  "status": "completed",
+                  "updatedAt": "2026-09-27T04:17:01+00:00"
+                }
+              },
+              "valueAnalysis": {
+                "applicable": true,
+                "direction": "design_space_exploration",
+                "reason": "主要贡献是提出 AutoTuring 受控评估框架，在相同 GPU 设计空间中对比保留与剥离架构语义的 Agent 搜索表现，以区分设计空间探索中的体系结构知识作用与通用搜索能力。"
+              },
+              "verificationLevel": "paper_reading",
+              "warnings": [
+                "未取得论文原文；paper_reading 是限定枚举中的最低层级，不表示已阅读全文。",
+                "后续检索遭遇工具失败或范围限制，不能将本次未检出解释为官方代码未公开。",
+                "没有取得目标源码，未完成核心路径静态核查，也未执行任何实验。",
+                "未确认任何与该论文相关的第三方复现。",
+                "实现检索笔记记录了未核查范围（未公开、未验证）；实现相关结论只按静态阅读对待"
+              ],
+              "methodVersion": "article-blog-v1",
+              "runStatus": "completed",
+              "error": null
+            }
+          },
+          {
+            "itemId": "c30a3df731b14bef9d3a26d23195e52f",
+            "fileName": "functional-programming.html",
+            "status": "completed",
+            "sourceId": "Functional Programming HOWTO-article",
+            "error": null,
+            "blog": {
+              "sourceId": "Functional Programming HOWTO-article",
+              "generated": true,
+              "artifacts": {
+                "value_analysis": {
+                  "status": "not_applicable",
+                  "updatedAt": "2026-09-27T04:17:17+00:00"
+                },
+                "reading_blog": {
+                  "status": "completed",
+                  "updatedAt": "2026-09-27T04:20:31+00:00"
+                },
+                "html": {
+                  "status": "completed",
+                  "updatedAt": "2026-09-27T04:20:31+00:00"
+                }
+              },
+              "valueAnalysis": {
+                "applicable": false,
+                "direction": null,
+                "reason": "来源主要介绍 Python 函数式编程的概念、语言特性及模块化和测试优势，不涉及硬件架构、设计空间探索、编译器、仿真器或性能建模方面的主要贡献。"
+              },
+              "verificationLevel": null,
+              "warnings": [
+                "实现检索笔记记录了未核查范围（未运行、未找到、没有访问权限、未公开）；实现相关结论只按静态阅读对待"
+              ],
+              "methodVersion": "article-blog-v1",
+              "runStatus": "completed",
+              "error": null
+            }
+          }
+        ]
+      }
+    ],
+    "sources": {
+      "AI Agent 真懂芯片架构吗？Microsoft Research 的实验结论有点微妙-article": {
+        "files": {
+          "blog/assets/image-001.webp": "acd767db50858cfde32926c88f2d1e6ffc350bafda2c51979bd7eaf25925469a",
+          "blog/blog.md": "f1e4e0596b20cf3790a219445c266e9b73da93ab5479b502750efd7786773523",
+          "blog/evidence/evidence-map.md": "e6cb516859fd0478bdbdff37cbf580ef5dcb519326cc38f7486526f3498e6c10",
+          "blog/evidence/implementation-notes.md": "fc7587d7e33b4b5603d0e93d33c51f3821f1b3be186e30776b36ddfe04f236b3",
+          "blog/index.html": "81110d323ed148d2e494c516aab7fa6a1d692c32dc0371cd8905c275fb08413e",
+          "blog/metadata.json": "78b6ae2b48130774c2416933f3f058418d6736d4b3f3b3b1ea63da84011d2248",
+          "blog/value-analysis.md": "9a08c89a8fbf01cf92e56d2ff69ca42c69c74f64852d770d628d63e95484e9ba",
+          "notes/notes.sqlite3": "76dc8e6d1b33f052dc271e834755aaa4db72494f49e37d2213efa9b2c1572212",
+          "parser-bundle/content.md": "3a8040a83fe18842ef81b4d2353a3481032a1d974def2a06b3526a06eac1b896",
+          "parser-bundle/images/image-001.webp": "acd767db50858cfde32926c88f2d1e6ffc350bafda2c51979bd7eaf25925469a",
+          "parser-bundle/ingestion-result.json": "934a66f7a377ccd29bab991353201eddbb1752fc505575ea5908426cf299f667",
+          "parser-bundle/metadata.json": "088b0546d59221e23f2005d0aaaa64487a865bd8c0839572b62bbb14c1f54f60",
+          "parser-bundle/source.html": "e6a45610675cac3deaac4d027656c1e8a500046c6f676ea0ea0cb803a3e7441e",
+          "parser-bundle/validation.json": "fbea9270b0449fc2d69b667175e273072f6a6f168eadd5306d053f3d2eb5b9a7",
+          "reading/bundles/a8f1443a955d8ecf6b6e7fc6f3f36bd57cd57918d9ed77b331ebb8b26d38a5f1/content.md": "3a8040a83fe18842ef81b4d2353a3481032a1d974def2a06b3526a06eac1b896",
+          "reading/bundles/a8f1443a955d8ecf6b6e7fc6f3f36bd57cd57918d9ed77b331ebb8b26d38a5f1/images/image-001.webp": "acd767db50858cfde32926c88f2d1e6ffc350bafda2c51979bd7eaf25925469a",
+          "reading/bundles/a8f1443a955d8ecf6b6e7fc6f3f36bd57cd57918d9ed77b331ebb8b26d38a5f1/ingestion-result.json": "934a66f7a377ccd29bab991353201eddbb1752fc505575ea5908426cf299f667",
+          "reading/bundles/a8f1443a955d8ecf6b6e7fc6f3f36bd57cd57918d9ed77b331ebb8b26d38a5f1/metadata.json": "088b0546d59221e23f2005d0aaaa64487a865bd8c0839572b62bbb14c1f54f60",
+          "reading/bundles/a8f1443a955d8ecf6b6e7fc6f3f36bd57cd57918d9ed77b331ebb8b26d38a5f1/source.html": "e6a45610675cac3deaac4d027656c1e8a500046c6f676ea0ea0cb803a3e7441e",
+          "reading/bundles/a8f1443a955d8ecf6b6e7fc6f3f36bd57cd57918d9ed77b331ebb8b26d38a5f1/validation.json": "fbea9270b0449fc2d69b667175e273072f6a6f168eadd5306d053f3d2eb5b9a7",
+          "reading/plans/plan-001/chunks.jsonl": "dfaacb274d00fc5eff27336b02fff140c5fc83820eeb9daec979d9b753b6b8be",
+          "reading/plans/plan-001/glossary.tsv": "6ba8dcdb89fec9e25e3e217a3db74935013167080609ef6e05ab6a0de7478392",
+          "reading/plans/plan-001/provenance.json": "3e0c0f810f0f00b07ce4ac1a738ca32f208ac0bbe77e1300fa08441f42dc2b13",
+          "reading/plans/plan-001/records/chunk-001.json": "9b8b06bcc11d08a214d104a5134ca4df6e3b030e159c5894eefda4ad5e1ffe86",
+          "reading/plans/plan-001/records/chunk-002.json": "06dcf47d805ab9d13dd3257386aec059ee8a170e443385ead8750073c0e4c474",
+          "reading/plans/plan-001/records/chunk-003.json": "f3601775bfd48df717c27f3b29bba60721a21cdb246483db95499b4d9ec85c90",
+          "reading/plans/plan-001/records/chunk-004.json": "49dd2d3244c133d3c160905b6dff7d03716928c2821c92e623b59456e429a83a",
+          "reading/plans/plan-001/records/chunk-005.json": "9979ab19cb69ffd5ca992c7d1d2079061ac46556dd6475ecd0a020bb4890d38b",
+          "reading/preparation.json": "8bf9185eace69f3de3868dc8d2352c39bfcaf8a262923d710837e20bfb8bb7fb",
+          "source.yaml": "b3681f1732d272b1f2210beaa5f2ad5601d9bca3667f3df8d2eb41e4838e9fa5"
+        },
+        "preparation": {
+          "source_id": "AI Agent 真懂芯片架构吗？Microsoft Research 的实验结论有点微妙-article",
+          "status": "ready",
+          "step": "ready",
+          "total": 5,
+          "completed": 5,
+          "ready": true,
+          "error": null,
+          "plan_id": "plan-001",
+          "glossary_revision": "fe4176f3213ea9dcb20f051af92c362072ab1db1dc71f6d4147ff1b062b74aa2",
+          "selected_plan_id": "plan-001",
+          "selected_ready": true,
+          "candidate": false
+        }
+      },
+      "Attention Is All You Need-paper": {
+        "files": {
+          "blog/assets/image-001.jpg": "20fcfcfab7aa8c2e1cb48c21628801eeb627ab9a1664a22484206ae50275881f",
+          "blog/assets/image-002.jpg": "ff3f05521b1d9775cd277f64c8ce402c70c2fa2093d42e18e06694bc2bb6f6ba",
+          "blog/assets/image-003.jpg": "64329dcc6e9e39e9d58c71e56f48b1c4686eb584348ee886d7c24e6dac14c8aa",
+          "blog/assets/image-004.jpg": "051a34bc0f8ed11960be5a4e41b58cb3b7ccc6d217a4096e8a0b630ebcebc602",
+          "blog/assets/image-005.jpg": "c1d82fbd6c6a0b12bed2082b6bb9d46f7ca834371acc05754b92ecf01f8b91c3",
+          "blog/blog.md": "cc201348ea8cf643217e3b0c74c1c24a8f685f18448156e7d27bcd37e632ccf2",
+          "blog/evidence/evidence-map.md": "95c4c9468eef85cb1cd7a5534dc7bbd6b174cc1a78b5127eb89652c5caf4b4da",
+          "blog/evidence/implementation-notes.md": "cc1c1466db2576466a5ba43babcde4bfdadf623dafdc3f2d27307407b5f4fe2a",
+          "blog/index.html": "db2d551ea0031f090700c72488ea1df9512e9e23aa052f4151410ecc182ce5c7",
+          "blog/metadata.json": "45e3466f4d6b7c102f6db763393f9951bac2226a7d00ebaa045b1359f0f9dc19",
+          "notes/notes.sqlite3": "edb487c826a900db94cadaa58d18a5798e4671e335d07d2dec03671aa619422a",
+          "parser-bundle/content.md": "5acfcbeb1070e965b7fc2db7ba200b0995eb66b56e4ccf79fb66bcb9f2450bef",
+          "parser-bundle/images/image-001.jpg": "20fcfcfab7aa8c2e1cb48c21628801eeb627ab9a1664a22484206ae50275881f",
+          "parser-bundle/images/image-002.jpg": "ff3f05521b1d9775cd277f64c8ce402c70c2fa2093d42e18e06694bc2bb6f6ba",
+          "parser-bundle/images/image-003.jpg": "64329dcc6e9e39e9d58c71e56f48b1c4686eb584348ee886d7c24e6dac14c8aa",
+          "parser-bundle/images/image-004.jpg": "051a34bc0f8ed11960be5a4e41b58cb3b7ccc6d217a4096e8a0b630ebcebc602",
+          "parser-bundle/images/image-005.jpg": "c1d82fbd6c6a0b12bed2082b6bb9d46f7ca834371acc05754b92ecf01f8b91c3",
+          "parser-bundle/ingestion-result.json": "b719e1f742016bd19f526f9d071c4f2fca7a5f87861b2809eb057b634f14b952",
+          "parser-bundle/metadata.json": "1cb3852b498767a44e95a9c9771225b9e88ebab18a3cf68f25f48cf2a2c952ed",
+          "parser-bundle/source.pdf": "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",
+          "parser-bundle/validation.json": "35d3a595832565503412f5e58a92acc808948723178926acd44a099ac530744a",
+          "reading/bundles/982642cab9eb5b1b27fed4a612fdde215cf7523090708c10515311db3a3091da/content.md": "5acfcbeb1070e965b7fc2db7ba200b0995eb66b56e4ccf79fb66bcb9f2450bef",
+          "reading/bundles/982642cab9eb5b1b27fed4a612fdde215cf7523090708c10515311db3a3091da/images/image-001.jpg": "20fcfcfab7aa8c2e1cb48c21628801eeb627ab9a1664a22484206ae50275881f",
+          "reading/bundles/982642cab9eb5b1b27fed4a612fdde215cf7523090708c10515311db3a3091da/images/image-002.jpg": "ff3f05521b1d9775cd277f64c8ce402c70c2fa2093d42e18e06694bc2bb6f6ba",
+          "reading/bundles/982642cab9eb5b1b27fed4a612fdde215cf7523090708c10515311db3a3091da/images/image-003.jpg": "64329dcc6e9e39e9d58c71e56f48b1c4686eb584348ee886d7c24e6dac14c8aa",
+          "reading/bundles/982642cab9eb5b1b27fed4a612fdde215cf7523090708c10515311db3a3091da/images/image-004.jpg": "051a34bc0f8ed11960be5a4e41b58cb3b7ccc6d217a4096e8a0b630ebcebc602",
+          "reading/bundles/982642cab9eb5b1b27fed4a612fdde215cf7523090708c10515311db3a3091da/images/image-005.jpg": "c1d82fbd6c6a0b12bed2082b6bb9d46f7ca834371acc05754b92ecf01f8b91c3",
+          "reading/bundles/982642cab9eb5b1b27fed4a612fdde215cf7523090708c10515311db3a3091da/ingestion-result.json": "b719e1f742016bd19f526f9d071c4f2fca7a5f87861b2809eb057b634f14b952",
+          "reading/bundles/982642cab9eb5b1b27fed4a612fdde215cf7523090708c10515311db3a3091da/metadata.json": "1cb3852b498767a44e95a9c9771225b9e88ebab18a3cf68f25f48cf2a2c952ed",
+          "reading/bundles/982642cab9eb5b1b27fed4a612fdde215cf7523090708c10515311db3a3091da/source.pdf": "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",
+          "reading/bundles/982642cab9eb5b1b27fed4a612fdde215cf7523090708c10515311db3a3091da/validation.json": "35d3a595832565503412f5e58a92acc808948723178926acd44a099ac530744a",
+          "reading/plans/plan-001/chunks.jsonl": "2c6f3fa54da5efe3a166e7d7513d6f34970d0b5b52204fcd7c6b299c9d0e5e59",
+          "reading/plans/plan-001/glossary.tsv": "acb7904ae796d6381069c1aeb03a6f0e18fe3967b3e22b848eae02963fada73a",
+          "reading/plans/plan-001/provenance.json": "bb99b233715c6518e3b078df2ad2b2cec776703dcb65b7ea02eb196dcfa3c201",
+          "reading/plans/plan-001/records/chunk-001.json": "690ef6131de6c1784269b1f7b960d80e4adccc756aeef4eb9f54e19c5295e4d6",
+          "reading/plans/plan-001/records/chunk-002.json": "6de5a8c19ece161634477f057181ff3c321ad75c994d58fded02d22369fdc936",
+          "reading/plans/plan-001/records/chunk-003.json": "4230ba294f65a90b74d770acfdb66dc22c593b65e8ccb217ed22e701aae3b129",
+          "reading/plans/plan-001/records/chunk-004.json": "197c4e35e9691c6b6a3e11223bc7e9c09f1ec0d5c638af66b18e5f08dd213dce",
+          "reading/plans/plan-001/records/chunk-005.json": "239af687cc1813be8912fd0a9404709f5e6f0b89c50a999d2bd618a864b7d9fc",
+          "reading/plans/plan-001/records/chunk-006.json": "d33e90e6f6470b36c17eb0ba3a11544eeb1474e4340a6861d96bf45dc9884986",
+          "reading/plans/plan-001/records/chunk-007.json": "5e89ca7d129319143efd401bee582780b41e6530c6f53bab5cabd6ecae16f8c7",
+          "reading/plans/plan-001/records/chunk-008.json": "2b0f8e0eb5bf8d65d00ed44f4476d3e1123b8c2eedb3869c01a04c423b045aa1",
+          "reading/plans/plan-001/records/chunk-009.json": "885a14ebbdb0ccdfb3aba5556c01edb39a1b8d05761023197e6cb24dbc031811",
+          "reading/plans/plan-001/records/chunk-010.json": "ab84d2b19a6aaec78fd5c03a50a306c2db88d9ea20d4d15d029945c7e0051075",
+          "reading/plans/plan-001/records/chunk-011.json": "0a30a4c881ce7c4c9de63882b40a5aa9d1374345546b5e528804301baf417623",
+          "reading/plans/plan-001/records/chunk-012.json": "f8c44b2c666de0358e6e7d14453fe8936eba944003b1bbca09ff01d8faa693f0",
+          "reading/plans/plan-001/records/chunk-013.json": "f0438dc869b3638aa0b5f3877d9769197d13b82546654df7d535582af767cab7",
+          "reading/plans/plan-001/records/chunk-014.json": "d6de85e92d8b84fc4ff43a3a21d86664dce3ef565bf3e2ad8c10f41856f16abf",
+          "reading/plans/plan-001/records/chunk-015.json": "4e76cca8da9131c7e41b3b00031067209628427de4c42641dcbcf14b29a53401",
+          "reading/plans/plan-001/records/chunk-016.json": "b0c38b3f40c560acf2106151868e6101709130ffa22cac5f39f128ef872b601a",
+          "reading/plans/plan-001/records/chunk-017.json": "885108e80aca1ebf92cd6f55afd491efc49784bcc47897031794fec0b9969a8b",
+          "reading/plans/plan-001/records/chunk-018.json": "ff3c1e0c0d9764e48a99f87d73b3c5f87f865ccd0df1f2416c36f0d06a32cc3d",
+          "reading/plans/plan-001/records/chunk-019.json": "126c2bac9a62c6ac38799103a3e55125ac089ae75b93e9bd3977e1a23991eb31",
+          "reading/plans/plan-001/records/chunk-020.json": "f6108edc64b407d515f1a97f8b79c458725699b85cdd2b1b0469ee9d41674d9a",
+          "reading/plans/plan-001/records/chunk-021.json": "466e7943152266d8778759a85fcc196e6025a9beec73a150a7f3bdccc6c609bd",
+          "reading/plans/plan-001/records/chunk-022.json": "d49d75132f451a9d17f38bb8be89e1b93719cd8502e412a50e7b7006d6a2ad1c",
+          "reading/plans/plan-001/records/chunk-023.json": "ef52eeb8cc98c3a25c24c1725ad41b67699abf64a32214c5e821e6f4feb7baee",
+          "reading/plans/plan-001/records/chunk-024.json": "0a60477dd304921adfc75c1f50fa9ea12009baf2d2617062406d1a8a5fbfd1e2",
+          "reading/plans/plan-001/records/chunk-025.json": "59b06df010376f71919eb09dfadd46eb6e53fd9fbd0d5af16a67ef9f9c416f40",
+          "reading/plans/plan-001/records/chunk-026.json": "0152341fbc486c6a7f40b125567dc23a1acf0851729fbbd4f3f2897b4863ca5b",
+          "reading/preparation.json": "1f112383b72c68becd4a33dbb4a426d2dda08eed14e403d4f15995383cc78fde",
+          "source.yaml": "55b4b51eef3388e4e21b4b91464e806982a425438372f459730b6056e889fb03"
+        },
+        "preparation": {
+          "source_id": "Attention Is All You Need-paper",
+          "status": "ready",
+          "step": "ready",
+          "total": 26,
+          "completed": 26,
+          "ready": true,
+          "error": null,
+          "plan_id": "plan-001",
+          "glossary_revision": "f219f7a6f7432d1152f940c1a3587719b1721f1ae58f8bcb075bd48268a39d60",
+          "selected_plan_id": null,
+          "selected_ready": false,
+          "candidate": false
+        }
+      },
+      "Functional Programming HOWTO-article": {
+        "files": {
+          "blog/blog.md": "80895767a4d60dc59f9e03fe14903ca705720874083b64af93a7035790ed5540",
+          "blog/evidence/evidence-map.md": "c2c1b25afe42784a6d92f76263c0c001ea92724a85a76d64c509b848d8fe33d0",
+          "blog/evidence/implementation-notes.md": "cc1c1466db2576466a5ba43babcde4bfdadf623dafdc3f2d27307407b5f4fe2a",
+          "blog/index.html": "3df30b19a69cee32c9ea14d64b2b9d26da09be76578043334851c9624f87a6de",
+          "blog/metadata.json": "557f0252304c3f988c7e1301461eaba62e6c96f4a79fe464c52b7c46929b7126",
+          "parser-bundle/content.md": "5c9fd4753dc41e9b17d44c78af279aa35a637df65e1168bf1f957be10bf8603e",
+          "parser-bundle/ingestion-result.json": "da706524527f14808184ac49ad1d8ba212a7ef3a7d2140a1714329c184e08c15",
+          "parser-bundle/metadata.json": "301c844115efd3cadc44284f09d34065e74f7e0e97ec37d72a6ed3d46bf9374e",
+          "parser-bundle/source.html": "5a005e2f08813437c7b09dd683139713446946d6f8bb5184bb2738791158bef1",
+          "parser-bundle/validation.json": "b9f62e5687fbb63e5ddd9c775afe668f64d94cf770c4ee228e1393232ec72b3f",
+          "reading/preparation.json": "0ec66cfcf0afdc311045d0aafd3b81767e19e3c8552136fb6c379d24a9709852",
+          "source.yaml": "606c4c3cab528cb68080071a89fb2422f5f6368c809ec51890d6ba1ea5be2f35"
+        },
+        "preparation": {
+          "source_id": "Functional Programming HOWTO-article",
+          "status": "cancelled",
+          "step": "context",
+          "total": 0,
+          "completed": 0,
+          "ready": false,
+          "error": "Cancelled by reader",
+          "plan_id": null,
+          "glossary_revision": null,
+          "selected_plan_id": null,
+          "selected_ready": false,
+          "candidate": false
+        }
+      }
+    },
+    "selected": {
+      "sourceId": "AI Agent 真懂芯片架构吗？Microsoft Research 的实验结论有点微妙-article",
+      "planId": "plan-001",
+      "chunkId": "chunk-002",
+      "index": 2,
+      "total": 5
+    },
+    "selectedNotes": 1,
+    "selectedProgress": [
+      {
+        "progress_id": "6873d262-2d4d-4c53-99ff-85730b490510",
+        "source_id": "AI Agent 真懂芯片架构吗？Microsoft Research 的实验结论有点微妙-article",
+        "plan_id": "plan-001",
+        "chunk_id": "chunk-001",
+        "operation": "continue",
+        "status": "saved"
+      }
+    ],
+    "agentStatus": null
+  },
+  "deepseek": {
+    "batches": [
+      {
+        "status": "partial",
+        "items": [
+          {
+            "itemId": "3d3e53634a8a4838ad417f4e0f12a67b",
+            "fileName": "attention-is-all-you-need.pdf",
+            "status": "completed",
+            "sourceId": "Attention Is All You Need-paper",
+            "error": null,
+            "blog": {
+              "sourceId": "Attention Is All You Need-paper",
+              "generated": true,
+              "artifacts": {
+                "value_analysis": {
+                  "status": "not_applicable",
+                  "updatedAt": "2026-09-27T04:06:17+00:00"
+                },
+                "reading_blog": {
+                  "status": "completed",
+                  "updatedAt": "2026-09-27T04:15:05+00:00"
+                },
+                "html": {
+                  "status": "completed",
+                  "updatedAt": "2026-09-27T04:15:06+00:00"
+                }
+              },
+              "valueAnalysis": {
+                "applicable": false,
+                "direction": null,
+                "reason": "The paper's main contribution is a novel neural network architecture (the Transformer), not hardware architecture, DSE, compiler, simulator, or performance modeling."
+              },
+              "verificationLevel": null,
+              "warnings": [
+                "实现检索笔记记录了未核查范围（未运行、未找到、没有访问权限、未公开）；实现相关结论只按静态阅读对待"
+              ],
+              "methodVersion": "article-blog-v1",
+              "runStatus": "completed",
+              "error": null
+            }
+          },
+          {
+            "itemId": "3c7556a147a042c6a581c7e6d5a89ec8",
+            "fileName": "broken.html",
+            "status": "failed",
+            "sourceId": null,
+            "error": {
+              "error_id": "article_image_missing",
+              "message": "Article image 1 is not a complete embedded image; save again with SingleFile"
+            },
+            "blog": null
+          },
+          {
+            "itemId": "2c52fbd1111f4635b8e2768c53809294",
+            "fileName": "ai-chip-architecture.html",
+            "status": "completed",
+            "sourceId": "AI Agent 真懂芯片架构吗？Microsoft Research 的实验结论有点微妙-article",
+            "error": null,
+            "blog": {
+              "sourceId": "AI Agent 真懂芯片架构吗？Microsoft Research 的实验结论有点微妙-article",
+              "generated": true,
+              "artifacts": {
+                "value_analysis": {
+                  "status": "completed",
+                  "updatedAt": "2026-09-27T04:11:05+00:00"
+                },
+                "reading_blog": {
+                  "status": "completed",
+                  "updatedAt": "2026-09-27T04:08:32+00:00"
+                },
+                "html": {
+                  "status": "completed",
+                  "updatedAt": "2026-09-27T04:11:06+00:00"
+                }
+              },
+              "valueAnalysis": {
+                "applicable": true,
+                "direction": "design_space_exploration",
+                "reason": "该来源的核心贡献是提出 AutoTuring 框架，通过固定 Agent 和 15 维 GPU accelerator 设计空间、仅改变问题呈现方式来受控评估 AI Agent 在芯片设计空间探索中的表现与理解能力。"
+              },
+              "verificationLevel": "static_review",
+              "warnings": [
+                "未定位到该论文的任何官方实现：无 arXiv 编号/URL、无项目页、无 artifact/Zenodo、无作者或 Microsoft Research 官方仓库；`microsoft/AutoTuring` 等候选仓 read 均失败。",
+                "报道声称的框架名 AutoTuring 与检索到的第三方仓库（gogogonow/AI-AutoTuringFlow、silveron19/autotureid）名称近似但内容无关，已单独标注，不构成任何实现证据。",
+                "唯一可核实的实体是基线仿真器 PrincetonUniversity/LLMCompass（ISCA 2024，非本论文产物）；报道所称‘大量修改的衍生版本’未公开，故其核心路径（Actor/Critic 循环、Architect/Optimizer 呈现层、space.apply_design 固定 HBM 带宽逻辑）均无法静态核查。",
+                "报道中的全部量化结论与实验设置（15 维空间、面积/shoreline 预算、4800 GB/s、各项百分比、12 轮 horizon、每轮 300 评估等）以及模型标识 claude-opus-4.8 均未经一手来源验证；claude-opus-4.8 命名本身存疑。",
+                "Figure 2 与多处 Agent 轨迹引文无法回源比对；本报告未运行任何实验，也未执行任何代码。",
+                "实现检索笔记记录了未核查范围（未运行、未公开）；实现相关结论只按静态阅读对待"
+              ],
+              "methodVersion": "article-blog-v1",
+              "runStatus": "completed",
+              "error": null
+            }
+          },
+          {
+            "itemId": "d09fb6691ab54b8b8464e4edd647951c",
+            "fileName": "functional-programming.html",
+            "status": "completed",
+            "sourceId": "Functional Programming HOWTO-article",
+            "error": null,
+            "blog": {
+              "sourceId": "Functional Programming HOWTO-article",
+              "generated": true,
+              "artifacts": {
+                "value_analysis": {
+                  "status": "not_applicable",
+                  "updatedAt": "2026-09-27T04:11:17+00:00"
+                },
+                "reading_blog": {
+                  "status": "completed",
+                  "updatedAt": "2026-09-27T04:19:02+00:00"
+                },
+                "html": {
+                  "status": "completed",
+                  "updatedAt": "2026-09-27T04:19:02+00:00"
+                }
+              },
+              "valueAnalysis": {
+                "applicable": false,
+                "direction": null,
+                "reason": "该来源是 Python 函数式编程 HOWTO，讲解迭代器、生成器及 itertools/functools 等语言特性与编程范式，未涉及硬件架构、设计空间探索、编译器、仿真器或性能建模。"
+              },
+              "verificationLevel": null,
+              "warnings": [
+                "实现检索笔记记录了未核查范围（未运行、未找到、没有访问权限、未公开）；实现相关结论只按静态阅读对待"
+              ],
+              "methodVersion": "article-blog-v1",
+              "runStatus": "completed",
+              "error": null
+            }
+          }
+        ]
+      }
+    ],
+    "sources": {
+      "AI Agent 真懂芯片架构吗？Microsoft Research 的实验结论有点微妙-article": {
+        "files": {
+          "blog/assets/image-001.webp": "acd767db50858cfde32926c88f2d1e6ffc350bafda2c51979bd7eaf25925469a",
+          "blog/blog.md": "c47c0670cfde9822ed9de170b0a7573625d27129684d1011ca5ebff045a51362",
+          "blog/evidence/evidence-map.md": "ede6ee9ffa18bdf52ea9811cc84aa4a222d9fc633ee1d8bc79e401d0906f8672",
+          "blog/evidence/implementation-notes.md": "b9f22f4ab4d69b722930c64d310d0def8bb418edcda33efb3a3843891ae1ffe2",
+          "blog/index.html": "4bece74983cc5185b9c2a7c2abd43bcd84b4e3bb0f6302676a08d138a7ecac7a",
+          "blog/metadata.json": "1ea5e1ef4a8f832015d8010aa6574978211c5db6d982f1f4516a4e3175f2a093",
+          "blog/value-analysis.md": "335ad6c4f319965c0120515fe878cacc92a8f1fb2b50e9ec71c5a60b448ed28b",
+          "notes/notes.sqlite3": "96381682e83f4f31f3318e9b8f0d765796b536503e76aaa7c694b297a258cf15",
+          "parser-bundle/content.md": "3a8040a83fe18842ef81b4d2353a3481032a1d974def2a06b3526a06eac1b896",
+          "parser-bundle/images/image-001.webp": "acd767db50858cfde32926c88f2d1e6ffc350bafda2c51979bd7eaf25925469a",
+          "parser-bundle/ingestion-result.json": "934a66f7a377ccd29bab991353201eddbb1752fc505575ea5908426cf299f667",
+          "parser-bundle/metadata.json": "088b0546d59221e23f2005d0aaaa64487a865bd8c0839572b62bbb14c1f54f60",
+          "parser-bundle/source.html": "e6a45610675cac3deaac4d027656c1e8a500046c6f676ea0ea0cb803a3e7441e",
+          "parser-bundle/validation.json": "fbea9270b0449fc2d69b667175e273072f6a6f168eadd5306d053f3d2eb5b9a7",
+          "reading/bundles/a8f1443a955d8ecf6b6e7fc6f3f36bd57cd57918d9ed77b331ebb8b26d38a5f1/content.md": "3a8040a83fe18842ef81b4d2353a3481032a1d974def2a06b3526a06eac1b896",
+          "reading/bundles/a8f1443a955d8ecf6b6e7fc6f3f36bd57cd57918d9ed77b331ebb8b26d38a5f1/images/image-001.webp": "acd767db50858cfde32926c88f2d1e6ffc350bafda2c51979bd7eaf25925469a",
+          "reading/bundles/a8f1443a955d8ecf6b6e7fc6f3f36bd57cd57918d9ed77b331ebb8b26d38a5f1/ingestion-result.json": "934a66f7a377ccd29bab991353201eddbb1752fc505575ea5908426cf299f667",
+          "reading/bundles/a8f1443a955d8ecf6b6e7fc6f3f36bd57cd57918d9ed77b331ebb8b26d38a5f1/metadata.json": "088b0546d59221e23f2005d0aaaa64487a865bd8c0839572b62bbb14c1f54f60",
+          "reading/bundles/a8f1443a955d8ecf6b6e7fc6f3f36bd57cd57918d9ed77b331ebb8b26d38a5f1/source.html": "e6a45610675cac3deaac4d027656c1e8a500046c6f676ea0ea0cb803a3e7441e",
+          "reading/bundles/a8f1443a955d8ecf6b6e7fc6f3f36bd57cd57918d9ed77b331ebb8b26d38a5f1/validation.json": "fbea9270b0449fc2d69b667175e273072f6a6f168eadd5306d053f3d2eb5b9a7",
+          "reading/plans/plan-001/chunks.jsonl": "dfaacb274d00fc5eff27336b02fff140c5fc83820eeb9daec979d9b753b6b8be",
+          "reading/plans/plan-001/glossary.tsv": "1b686b5003034dd522328d8cdac60a70533b9bb8d5f102a7c7cf0b09198c086f",
+          "reading/plans/plan-001/provenance.json": "d081950e29ddb9c1a387a3407705657d58aaf0dc294d9c0cafbdbf94c03f3973",
+          "reading/plans/plan-001/records/chunk-001.json": "9b8b06bcc11d08a214d104a5134ca4df6e3b030e159c5894eefda4ad5e1ffe86",
+          "reading/plans/plan-001/records/chunk-002.json": "06dcf47d805ab9d13dd3257386aec059ee8a170e443385ead8750073c0e4c474",
+          "reading/plans/plan-001/records/chunk-003.json": "f3601775bfd48df717c27f3b29bba60721a21cdb246483db95499b4d9ec85c90",
+          "reading/plans/plan-001/records/chunk-004.json": "49dd2d3244c133d3c160905b6dff7d03716928c2821c92e623b59456e429a83a",
+          "reading/plans/plan-001/records/chunk-005.json": "9979ab19cb69ffd5ca992c7d1d2079061ac46556dd6475ecd0a020bb4890d38b",
+          "reading/preparation.json": "62169ce1ebb27cad8c0140b68e618fe68db53046f105ec5e953edaf7fcf94420",
+          "source.yaml": "b3681f1732d272b1f2210beaa5f2ad5601d9bca3667f3df8d2eb41e4838e9fa5"
+        },
+        "preparation": {
+          "source_id": "AI Agent 真懂芯片架构吗？Microsoft Research 的实验结论有点微妙-article",
+          "status": "ready",
+          "step": "ready",
+          "total": 5,
+          "completed": 5,
+          "ready": true,
+          "error": null,
+          "plan_id": "plan-001",
+          "glossary_revision": "0533423ffa9db4276646a9ac1b9d92ae9257abc99554dbbfd1e9ddf5622e290b",
+          "selected_plan_id": "plan-001",
+          "selected_ready": true,
+          "candidate": false
+        }
+      },
+      "Attention Is All You Need-paper": {
+        "files": {
+          "blog/assets/image-001.jpg": "20fcfcfab7aa8c2e1cb48c21628801eeb627ab9a1664a22484206ae50275881f",
+          "blog/assets/image-002.jpg": "ff3f05521b1d9775cd277f64c8ce402c70c2fa2093d42e18e06694bc2bb6f6ba",
+          "blog/assets/image-003.jpg": "64329dcc6e9e39e9d58c71e56f48b1c4686eb584348ee886d7c24e6dac14c8aa",
+          "blog/assets/image-004.jpg": "051a34bc0f8ed11960be5a4e41b58cb3b7ccc6d217a4096e8a0b630ebcebc602",
+          "blog/assets/image-005.jpg": "c1d82fbd6c6a0b12bed2082b6bb9d46f7ca834371acc05754b92ecf01f8b91c3",
+          "blog/blog.md": "c7562fc0d181d91951e677b2ecb8fe8dfe23ed4341ec4d8551f239081ab31093",
+          "blog/evidence/evidence-map.md": "e5de01be0d1b40e2b35f49b7421390017ff33279e5f370eca470830853cc8d38",
+          "blog/evidence/implementation-notes.md": "cc1c1466db2576466a5ba43babcde4bfdadf623dafdc3f2d27307407b5f4fe2a",
+          "blog/index.html": "caaad4e7fa89ed1864139e37edd1a72f837ba5fe2de05ea10772ba072c5eb976",
+          "blog/metadata.json": "55c600c10ec1166b9ffb761384f0b8965371393ad0571c106475aa4178a5155f",
+          "notes/notes.sqlite3": "8c27d0835f78bef66d3436c51022704299511b0e77f89ee1f070b666a0f6d9f5",
+          "parser-bundle/content.md": "5acfcbeb1070e965b7fc2db7ba200b0995eb66b56e4ccf79fb66bcb9f2450bef",
+          "parser-bundle/images/image-001.jpg": "20fcfcfab7aa8c2e1cb48c21628801eeb627ab9a1664a22484206ae50275881f",
+          "parser-bundle/images/image-002.jpg": "ff3f05521b1d9775cd277f64c8ce402c70c2fa2093d42e18e06694bc2bb6f6ba",
+          "parser-bundle/images/image-003.jpg": "64329dcc6e9e39e9d58c71e56f48b1c4686eb584348ee886d7c24e6dac14c8aa",
+          "parser-bundle/images/image-004.jpg": "051a34bc0f8ed11960be5a4e41b58cb3b7ccc6d217a4096e8a0b630ebcebc602",
+          "parser-bundle/images/image-005.jpg": "c1d82fbd6c6a0b12bed2082b6bb9d46f7ca834371acc05754b92ecf01f8b91c3",
+          "parser-bundle/ingestion-result.json": "f78faa9882fb2a0dc708a87fea6ed420331ffd89a455b48942253a1df4f8ae11",
+          "parser-bundle/metadata.json": "4c2e35c23b6f6f6d91757bddf95a1c5e8b3f19d28581041a1d4ff4147a417e4f",
+          "parser-bundle/source.pdf": "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",
+          "parser-bundle/validation.json": "35d3a595832565503412f5e58a92acc808948723178926acd44a099ac530744a",
+          "reading/preparation.json": "7c3dd69f2d6dca37c2bf6c9500d835b35eb24816d804f29845afff9c58697491",
+          "source.yaml": "55b4b51eef3388e4e21b4b91464e806982a425438372f459730b6056e889fb03"
+        },
+        "preparation": {
+          "source_id": "Attention Is All You Need-paper",
+          "status": "failed",
+          "step": "plan",
+          "total": 0,
+          "completed": 0,
+          "ready": false,
+          "error": "Reading Chunk section path is not anchored to source headings",
+          "plan_id": null,
+          "glossary_revision": null,
+          "selected_plan_id": null,
+          "selected_ready": false,
+          "candidate": false
+        }
+      },
+      "Functional Programming HOWTO-article": {
+        "files": {
+          "blog/blog.md": "61fae3bc54b8892ea4ea0dbc525c0d5b76b28dc3b8409f0a41551d67db787629",
+          "blog/evidence/evidence-map.md": "ad58a0985f769e24c5d6db5ff8b515ef7760e9050e2e5558efa439167982de61",
+          "blog/evidence/implementation-notes.md": "cc1c1466db2576466a5ba43babcde4bfdadf623dafdc3f2d27307407b5f4fe2a",
+          "blog/index.html": "bb3f227bde9d5d5fd746e6cbd73e08e90df138e3443a2d81b26bd8e586ac2bde",
+          "blog/metadata.json": "cd73fa77f5c722eae7365bd53382f9dc7ec76c2e63e5bb52d04e8307d760c4bc",
+          "parser-bundle/content.md": "5c9fd4753dc41e9b17d44c78af279aa35a637df65e1168bf1f957be10bf8603e",
+          "parser-bundle/ingestion-result.json": "da706524527f14808184ac49ad1d8ba212a7ef3a7d2140a1714329c184e08c15",
+          "parser-bundle/metadata.json": "301c844115efd3cadc44284f09d34065e74f7e0e97ec37d72a6ed3d46bf9374e",
+          "parser-bundle/source.html": "5a005e2f08813437c7b09dd683139713446946d6f8bb5184bb2738791158bef1",
+          "parser-bundle/validation.json": "b9f62e5687fbb63e5ddd9c775afe668f64d94cf770c4ee228e1393232ec72b3f",
+          "reading/preparation.json": "94110bc3dcfb938532c319f79078a6a4a781e517a41a7617398b53f4e6b1d68c",
+          "source.yaml": "606c4c3cab528cb68080071a89fb2422f5f6368c809ec51890d6ba1ea5be2f35"
+        },
+        "preparation": {
+          "source_id": "Functional Programming HOWTO-article",
+          "status": "failed",
+          "step": "plan",
+          "total": 0,
+          "completed": 0,
+          "ready": false,
+          "error": "Only reference lists may be excluded",
+          "plan_id": null,
+          "glossary_revision": null,
+          "selected_plan_id": null,
+          "selected_ready": false,
+          "candidate": false
+        }
+      }
+    },
+    "selected": {
+      "sourceId": "AI Agent 真懂芯片架构吗？Microsoft Research 的实验结论有点微妙-article",
+      "planId": "plan-001",
+      "chunkId": "chunk-002",
+      "index": 2,
+      "total": 5
+    },
+    "selectedNotes": 1,
+    "selectedProgress": [
+      {
+        "progress_id": "0d5b5ebf-f58c-4294-80e7-636a719c0bd6",
+        "source_id": "AI Agent 真懂芯片架构吗？Microsoft Research 的实验结论有点微妙-article",
+        "plan_id": "plan-001",
+        "chunk_id": "chunk-001",
+        "operation": "continue",
+        "status": "saved"
+      }
+    ],
+    "agentStatus": null
+  },
+  "originalDirtyPreserved": true
+}

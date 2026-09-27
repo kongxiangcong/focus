@@ -1,0 +1,31 @@
+{
+  "seconds": 51.61867210001219,
+  "invalid_headings": [
+    {
+      "index": 24,
+      "chunk": {
+        "section_path": [
+          "Attention Is All You Need",
+          "Attention Visualizations"
+        ],
+        "source_lines": [
+          319,
+          327
+        ],
+        "images": [
+          "images/image-003.jpg",
+          "images/image-004.jpg",
+          "images/image-005.jpg"
+        ],
+        "language": "en"
+      },
+      "valid_paths": [
+        [
+          "Attention Is All You Need",
+          "References"
+        ]
+      ]
+    }
+  ],
+  "validation_error": "Reading Chunk section path is not anchored to source headings"
+}

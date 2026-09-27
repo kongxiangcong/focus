@@ -1,0 +1,6 @@
+{
+  "backend": "codex",
+  "runtimePath": "C:\\Users\\72449\\AppData\\Roaming\\npm\\codex.CMD",
+  "status": "failed",
+  "message": "Runtime 或模型配置不兼容，请检查当前选择；没有自动更换路径或服务。"
+}

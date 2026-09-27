@@ -261,6 +261,28 @@ class SharedWorkflowTests(unittest.TestCase):
                 self.host.reading_workers['fixture-paper'].join(5)
             self.assertFalse(instances[0].cwd.exists())
 
+    def test_deepseek_token_limit_is_visible_and_cannot_publish_partial_preparation(self):
+        class TruncatedHarness(HarnessCandidates):
+            def run(self, prompt, **options):
+                result = super().run(prompt, **options)
+                # Even syntactically valid output is ineligible after truncation.
+                result.finish_reason = 'max-tokens'
+                result.events = [{'type': 'turn/end', 'data': {'reason': {'kind': 'max-tokens'}}}]
+                return result
+
+        with patch('deepseek_harness.DeepSeekHarness', TruncatedHarness):
+            self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek',
+                                    settings_path=self.fixture.root / 'settings.json')
+            before = self.host.snapshot()['current']
+            self.host.prepare_reading('fixture-paper', request_id=uuid.uuid4().hex)
+            self.host.reading_workers['fixture-paper'].join(10)
+            window = self.host.snapshot()
+            prepared = window['preparations']['fixture-paper']
+            self.assertEqual('failed', prepared['status'])
+            self.assertFalse(prepared['ready'])
+            self.assertIn('输出长度上限', prepared['error'])
+            self.assertEqual(before, window['current'])
+
     def test_deepseek_prepares_full_source_without_moving_cursor(self):
         with patch('deepseek_harness.DeepSeekHarness', HarnessCandidates), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'fixture-only'}):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek')
