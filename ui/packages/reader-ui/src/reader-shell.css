@@ -1,7 +1,7 @@
 .focus-reader { --ink:#262e2c; --muted:#68716b; --line:#dedfd8; --accent:#3b6254; height:100dvh; min-height:0; display:flex; flex-direction:column; overflow:hidden; color:var(--ink); background:#fafaf6; font:15px/1.6 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI","PingFang SC",sans-serif; }
 .focus-reader *, .focus-reader *::before, .focus-reader *::after { box-sizing:border-box; }
 .focus-reader button, .focus-reader input, .focus-reader textarea { font:inherit; }
-.focus-reader button { min-height:40px; padding:8px 12px; border:1px solid transparent; border-radius:8px; background:transparent; color:inherit; cursor:pointer; }
+.focus-reader button { min-height:40px; padding:8px 12px; border:1px solid #8c96a280; border-radius:8px; background:transparent; color:inherit; cursor:pointer; }
 .focus-reader button:hover { background:#ebece5; }
 .focus-reader button:disabled { opacity:.5; cursor:default; }
 .focus-reader :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }

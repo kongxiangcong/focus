@@ -41,6 +41,13 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [management, setManagement] = useState<{ kind: "create" | "rename" | "delete" | "source"; id?: string } | null>(null);
   const [managementTitle, setManagementTitle] = useState("");
   const managementDialog = useRef<HTMLDialogElement>(null);
+  const [libraryView, setLibraryView] = useState<"cards" | "list">(() => {
+    try { return localStorage.getItem("focus.libraryView") === "list" ? "list" : "cards"; } catch { return "cards"; }
+  });
+  const [expandedSources, setExpandedSources] = useState<ReadonlySet<string>>(new Set());
+  function toggleDetails(id: string) {
+    setExpandedSources(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  }
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -338,7 +345,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         {["confirmed", "running"].includes(batch.status) && <button disabled={!!busy || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "stop")}>停止整批</button>}
         {["paused", "partial"].includes(batch.status) && <button disabled={!!busy || batch.executing || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "continue")}>继续剩余工作</button>}
         {batch.error && <p role="status">{batch.error.message}</p>}
-        {batch.items.map(item => <div className="library-inbox-item" key={item.itemId}>
+        {batch.items.map(item => <div className="library-inbox-item" data-status={item.ingestionStatus === "failed" ? "failed" : item.status} key={item.itemId}>
           <strong>{item.fileName}</strong><span>{itemStatusText[item.status]}</span>
           <small>{item.status === "deleted" ? "原处理授权已失效" : item.ingestionStatus === "completed" ? "解析完成" : "解析：" + (statusText[item.ingestionStatus as IngestionItem["status"]] ?? "待处理")}{item.blog ? " · 博客：" + ({ running: "生成中", completed: "已完成", failed: "失败", cancelled: "已取消", interrupted: "已中断" }[item.blog.runStatus ?? ""] ?? "待生成") : ""}</small>
           {item.error && <p>{item.error.message}</p>}
@@ -374,33 +381,43 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <section className="library-sources" aria-label="材料列表">{selectedTopic && <div>
           <button disabled={managementBusy || !host.manageTopic} onClick={() => openManagement("rename", selectedTopic.topicId, selectedTopic.title)}>重命名专题</button>
           <button disabled={managementBusy || !host.manageTopic} onClick={() => openManagement("delete", selectedTopic.topicId, selectedTopic.title)}>删除专题</button>
-        </div>}<div className="library-toolbar"><h2>{topics.find(t => t.topicId === topic)?.title ?? "全部材料"}<small>{filtered.length}</small></h2><input type="search" aria-label="搜索材料" placeholder="搜索标题" value={query} onChange={e => setQuery(e.target.value)} /></div>
-          {loading ? <p role="status" className="library-empty">读取中…</p> : filtered.length === 0 ? <div className="library-empty"><span aria-hidden="true">▤</span><p>{query || topic ? "暂无匹配材料" : "放入第一份材料"}</p><button className="workspace-primary" disabled={uploadDisabled} onClick={() => { if (query || topic) { setQuery(""); setTopic(""); } else chooseUpload(); }}>{query || topic ? "重置" : "上传"}</button></div> : <div className="library-cards">{filtered.map(s => <article className="library-card" data-reading-status={readingStatus(s)} key={s.sourceId}>
+        </div>}<div className="library-toolbar"><h2>{topics.find(t => t.topicId === topic)?.title ?? "全部材料"}<small>{filtered.length}</small></h2><div className="library-view-switch" role="group" aria-label="显示方式">{([["cards", "卡片显示"], ["list", "列表显示"]] as const).map(([mode, label]) => <button key={mode} aria-pressed={libraryView === mode} onClick={() => { setLibraryView(mode); try { localStorage.setItem("focus.libraryView", mode); } catch { /* The current view remains usable without storage. */ } }}>{label}</button>)}</div><input type="search" aria-label="搜索材料" placeholder="搜索标题" value={query} onChange={e => setQuery(e.target.value)} /></div>
+          {loading ? <p role="status" className="library-empty">读取中…</p> : filtered.length === 0 ? <div className="library-empty"><span aria-hidden="true">▤</span><p>{query || topic ? "暂无匹配材料" : "放入第一份材料"}</p><button className="workspace-primary" disabled={uploadDisabled} onClick={() => { if (query || topic) { setQuery(""); setTopic(""); } else chooseUpload(); }}>{query || topic ? "重置" : "上传"}</button></div> : <div className="library-cards" data-view={libraryView}>{filtered.map(s => <article className="library-card" data-reading-status={readingStatus(s)} data-status={s.parseStatus !== "ready" ? "failed" : readingStatus(s) === "completed" ? "completed" : s.progress.completed > 0 ? "reading" : "unread"} key={s.sourceId}>
+            <div className="library-overview">
+              <h3 title={s.title}>{s.shortName || s.title}</h3>
+              <p className="library-summary">{s.shortName && s.shortName !== s.title ? s.title + " · " : ""}{s.parseStatus !== "ready" ? "解析失败" : readingStatus(s) === "completed" ? "阅读完成" : s.progress.completed > 0 ? "阅读中" : "未阅读"} · {s.progress.completed} / {s.progress.total}</p>
+            </div>
+            <div className="library-card-actions">
+              <button disabled={!host.blogUrl || !blogs[s.sourceId]?.generated || blogs[s.sourceId]?.artifacts?.html?.status !== "completed"} onClick={() => setBlogViewer(s.sourceId)}>打开博客</button>
+              <button disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready" || (view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready)} onClick={() => void enterReading(s.sourceId)}>开始阅读</button>
+              <button aria-expanded={expandedSources.has(s.sourceId)} aria-controls={`source-details-${s.sourceId}`} onClick={() => toggleDetails(s.sourceId)}>详细</button>
+            </div>
+            {expandedSources.has(s.sourceId) && <div className="library-details" id={`source-details-${s.sourceId}`}>
+            <p className="library-full-title">{s.title}</p>
+            <p className="library-parse-status">解析：{s.parseStatus === "ready" ? "已完成" : "失败"}{s.error ? ` · ${s.error}` : ""}</p>
             <div><button disabled={managementBusy || !host.renameSource} onClick={() => openManagement("source", s.sourceId, s.title)}>管理来源</button>
               {selectedTopic && <><button aria-label={`${s.title} 上移`} disabled={managementBusy || selectedTopic.sourceIds.indexOf(s.sourceId) === 0} onClick={() => moveSource(s.sourceId, -1)}>上移</button><button aria-label={`${s.title} 下移`} disabled={managementBusy || selectedTopic.sourceIds.indexOf(s.sourceId) === selectedTopic.sourceIds.length - 1} onClick={() => moveSource(s.sourceId, 1)}>下移</button></>}
             </div>
             <div className="library-card-top"><span className="source-badge">{s.format ?? (s.kind === "paper" ? "PDF" : "HTML")}</span>{s.parseStatus !== "ready" && <span title={s.error ?? undefined}>需检查</span>}</div>
-            <h3><button className="library-title" disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready"} onClick={() => void enterReading(s.sourceId)}>{s.shortName || s.title}</button></h3>
             <p className="library-metadata" title={s.title}>{[s.publishedAt, s.venue].filter(Boolean).join(" · ")}</p>
             <div className="library-progress"><progress aria-label={`${s.title} 阅读进度`} value={s.progress.completed} max={s.progress.total || 1} /><span>{s.progress.completed} / {s.progress.total}</span></div>
             <p className="library-metadata">{view?.preparations?.[s.sourceId] ? (() => { const p = view.preparations![s.sourceId]; return p.ready ? (p.candidate ? "新计划已就绪；旧阅读仍保留" : "阅读已准备好，可手动打开") : `${p.candidate ? "新计划" : "阅读"}${p.status === "running" ? "准备中" : p.status === "failed" ? "准备失败" : p.status === "interrupted" ? "准备已中断" : "准备已取消"} · ${p.step} · ${p.completed}/${p.total}${p.error ? ` · ${p.error}` : ""}`; })() : "尚未初始化精读"}</p>
-            <div className="library-card-bottom"><small>{({ ready: "待阅读", reading: "阅读中", completed: "已读完", unplanned: "待规划" })[readingStatus(s)]}</small><div className="library-row-actions">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(s.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(s.sourceId)} target="_blank" rel="noreferrer">正文</a>}<button disabled={!host.selectDiscussionSource || s.parseStatus !== "ready"} onClick={() => void discuss(s.sourceId)}>讨论</button><button disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready" || (view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready)} onClick={() => void enterReading(s.sourceId)}>{view?.preparations?.[s.sourceId]?.candidate ? "打开旧阅读" : view?.preparations?.[s.sourceId]?.ready ? "打开阅读" : "进入精读"}</button>{["failed", "cancelled", "interrupted"].includes(view?.preparations?.[s.sourceId]?.status ?? "") && host.resumePreparation && <button onClick={() => void operate("恢复准备", () => host.resumePreparation!(s.sourceId, createReaderId()))}>恢复准备</button>}{view?.preparations?.[s.sourceId]?.status === "running" && host.cancelPreparation && <button onClick={() => void operate("取消准备", () => host.cancelPreparation!(s.sourceId))}>取消准备</button>}<button disabled={!!busy || active || !host.rereadReading || !rereadReceipt(s.sourceId)} onClick={() => setConfirm({ source: s, action: "reread" })}>从头阅读</button><button disabled={!!busy || active || !host.replanSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "replan" })}>重新规划</button><button disabled={!!busy || !host.clearSource || view?.clearBusySources?.includes(s.sourceId)} onClick={() => setConfirm({ source: s, action: "clear", requestId: createReaderId() })}>清除讨论与笔记</button><button disabled={managementBusy || !host.deleteSource || !host.deletionImpact} onClick={() => void confirmDelete(s)}>删除</button></div></div>
+            <div className="library-card-bottom"><small>{({ ready: "待阅读", reading: "阅读中", completed: "已读完", unplanned: "待规划" })[readingStatus(s)]}</small><div className="library-row-actions">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(s.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(s.sourceId)} target="_blank" rel="noreferrer">正文</a>}<button disabled={!host.selectDiscussionSource || s.parseStatus !== "ready"} onClick={() => void discuss(s.sourceId)}>讨论</button>{["failed", "cancelled", "interrupted"].includes(view?.preparations?.[s.sourceId]?.status ?? "") && host.resumePreparation && <button onClick={() => void operate("恢复准备", () => host.resumePreparation!(s.sourceId, createReaderId()))}>恢复准备</button>}{view?.preparations?.[s.sourceId]?.status === "running" && host.cancelPreparation && <button onClick={() => void operate("取消准备", () => host.cancelPreparation!(s.sourceId))}>取消准备</button>}<button disabled={!!busy || active || !host.rereadReading || !rereadReceipt(s.sourceId)} onClick={() => setConfirm({ source: s, action: "reread" })}>从头阅读</button><button disabled={!!busy || active || !host.replanSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "replan" })}>重新规划</button><button disabled={!!busy || !host.clearSource || view?.clearBusySources?.includes(s.sourceId)} onClick={() => setConfirm({ source: s, action: "clear", requestId: createReaderId() })}>清除讨论与笔记</button><button disabled={managementBusy || !host.deleteSource || !host.deletionImpact} onClick={() => void confirmDelete(s)}>删除</button></div></div>
             {view?.preparations?.[s.sourceId]?.candidate && view.preparations[s.sourceId].ready && <button className="workspace-primary" disabled={!!busy || active || !host.activateReadingCandidate || view.readingRevision === undefined} onClick={() => void activateCandidate(s.sourceId)}>打开新计划</button>}
-            <div className="library-tags" aria-label="专题标签">{s.topicIds.map(id => <button key={id} onClick={() => setTopic(id)}>{topics.find(t => t.topicId === id)?.title ?? id}</button>)}</div>
+            <div className="library-tags" aria-label="专题标签"><span>属于专题：{s.topicIds.length === 0 ? "未分类" : ""}</span>{s.topicIds.map(id => <button key={id} onClick={() => setTopic(id)}>{topics.find(t => t.topicId === id)?.title ?? id}</button>)}</div>
             <section className="library-blog" aria-label={`${s.title} 博客`}>
               {!blogs[s.sourceId]?.generated ? <button disabled={!!busy || !host.generateBlog || s.parseStatus !== "ready"} onClick={() => void generateBlog(s.sourceId)}>生成博客</button> : <>
                 <ul className="blog-statuses">{blogArtifacts.map(([name, label]) => <li key={name} data-status={blogs[s.sourceId].artifacts?.[name]?.status ?? "pending"}><span>{label}</span><small>{blogStatusText[(blogs[s.sourceId].artifacts?.[name]?.status ?? "pending") as BlogArtifactStatus]}</small></li>)}</ul>
                 {blogs[s.sourceId].valueAnalysis.applicable === false && <p className="blog-note">架构价值分析不适用：{blogs[s.sourceId].valueAnalysis.reason}</p>}
-                {blogs[s.sourceId].warnings.length > 0 && <p className="blog-note" role="status">降级与证据缺口：{blogs[s.sourceId].warnings.join("；")}</p>}
                 {blogs[s.sourceId].error && <p className="blog-note" role="alert">{blogs[s.sourceId].error?.message}</p>}
                 <div className="blog-actions">
                   {blogs[s.sourceId].runStatus === "running" && <button disabled={!!busy || !host.cancelBlog} onClick={() => void cancelBlog(s.sourceId)}>取消生成</button>}
                   {blogArtifacts.filter(([name]) => blogs[s.sourceId].artifacts?.[name]?.status === "failed").map(([name]) => <button key={name} disabled={!!busy || blogs[s.sourceId]?.executing || !host.regenerateBlog} onClick={() => void regenerateBlog(s.sourceId, name)}>{blogRetryLabel[name]}</button>)}
                   {blogArtifacts.every(([name]) => blogs[s.sourceId].artifacts?.[name]?.status !== "failed") && <button disabled={!!busy || blogs[s.sourceId]?.executing || !host.regenerateBlog} onClick={() => void regenerateBlog(s.sourceId, "all")}>重新生成</button>}
-                  {host.blogUrl && <button disabled={blogs[s.sourceId].artifacts?.html?.status !== "completed"} onClick={() => setBlogViewer(s.sourceId)}>打开博客</button>}
                 </div>
               </>}
             </section>
+            </div>}
           </article>)}</div>}
         </section></div>
       {busy && <p role="status">{busy}中…</p>}

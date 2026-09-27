@@ -337,6 +337,29 @@ class ArticleBlogMethodPackTests(unittest.TestCase):
         self.assertEqual([], checked["errors"])
         self.assertTrue(checked["ok"])
 
+    def test_reading_html_omits_internal_diagnostics_without_changing_evidence(self):
+        blog = self.root / "quiet-blog"
+        bundle = self.root / "quiet-bundle"
+        (blog / "evidence").mkdir(parents=True)
+        bundle.mkdir()
+        (bundle / "content.md").write_text("## 2 Method\nInternal source excerpt.\n", encoding="utf-8")
+        (blog / "blog.md").write_text("# Reading\n\n第 2 节解释了方法。\n", encoding="utf-8")
+        metadata = {"warnings": ["审计证据与证据缺口"], "verification_level": "paper_reading"}
+        (blog / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+        evidence = blog / "evidence" / "evidence-map.md"
+        evidence.write_text("原文锚点和内部审计证据", encoding="utf-8")
+        protected = (blog / "metadata.json", evidence, blog / "blog.md")
+        before = {path: path.read_bytes() for path in protected}
+        ARTICLE2BLOG._render(blog, bundle=bundle)
+        markup = (blog / "index.html").read_text(encoding="utf-8")
+        self.assertIn("第 2 节解释了方法", markup)
+        self.assertNotIn('<aside class="source-evidence">', markup)
+        self.assertNotIn('href="#bundle-', markup)
+        self.assertNotIn("<footer>", markup)
+        for label in ("原文锚点", "证据缺口", "审计证据", "实现核查层级"):
+            self.assertNotIn(label, markup)
+        self.assertEqual(before, {path: path.read_bytes() for path in protected})
+
     def test_check_reports_a_stale_html(self):
         bundle = self.root / "bundle"
         (bundle / "images").mkdir(parents=True)

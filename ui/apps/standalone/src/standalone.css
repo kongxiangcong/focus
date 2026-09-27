@@ -84,9 +84,6 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
 /* One material vocabulary across Library, upload, and Reading. */
 .library-topics,.focus-reader__appearance-panel,.workspace-confirm { background:var(--reader-glass); backdrop-filter:blur(var(--reader-blur)); border-color:var(--reader-glass-edge); box-shadow:var(--reader-shadow); }
 .library-card { display:flex;flex-direction:column;border-color:var(--status-color,var(--reader-glass-edge));border-width:1.5px; }
-.library-card[data-reading-status=ready]{--status-color:#bc9849}
-.library-card[data-reading-status=reading]{--status-color:#698fac}
-.library-card[data-reading-status=completed]{--status-color:#699882}
 .library-card h3{margin-bottom:8px}.library-metadata{font-size:12px;color:var(--reader-muted);margin:0 0 24px;min-height:18px}.library-progress{margin-top:auto}
 .library-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:16px;padding-top:12px;border-top:1px solid var(--reader-line)}
 .library-tags button{font-size:11px;min-height:28px;padding:4px 10px;background:#ffffff70;border:1px solid #ffffffa0}
@@ -121,3 +118,39 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
 .backend-setup input:not([type="radio"]), .backend-setup select { width: 100%; min-width: 0; box-sizing: border-box; padding: 9px 12px; border: 1px solid #b8bec5; border-radius: 8px; background: #ffffff80; color: inherit; }
 .backend-setup button { align-self: flex-start; }
 .backend-setup code { overflow-wrap: anywhere; }
+
+/* Compact library projections; expanded details never stretch adjacent cards. */
+.library-cards { align-items:start; gap:16px; }
+.library-card { padding:18px; }
+.library-card[data-status=failed],.library-inbox-item[data-status=failed] { --status-color:#b95858; border-color:var(--status-color); }
+.library-card[data-status=unread] { --status-color:#608fbd; }
+.library-card[data-status=reading] { --status-color:#b79a3d; }
+.library-card[data-status=completed] { --status-color:#559274; }
+.library-overview h3 { margin:0 0 8px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; font-size:18px; }
+.library-summary { margin:0; font-size:12px; line-height:1.6; color:var(--reader-muted); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
+.library-card-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+.library-card-actions button { padding:6px 12px; min-height:34px; font-size:12px; }
+.library-details { border-top:1px solid var(--reader-line); margin-top:16px; padding-top:12px; min-width:0; font-size:12px; overflow-wrap:anywhere; }
+.library-details>div:first-of-type,.library-row-actions { gap:8px; }
+.library-details .library-metadata { margin:12px 0; }
+.library-details .library-card-top { margin-top:12px; }
+.library-details .library-progress { margin:14px 0; }
+.library-view-switch { display:flex; gap:6px; }
+.library-view-switch button { font-size:12px; padding:6px 12px; white-space:nowrap; }
+.library-view-switch button[aria-pressed=true] { background:#929db730; border-color:var(--reader-accent); }
+.library-toolbar { flex-wrap:wrap; gap:12px; }
+.library-cards[data-view=list] { grid-template-columns:minmax(0,1fr); }
+.library-cards[data-view=list] .library-card { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:0 20px; }
+.library-cards[data-view=list] .library-card-actions { margin-top:0; }
+.library-cards[data-view=list] .library-details { grid-column:1 / -1; }
+/* Every action has a visible, quiet outline, including reader and dialog actions. */
+.workspace-app button { border:1px solid #8c96a280; border-radius:10px; }
+.workspace-app .library-tags button { border-color:#8c96a280; }
+.workspace-nav nav a,.inbox-links a,.library-row-actions a,.blog-viewer-head a { border:1px solid #8c96a280; border-radius:10px; }
+.library-topics button + button { margin-top:6px; }
+@media(max-width:650px) {
+  .library-cards[data-view=list] .library-card { grid-template-columns:minmax(0,1fr); }
+  .library-cards[data-view=list] .library-card-actions { margin-top:12px; }
+}
+
+.library-full-title { margin:0 0 12px; line-height:1.6; font-weight:500; }

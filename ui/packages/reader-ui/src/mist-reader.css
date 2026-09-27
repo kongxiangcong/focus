@@ -23,7 +23,7 @@
 .focus-mist .focus-reader__chunk { padding:clamp(20px,2.6vw,36px); margin:0; border:1px solid #ffffffdb; border-radius:var(--reader-radius); background:var(--reader-glass); backdrop-filter:blur(var(--reader-blur)); box-shadow:var(--reader-shadow); }
 .focus-mist .focus-reading h2 { font-family:var(--reader-serif); font-size:clamp(21px,2vw,26px); font-weight:500; margin-top:16px; }
 .focus-mist .focus-reading__meta,.focus-mist .focus-message>header { font:clamp(11px,.9vw,12px)/1.6 var(--reader-ui); color:var(--muted); }
-.focus-mist .focus-reading footer button { padding-left:0; font-size:12px; }
+.focus-mist .focus-reading footer button { padding-left:12px; font-size:12px; }
 .focus-mist .focus-message[data-role=user] { width:fit-content; max-width:90%; margin:0 0 0 auto; padding:16px 20px; background:#929db724; border-radius:12px; box-shadow:none; }
 .focus-mist .focus-markdown { font:clamp(17px,1.5vw,19px)/1.95 var(--reader-serif); }
 .focus-mist[data-font-size=small] .focus-markdown { font-size:clamp(15px,1.3vw,16px); }
@@ -34,7 +34,7 @@
 .focus-mist .focus-markdown pre,.focus-mist .focus-markdown code,.focus-mist .focus-table th,.focus-mist .focus-reference { background:#929db714; }
 .focus-mist .focus-bottom { grid-column:2; grid-row:3; width:min(760px,calc(100% - 80px)); justify-self:center; min-width:0; max-height:35dvh; margin:0 0 18px; padding:0; background:transparent; border:0; overflow-y:auto; }
 .mist-history-rail{position:absolute;right:8px;top:15%;bottom:30%;width:30px;display:flex;flex-direction:column;gap:4px;overflow-y:auto;z-index:3;scrollbar-width:none}
-.mist-history-rail button{border:0;background:transparent;flex-shrink:0;width:30px;min-height:28px;display:grid;place-items:center;padding:4px}
+.mist-history-rail button{border:1px solid #8c96a280;background:transparent;flex-shrink:0;width:30px;min-height:28px;display:grid;place-items:center;padding:4px}
 .mist-history-line{display:block;width:18px;height:2px;border-radius:2px;background:#778b9780;transition:width .16s}
 .mist-history-rail button:hover .mist-history-line,.mist-history-rail button:focus-visible .mist-history-line{width:26px;background:var(--reader-ink)}
 .mist-history-label{display:none;position:fixed;right:46px;max-width:min(340px,70vw);padding:10px 14px;border:1px solid white;border-radius:12px;background:#f8f7f4;box-shadow:var(--reader-shadow);font-size:12px;color:var(--reader-ink);text-align:left;white-space:normal;overflow-wrap:anywhere}

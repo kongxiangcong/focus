@@ -324,11 +324,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
                 <><span>{note.deleted ? "已删除，可撤销" : note.content}</span>
                   {!note.deleted && <button onClick={() => { setEditingNoteId(note.noteId); setEditDraft(note.content); setEditBaseRevision(note.revision); setNoteConflict(null); setNoteError(""); }}>编辑</button>}
                   {note.canUndo && <button onClick={() => void changeNote(note, "undo")}>撤销</button>}
-                  {note.sourceUpdated && <small>{note.referenceStatus === "historical" ? "来源已更新，待核对；原版本仍可查看" : "来源已更新，待核对；旧原文不可定位"}</small>}
-                  {note.anchor && <details><summary>查看出处</summary>{note.referenceStatus === "current" ?
-                    <p>原文第 {note.anchor.sourceLines[0]}–{note.anchor.sourceLines[1]} 行{note.anchor.quote ? `：${note.anchor.quote}` : ""}</p> :
-                    note.referenceStatus === "historical" ? <p>原版本第 {note.anchor.sourceLines[0]}–{note.anchor.sourceLines[1]} 行{note.anchor.quote ? `：${note.anchor.quote}` : ""} · <a href={`/library/sources/${encodeURIComponent(note.sourceId)}/historical/${encodeURIComponent(note.anchor.bundle)}/content`} target="_blank" rel="noreferrer">查看原版本</a></p> :
-                    <p>旧 Bundle {note.anchor.bundle} 的原文不可定位；不会使用新版行号。</p>}</details>}
+
                 </>}
             </li>)}</ol>}
         </details>}

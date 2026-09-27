@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ReaderHost, type ReadingWindow } from "@focus/reader-contracts";
 import { WorkspaceApp } from "./WorkspaceApp";
@@ -62,7 +62,7 @@ it("accepts saved HTML and explains local parsing in the Inbox confirmation", as
   const { host } = setup();
   const staged: IngestionItem = { itemId: "html-1", fileName: "article.html", status: "awaiting_confirmation", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["local-html"] };
   vi.mocked(host.stageIngestion!).mockResolvedValue(readerSuccess(staged));
-  await screen.findByRole("button", { name: "A Paper" });
+  await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
   fireEvent.change(screen.getByRole("combobox", { name: "专题" }), { target: { value: "编译" } });
   const file = new File(["<html>article</html>"], "article.html", { type: "text/html" });
@@ -98,7 +98,8 @@ it.each(["save", "discussion"])("retains the newest shared configuration when a 
     fireEvent.click(screen.getByRole("radio", { name: "DeepSeek" }));
     fireEvent.click(screen.getByRole("button", { name: "保存配置" }));
   } else {
-    fireEvent.click(await screen.findByRole("button", { name: "讨论" }));
+    fireEvent.click(await screen.findByRole("button", { name: "详细" }));
+    fireEvent.click(screen.getByRole("button", { name: "讨论" }));
   }
   await act(async () => publish(readerSuccess({ ...initial, revision: 3, agent: { ...empty.agent!, backend: "deepseek" }, configuration: { ...initial.configuration, saved: deepseek, effective: deepseek } })));
   await act(async () => resolveSave(readerSuccess({ ...initial, revision: 2, configuration: { ...initial.configuration, saved: deepseek, pending: true } })));
@@ -108,12 +109,14 @@ it.each(["save", "discussion"])("retains the newest shared configuration when a 
 });
 it("edits original metadata and Topic membership through Host actions", async () => {
   const { host } = setup();
-  await screen.findByRole("button", { name: "A Paper" });
+  await screen.findByRole("heading", { name: "A Paper" });
+  if (screen.getByRole("button", { name: "详细" }).getAttribute("aria-expanded") === "false") fireEvent.click(screen.getByRole("button", { name: "详细" }));
   fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
   fireEvent.change(screen.getByRole("textbox", { name: "来源原题" }), { target: { value: "Correct title" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() => expect(host.renameSource).toHaveBeenCalledWith("a-paper", "Correct title"));
   await waitFor(() => expect(screen.queryByRole("textbox", { name: "来源原题" })).not.toBeInTheDocument());
+  if (screen.getByRole("button", { name: "详细" }).getAttribute("aria-expanded") === "false") fireEvent.click(screen.getByRole("button", { name: "详细" }));
   fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "编译" }));
   await waitFor(() => expect(host.manageTopic).toHaveBeenCalledWith("topic", "detach", { sourceId: "a-paper" }));
@@ -125,7 +128,7 @@ it("freezes a mixed selection into one Topic batch and exposes each result", asy
     itemId: file.name, fileName: file.name, status: "awaiting_confirmation", topicTitle: "编译", topicId: null,
     sourceId: null, documentStatus: "not_started", topicStatus: "not_started",
   }));
-  await screen.findByRole("button", { name: "A Paper" });
+  await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
   fireEvent.change(screen.getByRole("combobox", { name: "专题" }), { target: { value: "编译" } });
   const files = [new File(["%PDF"], "one.pdf"), new File(["<html>"], "two.html")];
@@ -149,7 +152,7 @@ it("freezes a mixed selection into one Topic batch and exposes each result", asy
   expect(host.confirmIngestion).not.toHaveBeenCalled();
 });
 it("lands in Library and persists the chosen font across remounts", async () => {
-  const app = setup(); await screen.findByRole("button", { name: "A Paper" });
+  const app = setup(); await screen.findByRole("heading", { name: "A Paper" });
   expect(location.pathname).toBe("/library");
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
@@ -160,7 +163,7 @@ it("lands in Library and persists the chosen font across remounts", async () => 
   expect(screen.getByRole("complementary", { name: "阅读进度与操作" })).toBeVisible();
 });
 it("starts parsing and blog with one explicit confirmation", async () => {
-  const { host } = setup(); await screen.findByRole("button", { name: "A Paper" });
+  const { host } = setup(); await screen.findByRole("heading", { name: "A Paper" });
   const pdf = new File(["%PDF test"], "test.pdf", { type: "application/pdf" });
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
   fireEvent.change(screen.getByRole("combobox", { name: "专题" }), { target: { value: "编译" } });
@@ -171,6 +174,7 @@ it("starts parsing and blog with one explicit confirmation", async () => {
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String)));
   expect(host.confirmIngestion).not.toHaveBeenCalled();
   expect(host.processIngestion).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "详细" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "删除" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "删除" }));
   expect(host.deleteSource).not.toHaveBeenCalled();
@@ -180,7 +184,8 @@ it("starts parsing and blog with one explicit confirmation", async () => {
   expect(host.rereadSource).not.toHaveBeenCalled();
 });
 it("filters source cards, exposes source resources, and rejects unsupported ingestion formats", async () => {
-  const { host } = setup(); await screen.findByRole("button", { name: "A Paper" });
+  const { host } = setup(); await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "详细" }));
   expect(document.querySelector(".source-badge")?.closest("article")).toBeInTheDocument();
   expect(screen.getByRole("progressbar", { name: "A Paper 阅读进度" })).toHaveAttribute("value", "1");
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "missing" } });
@@ -209,7 +214,7 @@ it("offers explicit reconfirmation for a recoverable Inbox item", async () => {
   expect(host.processIngestion).not.toHaveBeenCalled();
 });
 it("persists brightness and leaves unsupported network control disabled", async () => {
-  setup(); await screen.findByRole("button", { name: "A Paper" });
+  setup(); await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   fireEvent.change(screen.getByRole("slider", { name: "亮度" }), { target: { value: "90" } });
   expect(localStorage.getItem("focus.brightness")).toBe("90");
@@ -220,7 +225,7 @@ it("shows the original unfinished task instead of a new one when the same file i
   const existing: IngestionItem = { itemId: "item-1", fileName: "test.pdf", status: "status_check_required", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"], duplicate: true };
   vi.mocked(host.stageIngestion!).mockResolvedValue(readerSuccess(existing));
   vi.mocked(host.listInbox!).mockResolvedValue(readerSuccess([existing]));
-  await screen.findByRole("button", { name: "A Paper" });
+  await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
   fireEvent.change(screen.getByRole("combobox", { name: "专题" }), { target: { value: "编译" } });
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF test"], "test.pdf", { type: "application/pdf" })] } });
@@ -267,7 +272,8 @@ it("offers resubmission instead of a doomed continue for a cancelled acceptance-
 });
 it("generates a blog from the source card and shows the three sub-statuses", async () => {
   const { host } = setup();
-  fireEvent.click(await screen.findByRole("button", { name: "生成博客" }));
+  fireEvent.click(await screen.findByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "生成博客" }));
   await waitFor(() => expect(host.generateBlog).toHaveBeenCalledWith("a-paper", expect.any(String)));
   expect(await screen.findByText("价值分析")).toBeInTheDocument();
   expect(screen.getByText("带读博客")).toBeInTheDocument();
@@ -278,7 +284,8 @@ it("generates a blog from the source card and shows the three sub-statuses", asy
 it("names the retry button by the failed artifact only", async () => {
   const { host } = setup();
   host.generateBlog = vi.fn(async () => readerSuccess(blogStatus({}, { html: { status: "failed", updatedAt: null } })));
-  fireEvent.click(await screen.findByRole("button", { name: "生成博客" }));
+  fireEvent.click(await screen.findByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "生成博客" }));
   const retry = await screen.findByRole("button", { name: "重新生成 HTML" });
   expect(screen.queryByRole("button", { name: "重新生成价值分析" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "重新生成带读博客" })).not.toBeInTheDocument();
@@ -287,7 +294,8 @@ it("names the retry button by the failed artifact only", async () => {
 });
 it("cancels a running blog through the shared host contract", async () => {
   const { host } = setup();
-  fireEvent.click(await screen.findByRole("button", { name: "生成博客" }));
+  fireEvent.click(await screen.findByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "生成博客" }));
   fireEvent.click(await screen.findByRole("button", { name: "取消生成" }));
   await waitFor(() => expect(host.cancelBlog).toHaveBeenCalledWith("a-paper"));
 });
@@ -297,13 +305,16 @@ it("explains a skipped value analysis instead of showing it as pending", async (
     valueAnalysis: { applicable: false, direction: null, reason: "主贡献是数据集与训练技巧" },
     warnings: ["本次运行环境无网络，未检索论文内链接与官方仓库"],
   }, { value_analysis: { status: "not_applicable", updatedAt: null } })));
-  fireEvent.click(await screen.findByRole("button", { name: "生成博客" }));
+  fireEvent.click(await screen.findByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "生成博客" }));
   expect(await screen.findByText(/架构价值分析不适用：主贡献是数据集与训练技巧/)).toBeInTheDocument();
-  expect(screen.getByText(/降级与证据缺口：/)).toBeInTheDocument();
+  expect(screen.queryByText(/降级与证据缺口：/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/本次运行环境无网络/)).not.toBeInTheDocument();
 });
 it("opens the blog in the embedded viewer from the same host surface", async () => {
   const { host } = setup();
-  fireEvent.click(await screen.findByRole("button", { name: "生成博客" }));
+  fireEvent.click(await screen.findByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "生成博客" }));
   fireEvent.click(await screen.findByRole("button", { name: "打开博客" }));
   const frame = await screen.findByTitle("博客");
   expect(frame).toHaveAttribute("src", "/library/sources/a-paper/blog/html");
@@ -332,7 +343,8 @@ it("offers querying the original task first when a remote reference exists", asy
 
 it("clears source discussion only after irreversible confirmation and supports cancellation", async () => {
   const { host } = setup();
-  fireEvent.click(await screen.findByRole("button", { name: "清除讨论与笔记" }));
+  fireEvent.click(await screen.findByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "清除讨论与笔记" }));
   expect(screen.getByText(/不可撤销：删除本篇全部讨论/)).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "取消" }));
   expect(host.clearSource).not.toHaveBeenCalled();
@@ -340,4 +352,41 @@ it("clears source discussion only after irreversible confirmation and supports c
   fireEvent.click(screen.getByRole("button", { name: "不可撤销地清除" }));
   await waitFor(() => expect(host.clearSource).toHaveBeenCalledWith("a-paper", expect.any(String)));
   expect(host.deleteSource).not.toHaveBeenCalled();
+});
+
+it("keeps cards compact, expands details, and persists list display", async () => {
+  const app = setup();
+  const title = await screen.findByRole("heading", { name: "A Paper" });
+  const card = title.closest("article")!;
+  expect(within(card).getAllByRole("button").map(button => button.textContent)).toEqual(["打开博客", "开始阅读", "详细"]);
+  expect(screen.queryByRole("button", { name: "管理来源" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "打开博客" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "详细" }));
+  expect(screen.getByRole("button", { name: "详细" })).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByText("解析：已完成")).toBeVisible();
+  expect(screen.getByRole("button", { name: "管理来源" })).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "列表显示" }));
+  expect(card.parentElement).toHaveAttribute("data-view", "list");
+  fireEvent.click(screen.getByRole("button", { name: "详细" }));
+  expect(within(card).getAllByRole("button")).toHaveLength(3);
+  fireEvent.click(screen.getByRole("button", { name: "开始阅读" }));
+  await waitFor(() => expect(app.host.openSource).toHaveBeenCalledWith("a-paper"));
+  app.unmount(); setup();
+  await screen.findByRole("heading", { name: "A Paper" });
+  expect(screen.getByRole("button", { name: "列表显示" })).toHaveAttribute("aria-pressed", "true");
+});
+it.each([
+  ["invalid", "completed", 4, "failed"],
+  ["ready", "unplanned", 0, "unread"],
+  ["ready", "reading", 0, "unread"],
+  ["ready", "reading", 1, "reading"],
+  ["ready", "completed", 4, "completed"],
+] as const)("projects %s / %s / %i to the %s card state", async (parseStatus, readingStatus, completed, expected) => {
+  const { host } = setup();
+  vi.mocked(host.listSources!).mockResolvedValue(readerSuccess([{ sourceId: "a-paper", title: "A Paper", kind: "paper", parseStatus, readingStatus, error: null, noteCount: 0, topicIds: [], progress: { completed, total: 4, planId: "plan-001", chunkId: readingStatus === "completed" ? null : "chunk-001" } }]));
+  // The initial refresh starts before the mock replacement; trigger a fresh projection.
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("link", { name: "设置" }));
+  fireEvent.click(screen.getByRole("link", { name: "知识库" }));
+  await waitFor(() => expect(screen.getByRole("heading", { name: "A Paper" }).closest("article")).toHaveAttribute("data-status", expected));
 });

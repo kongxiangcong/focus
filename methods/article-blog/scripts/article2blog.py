@@ -575,7 +575,7 @@ def _html_document(
         f"<title>{_escape(title)}</title>\n{styles}\n</head>\n<body>\n"
         "<header><div class=\"wrap\"><div class=\"tabs\" role=\"tablist\">" + tabs + "</div></div></header>\n"
         "<main class=\"wrap\">" + bodies + source_evidence + "</main>\n"
-        "<footer><div class=\"wrap\">" + footer + "</div></footer>\n"
+        + ("<footer><div class=\"wrap\">" + footer + "</div></footer>\n" if footer else "") +
         f"{scripts}\n</body>\n</html>\n"
     )
 
@@ -637,31 +637,8 @@ def _value_page(metadata: dict) -> str:
 
 
 def _footer(metadata: dict) -> str:
-    warnings = metadata.get("warnings") if isinstance(metadata.get("warnings"), list) else []
-    level = metadata.get("verification_level")
-    level_text = VERIFICATION_LABELS.get(level, "未记录") if level in VERIFICATION_LEVELS else "未记录"
-    parts = [
-        f"<p>article-blog {_escape(str(metadata.get('method_version', ARTICLE_BLOG_METHOD_VERSION)))}"
-        f" · Source {_escape(str(metadata.get('source_id', '')))}"
-        f" · 更新于 {_escape(str(metadata.get('updated_at', '')))}"
-        f" · 实现核查层级：{_escape(level_text)}</p>"
-    ]
-    judgement = metadata.get("value_analysis_applicability")
-    if isinstance(judgement, dict) and judgement.get("applicable") is False:
-        reason = judgement.get("reason")
-        reason = reason.strip() if isinstance(reason, str) and reason.strip() else "未提供判定理由"
-        parts.append(f"<p><strong>价值分析：</strong>不适用 —— {_escape(reason)}</p>")
-    if warnings:
-        parts.append(
-            "<div class=\"warn\"><strong>诚实降级与证据缺口</strong><ul>"
-            + "".join(f"<li>{_escape(item)}</li>" for item in warnings if isinstance(item, str))
-            + "</ul></div>"
-        )
-    parts.append(
-        "<p>本页由 Parser Bundle 自动派生，只做形态校验；未做人工核查。"
-        "形态合格不代表内容已获得认可，证据缺口以上述警告如实呈现。</p>"
-    )
-    return "".join(parts)
+    """Diagnostics remain in metadata; the reading page has no audit footer."""
+    return ""
 
 
 SOURCE_MENTION = re.compile(
@@ -753,20 +730,15 @@ def _render(blog_dir: Path, *, embed_images: bool = True, bundle: Path | None = 
     heading = re.search(r"^#\s+(.+?)\s*$", blog, flags=re.MULTILINE)
     title = heading.group(1) if heading else "Blog Output"
     image_src = _image_source(blog_dir, embed_images)
-    source_anchors = _bundle_anchors(bundle or blog_dir.parent / "parser-bundle")
-    used_anchors: list[str] = []
     panels: list[tuple[str, str, str]] = [
-        ("带读博客", _link_bundle_mentions(_markdown_to_html(blog, image_src), source_anchors, used_anchors), "reading_blog")
+        ("带读博客", _markdown_to_html(blog, image_src), "reading_blog")
     ]
     value_path = blog_dir / ARTIFACT_FILES["value_analysis"]
     if value_path.is_file():
         panels.append(
             (
                 "架构价值分析",
-                _link_bundle_mentions(
-                    _markdown_to_html(value_path.read_text(encoding="utf-8", errors="replace"), image_src),
-                    source_anchors, used_anchors,
-                ),
+                _markdown_to_html(value_path.read_text(encoding="utf-8", errors="replace"), image_src),
                 "value_analysis",
             )
         )
@@ -774,7 +746,6 @@ def _render(blog_dir: Path, *, embed_images: bool = True, bundle: Path | None = 
         panels.append(("架构价值分析", _value_page(metadata), "value_analysis"))
     document = _html_document(
         title, panels, _footer(metadata), embed_katex="data-tex" in "".join(body for _, body, _ in panels),
-        source_evidence=_source_evidence(source_anchors, used_anchors),
     )
     target = blog_dir / ARTIFACT_FILES["html"]
     temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
