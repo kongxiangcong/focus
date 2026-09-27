@@ -1,15 +1,58 @@
-.scratch/
-.env
-tmp/
+# Local knowledge bases and imported article collections (not application code).
 knowledge-base/
+knowledge-base-*/
 workspace/
+/articles/
+/papers/
+/uploads/
+/parser-bundle/
+/blog-output/
+/*.html
+/*.htm
 *.pdf
 !tests/fixtures/**/*.pdf
+
+# Credentials and machine-local configuration; keep distributable examples.
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+.workbuddy/
+.focus-host/
+.focus-host-*/
+.focus-runtime/
+.focus-host.lock
+.focus.lock
+
+# Local experiments and runtime evidence. Selected specs/evidence are already
+# tracked intentionally; adding new reviewed documents here requires git add -f.
+.scratch/
+tmp/
+
+# Python environments, caches and build products.
+.venv/
+venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+
+# JavaScript dependencies, builds and test reports.
 node_modules/
 dist/
-.focus-host-*/
-.focus-runtime/
-.venv/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+*.log
+
+# OS metadata.
+.DS_Store
+Thumbs.db
+Desktop.ini

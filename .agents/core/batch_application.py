@@ -101,7 +101,7 @@ class BatchApplication:
                 status = 'cancelled'
             elif item_id == batch['activeItemId'] and batch['status'] == 'running':
                 status = 'processing'
-            elif item_id in batch['workIds'][batch['cursor']:] and item['status'] in ('confirmed', 'awaiting_confirmation'):
+            elif item['status'] in ('confirmed', 'awaiting_confirmation') and not error:
                 status = 'queued'
             elif item['status'] == 'cancelled' or (blog or {}).get('runStatus') == 'cancelled':
                 status = 'cancelled'

@@ -1,5 +1,31 @@
 # FOCUS v0.2 阶段 2D 验收记录
 
+## 2026-09-26 真实续跑结论：阶段 2D 通过
+
+配置就绪后，以同一固定 DSH `0.1.7-rc.2 / 477b4f420553e8a52c2fbccc464d7561b239c443` 完成真实 DeepSeek V4.1 Flash 成功出口。结合下文既有票 01/02 的受控失败、竞争、中断和恢复证据，票 03 已 resolved，解除阶段 5 票 06 的 2D 前置阻塞。这里验证的是公开样例上的真实 Runtime 路径，不是实际论文解析或语义质量认证。
+
+- 首次页面操作复现 `tools.restrict() requires a scoped context`：插件把 DSH 的共享服务列为普通 dependencies，安装得到另一份 scope 模块。按 DSH 公共插件装配规则改为 peerDependencies，插件版本升为 `0.2.0-stage2d.24`。没有改 DSH 内核或放宽工具限制；本机 profile 的 peer 安装提示由宿主运行时统一解析补足，实际 boot 与 Agent scope 均通过。
+- 成功 attempt：`8e3b3bad-afec-4b71-9440-2d2a54c43506`，provider `deepseek-official`，model `deepseek-flash`，认证只记录 `DEEPSEEK_API_KEY` 环境引用。实际工具为 `focus_read_bundle`、`focus_read_method`、`focus_submit_candidate`；真实 `bash` 执行拒绝为 `UNKNOWN_TOOL`。
+- 模型交回 4447 字符 Reading Blog 与 Evidence Map，worker 经共享 Reading Blog 路径校验并由 Core 发布；`reading_blog / html` 均为 completed，更新时间 `2026-09-26T08:03:36+00:00`。既有 Value Analysis 未重写，也未再次分类。保留警告“价值分析未说明实现是否实际运行”；内容深度未作自动认证。
+- DSH 原生页面显示 `completed / archived`，点击“打开博客”看到新正文和原文锚点，图片实际解码（样例图片为 1×1），无 iframe。该极简样例图片不是阶段 5 的真实带图 HTML 验收证据。
+- 后续真实取消 attempt：`91977816-3e17-409f-8a9e-f23a652aa088`，终态 `cancelled / archived`。两次任务均在公开 handle.dispose 完成、live handle 移除后执行归档；DSH 持久日志保留，不宣称永久删除。历史真实模型失败/归档见 09-25 记录，本轮未伪造服务故障。
+- `.24` 完成 build/pack/install/boot，并 remove 后核实组合配置不再含插件，重新 add/boot；页面重连后查询到 `cancelled / archived`，已发布正文仍可打开。取消与重装重启前后所有已发布博客文件 SHA-256 一致；成功/取消专用 Session 关联仍在 DSH registry。
+- 修复后 worker/Standalone Host 回归 18/18 通过（16.045 秒）；原生入口与归档生命周期 Vitest 命令汇总 6 个文件/9 tests 通过（含 workspace 重复运行）。Standalone 已在不加载 DSH 的独立进程正常启动；类型检查与构建见本日预检查。
+- 本轮最小非聊天证据：`.scratch/focus-v02-stage2d/live-20260926.json`；浏览器截图：`tmp/stage2d-success-20260926.png`。FOCUS 不复制模型聊天或思考日志。
+
+## 2026-09-26 充值后复验预检查
+
+用户要求先以 DeepSeek V4.1 Flash 跑通阶段 2D，再执行阶段 5 票 06。当前 FOCUS 基准为 `d6ab8b48faef02785022da5bc7c06c2446326f9c`；DSH 仍为 `477b4f420553e8a52c2fbccc464d7561b239c443`，两仓库检查时工作树干净。插件版本仍为 `0.2.0-stage2d.23`。
+
+- 官方 V4.1 Flash 调用名为 `deepseek-flash`，后续真实运行须显式设置 `FOCUS_DSH_AI_MODEL=deepseek-flash`。依据：[官方发布说明](https://api-docs.deepseek.com/zh-cn/news/news260910/)。本次尚未发起真实模型请求，也未修改默认模型。
+- 当前进程、User/Machine 环境与本仓库 `.env` 未提供 `DEEPSEEK_API_KEY`；`.env` 已被 Git 忽略，仅确认 MinerU 配置存在而未输出凭据。DSH checkout 无 `.env`，原隔离 profile 配置未发现 DeepSeek 凭据配置。已请求用户在本机提供凭据。
+- ` .venv/Scripts/python.exe -X utf8 -m unittest tests.test_dsh_focus_worker tests.test_blog_host`：18/18 通过（15.964 秒），属于受控 Runtime／共享 Host 回归。
+- `pnpm exec vitest run tests/dsh_focus_plugin.spec.ts tests/dsh_session_lifecycle.spec.ts`：命令汇总为 6 个测试文件、9 个测试通过（包含 workspace 重复运行，不能算 9 个独立场景）。这是自动化入口／生命周期证据，不是本轮真实 DSH 服务与模型验收。
+- 插件 build、`pnpm reader:typecheck`、`pnpm reader:build` 均通过；Standalone build 保留大于 500 kB 的 chunk 警告。
+- 本轮真实候选、公共校验／Core 提交、浏览器打开最终 HTML、真实成功 Session 停止／释放／归档均未测；没有重跑真实取消或插件安装生命周期。此前证据见下文，不计为本轮新证据。
+
+当前阻塞是缺少可用凭据，不能把历史 HTTP 402 当成充值后实测，也不能据此推断当前余额。阶段 2D 票 03 仍 blocked；阶段 5 票 06 按依赖顺序尚未启动。凭据就绪后继续真实流程，无需再次确认模型调用授权。
+
 日期：2026-09-25。当前结论：票 01、02 已通过；票 03 的实现、受限工具探针、真实失败与真实取消／归档已通过，但真实成功写作被 DeepSeek 官方账户余额阻塞。永久删除能力调查已完成；用户接受固定 DSH 基准采用“终止执行、释放资源并归档专用 Session”的明确例外。阶段 2D 因缺少真实模型成功、候选校验与 Core 提交证据，尚不能宣布完整通过。
 
 ## 固定基准

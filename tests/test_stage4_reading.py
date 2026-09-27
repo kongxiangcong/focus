@@ -407,6 +407,9 @@ class Stage4PreparationTests(unittest.TestCase):
     def test_numbered_chinese_references_preserve_following_learning_path(self):
         self._assert_reference_exclusion("10.3 参考资料", "- Citation.")
 
+    def test_article_reference_sources_preserve_following_learning_path(self):
+        self._assert_reference_exclusion("参考来源", "- Citation.")
+
     def _assert_reference_exclusion(self, heading, entry):
         self.host.close()
         content = self.workspace / "sources/fixture-paper/parser-bundle/content.md"

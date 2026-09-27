@@ -29,7 +29,7 @@ _LOCK = threading.RLock()
 
 
 def _reference_heading(heading: str) -> bool:
-    return re.fullmatch(r"(?:\d+(?:\.\d+)*[.)、]?\s*)?(?:references|bibliography|参考文献|参考资料)",
+    return re.fullmatch(r"(?:\d+(?:\.\d+)*[.)、]?\s*)?(?:references|bibliography|参考文献|参考资料|参考来源)",
                         heading.strip(), re.I) is not None
 
 

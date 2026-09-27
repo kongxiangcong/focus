@@ -5,6 +5,8 @@
 适用产品：FOCUS 独立网页版与 FOCUS for DSH 原生插件
 性质：独立的 v0.2 需求与架构计划；不是已完成实现、兼容性或端到端验证声明。
 
+2026-09-26 后续交付路线修订：用户决定跳过原阶段 6 的 DSH 原生 FOCUS 交付，改为 [阶段 6B：SDK Backend 接入与设置切换](docs/requirements/v0.2/stage-6b-sdk-backends.md)。保留现有 FOCUS 独立界面和 Host，通过官方 DeepSeek Harness SDK 及其配套 Runtime 接入 Backend，与 Codex 并列供设置界面选择。下文完整 DSH 原生应用、P4 及双 Host 停机接管描述保留为原计划背景，后续以阶段 6B 为准；Core／Application／Methods 单一权威、独占写入及既有阶段结果继续有效。阶段 2D 的历史证据不能替代 SDK 验收；本修订不宣称新 Backend 已实现。
+
 ## 0. 决策摘要与对 v0.1 的修订
 
 根据新增约束，两种部署必须执行同一套业务工作流。推荐保持一个 `focus` 主仓库与业务主线，将 `focus-dsh` 定义为集成子项目和独立发布包，不再复制出长期分别演进的完整业务仓库。
@@ -227,7 +229,9 @@ Pi SDK 提供自定义集成、会话、事件与中断等能力，但具体版�
 
 出口：两种 Host 通过同一业务验收套件；干净安装与打包验证通过；移除 DSH 集成不会影响 Standalone。
 
-### P5：逐个扩展 Runtime 并发布能力矩阵
+### P5：逐个扩展 Runtime 并发布能力矩阵（后续扩展已跳过）
+
+2026-09-26 范围修订：以阶段 6B 的 Codex／DeepSeek SDK Backend、统一设置和共同业务验收为本轮交付范围。[阶段 7 覆盖核对](docs/requirements/v0.2/stage-7-runtimes.md) 确认公共 Runtime 要求已由 6B 承接；其余 OpenAI、Pi、WorkBuddy 适配器暂无独立必要需求，阶段 7 已跳过，不另建能力矩阵产品，不作为 v0.2 发布条件。以下保留为未来按需扩展的原则，不构成本轮实施承诺；6B 的未完成实现及验收仍归 6B。
 
 OpenAI、Pi、WorkBuddy 按凭据、接口可用性与实际优先级逐个接入；不需要全部完成才交付 P3。每个 Adapter 必须通过工具限制、来源隔离、取消、流式终态、结果校验与业务幂等测试。
 

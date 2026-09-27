@@ -71,6 +71,20 @@ class RecoveryTests(unittest.TestCase):
         self.wait_batch('completed')
         self.assertEqual(before, {str(p.relative_to(blog)): p.read_bytes() for p in blog.rglob('*') if p.is_file()})
 
+    def test_retry_one_after_stop_does_not_mark_unstarted_items_failed(self):
+        self.start_blocked()
+        self.control('stop', 'stop-before-retry')
+        self.runtime.release.set()
+        self.join_batch()
+        self.control('retry-item', 'retry-only-first', self.ids[0])
+        result = self.wait_batch('partial')
+        self.assertEqual(['completed', 'queued'], [i['status'] for i in result['items']])
+        self.assertIsNone(result['items'][1]['error'])
+        self.assertEqual(1, len(self.request('GET', '/library/sources')))
+        self.control('continue', 'continue-unstarted')
+        result = self.wait_batch('completed')
+        self.assertEqual(['completed', 'completed'], [i['status'] for i in result['items']])
+
     def test_remove_queued_item_preserves_sources_and_never_starts_it(self):
         self.start_blocked()
         self.control('remove-item', 'remove-1', self.ids[1])
@@ -86,7 +100,7 @@ class RecoveryTests(unittest.TestCase):
             self.runtime.release.wait(10)
             return classify(**kwargs)
         self.runtime.classify = late
-        self.runtime.cancel = lambda: False
+        self.runtime.cancel = lambda source_id=None: False
         self.start_blocked()
         self.control('stop', 'stop-classification')
         self.runtime.release.set()

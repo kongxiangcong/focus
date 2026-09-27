@@ -221,4 +221,13 @@ python -B -X utf8 -m unittest discover -s tests -v
 
 整个 knowledge-base/ 必须保持 Git 忽略。PDF、Parser Bundle、Blog Output、翻译、Notes、state.json、.env、Token 和签名 URL 都不能进入公开仓库。
 
+本地文件按以下边界管理，规则见 `.gitignore`：
+
+- 知识库：`knowledge-base/`、`knowledge-base-*/` 和旧 `workspace/`，包含原件、解析包、博客、译文、笔记与阅读状态。
+- 单独保存的文章：根目录的 `articles/`、`papers/`、`uploads/`、`parser-bundle/`、`blog-output/`，根目录 HTML/HTM 和所有 PDF；`tests/fixtures/` 中的 PDF 可作为明确的测试夹具跟踪。
+- 本机数据：`.env` 及其变体、`.workbuddy/`、Host/Runtime 目录与锁、缓存、依赖、构建结果及日志；`.env.example`、`.env.sample`、`.env.template` 可跟踪，但只能含占位值。
+- `.scratch/` 默认忽略；已有规格、工单与经过检查的精简验收证据继续跟踪，新文档按需显式加入。文章正文、完整会话和知识库不得用 `git add -f` 加入。
+
+UI 的 HTML 入口、源码、研究文档和正式测试夹具继续版本管理。自定义 `--workspace` 路径应先加入本地忽略规则；添加忽略项不会自动移除已跟踪文件，可用 `git ls-files` 检查，必要时仅用 `git rm --cached` 取消跟踪并保留磁盘文件。
+
 当前项目与代码结构见 [Agent 架构](docs/FOCUS_Agent_Architecture.md)，国内 WorkBuddy 的官方接入区别见 [调研](research/workbuddy-codex-agent-integration.md)。
