@@ -2,11 +2,13 @@ import json
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".agents"))
 import core as CORE
+from host.core_bridge import CoreBridge
 
 
 class SourceLibraryTopicTests(unittest.TestCase):
@@ -20,6 +22,28 @@ class SourceLibraryTopicTests(unittest.TestCase):
 
     def tearDown(self):
         self.temporary.cleanup()
+
+    def test_registration_staging_is_invisible_to_concurrent_library_reads(self):
+        original_replace = Path.replace
+        observed = []
+        def replace(path, target):
+            if path.name.endswith('.staging'):
+                observed.append(self.library.find('paper:new'))
+                self.assertEqual([], CoreBridge(self.workspace).catalog()['sources'])
+            return original_replace(path, target)
+        with patch.object(Path, 'replace', replace):
+            result = self._register('new', short_name='New', identity='paper:new')
+        self.assertEqual([None], observed)
+        self.assertEqual(result['source_id'], self.library.find('paper:new')['source_id'])
+
+    def test_abandoned_registration_does_not_block_other_sources(self):
+        staging = self.workspace / 'sources' / ('.Lost-paper.' + 'a' * 32 + '.staging')
+        staging.mkdir(parents=True)
+        (staging / 'source.yaml').write_text('{"source_id":"Lost-paper"}', encoding='utf-8')
+        self.assertEqual([], CoreBridge(self.workspace).catalog()['sources'])
+        result = self._register('new', short_name='New', identity='paper:new')
+        self.assertEqual('New-paper', result['source_id'])
+        self.assertTrue((staging / 'source.yaml').exists())
 
     def _bundle(self, name: str, *, kind: str = "paper_pdf", text: str = "# Source\n\nEvidence one.\n\nEvidence two.") -> Path:
         bundle = self.root / name

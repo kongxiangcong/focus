@@ -501,6 +501,23 @@ class BlogValidatorTests(unittest.TestCase):
         self.assertTrue(errors)
         self.assertEqual([], warnings)
 
+    def test_arabic_section_references_resolve_roman_numbered_headings(self):
+        bundle = '\n'.join(['## I. INTRODUCTION', '## II. RELATED WORK',
+                            '## III. BACKGROUND', '## IV. ARCHITECTURE', '## V. EVALUATION'])
+        errors, _ = check_references('第 1 节；第 2 节；第 3 节；第 4 节；第 5 节',
+                                     'Section 4 and Sec. 5', bundle)
+        self.assertEqual([], errors)
+        self.assertEqual([], check_references('Section 9', '', '## ix. Evaluation')[0])
+
+    def test_roman_matching_does_not_accept_missing_or_partial_section_numbers(self):
+        for bundle in ['## II. Related Work', '## IV. Architecture', 'Body mentions Section I.',
+                       '## Introduction']:
+            with self.subTest(bundle=bundle):
+                errors, _ = check_references('第 1 节', '', bundle)
+                self.assertTrue(errors)
+        self.assertTrue(check_references('第 4 节', '', '## IIII. Invalid numbering')[0])
+        self.assertTrue(check_references('第 6 节', '', '## V. Evaluation')[0])
+
 
 if __name__ == "__main__":
     unittest.main()

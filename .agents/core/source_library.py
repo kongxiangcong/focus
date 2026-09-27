@@ -87,10 +87,15 @@ class SourceLibrary:
                 # Canonical references are gone; retry file cleanup on the next open.
                 continue
 
-    def _sources(self) -> list[dict[str, Any]]:
+    def sources(self) -> list[dict[str, Any]]:
         sources: list[dict[str, Any]] = []
         staging = {p for t in self.deleted_sources().values() for p in t.get('cleanup_paths', [])}
         for source_path in sorted((self.workspace / "sources").glob("*/source.yaml")):
+            # Registration becomes visible only after the atomic directory rename.
+            # A concurrent reader must not open staging metadata (including on
+            # Windows, where that open can prevent the rename or its cleanup).
+            if re.fullmatch(r"\..+\.[0-9a-f]{32}\.staging", source_path.parent.name):
+                continue
             if source_path.parent.relative_to(self.workspace).as_posix() in staging:
                 continue
             source = _read_document(source_path)
@@ -132,7 +137,7 @@ class SourceLibrary:
     def find(self, identity: str) -> dict[str, Any] | None:
         if not isinstance(identity, str) or not identity.strip() or len(identity) > 500:
             raise WorkspaceError("source_identity_invalid", "Source identity is invalid")
-        matches = [source for source in self._sources() if source.get("identity") == identity]
+        matches = [source for source in self.sources() if source.get("identity") == identity]
         if len(matches) > 1:
             raise WorkspaceError("source_identity_conflict", "Source identity is registered more than once")
         return matches[0] if matches else None
@@ -141,7 +146,7 @@ class SourceLibrary:
         original_name = {"paper_pdf": "source.pdf", "article_html": "source.html", "article_markdown": "source.md"}.get(source_kind)
         if original_name is None or not source.is_file():
             raise WorkspaceError("source_identity_invalid", "Source identity is invalid")
-        for registered in self._sources():
+        for registered in self.sources():
             if registered.get("source_kind") != source_kind:
                 continue
             candidate = self.workspace / "sources" / registered["source_id"] / "parser-bundle" / original_name
@@ -151,7 +156,7 @@ class SourceLibrary:
 
     def _allocate_id(self, short_name: str, source_kind: str, published_at: str | None) -> str:
         suffix = "paper" if source_kind == "paper_pdf" else "article"
-        used = {source["source_id"] for source in self._sources()}
+        used = {source["source_id"] for source in self.sources()}
         used.update(self.deleted_sources())
         base = f"{short_name}-{suffix}"
         if base not in used:
@@ -406,7 +411,7 @@ class SourceLibrary:
         state = _read_document(self.workspace / 'state.json', {'sources': {}})
         topics = self.topics()
         result = []
-        for source in self._sources():
+        for source in self.sources():
             sid = source['source_id']
             root = self._safe_root(sid)
             error = None

@@ -424,6 +424,19 @@ def _bibliography_entries(text: str) -> set[int]:
     return entries
 
 
+def _roman_section_number(number: int) -> str:
+    """Canonical Roman spelling for numbered paper headings, e.g. 4 -> IV."""
+    if not 1 <= number <= 3999:
+        return ""
+    result = []
+    for value, symbol in ((1000, 'M'), (900, 'CM'), (500, 'D'), (400, 'CD'),
+                          (100, 'C'), (90, 'XC'), (50, 'L'), (40, 'XL'),
+                          (10, 'X'), (9, 'IX'), (5, 'V'), (4, 'IV'), (1, 'I')):
+        count, number = divmod(number, value)
+        result.append(symbol * count)
+    return ''.join(result)
+
+
 def check_references(blog_text: str, value_text: str, bundle_text: str) -> tuple[list[str], list[str]]:
     """Validator item ③: in-text citations and anchors resolve; figure anchors warn."""
     errors: list[str] = []
@@ -439,6 +452,9 @@ def check_references(blog_text: str, value_text: str, bundle_text: str) -> tuple
         for match in SECTION_ANCHOR.finditer(text):
             number = next(group for group in match.groups() if group)
             pattern = rf"(?:^#+\s*{number}\b|^#+\s*{number}[.\s]|Section\s*{number}\b|第\s*{number}\s*节)"
+            roman = _roman_section_number(int(number))
+            if roman:
+                pattern += rf"|^#{{1,6}}\s+{roman}(?:[.)]\s+|\s+)\S"
             if bundle_text and not re.search(pattern, bundle_text, flags=re.MULTILINE | re.IGNORECASE):
                 errors.append(f"{label} references section {number} but the Bundle has no such anchor")
         if bundle_text:

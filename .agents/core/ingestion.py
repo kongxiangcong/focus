@@ -827,6 +827,17 @@ class IngestionApplication:
                         item_path=root / "item.json",
                         attempt_id=attempt["attempt_id"],
                     )
+            except OSError:
+                # Preserve the validated parser result for an explicit retry;
+                # a filesystem failure is not a request to submit to MinerU again.
+                item = self._read(item_id)
+                item['status'] = 'retry_waiting'
+                item['document_status'] = 'candidate_retained'
+                item['error'] = {'error_id': 'source_publish_failed',
+                                 'message': '解析已完成，但写入知识库失败。请检查文件占用、权限或磁盘空间后重试。'}
+                item['run']['steps']['publish']['status'] = 'failed'
+                self._write(item_id, item)
+                return self._public(item)
             except WorkspaceError as exc:
                 if exc.error_id != "attempt_cancelled":
                     if exc.error_id == "writer_conflict":

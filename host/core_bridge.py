@@ -45,7 +45,7 @@ class CoreBridge:
 
     def catalog(self):
         library = SourceLibrary(self.workspace)
-        sources = [library.get(p.parent.name) for p in sorted((self.workspace / 'sources').glob('*/source.yaml'))]
+        sources = library.sources()
         topics = [json.loads(p.read_text(encoding='utf-8')) for p in sorted((self.workspace / 'topics').glob('*/topic.yaml'))]
         return {'sources': [{'sourceId': s['source_id'], 'title': s['title']} for s in sources],
                 'topics': [{'topicId': t['topic_id'], 'title': t['title']} for t in topics]}

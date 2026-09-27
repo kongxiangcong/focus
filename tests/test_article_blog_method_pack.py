@@ -99,6 +99,18 @@ class ArticleBlogMethodPackTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.root)
 
+    def test_roman_source_headings_produce_clickable_arabic_section_links(self):
+        bundle = self.root / 'roman-bundle'
+        bundle.mkdir()
+        (bundle / 'content.md').write_text('## IV. ARCHITECTURE\nSource evidence.\n', encoding='utf-8')
+        anchors = ARTICLE2BLOG._bundle_anchors(bundle)
+        used = []
+        linked = ARTICLE2BLOG._link_bundle_mentions('<p>第 4 节给出设计。</p>', anchors, used)
+        self.assertIn('href="#bundle-section-4"', linked)
+        evidence = ARTICLE2BLOG._source_evidence(anchors, used)
+        self.assertIn('id="bundle-section-4"', evidence)
+        self.assertIn('IV. ARCHITECTURE', evidence)
+
     @staticmethod
     def _snapshot(paths):
         return {path: path.read_bytes() for root in paths for path in root.rglob("*") if path.is_file()}

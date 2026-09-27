@@ -29,6 +29,7 @@ from core.article_blog import (  # noqa: E402
     VALUE_ANALYSIS_DIRECTIONS,
     VERIFICATION_LEVELS,
     new_blog_metadata,
+    _roman_section_number,
     validate_blog_candidate,
 )
 
@@ -655,8 +656,16 @@ def _bundle_anchors(bundle: Path | None) -> dict[str, tuple[str, str]]:
     anchors: dict[str, tuple[str, str]] = {}
     for index, line in enumerate(lines):
         section = re.match(r"^\s*#{0,6}\s*(\d+(?:\.\d+){0,3})\s+\S", line)
-        if section:
-            number = section.group(1)
+        number = section.group(1) if section else None
+        roman = re.match(r"^#{1,6}\s+([IVXLCDM]+)(?:[.)]\s+|\s+)\S", line, re.IGNORECASE)
+        if roman:
+            token = roman.group(1).upper()
+            values = {'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100, 'D': 500, 'M': 1000}
+            value = sum(-values[c] if i + 1 < len(token) and values[c] < values[token[i + 1]]
+                        else values[c] for i, c in enumerate(token))
+            if _roman_section_number(value) == token:
+                number = str(value)
+        if number:
             key = "section-" + number.replace(".", "-")
             anchors.setdefault(key, (f"原文第 {number} 节", "\n".join(lines[index:index + 8])[:1000]))
         figure = re.match(r"^\s*(Figure|Fig\.|Table)\s*(\d+)\s*(?:[:.]|\s+)", line, flags=re.IGNORECASE)

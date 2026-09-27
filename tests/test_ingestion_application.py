@@ -236,6 +236,26 @@ class IngestionApplicationTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
+    def test_publish_file_lock_is_retryable_without_reparsing(self):
+        parser = ValidParser()
+        app = IngestionApplication(self.workspace, parser=parser, writer_id='host-a')
+        item = app.stage_pdf(self.pdf, topic_title='Systems')
+        app.confirm(item['item_id'], services=['mineru'], purpose='register source', scope='ingestion')
+        original_replace = Path.replace
+        def replace(path, target):
+            if path.name.endswith('.staging'):
+                raise PermissionError('simulated Windows publication lock')
+            return original_replace(path, target)
+        with patch.object(Path, 'replace', replace):
+            failed = app.process(item['item_id'], request_id='locked-publish')
+        self.assertEqual('retry_waiting', failed['status'])
+        self.assertEqual('source_publish_failed', failed['error']['error_id'])
+        self.assertEqual('completed', failed['run']['steps']['parse']['status'])
+        self.assertTrue((self.workspace / 'inbox' / item['item_id'] / 'candidate/source.pdf').is_file())
+        completed = app.continue_run(item['item_id'], request_id='retry-publish')
+        self.assertEqual('completed', completed['status'])
+        self.assertEqual(1, parser.calls)
+
     def test_staging_survives_reopen_and_changed_input_invalidates_confirmation(self):
         parser = RecordingParser()
         app = IngestionApplication(self.workspace, parser=parser, writer_id="host-a")
