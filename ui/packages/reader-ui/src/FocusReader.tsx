@@ -292,7 +292,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         </section>}
         {entries.map((e, index) => {
           const message = e.kind === "message" ? view?.conversation.find(m => m.messageId === e.messageId) : null;
-          const content = e.kind === "reading" ? <ReadingChunk chunk={e.chunk} onReference={referenceChunk} /> : message ? <ReaderConversation messages={[message]} /> : null;
+          const content = e.kind === "reading" ? <ReadingChunk chunk={e.chunk} onReference={referenceChunk} /> : message ? <ReaderConversation messages={[message]} chunks={chunks} /> : null;
           return <div key={e.kind === "reading" ? chunkKey(e.chunk) : e.messageId} className="focus-output" data-current-output={index === focusedIndex}
             style={mist ? { "--depth-opacity": Math.max(.38, 1 - Math.abs(focusedIndex - index) * .18) } as CSSProperties : undefined}>{content}</div>;
         })}
@@ -383,7 +383,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         {!mist && current && !reviewChunk && <div className="focus-next"><button disabled={blocked} onClick={current.index === current.total ? finish : next}>{current.index === current.total ? "完成本篇" : operation === "下一段" ? "正在打开…" : "下一段 →"}</button></div>}
       </div>
     </div>
-    {mist && <footer className="mist-reading-actions"><span title={view?.source.title}>{view?.source.title || "阅读工作台"}</span><button onClick={() => setPanel("materials")}>材料</button><button disabled={!host.newSession || !view || blocked} onClick={reset}>新会话</button>{view?.sessionFresh && host.resumeReading && <button disabled={blocked} onClick={resume}>恢复</button>}{reviewChunk ? <button onClick={() => { setReviewChunk(null); setReference(null); }}>返回当前阅读</button> : current ? <button className="focus-reader__continue" disabled={blocked} onClick={() => { follow.current = true; current.index === current.total ? finish() : next(); }}>{current.index === current.total ? "完成本篇" : operation === "下一段" ? "打开中" : "继续"}</button> : null}</footer>}
+    {mist && <footer className="mist-reading-actions"><span title={view?.source.title}>{view?.source.title || "阅读工作台"}</span><button disabled={!host.newSession || !view || blocked} onClick={reset}>新会话</button>{view?.sessionFresh && host.resumeReading && <button disabled={blocked} onClick={resume}>恢复</button>}{reviewChunk ? <button onClick={() => { setReviewChunk(null); setReference(null); }}>返回当前阅读</button> : current ? <button className="focus-reader__continue" disabled={blocked} onClick={() => { follow.current = true; current.index === current.total ? finish() : next(); }}>{current.index === current.total ? "完成本篇" : operation === "下一段" ? "打开中" : "继续"}</button> : null}</footer>}
     <dialog ref={dialog} className="focus-dialog" onCancel={() => setPanel(null)} onClick={e => { if (e.target === dialog.current) setPanel(null); }}>
       <header><h2>{panel === "materials" ? "材料" : panel === "contents" ? "已加载段落" : "阅读设置"}</h2><button aria-label="关闭" onClick={() => setPanel(null)}>×</button></header>
       {panel === "materials" && <>

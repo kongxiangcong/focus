@@ -28,6 +28,9 @@
 .focus-reading img,.focus-markdown img { display:block; max-width:100%; height:auto; border-radius:4px; }
 .focus-reading figure { margin:20px 0; }
 .focus-reading figcaption { color:var(--muted); font-size:14px; margin-top:8px; }
+.focus-referenced-figure { margin:20px 0; }
+.focus-referenced-figure img { display:block; max-width:100%; height:auto; border-radius:4px; }
+.focus-referenced-figure figcaption { margin-top:8px; color:var(--muted); font-size:14px; }
 .focus-message { margin:0 0 34px; min-width:0; }
 .focus-message>header { font-size:13px; font-weight:600; margin-bottom:10px; color:var(--accent); }
 .focus-message[data-role=user] { margin-left:10%; padding:16px 20px; background:#eeefe8; border-radius:12px; }
@@ -39,6 +42,7 @@
 .focus-markdown a { color:#326453; text-underline-offset:3px; }
 .focus-markdown ul,.focus-markdown ol { padding-left:1.6em; }
 .focus-markdown blockquote { margin:1em 0; padding-left:18px; border-left:3px solid #afbeb3; color:#58635c; }
+.focus-markdown mark { background:#f5df8c; color:inherit; border-radius:2px; padding:0 .1em; }
 .focus-markdown pre,.focus-agent pre { max-width:100%; overflow:auto; white-space:pre; padding:16px; background:#eef0e9; border-radius:8px; font-size:14px; line-height:1.65; }
 .focus-markdown code { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; background:#eef0e9; padding:.12em .3em; border-radius:3px; font-size:.88em; }
 .focus-markdown pre code { padding:0; background:transparent; font-size:inherit; }

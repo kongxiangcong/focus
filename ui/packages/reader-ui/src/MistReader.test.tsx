@@ -60,9 +60,42 @@ it("keeps upload and attachment actions out of the Mist reading workspace", asyn
   render(<FocusReader host={host} appearance="mist" />);
   await screen.findByRole("heading", { name: "Method" });
   expect(screen.queryByRole("button", { name: /附件|上传/ })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "材料" }));
-  expect(screen.queryByRole("button", { name: /附件|上传/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "材料" })).not.toBeInTheDocument();
   expect(host.upload).not.toHaveBeenCalled();
+});
+it("renders rich Markdown and the referenced source figure in the assistant output", async () => {
+  const illustrated = { ...current, images: [{ src: "/reader/assets/demo-paper/images/image-001.png", caption: "图 1 LP5X-PIM 架构" }] };
+  const answer = { messageId: "a1", chunkId: current.chunkId, sourceId: current.sourceId, role: "assistant" as const,
+    content: "## 2.1 硬件建模\n\n**内存控制器：**处理请求，==逐周期检查==时序（图 1）。" };
+  const window: ReadingWindow = { ...first, current: illustrated, conversation: [answer] };
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(window)), continueReading: vi.fn(), sendMessage: vi.fn() };
+  render(<FocusReader host={host} appearance="mist" />);
+  const output = (await screen.findByText("内存控制器：")).closest("article")!;
+  expect(within(output).getByRole("heading", { name: "2.1 硬件建模" })).toBeVisible();
+  expect(within(output).getByText("内存控制器：").tagName).toBe("STRONG");
+  expect(within(output).getByText("逐周期检查").tagName).toBe("MARK");
+  expect(within(output).getByRole("img", { name: "图 1 LP5X-PIM 架构" })).toHaveAttribute("src", illustrated.images[0].src);
+});
+it("renders an explicit Markdown image in an answer without duplicating the figure", async () => {
+  const illustrated = { ...current, images: [{ src: "/reader/assets/demo-paper/images/image-001.png", caption: "图 1 架构" }] };
+  const answer = { messageId: "a2", chunkId: current.chunkId, sourceId: current.sourceId, role: "assistant" as const,
+    content: "图 1：![架构](images/image-001.png)" };
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess({ ...first, current: illustrated, conversation: [answer] })), continueReading: vi.fn(), sendMessage: vi.fn() };
+  render(<FocusReader host={host} appearance="mist" />);
+  const output = (await screen.findByRole("img", { name: "架构" })).closest("article")!;
+  expect(within(output).getAllByRole("img")).toHaveLength(1);
+  expect(within(output).getByRole("img", { name: "架构" })).toHaveAttribute("src", illustrated.images[0].src);
+});
+it("only resolves figure references to bound images from the same source", async () => {
+  const illustrated = { ...current, images: [
+    { src: "/reader/assets/demo-paper/images/fig1.png", caption: "Figure 1. System" },
+    { src: "/reader/assets/demo-paper/images/fig10.png", caption: "Figure 10. Other" },
+  ] };
+  const answer = { messageId: "a3", chunkId: current.chunkId, sourceId: "another-paper", role: "assistant" as const, content: "见图 1。" };
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess({ ...first, current: illustrated, conversation: [answer] })), continueReading: vi.fn(), sendMessage: vi.fn() };
+  render(<FocusReader host={host} appearance="mist" />);
+  const output = (await screen.findByText("见图 1。")).closest("article")!;
+  expect(within(output).queryByRole("img")).not.toBeInTheDocument();
 });
 it("streams one assistant card into the central timeline and keeps only prompts in Companion", async () => {
   let emit!: Parameters<NonNullable<ReaderHost["subscribe"]>>[0];

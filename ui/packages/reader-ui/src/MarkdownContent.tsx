@@ -24,8 +24,32 @@ const schema = {
     th: [...(defaultSchema.attributes?.th ?? []), "colSpan", "rowSpan"],
   },
 };
+type MarkNode = { type: string; value?: string; tagName?: string; properties?: Record<string, unknown>; children?: MarkNode[] };
+// Handle ==highlight== and bold labels that CommonMark leaves literal before Chinese text.
+function rehypeInlineFormatting() {
+  return (tree: MarkNode) => {
+    function visit(parent: MarkNode) {
+      if (!parent.children || ["pre", "code"].includes(parent.tagName ?? "")) return;
+      parent.children = parent.children.flatMap(child => {
+        if (child.type !== "text" || !child.value || !child.value.includes("==") && !child.value.includes("**")) { visit(child); return [child]; }
+        const parts: MarkNode[] = [];
+        const pattern = /==([^=\n]+)==|\*\*([^*\n]+[：:])\*\*/g;
+        let last = 0;
+        for (const match of child.value.matchAll(pattern)) {
+          if (match.index > last) parts.push({ type: "text", value: child.value.slice(last, match.index) });
+          parts.push({ type: "element", tagName: match[1] ? "mark" : "strong", properties: {}, children: [{ type: "text", value: match[1] ?? match[2] }] });
+          last = match.index + match[0].length;
+        }
+        if (!last) return [child];
+        if (last < child.value.length) parts.push({ type: "text", value: child.value.slice(last) });
+        return parts;
+      });
+    }
+    visit(tree);
+  };
+}
 const rehypePlugins: NonNullable<ComponentProps<typeof Markdown>["rehypePlugins"]> = [
-  rehypeRaw, [rehypeSanitize, schema], rehypeKatex,
+  rehypeRaw, [rehypeSanitize, schema], rehypeInlineFormatting, rehypeKatex,
 ];
 // MinerU emits HTML tables; Markdown does not parse math inside raw HTML cells.
 function CellContent({ children }: { children: ReactNode }) {

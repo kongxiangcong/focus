@@ -1,4 +1,4 @@
-import type { ReaderChunk, ReaderMessage } from "@focus/reader-contracts";
+import type { ReaderChunk, ReaderImage, ReaderMessage } from "@focus/reader-contracts";
 import { useState } from "react";
 import { MarkdownContent } from "./MarkdownContent";
 
@@ -21,9 +21,29 @@ export function ReadingChunk({ chunk, onReference }: { chunk: ReaderChunk; onRef
   </article>;
 }
 
-export function ReaderConversation({ messages }: { messages: readonly ReaderMessage[] }) {
+const figureNumber = /(?:图|fig(?:ure)?\.?)\s*[-.:：]?\s*(\d+[a-z]?)(?!\d)/gi;
+function referencedFigures(message: ReaderMessage, chunks: readonly ReaderChunk[]): ReaderImage[] {
+  const sourceId = message.sourceId ?? message.reference?.sourceId;
+  if (message.role !== "assistant" || message.sourceDeleted || !sourceId) return [];
+  const numbers = new Set([...message.content.matchAll(figureNumber)].map(match => match[1].toLowerCase()));
+  if (!numbers.size) return [];
+  const seen = new Set<string>();
+  return chunks.filter(chunk => chunk.sourceId === sourceId).flatMap(chunk => chunk.images).filter(image => {
+    const match = image.caption.match(/^\s*(?:图|fig(?:ure)?\.?)\s*[-.:：]?\s*(\d+[a-z]?)(?!\d)/i);
+    if (!match || !numbers.has(match[1].toLowerCase()) || seen.has(image.src)) return false;
+    seen.add(image.src);
+    // An image already included in the answer's Markdown is rendered in place.
+    return ![...message.content.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)].some(link =>
+      link[1] === image.src || image.src.endsWith("/" + link[1].replace(/^\.\//, "")));
+  });
+}
+
+export function ReaderConversation({ messages, chunks = [] }: { messages: readonly ReaderMessage[]; chunks?: readonly ReaderChunk[] }) {
   return <>{messages.map(message => <article className={`focus-message${message.role === "assistant" ? " focus-reader__chunk" : ""}`} data-message-id={message.messageId} data-role={message.role} key={message.messageId}>
     <header>{message.role === "user" ? "你" : "Agent"}{message.sourceDeleted && <small> · 来源已删除</small>}</header>
-    <MarkdownContent text={message.content} sourceId={message.reference?.sourceId} />
+    <MarkdownContent text={message.content} sourceId={message.sourceDeleted ? undefined : message.sourceId ?? message.reference?.sourceId} />
+    {referencedFigures(message, chunks).map(image => <figure key={image.src} className="focus-referenced-figure">
+      <img src={image.src} alt={image.caption} loading="lazy" /><figcaption>{image.caption}</figcaption>
+    </figure>)}
   </article>)}</>;
 }
