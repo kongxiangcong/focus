@@ -130,6 +130,7 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
 .library-summary { margin:0; font-size:12px; line-height:1.6; color:var(--reader-muted); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
 .library-card-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
 .library-card-actions button { padding:6px 12px; min-height:34px; font-size:12px; }
+.library-preparation { margin:10px 0 0; font-size:12px; line-height:1.5; color:var(--reader-muted); overflow-wrap:anywhere; }
 .library-details { border-top:1px solid var(--reader-line); margin-top:16px; padding-top:12px; min-width:0; font-size:12px; overflow-wrap:anywhere; }
 .library-details>div:first-of-type,.library-row-actions { gap:8px; }
 .library-details .library-metadata { margin:12px 0; }

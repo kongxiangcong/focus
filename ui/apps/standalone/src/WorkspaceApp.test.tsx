@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ReaderHost, type ReadingWindow } from "@focus/reader-contracts";
+import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ReaderHost, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
 import { WorkspaceApp } from "./WorkspaceApp";
 const empty: ReadingWindow = { status: "empty", current: null, history: [], conversation: [], source: { sourceId: "", title: "", topicId: null }, sessionId: "s1",
   agent: { run: null, catalog: { sources: [], topics: [] }, backend: "codex", backends: [{ id: "codex", label: "Codex" }, { id: "workbuddy", label: "WorkBuddy", unavailableReason: "待接入" }] } };
@@ -14,13 +14,13 @@ function blogStatus(overrides: Partial<BlogStatus> = {}, artifacts: Partial<Reco
     verificationLevel: "paper_reading", warnings: [], error: null, ...overrides,
   };
 }
-function setup(initialInbox: readonly IngestionItem[] = []) {
+function setup(initialInbox: readonly IngestionItem[] = [], initialWindow: ReadingWindow = empty) {
   const staged: IngestionItem = { itemId: "item-1", fileName: "test.pdf", status: "awaiting_confirmation", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"] };
   const confirmed: IngestionItem = { ...staged, status: "confirmed", confirmation: { services: ["mineru"], purpose: "register source", scope: "ingestion" } };
   const processing: IngestionItem = { ...staged, status: "processing" };
   const cancelled: IngestionItem = { ...staged, status: "cancelled" };
   const host: ReaderHost = {
-    getReadingWindow: vi.fn(async () => readerSuccess(empty)), continueReading: vi.fn(async () => readerSuccess(empty)), sendMessage: vi.fn(async () => readerSuccess(empty)),
+    getReadingWindow: vi.fn(async () => readerSuccess(initialWindow)), continueReading: vi.fn(async () => readerSuccess(empty)), sendMessage: vi.fn(async () => readerSuccess(empty)),
     listTopics: vi.fn(async () => readerSuccess([{ topicId: "topic", title: "编译", sourceIds: ["a-paper"] }])),
     listSources: vi.fn(async () => readerSuccess([{ sourceId: "a-paper", title: "A Paper", kind: "paper" as const, parseStatus: "ready" as const, error: null, noteCount: 2, topicIds: ["topic"], progress: { completed: 1, total: 4, planId: "plan-001", chunkId: "chunk-002" } }])),
     listInbox: vi.fn(async () => readerSuccess(initialInbox)), stageIngestion: vi.fn(async () => readerSuccess(staged)),
@@ -374,6 +374,36 @@ it("keeps cards compact, expands details, and persists list display", async () =
   app.unmount(); setup();
   await screen.findByRole("heading", { name: "A Paper" });
   expect(screen.getByRole("button", { name: "列表显示" })).toHaveAttribute("aria-pressed", "true");
+});
+it("shows reading preparation and progress without expanding details, then requires a manual open", async () => {
+  const { host } = setup();
+  const preparation: ReadingPreparation = { source_id: "a-paper", status: "running", step: "context", completed: 0, total: 0, ready: false, error: null, plan_id: null };
+  vi.mocked(host.openSource!).mockResolvedValue(readerSuccess({ ...empty, preparations: { "a-paper": preparation } }));
+  const card = (await screen.findByRole("heading", { name: "A Paper" })).closest("article")!;
+  fireEvent.click(within(card).getByRole("button", { name: "开始阅读" }));
+  expect(await within(card).findByText("阅读准备中 · 正在分析全文")).toBeVisible();
+  expect(within(card).getByRole("button", { name: "详细" })).toHaveAttribute("aria-expanded", "false");
+  expect(within(card).getByRole("button", { name: "阅读准备中…" })).toBeDisabled();
+
+  expect(host.openSource).toHaveBeenCalledTimes(1);
+});
+it.each([
+  ["plan", "running", false, 0, 0, null, "阅读准备中 · 正在生成计划"],
+  ["translate", "running", false, 9, 10, null, "阅读准备中 · 正在翻译 · 9/10 段"],
+  ["check", "running", false, 10, 10, null, "阅读准备中 · 正在检查 · 10/10 段"],
+  ["ready", "ready", true, 10, 10, null, "阅读已准备好，可手动点击开始阅读"],
+  ["translate", "failed", false, 9, 10, "网络错误", "阅读准备失败 · 网络错误"],
+  ["translate", "interrupted", false, 9, 10, null, "阅读准备已中断"],
+] as const)("shows %s/%s preparation in a collapsed card", async (step, status, ready, completed, total, error, message) => {
+  const preparation: ReadingPreparation = { source_id: "a-paper", step, status, ready, completed, total, error, plan_id: ready ? "plan-001" : null };
+  const { host } = setup([], { ...empty, preparations: { "a-paper": preparation } });
+  const card = (await screen.findByRole("heading", { name: "A Paper" })).closest("article")!;
+  expect(within(card).getByRole("button", { name: "详细" })).toHaveAttribute("aria-expanded", "false");
+  expect(within(card).getByText(message)).toBeVisible();
+  if (ready) {
+    fireEvent.click(within(card).getByRole("button", { name: "开始阅读" }));
+    await waitFor(() => expect(host.openSource).toHaveBeenCalledWith("a-paper"));
+  }
 });
 it.each([
   ["invalid", "completed", 4, "failed"],

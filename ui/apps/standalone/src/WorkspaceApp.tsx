@@ -1,5 +1,5 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
-import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingWindow } from "@focus/reader-contracts";
+import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
 import { FocusReader, TaskProgress } from "@focus/reader-ui";
 import { BackendSetupPanel } from "./BackendSetupPanel";
 
@@ -14,6 +14,18 @@ function routeFromLocation(): Route { return ["/library", "/reading", "/settings
 
 function readingStatus(source: LibrarySource) {
   return source.readingStatus ?? (source.progress.planId && source.progress.chunkId === null ? "completed" : source.progress.completed ? "reading" : source.progress.planId ? "ready" : "unplanned");
+}
+
+const preparationSteps: Record<string, string> = {
+  context: "正在分析全文", plan: "正在生成计划", translate: "正在翻译", check: "正在检查", repair: "正在修订译文", ready: "已完成",
+};
+function preparationText(preparation: ReadingPreparation) {
+  if (preparation.ready) return preparation.candidate ? "新计划已就绪；旧阅读仍保留，可手动打开新计划" : "阅读已准备好，可手动点击开始阅读";
+  const subject = preparation.candidate ? "新计划" : "阅读";
+  const step = preparationSteps[preparation.step] ?? "正在准备";
+  if (preparation.status === "running") return `${subject}准备中 · ${step}${preparation.total > 0 ? ` · ${preparation.completed}/${preparation.total} 段` : ""}`;
+  const status = ({ failed: "准备失败", interrupted: "准备已中断", cancelled: "准备已取消", bundle_changed: "原件已变化", commit_conflict: "提交冲突" } as Record<string, string>)[preparation.status] ?? "准备未完成";
+  return `${subject}${status}${preparation.error ? ` · ${preparation.error}` : ""}`;
 }
 
 const blogArtifacts: readonly [BlogArtifactName, string][] = [["value_analysis", "价值分析"], ["reading_blog", "带读博客"], ["html", "HTML"]];
@@ -389,9 +401,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
             </div>
             <div className="library-card-actions">
               <button disabled={!host.blogUrl || !blogs[s.sourceId]?.generated || blogs[s.sourceId]?.artifacts?.html?.status !== "completed"} onClick={() => setBlogViewer(s.sourceId)}>打开博客</button>
-              <button disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready" || (view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready)} onClick={() => void enterReading(s.sourceId)}>开始阅读</button>
+              <button disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready" || (view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready)} onClick={() => void enterReading(s.sourceId)}>{view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready ? "阅读准备中…" : "开始阅读"}</button>
               <button aria-expanded={expandedSources.has(s.sourceId)} aria-controls={`source-details-${s.sourceId}`} onClick={() => toggleDetails(s.sourceId)}>详细</button>
             </div>
+            {view?.preparations?.[s.sourceId] && <p className="library-preparation" role="status">{preparationText(view.preparations[s.sourceId])}</p>}
             {expandedSources.has(s.sourceId) && <div className="library-details" id={`source-details-${s.sourceId}`}>
             <p className="library-full-title">{s.title}</p>
             <p className="library-parse-status">解析：{s.parseStatus === "ready" ? "已完成" : "失败"}{s.error ? ` · ${s.error}` : ""}</p>
@@ -401,7 +414,6 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
             <div className="library-card-top"><span className="source-badge">{s.format ?? (s.kind === "paper" ? "PDF" : "HTML")}</span>{s.parseStatus !== "ready" && <span title={s.error ?? undefined}>需检查</span>}</div>
             <p className="library-metadata" title={s.title}>{[s.publishedAt, s.venue].filter(Boolean).join(" · ")}</p>
             <div className="library-progress"><progress aria-label={`${s.title} 阅读进度`} value={s.progress.completed} max={s.progress.total || 1} /><span>{s.progress.completed} / {s.progress.total}</span></div>
-            <p className="library-metadata">{view?.preparations?.[s.sourceId] ? (() => { const p = view.preparations![s.sourceId]; return p.ready ? (p.candidate ? "新计划已就绪；旧阅读仍保留" : "阅读已准备好，可手动打开") : `${p.candidate ? "新计划" : "阅读"}${p.status === "running" ? "准备中" : p.status === "failed" ? "准备失败" : p.status === "interrupted" ? "准备已中断" : "准备已取消"} · ${p.step} · ${p.completed}/${p.total}${p.error ? ` · ${p.error}` : ""}`; })() : "尚未初始化精读"}</p>
             <div className="library-card-bottom"><small>{({ ready: "待阅读", reading: "阅读中", completed: "已读完", unplanned: "待规划" })[readingStatus(s)]}</small><div className="library-row-actions">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(s.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(s.sourceId)} target="_blank" rel="noreferrer">正文</a>}<button disabled={!host.selectDiscussionSource || s.parseStatus !== "ready"} onClick={() => void discuss(s.sourceId)}>讨论</button>{["failed", "cancelled", "interrupted"].includes(view?.preparations?.[s.sourceId]?.status ?? "") && host.resumePreparation && <button onClick={() => void operate("恢复准备", () => host.resumePreparation!(s.sourceId, createReaderId()))}>恢复准备</button>}{view?.preparations?.[s.sourceId]?.status === "running" && host.cancelPreparation && <button onClick={() => void operate("取消准备", () => host.cancelPreparation!(s.sourceId))}>取消准备</button>}<button disabled={!!busy || active || !host.rereadReading || !rereadReceipt(s.sourceId)} onClick={() => setConfirm({ source: s, action: "reread" })}>从头阅读</button><button disabled={!!busy || active || !host.replanSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "replan" })}>重新规划</button><button disabled={!!busy || !host.clearSource || view?.clearBusySources?.includes(s.sourceId)} onClick={() => setConfirm({ source: s, action: "clear", requestId: createReaderId() })}>清除讨论与笔记</button><button disabled={managementBusy || !host.deleteSource || !host.deletionImpact} onClick={() => void confirmDelete(s)}>删除</button></div></div>
             {view?.preparations?.[s.sourceId]?.candidate && view.preparations[s.sourceId].ready && <button className="workspace-primary" disabled={!!busy || active || !host.activateReadingCandidate || view.readingRevision === undefined} onClick={() => void activateCandidate(s.sourceId)}>打开新计划</button>}
             <div className="library-tags" aria-label="专题标签"><span>属于专题：{s.topicIds.length === 0 ? "未分类" : ""}</span>{s.topicIds.map(id => <button key={id} onClick={() => setTopic(id)}>{topics.find(t => t.topicId === id)?.title ?? id}</button>)}</div>
