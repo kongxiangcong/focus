@@ -42,6 +42,26 @@ class CoreBridge:
     def __init__(self, workspace):
         self.workspace = workspace
         self.core = WorkspaceCore(workspace)
+        self._figures_cache = {}
+
+    def figure_catalog(self, source_id):
+        """Expose only images bound to this Source's current Parser Bundle."""
+        content = self.workspace / 'sources' / validate_source_id(source_id) / 'parser-bundle' / 'content.md'
+        signature = (content.stat().st_mtime_ns, content.stat().st_size)
+        cached = self._figures_cache.get(source_id)
+        if cached and cached[0] == signature:
+            return cached[1]
+        lines = content.read_text(encoding='utf-8', errors='replace').splitlines()
+        bound = self.core.read_source_range(start=1, end=len(lines), source_id=source_id)['images'] if lines else []
+        figures = []
+        seen = set()
+        for image in bound:
+            src = self._image_url(source_id, image['path'])
+            if src not in seen:
+                figures.append({'src': src, 'caption': image['caption']})
+                seen.add(src)
+        self._figures_cache[source_id] = (signature, figures)
+        return figures
 
     def catalog(self):
         library = SourceLibrary(self.workspace)
@@ -168,20 +188,21 @@ class CoreBridge:
             raise ValueError('Source resource is unavailable')
         return target
 
+    def _image_url(self, source_id, image_path):
+        path = Path(image_path).resolve()
+        current = (self.workspace / 'sources' / source_id / 'parser-bundle').resolve()
+        if path.is_relative_to(current):
+            return '/reader/assets/' + quote(source_id, safe='') + '/' + quote(str(path.relative_to(current)).replace('\\', '/'), safe='/')
+        archived = (self.workspace / 'sources' / source_id / 'reading' / 'bundles').resolve()
+        if path.is_relative_to(archived) and len(path.relative_to(archived).parts) > 1:
+            return '/reader/historical-assets/' + quote(source_id, safe='') + '/' + quote(str(path.relative_to(archived)).replace('\\', '/'), safe='/')
+        raise ValueError('Image reference is outside a Source Bundle')
+
     def project_chunk(self, c):
-        def image_url(image):
-            path = Path(image['path']).resolve()
-            current = (self.workspace / 'sources' / c['source_id'] / 'parser-bundle').resolve()
-            if path.is_relative_to(current):
-                return '/reader/assets/' + quote(c['source_id'], safe='') + '/' + quote(str(path.relative_to(current)).replace('\\', '/'), safe='/')
-            archived = (self.workspace / 'sources' / c['source_id'] / 'reading' / 'bundles').resolve()
-            if path.is_relative_to(archived) and len(path.relative_to(archived).parts) > 1:
-                return '/reader/historical-assets/' + quote(c['source_id'], safe='') + '/' + quote(str(path.relative_to(archived)).replace('\\', '/'), safe='/')
-            raise ValueError('Image reference is outside a Source Bundle')
         return {'sourceId': c['source_id'], 'planId': c['plan_id'], 'chunkId': c['chunk_id'],
                 'index': c['index'], 'total': c['total'], 'sectionPath': c['section_path'],
                 'sourceLines': c['source_lines'], 'sourceMarkdown': c['source_text'], 'translation': c['translation'],
-                'images': [{'src': image_url(i),
+                'images': [{'src': self._image_url(c['source_id'], i['path']),
                             'caption': i['caption']} for i in c['images']],
                 'relevantGlossary': c['relevant_glossary'], 'presentationStatus': c['status'].replace('_', '-')}
 

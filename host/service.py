@@ -154,6 +154,10 @@ class HostService:
                 window.update(status='empty', source={'sourceId': discussion_source, 'title': source['title'],
                     'topicId': None}, current=None, history=[], outline=[])
             note_source = discussion_source or window['source']['sourceId']
+            try:
+                window['figures'] = self.core.figure_catalog(note_source) if note_source else []
+            except (OSError, ValueError, WorkspaceError):
+                window['figures'] = []
             window['revision'] = self.generation
             window['sessionId'] = self.state['sessionId']
             window['configuration'] = self.configuration_status()

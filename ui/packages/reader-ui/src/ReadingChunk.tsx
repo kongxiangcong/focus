@@ -22,13 +22,15 @@ export function ReadingChunk({ chunk, onReference }: { chunk: ReaderChunk; onRef
 }
 
 const figureNumber = /(?:图|fig(?:ure)?\.?)\s*[-.:：]?\s*(\d+[a-z]?)(?!\d)/gi;
-function referencedFigures(message: ReaderMessage, chunks: readonly ReaderChunk[]): ReaderImage[] {
+function referencedFigures(message: ReaderMessage, chunks: readonly ReaderChunk[], figures: readonly ReaderImage[], figureSourceId?: string): ReaderImage[] {
   const sourceId = message.sourceId ?? message.reference?.sourceId;
   if (message.role !== "assistant" || message.sourceDeleted || !sourceId) return [];
   const numbers = new Set([...message.content.matchAll(figureNumber)].map(match => match[1].toLowerCase()));
   if (!numbers.size) return [];
   const seen = new Set<string>();
-  return chunks.filter(chunk => chunk.sourceId === sourceId).flatMap(chunk => chunk.images).filter(image => {
+  const available = [...chunks.filter(chunk => chunk.sourceId === sourceId).flatMap(chunk => chunk.images),
+    ...(sourceId === figureSourceId ? figures : [])];
+  return available.filter(image => {
     const match = image.caption.match(/^\s*(?:图|fig(?:ure)?\.?)\s*[-.:：]?\s*(\d+[a-z]?)(?!\d)/i);
     if (!match || !numbers.has(match[1].toLowerCase()) || seen.has(image.src)) return false;
     seen.add(image.src);
@@ -38,11 +40,13 @@ function referencedFigures(message: ReaderMessage, chunks: readonly ReaderChunk[
   });
 }
 
-export function ReaderConversation({ messages, chunks = [] }: { messages: readonly ReaderMessage[]; chunks?: readonly ReaderChunk[] }) {
+export function ReaderConversation({ messages, chunks = [], figures = [], figureSourceId }: {
+  messages: readonly ReaderMessage[]; chunks?: readonly ReaderChunk[]; figures?: readonly ReaderImage[]; figureSourceId?: string;
+}) {
   return <>{messages.map(message => <article className={`focus-message${message.role === "assistant" ? " focus-reader__chunk" : ""}`} data-message-id={message.messageId} data-role={message.role} key={message.messageId}>
     <header>{message.role === "user" ? "你" : "Agent"}{message.sourceDeleted && <small> · 来源已删除</small>}</header>
     <MarkdownContent text={message.content} sourceId={message.sourceDeleted ? undefined : message.sourceId ?? message.reference?.sourceId} />
-    {referencedFigures(message, chunks).map(image => <figure key={image.src} className="focus-referenced-figure">
+    {referencedFigures(message, chunks, figures, figureSourceId).map(image => <figure key={image.src} className="focus-referenced-figure">
       <img src={image.src} alt={image.caption} loading="lazy" /><figcaption>{image.caption}</figcaption>
     </figure>)}
   </article>)}</>;

@@ -292,7 +292,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         </section>}
         {entries.map((e, index) => {
           const message = e.kind === "message" ? view?.conversation.find(m => m.messageId === e.messageId) : null;
-          const content = e.kind === "reading" ? <ReadingChunk chunk={e.chunk} onReference={referenceChunk} /> : message ? <ReaderConversation messages={[message]} chunks={chunks} /> : null;
+          const content = e.kind === "reading" ? <ReadingChunk chunk={e.chunk} onReference={referenceChunk} /> : message ? <ReaderConversation messages={[message]} chunks={chunks} figures={view?.figures} figureSourceId={view?.source.sourceId} /> : null;
           return <div key={e.kind === "reading" ? chunkKey(e.chunk) : e.messageId} className="focus-output" data-current-output={index === focusedIndex}
             style={mist ? { "--depth-opacity": Math.max(.38, 1 - Math.abs(focusedIndex - index) * .18) } as CSSProperties : undefined}>{content}</div>;
         })}

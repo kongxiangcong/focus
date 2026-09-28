@@ -147,6 +147,8 @@ export interface ReadingWindow {
   timeline?: readonly ({ kind: "reading"; chunk: ReaderChunk } | { kind: "message"; messageId: string })[];
   status: ReaderStatus;
   source: ReaderSource;
+  /** Images bound to the current Source, including figures in unread Chunks. */
+  figures?: readonly ReaderImage[];
   current: ReaderChunk | null;
   /** Complete ordered Reading Chunks before `current`; the Reader UI does not cache a second history. */
   history: readonly ReaderChunk[];

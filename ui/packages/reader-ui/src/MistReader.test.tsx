@@ -64,17 +64,17 @@ it("keeps upload and attachment actions out of the Mist reading workspace", asyn
   expect(host.upload).not.toHaveBeenCalled();
 });
 it("renders rich Markdown and the referenced source figure in the assistant output", async () => {
-  const illustrated = { ...current, images: [{ src: "/reader/assets/demo-paper/images/image-001.png", caption: "图 1 LP5X-PIM 架构" }] };
+  const figure = { src: "/reader/assets/demo-paper/images/image-001.png", caption: "图 1 LP5X-PIM 架构" };
   const answer = { messageId: "a1", chunkId: current.chunkId, sourceId: current.sourceId, role: "assistant" as const,
     content: "## 2.1 硬件建模\n\n**内存控制器：**处理请求，==逐周期检查==时序（图 1）。" };
-  const window: ReadingWindow = { ...first, current: illustrated, conversation: [answer] };
+  const window: ReadingWindow = { ...first, figures: [figure], conversation: [answer] };
   const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(window)), continueReading: vi.fn(), sendMessage: vi.fn() };
   render(<FocusReader host={host} appearance="mist" />);
   const output = (await screen.findByText("内存控制器：")).closest("article")!;
   expect(within(output).getByRole("heading", { name: "2.1 硬件建模" })).toBeVisible();
   expect(within(output).getByText("内存控制器：").tagName).toBe("STRONG");
   expect(within(output).getByText("逐周期检查").tagName).toBe("MARK");
-  expect(within(output).getByRole("img", { name: "图 1 LP5X-PIM 架构" })).toHaveAttribute("src", illustrated.images[0].src);
+  expect(within(output).getByRole("img", { name: "图 1 LP5X-PIM 架构" })).toHaveAttribute("src", figure.src);
 });
 it("renders an explicit Markdown image in an answer without duplicating the figure", async () => {
   const illustrated = { ...current, images: [{ src: "/reader/assets/demo-paper/images/image-001.png", caption: "图 1 架构" }] };

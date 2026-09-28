@@ -126,6 +126,11 @@ class WebHostTests(unittest.TestCase):
             self.host.core.core.save_prepared_translation(source_id='fixture-paper', plan_id=status['plan_id'],
                 chunk_id=chunk_id, translation='缓存译文')
 
+    def test_snapshot_exposes_bound_images_across_the_source(self):
+        figures = self.host.snapshot()['figures']
+        self.assertIn({'src': '/reader/assets/fixture-paper/images/image-001.png',
+                       'caption': 'Figure 1: Architecture overview.'}, figures)
+
     def test_question_stream_persistence_and_resume_never_advance(self):
         self.start(); self.finish()
         self.assertEqual('chunk-001', self.host.snapshot()['current']['chunkId'])
