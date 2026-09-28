@@ -8,6 +8,8 @@ import json
 import sys
 import zipfile
 import tempfile
+import shutil
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +23,8 @@ from core import (
     validate_topic_id,
 )
 from core.mineru import MinerUHostedParser as MinerUPdfHostedParser, MAX_SOURCE_BYTES, ParserError
+from core.mineru_selector import AutoMinerUParser
+from core.reading_workspace import _write_document, _read_document, _validate_parser_bundle
 
 
 class ArticleParserError(ParserError):
@@ -119,6 +123,18 @@ def _parse_pdf_file(args: argparse.Namespace, hosted: Any, source: Path) -> None
             )
         print(json.dumps({"status": "reused", "source_id": existing["source_id"], "topic_id": topic_id}, ensure_ascii=False))
         return
+    if hosted is None:
+        task_id = uuid.uuid4().hex
+        task_root = args.workspace / "parser-tasks" / task_id
+        task_root.mkdir(parents=True)
+        shutil.copy2(source, task_root / "source.pdf")
+        task = {"task_id": task_id, "title": args.title, "short_name": args.short_name,
+                "topic": args.topic, "topic_id": args.topic_id, "published_at": args.published_at,
+                "checkpoint": None}
+        _write_document(task_root / "auto-task.json", task)
+        _finish_auto_pdf(args.workspace, task_root, task, args.timeout, args.poll_interval,
+                         model=args.model, language=args.language, ocr=args.ocr)
+        return
     batch_id = hosted.start_pdf(source, model=args.model, language=args.language, ocr=args.ocr)
     task = core.create_parser_task(
         batch_id,
@@ -137,10 +153,47 @@ def _parse_pdf_file(args: argparse.Namespace, hosted: Any, source: Path) -> None
 
 
 def _resume(args, hosted):
+    if hosted is None:
+        task_root = args.workspace / "parser-tasks" / args.reference_id
+        if (task_root / "auto-task.json").is_file():
+            task = _read_document(task_root / "auto-task.json")
+            if task.get("task_id") != args.reference_id:
+                raise WorkspaceError("parser_task_invalid", "Parser task ID mismatch")
+            _finish_auto_pdf(args.workspace, task_root, task, args.timeout, args.poll_interval)
+            return
+        hosted = PDFHostedParser()  # older remote-only tasks
     core = WorkspaceCore(args.workspace)
     task = core.load_parser_task(args.reference_id)
     result = _finish_pdf(core, task, hosted, args.timeout, args.poll_interval)
     print(json.dumps({**result, "status": "done", "batch_id": task.batch_id}, ensure_ascii=False))
+
+
+def _finish_auto_pdf(workspace, task_root, task, timeout, interval, *, model="vlm", language="en", ocr=False):
+    source = task_root / "source.pdf"
+    candidate = task_root / "candidate"
+    parser = AutoMinerUParser(model=model, language=language, ocr=ocr, timeout=timeout, interval=interval)
+    def checkpoint(value):
+        task["checkpoint"] = value
+        _write_document(task_root / "auto-task.json", task)
+        print(json.dumps({"status": "parsing", "task_id": task["task_id"],
+                          "backend": value.get("backend"), "reference_id": value.get("reference_id")}, ensure_ascii=False), flush=True)
+    if not candidate.joinpath("validation.json").is_file():
+        if candidate.exists():
+            shutil.rmtree(candidate)
+        if task.get("checkpoint"):
+            parser.resume(source, candidate, checkpoint=task["checkpoint"], on_checkpoint=checkpoint)
+        else:
+            parser.parse(source, candidate, checkpoint=checkpoint)
+    _validate_parser_bundle(candidate)
+    parsed = _read_document(candidate / "ingestion-result.json")
+    if not isinstance(parsed.get("title"), str) or not isinstance(parsed.get("short_name"), str):
+        raise WorkspaceError("parser_result_invalid", "Candidate result is invalid")
+    identity = "paper-original:" + __import__("hashlib").sha256(source.read_bytes()).hexdigest()
+    result = SourceLibrary(workspace).register(candidate, source_kind="paper_pdf", identity=identity,
+        title=task.get("title") or parsed["title"], short_name=task.get("short_name") or parsed["short_name"],
+        topic_title=task.get("topic"), topic_id=task.get("topic_id"), published_at=task.get("published_at"))
+    shutil.rmtree(task_root, ignore_errors=True)
+    print(json.dumps({**result, "status": "done", "task_id": task["task_id"]}, ensure_ascii=False))
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -176,7 +229,7 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None, *, hosted: Any | None = None) -> int:
     try:
         args = _build_parser().parse_args(argv)
-        args.func(args, hosted or PDFHostedParser())
+        args.func(args, hosted)
         return 0
     except (ParserError, WorkspaceError, OSError, zipfile.BadZipFile) as exc:
         print(

@@ -74,6 +74,13 @@ it("accepts saved HTML and explains local parsing in the Inbox confirmation", as
   expect(host.processIngestion).not.toHaveBeenCalled();
 });
 afterEach(cleanup);
+it("shows the selected PDF backend and queued progress in the visible Inbox", async () => {
+  const item: IngestionItem = { itemId: "pdf-1", fileName: "paper.pdf", status: "processing", topicTitle: null,
+    topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started",
+    parserBackend: "local-mineru", selectionReason: "本地 MinerU 4.0.8 Standard V1 可用", parserProgress: { status: "queued" } };
+  setup([item]);
+  await screen.findByText(/本地 MinerU · 本地 MinerU 4.0.8 Standard V1 可用 · 排队中/);
+});
 it.each(["save", "discussion"])("retains the newest shared configuration when a late %s response arrives after another page refreshed", async action => {
   history.replaceState(null, "", action === "save" ? "/settings" : "/library");
   const codex = { backend: "codex" as const, model: "gpt-6-astra", runtimePath: null, credentialFile: null };

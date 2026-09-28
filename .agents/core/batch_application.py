@@ -111,7 +111,8 @@ class BatchApplication:
                 status = 'partial' if item.get('source_id') else 'failed'
             items.append({'itemId': item_id, 'fileName': item['file_name'], 'sourceId': item.get('source_id'),
                           'status': status, 'ingestionStatus': item['status'], 'blog': blog, 'error': error, 'remoteReference': item.get('remote_reference', False),
-                          'resubmitRisk': item.get('resubmit_risk')})
+                          'resubmitRisk': item.get('resubmit_risk'), 'parserBackend': item.get('parser_backend'),
+                          'selectionReason': item.get('selection_reason'), 'parserProgress': item.get('parser_progress')})
         return {k: batch[k] for k in ('batchId', 'topicId', 'status', 'error')} | {
             'items': items, 'executing': batch['batchId'] in self.running}
 

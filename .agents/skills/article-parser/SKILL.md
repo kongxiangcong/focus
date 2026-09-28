@@ -1,11 +1,11 @@
 ---
 name: article-parser
-description: Parse a selected PDF through hosted MinerU or a complete saved SingleFile HTML locally into the canonical FOCUS Source Library. Use for PDF and saved web-article ingestion.
+description: Parse a selected PDF with server-side local-first MinerU auto selection or a complete saved SingleFile HTML locally into the canonical FOCUS Source Library.
 ---
 
 # Article Parser
 
-This is the only public Parser skill. Use the repository Python environment, install `host/requirements.txt`, and run `pnpm install --frozen-lockfile` at the repository root for Mozilla Readability and jsdom. HTML extraction is local and does not execute page scripts or fetch resources. PDF invocation authorizes its required MinerU upload in that turn; read credentials from the environment or ignored `.env`.
+This is the only public Parser skill. Use the repository Python environment, install `host/requirements.txt`, and run `pnpm install --frozen-lockfile` at the repository root for Mozilla Readability and jsdom. HTML extraction is local and does not execute page scripts or fetch resources. PDF selection happens on the backend server. It probes local MinerU 4.0.8 Standard V1 health, tier and ZIP capabilities before submission. When local is usable it requires no remote token or cloud upload. Only confirmed absence or incompatibility permits mineru.net precision v4 with `MINERU_API_TOKEN` in the process environment or ignored `.env`. Starting, busy or temporarily unreachable local service means wait and retry locally. Explicit `FOCUS_PDF_PARSER=local-mineru|cloud` overrides auto for diagnostics.
 
 Resolve `scripts/article_parser.py` relative to this skill directory:
 
@@ -19,10 +19,10 @@ The local extractor uses Mozilla Readability to locate the article body, restore
 
 Choose a stable short name from the central subject, leaving the publisher's exact title in Source Title. Saved original HTML bytes remain unchanged in `source.html`; `content.md` contains the cleaned article. A canonical origin URL reuses the same Source; URL-less HTML uses the original fingerprint. Extraction provenance is `parser=article-parser`, `model_version=local-html-v1`, without a fabricated remote task ID.
 
-PDF defaults remain MinerU `vlm`, language `en`, OCR disabled. Retain the existing task reference after timeout and resume without resubmission:
+Remote PDF defaults remain MinerU `vlm`, language `en`, OCR disabled. Local requests use Standard tier with its own OCR mode and V1 contract. Retain the printed CLI task ID after timeout and resume without selecting another backend or resubmitting:
 
 ```powershell
-python -B -X utf8 scripts/article_parser.py resume <pdf-batch-id> --workspace <workspace>
+python -B -X utf8 scripts/article_parser.py resume <task-id> --workspace <workspace>
 ```
 
 Completion requires Core publication of `content.md`, exactly one original (`source.pdf` or `source.html`), referenced local images, `metadata.json`, and `validation.json` under `sources/<source-id>/parser-bundle/`. The public CLI uses Core Source Library registration; Inbox uses the same parser implementation through IngestionApplication and guarded IngestionCore publication. No Reading Plan, translation, blog or reading-position advance is created by parsing. Respect the active Workspace owner's serialization; do not publish concurrently with a running Host.

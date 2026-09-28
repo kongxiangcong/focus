@@ -360,6 +360,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         {batch.items.map(item => <div className="library-inbox-item" data-status={item.ingestionStatus === "failed" ? "failed" : item.status} key={item.itemId}>
           <strong>{item.fileName}</strong><span>{itemStatusText[item.status]}</span>
           <small>{item.status === "deleted" ? "原处理授权已失效" : item.ingestionStatus === "completed" ? "解析完成" : "解析：" + (statusText[item.ingestionStatus as IngestionItem["status"]] ?? "待处理")}{item.blog ? " · 博客：" + ({ running: "生成中", completed: "已完成", failed: "失败", cancelled: "已取消", interrupted: "已中断" }[item.blog.runStatus ?? ""] ?? "待生成") : ""}</small>
+          {item.parserBackend && <small>{item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"}{item.selectionReason ? ` · ${item.selectionReason}` : ""}{item.parserProgress?.status ? ` · ${item.parserProgress.status === "queued" ? "排队中" : "解析中"}` : ""}{typeof item.parserProgress?.percent === "number" ? ` · ${Math.round(item.parserProgress.percent)}%` : ""}</small>}
           {item.error && <p>{item.error.message}</p>}
           {item.status === "processing" && <button disabled={!!busy || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "cancel-item", item.itemId)}>取消此项</button>}
           {item.status === "queued" && <button disabled={!!busy || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "remove-item", item.itemId)}>移出队列</button>}
@@ -373,7 +374,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       </article>)}</section>}
       {inbox.length > 0 && <section className="library-inbox" aria-label="Inbox"><div className="library-inbox-heading"><h2>Inbox</h2><button disabled={!!busy} onClick={() => void refresh()}>刷新状态</button></div>{inbox.filter(item => !batches.some(batch => batch.items.some(entry => entry.itemId === item.itemId))).map(item => <article key={item.itemId} className="library-inbox-item" data-status={item.status}>
         <div><strong>{item.fileName}</strong><span>{statusText[item.status]}</span><small>{item.topicTitle ?? topics.find(t => t.topicId === item.topicId)?.title ?? "不关联专题"}</small></div>
-        {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>将调用 {(item.services ?? item.confirmation?.services ?? ["mineru"]).map(service => service === "mineru" ? "MinerU" : service === "local-html" ? "本地 HTML 解析器（不上传）" : service).join("、")} 处理此材料，仅用于建立 Source 并关联专题；不会创建翻译或阅读计划，也不做 AI 内容审核。</p>
+        {item.parserBackend && <p role="status">{item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"}{item.selectionReason ? ` · ${item.selectionReason}` : ""}{item.parserProgress?.status ? ` · ${item.parserProgress.status === "queued" ? "排队中" : item.parserProgress.status === "running" ? "解析中" : item.parserProgress.status}` : ""}{typeof item.parserProgress?.percent === "number" ? ` · ${Math.round(item.parserProgress.percent)}%` : ""}</p>}
+        {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>PDF 由运行 FOCUS 后端的服务器自动选择本地 MinerU 或远端 MinerU API；HTML 使用本地解析。解析仅用于建立 Source 并关联专题，不会自动进入阅读。</p>
           <button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>开始解析并生成博客</button></div>}
         {item.status === "processing" && <button disabled={!!busy || !host.cancelIngestion} onClick={() => host.cancelIngestion && void ingest("取消", () => host.cancelIngestion!(item.itemId))}>取消</button>}
         {(item.status === "status_check_required" || (item.status === "cancelled" && item.resubmitRisk)) && <div className="inbox-confirmation inbox-resubmission">
@@ -458,7 +460,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <label>专题<input list="upload-topics" disabled={!!busy} required maxLength={120} value={uploadTopic} onChange={e => setUploadTopic(e.target.value)} placeholder="选择或新建专题" /></label>
         <datalist id="upload-topics">{topics.map(t => <option key={t.topicId} value={t.title} />)}</datalist>
         <label className="upload-file">{selectedFiles.map(f => f.name).join("、") || "PDF / HTML"}<input aria-label="上传材料" type="file" multiple disabled={!!busy} accept=".pdf,.html,application/pdf,text/html" onChange={e => setSelectedFiles(Array.from(e.target.files ?? []))} /></label>
-        <p>PDF 使用 MinerU 云解析，HTML 使用本地 HTML 解析器（不上传原件）；博客由当前生效的 {view?.agent?.backend === "deepseek" ? "DeepSeek" : "Codex"} 模型服务生成。点击开始即确认文件、专题和服务范围，不自动进入精读。</p>
+        <p>PDF 在服务器端优先使用本地 MinerU，可用能力缺失时使用已配置的远端 MinerU API；HTML 使用本地 HTML 解析器（不上传原件）。博客由当前生效的 {view?.agent?.backend === "deepseek" ? "DeepSeek" : "Codex"} 模型服务生成。点击开始即确认文件、专题和服务范围，不自动进入精读。</p>
         {error && <p role="alert">{error}</p>}
         <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length || !uploadTopic.trim()}>{busy ? "开始中…" : "开始解析并生成博客"}</button></div>
       </form>

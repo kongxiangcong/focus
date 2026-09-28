@@ -19,7 +19,7 @@ from . import discussions
 from .source_clear import SourceClear
 from .backend_setup import BackendSetup, deepseek_key, runtime_path
 from .progress import CORE_LABELS, activity_label
-from core import INGESTION_SERVICES, BlogApplication, IngestionApplication, MinerUIngestionParser
+from core import INGESTION_SERVICES, BlogApplication, IngestionApplication, AutoMinerUParser
 from core.reading_application import ReadingApplication
 from core.reading_progress import ReadingProgress, ProgressApplication
 from core.processing_application import ProcessingApplication
@@ -54,7 +54,7 @@ class HostService:
         self.source_clear.recover()
         self.ingestion = IngestionApplication(
             self.workspace,
-            parser=ingestion_parser or MinerUIngestionParser(),
+            parser=ingestion_parser or AutoMinerUParser(),
             writer_id=writer_id,
         )
         self.lock = threading.RLock()

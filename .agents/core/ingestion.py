@@ -33,7 +33,7 @@ def _component_config(component: object) -> dict[str, Any]:
     config: dict[str, Any] = {
         "adapter": f"{type(component).__module__}.{type(component).__qualname__}",
     }
-    for name in ("model", "language", "ocr"):
+    for name in ("model", "language", "ocr", "mode", "local_url"):
         value = getattr(component, name, None)
         if isinstance(value, (str, bool, int, float)):
             config[name] = value
@@ -331,8 +331,14 @@ class IngestionApplication:
         value["remote_reference"] = (
             isinstance(parse, dict)
             and parse.get("checkpoint") is not None
+            and parse["checkpoint"].get("reference_kind") in {"batch_id", "local_mineru_job"}
             and hasattr(self._parser_for(item), "resume")
         )
+        checkpoint = parse.get("checkpoint") if isinstance(parse, dict) else None
+        if isinstance(checkpoint, dict):
+            value["parser_backend"] = checkpoint.get("backend") or ("cloud" if checkpoint.get("reference_kind") == "batch_id" else None)
+            value["selection_reason"] = checkpoint.get("selection_reason")
+            value["parser_progress"] = checkpoint.get("progress")
         return value
 
     def _unfinished_original(self, fingerprint: str) -> dict[str, Any] | None:
@@ -556,7 +562,9 @@ class IngestionApplication:
             or confirmation.get("topic_title") != item.get("topic_title")
             or confirmation.get("topic_id") != item.get("topic_id")
             or confirmation.get("services") != expected_services
-            or confirmation.get("service_config") != self._service_config(item)
+            or (confirmation.get("service_config") != self._service_config(item)
+                and not (getattr(self._parser_for(item), "supports_pinned_config", False)
+                         and (item.get("run") or {}).get("steps", {}).get("parse", {}).get("checkpoint")))
             or confirmation.get("method_version") != INGESTION_METHOD_VERSION
             or confirmation.get("scope") != "ingestion"
             or not source.is_file()
@@ -733,7 +741,11 @@ class IngestionApplication:
                 try:
                     checkpoint = parse_step.get("checkpoint")
                     if checkpoint is not None and hasattr(self._parser_for(item), "resume"):
-                        parsed = self._parser_for(item).resume(source, candidate, checkpoint=checkpoint)
+                        parser = self._parser_for(item)
+                        if getattr(parser, "supports_progress_checkpoint", False):
+                            parsed = parser.resume(source, candidate, checkpoint=checkpoint, on_checkpoint=save_checkpoint)
+                        else:
+                            parsed = parser.resume(source, candidate, checkpoint=checkpoint)
                     else:
                         parsed = self._parser_for(item).parse(source, candidate, checkpoint=save_checkpoint)
                     if not isinstance(parsed, dict):

@@ -305,6 +305,9 @@ export interface ProcessingBatch {
     ingestionStatus: string; blog: BlogStatus | null;
     error: { error_id: string; message: string } | null;
     remoteReference?: boolean;
+    parserBackend?: "local-mineru" | "cloud";
+    selectionReason?: string;
+    parserProgress?: { status?: string; [key: string]: unknown };
     resubmitRisk?: { choice_id: string } | null;
   }[];
 }
@@ -324,6 +327,9 @@ export interface IngestionItem {
   duplicate?: boolean;
   /** A persisted remote task reference exists for the unfinished parse step. */
   remoteReference?: boolean;
+  parserBackend?: "local-mineru" | "cloud";
+  selectionReason?: string;
+  parserProgress?: { status?: string; [key: string]: unknown };
   /** The risk choice bound to the current acceptance-unknown state, if any. */
   resubmitRisk?: { choiceId: string } | null;
   error?: { errorId: string; message: string };

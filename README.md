@@ -24,7 +24,7 @@ python -m host --workspace ./knowledge-base --network
 
 FOCUS 主要通过 Codex Skills 使用。一次完整流程只有四步：注册 Source、创建 Reading Plan、开始阅读、按需综合 Topic。
 
-1. 用唯一的 `article-parser` 注册 PDF 或 HTML 来源。PDF 使用远端 MinerU；完整 SingleFile HTML 使用本地 Mozilla Readability 和图片提取，不上传。
+1. 用唯一的 `article-parser` 注册 PDF 或 HTML 来源。PDF 由后端服务器优先使用本地 MinerU，确认不可用时才选已配置的远端 API；完整 SingleFile HTML 使用本地 Mozilla Readability 和图片提取，不上传。
 2. 用 `focus-map` 为返回的 Source ID 创建 Reading Plan。重复调用会复用现有 Plan，只有明确要求重建时才会 reinitialize。
 3. 用 `focus-read` 阅读单个 Source，或按 Topic manifest 中的 Source ID 顺序连续阅读。
 4. 只有明确请求时，才用 `focus-read` 生成带 Source ID 与原文行号锚点的 Topic Synthesis。
@@ -44,7 +44,7 @@ Parser 成功后会返回稳定的 `source_id`，例如 `DeepStack-paper`。完�
 ### 准备环境
 
 - 使用 Python 运行仓库内脚本；脚本仅依赖 Python 标准库。
-- 在环境变量 `MINERU_API_TOKEN` 或仓库根目录被 Git 忽略的 `.env` 中配置 MinerU Token。
+- 默认 `FOCUS_PDF_PARSER=auto`；后端服务器可用的 `http://127.0.0.1:18765` 本地 MinerU 4.0.8 Standard V1 无需 Token。仅使用远端时在环境变量 `MINERU_API_TOKEN` 或仓库根目录被 Git 忽略的 `.env` 中配置 Token。
 - 从仓库根目录运行命令，私有数据默认写入被 Git 忽略的 `knowledge-base/`。
 - 不要提交 PDF、HTML、Parser Bundle、Reading Records、Topic Synthesis、`.env` 或 Token。
 

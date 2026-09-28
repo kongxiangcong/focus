@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import filecmp
+import hashlib
 import json
 import os
 import re
@@ -305,6 +306,20 @@ def _normalize(source: Path, archive: Path, output: Path, batch_id: str, model: 
         markdown = _select_full_markdown(raw_root)
         paper, images = _rewrite_and_copy_images(markdown, raw_root, output)
         (output / "content.md").write_text(paper, encoding="utf-8")
+        evidence = {}
+        for name in ("middle_json.json", "model_output.json", "structured_content.json"):
+            matches = [path for path in raw_root.rglob(name) if path.is_file() and path.stat().st_size <= 64 * 1024 * 1024]
+            if len(matches) == 1:
+                raw = matches[0].read_bytes()
+                try:
+                    structured = json.loads(raw)
+                except (ValueError, UnicodeDecodeError):
+                    continue
+                if isinstance(structured, (dict, list)):
+                    target = output / "mineru" / name
+                    target.parent.mkdir(exist_ok=True)
+                    target.write_bytes(raw)
+                    evidence["mineru/" + name] = {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
     finally:
         shutil.rmtree(raw_root, ignore_errors=True)
     shutil.copy2(source, output / "source.pdf")
@@ -313,12 +328,14 @@ def _normalize(source: Path, archive: Path, output: Path, batch_id: str, model: 
         "source_file": source.name,
         "parser": "article-parser",
         "api_version": "v4",
+        "provider": "mineru.net",
         "model_version": model,
         "language": language,
         "batch_id": batch_id,
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "image_naming": "source-reference-order",
         "image_count": len(images),
+        "model_evidence": evidence,
     }
     (output / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     headings = sum(1 for line in (output / "content.md").read_text(encoding="utf-8", errors="replace").splitlines() if line.startswith("#"))
@@ -343,7 +360,7 @@ def _normalize(source: Path, archive: Path, output: Path, batch_id: str, model: 
         raise ParserError(f"Normalized parser bundle failed validation: {failed}")
 
 
-def _poll(batch_id: str, token: str, deadline: float, interval: float) -> dict[str, Any]:
+def _poll(batch_id: str, token: str, deadline: float, interval: float, on_progress=None) -> dict[str, Any]:
     url = f"{BASE_URL}/api/v4/extract-results/batch/{batch_id}"
     while True:
         result = _json_request("GET", url, token=token)
@@ -354,6 +371,8 @@ def _poll(batch_id: str, token: str, deadline: float, interval: float) -> dict[s
         else:
             entry = entries[0]
             state = str(entry.get("state", "pending"))
+        if on_progress:
+            on_progress({"status": state, **({"percent": entry["progress"]} if isinstance(entry.get("progress"), (int, float)) else {})})
         if state == "done":
             return entry
         if state == "failed":
@@ -367,9 +386,9 @@ def _poll(batch_id: str, token: str, deadline: float, interval: float) -> dict[s
         time.sleep(interval)
 
 
-def _complete(source: Path, output: Path, batch_id: str, model: str, language: str, timeout: float, interval: float) -> None:
+def _complete(source: Path, output: Path, batch_id: str, model: str, language: str, timeout: float, interval: float, on_progress=None) -> None:
     token = _token()
-    entry = _poll(batch_id, token, time.monotonic() + timeout, interval)
+    entry = _poll(batch_id, token, time.monotonic() + timeout, interval, on_progress)
     result_url = entry.get("full_zip_url")
     if not isinstance(result_url, str) or not result_url:
         raise ParserError("Completed MinerU task has no full_zip_url", recoverable=False)
@@ -418,8 +437,9 @@ class MinerUHostedParser:
         language: str,
         timeout: float,
         interval: float,
+        on_progress=None,
     ) -> None:
-        _complete(source, output, batch_id, model, language, timeout, interval)
+        _complete(source, output, batch_id, model, language, timeout, interval, on_progress)
 
 
 class MinerUIngestionParser:
@@ -473,10 +493,14 @@ class MinerUIngestionParser:
                     acceptance_unknown=True,
                 ) from exc
             raise
-        return self._complete_candidate(source, candidate, batch_id)
+        return self._complete_candidate(source, candidate, batch_id, checkpoint)
 
-    def _complete_candidate(self, source: Path, candidate: Path, batch_id: str) -> dict[str, Any]:
+    def _complete_candidate(self, source: Path, candidate: Path, batch_id: str, on_checkpoint=None) -> dict[str, Any]:
         try:
+            options = {}
+            if on_checkpoint is not None and isinstance(self.hosted, MinerUHostedParser):
+                options["on_progress"] = lambda progress: on_checkpoint({"reference_kind": "batch_id",
+                                                                          "reference_id": batch_id, "progress": progress})
             self.hosted.complete(
                 source,
                 candidate,
@@ -485,6 +509,7 @@ class MinerUIngestionParser:
                 language=self.language,
                 timeout=self.timeout,
                 interval=self.interval,
+                **options,
             )
         except ParserError as exc:
             from .ingestion import IngestionExternalError
@@ -506,10 +531,10 @@ class MinerUIngestionParser:
         persist_candidate_result(candidate, result)
         return result
 
-    def resume(self, source: Path, candidate: Path, *, checkpoint: dict[str, Any]) -> dict[str, Any]:
+    def resume(self, source: Path, candidate: Path, *, checkpoint: dict[str, Any], on_checkpoint=None) -> dict[str, Any]:
         if checkpoint.get("reference_kind") != "batch_id" or not isinstance(checkpoint.get("reference_id"), str):
             raise ParserError("MinerU checkpoint is invalid", recoverable=False)
-        return self._complete_candidate(source, candidate, checkpoint["reference_id"])
+        return self._complete_candidate(source, candidate, checkpoint["reference_id"], on_checkpoint)
 
     @staticmethod
     def cancel(checkpoint: dict[str, Any]) -> bool:

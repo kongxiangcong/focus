@@ -11,6 +11,7 @@ from .reading_workspace import (
 from .source_library import SourceLibrary, canonical_article_url, normalize_short_name
 from .ingestion import CandidateParser, CandidateRuntime, INGESTION_SERVICES, IngestionApplication, IngestionCore, IngestionExternalError
 from .mineru import MinerUIngestionParser, ParserError
+from .mineru_selector import AutoMinerUParser
 from .blog_application import BlogApplication, BlogExternalError, BlogRuntime
 from .article_blog import (
     ARTICLE_BLOG_METHOD,
@@ -54,6 +55,7 @@ __all__ = [
     "IngestionCore",
     "IngestionExternalError",
     "MinerUIngestionParser",
+    "AutoMinerUParser",
     "ParserError",
     "ParserTask",
     "WorkspaceCore",
