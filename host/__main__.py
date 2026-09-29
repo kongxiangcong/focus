@@ -1,4 +1,4 @@
-"""python -m host --workspace ./knowledge-base [--backend codex|workbuddy]"""
+"""python -m host --workspace ./knowledge-base [--backend codex|deepseek]"""
 import argparse
 import hashlib
 import os

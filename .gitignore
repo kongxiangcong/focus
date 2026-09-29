@@ -12,13 +12,9 @@ workspace/
 *.pdf
 !tests/fixtures/**/*.pdf
 
-# Credentials and machine-local configuration; keep distributable examples.
+# Credentials and machine-local configuration.
 .env
 .env.*
-!.env.example
-!.env.sample
-!.env.template
-.workbuddy/
 .focus-host/
 .focus-host-*/
 .focus-runtime/

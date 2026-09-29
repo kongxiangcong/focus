@@ -17,7 +17,7 @@ function setup() {
     sendMessage: vi.fn(async () => readerSuccess(empty)),
     newSession: vi.fn(async () => readerSuccess({ ...empty, sessionId: "session-2", sessionFresh: true, revision: 10 })),
     selectBackend: vi.fn(async () => readerSuccess({ ...empty, sessionId: "session-2", revision: 10,
-      agent: { ...empty.agent!, backend: "workbuddy", backends: [{ id: "codex", label: "Codex" }, { id: "workbuddy", label: "WorkBuddy" }] } })),
+      agent: { ...empty.agent!, backend: "deepseek", backends: [{ id: "codex", label: "Codex" }, { id: "deepseek", label: "DeepSeek" }] } })),
     stop: vi.fn(async () => readerSuccess(empty)),
     approve: vi.fn(async () => readerSuccess(empty)),
     subscribe: fn => { publish = fn; return () => {}; },

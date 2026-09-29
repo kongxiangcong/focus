@@ -6,10 +6,9 @@ registering it here; no change lands in `service.py`, `server.py` or the UI.
 """
 from .base import Backend, BackendError
 from .codex import CodexBackend
-from .workbuddy import WorkBuddyBackend
 from .deepseek import DeepSeekBackend
 
-BACKENDS = {'codex': CodexBackend, 'workbuddy': WorkBuddyBackend, 'deepseek': DeepSeekBackend}
+BACKENDS = {'codex': CodexBackend, 'deepseek': DeepSeekBackend}
 DEFAULT_BACKEND = 'codex'
 
 
@@ -36,8 +35,6 @@ def describe_missing(name):
         return '需要可用 Codex Runtime 与 ChatGPT / Codex 登录。'
     if adapter is DeepSeekBackend:
         return '需要可用 DeepSeek Harness SDK、Runtime 与 Host 凭据。'
-    if adapter is WorkBuddyBackend:
-        return WorkBuddyBackend.unavailable_reason
     return ''
 
 
@@ -47,8 +44,6 @@ def check_backend(name, codex_bin=None):
     if adapter is None:
         raise BackendError(describe_missing(name))
     hint = describe_missing(name)
-    if adapter is WorkBuddyBackend:
-        raise BackendError(hint)
     if adapter is DeepSeekBackend:
         from pathlib import Path
         from ..backend_setup import runtime_path

@@ -61,4 +61,4 @@ See `docs/design/focus-reader-design-verdict.md`, `docs/design/focus-reader-ui-s
 
 The standalone default is now the same-origin Python Host. Build with `pnpm reader:build`,
 then start `python -m host --workspace ./workspace`. Explicit fixture mode is
-`VITE_FOCUS_READER_BASE_URL=fixture`. See [Host quickstart](../docs/FOCUS_Web_Agent_Quickstart.md).
+`VITE_FOCUS_READER_BASE_URL=fixture`. See the [web setup](../README.md).

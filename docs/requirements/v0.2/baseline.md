@@ -13,7 +13,7 @@
 | [Core](../../../.agents/core/reading_workspace.py)、[CoreBridge](../../../host/core_bridge.py) | 原文范围读取、搜索、缓存、游标回执 | `read_source_range` 已可显式指定 Source；搜索仍依赖当前 Source，`append_note` 强制当前 Plan／Chunk；阶段 3 才形成独立备注 |
 | [article-blog](../../../methods/article-blog/SKILL.md) 及其方法副本 | PDF 证据地图、写作准则、渲染／校验脚本，与阅读资产隔离 | 明确拒绝 HTML；不是已贯通的网页博客 Application；阶段 2、5（输入格式） |
 | [ADR 0010](../../adr/0010-prepare-reading-before-opening.md)、[prepared-reading 测试](../../../tests/test_prepared_reading.py) | 逐 Chunk 保存、缺失恢复、中文不重复翻译、重读保留资产 | 当前必须全 Plan 就绪才能打开／继续；阶段 4 改为目标 Chunk 按需准备 |
-| [后端契约](../../../host/backends/base.py)、[ADR 0007](../../adr/0007-selectable-agent-backends.md) | Session、事件、工具、停止、空闲切换与会话隔离 | Codex 是参考候选，须重新预检查；WorkBuddy 当前仍显式不可用；阶段 0、7 |
+| [后端契约](../../../host/backends/base.py)、[ADR 0007](../../adr/0007-selectable-agent-backends.md) | Session、事件、工具、停止、空闲切换与会话隔离 | Codex 是参考候选，须重新预检查；其他后端需单独预检查；阶段 0、7 |
 | [ADR 0004](../../adr/0004-host-agnostic-reader-seam.md)、[HostService](../../../host/service.py) | ReaderHost、HTTP／SSE、Core 权威、现有单写者保护 | 尚无总计划目标 Application／RuntimePort／DSH 原生交付证据；阶段 1 增量抽取，2D 验证 |
 
 Markdown 是当前明确的本地导入能力，可作离线回归材料；不能据此替代 v0.2 必需的 PDF／HTML 真实解析出口。首阶段建议 PDF，是为了复用已存在的解析及 article-blog 衔接；仍需阶段 0 验证参考环境可用性。
@@ -32,13 +32,13 @@ Markdown 是当前明确的本地导入能力，可作离线回归材料；不�
 
 ## 本轮验证
 
-- Python：`.venv/Scripts/python.exe -B -X utf8 -m unittest discover -s tests -q`，135 项，进程退出码 1，报告 2 failures、2 errors。三个不同测试受影响：技能数量断言；CodeBuddy 缺失 SDK 测试未抛期望错误且清理临时目录报占用；prepared-reading CLI 子进程输出 UTF-8 解码失败。原因未进一步诊断，不能宣称全绿或简单归因于环境。
+- Python：`.venv/Scripts/python.exe -B -X utf8 -m unittest discover -s tests -q`，135 项，进程退出码 1，报告 2 failures、2 errors。三个不同测试受影响：技能数量断言；旧适配器缺失 SDK 测试未抛期望错误且清理临时目录报占用；prepared-reading CLI 子进程输出 UTF-8 解码失败。原因未进一步诊断，不能宣称全绿或简单归因于环境。
 - UI：进程级设置 `NODE_OPTIONS=--no-experimental-webstorage` 后运行 `pnpm reader:test`，38 项通过（Reader 28、Standalone 10），退出码 0。本轮未重跑 typecheck／build，也未做新浏览器验收。
 - 历史 [专题库验收](../../FOCUS_Topic_Library_Acceptance.md) 和 [任务进度验收](../../FOCUS_Task_Progress_Acceptance.md) 提供样例 Host／浏览器证据，也明确未重新完成真实 MinerU 链路；历史计数不能替代以上当前测试。
 - 本轮未复验真实服务、图像能力、PDF／HTML 远端解析和 DSH 安装；这些分别进入阶段 0／1／2／5（输入格式）／2D 的验收门槛。
 
 ## Grill 第一轮后的调整（2026-09-21）
 
-用户确认 CodeBuddy 不再需要：已从 `tests/test_agent_backends.py` 删除 CodeBuddyAdapterTests、CodeBuddyHostTests 及专用 SDK 替身，保留有效的注册、WorkBuddy 边界与代理测试。运行 `.venv/Scripts/python.exe -B -X utf8 -m unittest discover -s tests -p test_agent_backends.py -q`：10 项通过。未重跑全套；上面的 135 项结果继续作为修改前的历史基线，不代表当前测试数量或当前全套结果。
+用户确认旧实验适配器不再需要：已从 `tests/test_agent_backends.py` 删除 旧适配器专用测试 及专用 SDK 替身，保留有效的注册与代理测试。运行 `.venv/Scripts/python.exe -B -X utf8 -m unittest discover -s tests -p test_agent_backends.py -q`：10 项通过。未重跑全套；上面的 135 项结果继续作为修改前的历史基线，不代表当前测试数量或当前全套结果。
 
 技能相关旧失败暂存，待本轮开发结束重新运行并刷新；不再对应有效需求的无关失败测试届时删除并说明依据。UTF-8 解码问题仍未归因。详细决定见 [阶段 0 第一轮记录](stage-0-baseline.md)。

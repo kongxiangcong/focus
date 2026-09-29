@@ -1,7 +1,7 @@
 """Transport-agnostic vocabulary between the FOCUS web Host and an Agent backend.
 
-`HostService` only ever speaks this vocabulary. Translating it to the Codex
-app-server JSON-RPC or to the WorkBuddy Agent SDK is each adapter's job, so the
+`HostService` only ever speaks this vocabulary. Translating it to Codex
+app-server JSON-RPC or DeepSeek Harness is each adapter's job, so the
 Host, the Reader contract and Core never branch on which model runtime is behind
 a turn.
 

@@ -52,7 +52,6 @@ to the repository's `main` branch.
 | ADR 0001 / focus-read say no compatibility layer | Existing canonical data is supported in place, including an omitted current_topic_id normalized on mutation. No second state authority or guessed conversion is added. Recognized legacy papers/ bundles are rejected with a migration message; no actual legacy/private workspace was supplied to migrate. |
 | paper-parser / ADR 0003 reuse identical PDF originals | Preserved to respect Source Identity and the single authoritative source tree. Each distinct original gets its own Source; identical uploads do not create duplicates. |
 | focus-read normally instructs the host to present translated text | Existing web presentation contract remains: the reading card displays saved translation and images, while conversation displays requested Agent answers. No automatic explanations are added. |
-| ADR 0007 marks WorkBuddy unavailable | Preserved. Settings expose the backend and reason, with selection disabled. CodeBuddy is not mislabeled as WorkBuddy. |
 | Notes have no per-note timestamp | UI labels and reports total saved Notes, not a fabricated “recent” time window. A precise recent-Notes metric is not implemented. |
 
 `prototypes/lightfield/` is unchanged, verified by Git diff. The formal UI specification
@@ -105,4 +104,4 @@ To finish local acceptance with the real runtime:
 6. In the disposable test Workspace, reread and verify Notes reset/bundle preservation;
    delete and verify Source directory, Topic references and Cursor entry are removed.
 7. Change to any actually available alternative backend; verify a fresh conversation
-   and unchanged Source assets and Cursor. WorkBuddy remains unavailable at this base.
+   and unchanged Source assets and Cursor.

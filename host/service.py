@@ -208,7 +208,7 @@ class HostService:
             window['clearBusySources'] = [source['sourceId'] for source in SourceLibrary(self.workspace).overview() if self.source_clear_busy(source['sourceId'])]
             window['agent'] = {'run': self.state['run'], 'catalog': self.core.catalog(),
                                'backend': self.backend_name,
-                               'backends': [{'id': name, 'label': {'codex': 'Codex', 'deepseek': 'DeepSeek', 'workbuddy': 'WorkBuddy（国内，待接入）'}[name],
+                               'backends': [{'id': name, 'label': {'codex': 'Codex', 'deepseek': 'DeepSeek'}[name],
                                              'unavailableReason': getattr(adapter, 'unavailable_reason', None)}
                                             for name, adapter in BACKENDS.items()]}
             if discussion_source and self.state['run'] and self.state['run'].get('sourceId') != discussion_source:
