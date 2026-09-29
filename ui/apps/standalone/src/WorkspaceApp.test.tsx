@@ -165,11 +165,14 @@ it("lands in Library and persists the chosen font across remounts", async () => 
   expect(location.pathname).toBe("/library");
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
+  expect(screen.getByText("阅读字号预览 · 特大")).toHaveStyle({ fontSize: "26px" });
   expect(screen.getByRole("radio", { name: "DeepSeek" })).toBeEnabled();
   app.unmount(); setup();
   expect(await screen.findByRole("slider", { name: "字号" })).toHaveValue("3");
   fireEvent.click(screen.getByRole("link", { name: "阅读" }));
   expect(screen.getByRole("complementary", { name: "阅读进度与操作" })).toBeVisible();
+  expect(document.querySelector(".focus-mist")).toHaveAttribute("data-font-size", "extra");
+  expect(document.querySelector(".focus-mist")).toHaveStyle({ "--reader-reading-size": "26px" });
 });
 it("starts parsing and blog with one explicit confirmation", async () => {
   const { host } = setup(); await screen.findByRole("heading", { name: "A Paper" });
@@ -222,12 +225,12 @@ it("offers explicit reconfirmation for a recoverable Inbox item", async () => {
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["recover"], expect.any(String)));
   expect(host.processIngestion).not.toHaveBeenCalled();
 });
-it("persists brightness and leaves unsupported network control disabled", async () => {
+it("persists brightness and omits the unused network control", async () => {
   setup(); await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   fireEvent.change(screen.getByRole("slider", { name: "亮度" }), { target: { value: "90" } });
   expect(localStorage.getItem("focus.brightness")).toBe("90");
-  expect(screen.getByRole("switch", { name: "网络" })).toBeDisabled();
+  expect(screen.queryByRole("switch", { name: "网络" })).not.toBeInTheDocument();
 });
 it("shows the original unfinished task instead of a new one when the same file is added again", async () => {
   const { host } = setup();

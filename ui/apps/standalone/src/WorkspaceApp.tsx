@@ -1,6 +1,6 @@
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
-import { FocusReader, TaskProgress } from "@focus/reader-ui";
+import { FocusReader, TaskProgress, readingFontSizes } from "@focus/reader-ui";
 import { BackendSetupPanel } from "./BackendSetupPanel";
 
 type Route = "/library" | "/reading" | "/settings";
@@ -442,7 +442,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <section className="focus-reader__appearance-panel">
       <div className="settings-row"><label htmlFor="brightness">亮度</label><input id="brightness" type="range" min="85" max="110" value={brightness} onChange={e => { setBrightness(Number(e.target.value)); try { localStorage.setItem("focus.brightness", e.target.value); } catch { setError("无法保存亮度"); } }} /></div>
       <div className="settings-row"><label htmlFor="font-size">字号</label><input id="font-size" type="range" min="0" max="3" step="1" value={fontOptions.findIndex(([key]) => key === fontSize)} aria-valuetext={fontOptions.find(([key]) => key === fontSize)?.[1]} onChange={e => { const value = fontOptions[Number(e.target.value)][0]; setFontSize(value); try { localStorage.setItem("focus.fontSize", value); } catch { setError("无法保存字号"); } }} /></div>
-      <div className="settings-row"><label htmlFor="network">网络</label><span className="settings-network" title="当前后端协议未提供网络控制接口"><small>待接入</small><input id="network" className="focus-reader__toggle" type="checkbox" role="switch" checked={false} disabled /></span></div></section>
+      <p className="settings-font-preview" style={{ fontSize: `${readingFontSizes[fontSize]}px` }}>阅读字号预览 · {fontOptions.find(([key]) => key === fontSize)?.[1]}</p></section>
     </main>}
     <dialog className="workspace-confirm" ref={managementDialog} onCancel={() => setManagement(null)}>
       <form onSubmit={e => { e.preventDefault(); saveManagement(); }}>

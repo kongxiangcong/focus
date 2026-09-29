@@ -53,9 +53,9 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
 .settings-page { width:100%; max-width:1000px; margin:auto; height:100%; }.settings-page h1{margin-bottom:40px}
 .focus-reader__appearance-panel { padding:8px 28px; border:1px solid #fff; border-radius:17px; background:#ffffff9c; box-shadow:var(--reader-shadow); }
 .settings-row { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:26px 0; border-bottom:1px solid var(--reader-line); font-size:14px; }.settings-row:last-child{border:0}
-.settings-options { display:flex; gap:20px; }.backend-option{display:flex;align-items:center;gap:8px;font-size:13px}.backend-option span{display:flex;flex-direction:column;gap:4px}.backend-option small,.settings-network small{font-size:10px;color:var(--reader-muted)}
+.settings-options { display:flex; gap:20px; }.backend-option{display:flex;align-items:center;gap:8px;font-size:13px}.backend-option span{display:flex;flex-direction:column;gap:4px}.backend-option small{font-size:10px;color:var(--reader-muted)}
 .settings-row input[type=range] { width:min(55%,300px); accent-color:var(--reader-accent); }.settings-row input[type=radio]{accent-color:var(--reader-ink)}
-.settings-network{display:flex;align-items:center;gap:12px}.focus-reader__toggle{appearance:none;position:relative;width:38px;height:22px;border-radius:999px;background:#929db730;margin:0}.focus-reader__toggle::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:white;box-shadow:0 1px 5px #35414d20}.focus-reader__toggle:checked{background:var(--reader-accent)}.focus-reader__toggle:checked::after{left:19px}.focus-reader__toggle:disabled{opacity:.5}
+.settings-font-preview{margin:0;padding:16px 0 24px;font-family:var(--reader-serif);line-height:1.95;color:var(--reader-ink)}
 .workspace-error { position:absolute; top:8px; left:100px; right:16px; z-index:2; padding:10px 16px; background:#fff9f4; border-radius:12px; font-size:13px; overflow-wrap:anywhere; }
 .workspace-notice { position:absolute; top:8px; left:100px; right:16px; z-index:2; padding:10px 16px; background:#f4fbf6; border-radius:12px; font-size:13px; overflow-wrap:anywhere; }
 .workspace-notice button { border:1px solid transparent; border-radius:999px; background:transparent; min-height:40px; padding:8px 16px; }

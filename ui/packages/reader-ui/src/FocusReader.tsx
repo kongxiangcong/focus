@@ -3,6 +3,7 @@ import { createReaderId, cursorReceipt, type ReaderChunk, type ReaderAttachment,
 import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentControls } from "./AgentControls";
 import { ReadingChunk, ReaderConversation, chunkKey } from "./ReadingChunk";
+import { readingFontSizes } from "./typography";
 import "./reader-shell.css";
 import "./mist-reader.css";
 
@@ -254,7 +255,8 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
 
   const outline = view?.outline ?? Array.from({ length: current?.total ?? chunks.at(-1)?.total ?? 0 }, (_, i) => ({ chunkId: `chunk-${String(i + 1).padStart(3, "0")}`, index: i + 1, sectionPath: [] as string[] }));
   const progressEntries = view?.readingProgress ?? [];
-  return <div className={`focus-reader${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}>
+  return <div className={`focus-reader${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}
+    style={{ "--reader-reading-size": `${readingFontSizes[fontSize]}px` } as CSSProperties}>
     {mist && <aside className="mist-sidebar" aria-label="阅读进度与操作">
       <div className="mist-progress-label"><span>阅读进度</span><span>{view?.status === "completed" ? "已读完" : `${current?.index ?? 0} / ${current?.total ?? 0}`}</span></div>
       <nav className="mist-outline" aria-label="段落目录">{outline.map(item => {
