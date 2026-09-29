@@ -21,14 +21,14 @@
 .focus-mist .focus-output:hover,.focus-mist .focus-output:focus-within { opacity:1; }
 .focus-mist .focus-output[data-current-output=true] { opacity:1; animation:mist-settle var(--reader-duration-move) var(--reader-ease-out); }
 .focus-mist .focus-reader__chunk { padding:clamp(20px,2.6vw,36px); margin:0; border:1px solid #ffffffdb; border-radius:var(--reader-radius); background:var(--reader-glass); backdrop-filter:blur(var(--reader-blur)); box-shadow:var(--reader-shadow); }
-.focus-mist .focus-reading h2 { font-family:var(--reader-serif); font-size:clamp(21px,2vw,26px); font-weight:500; margin-top:16px; }
+.focus-mist .focus-reading h2 { font-family:var(--reader-serif); font-size:calc(var(--reader-reading-size,18px) + 5px); font-weight:500; margin-top:16px; }
 .focus-mist .focus-reading__meta,.focus-mist .focus-message>header { font:clamp(11px,.9vw,12px)/1.6 var(--reader-ui); color:var(--muted); }
 .focus-mist .focus-reading footer button { padding-left:12px; font-size:12px; }
 .focus-mist .focus-message[data-role=user] { width:fit-content; max-width:90%; margin:0 0 0 auto; padding:16px 20px; background:#929db724; border-radius:12px; box-shadow:none; }
-.focus-mist .focus-markdown { font:clamp(17px,1.5vw,19px)/1.95 var(--reader-serif); }
-.focus-mist[data-font-size=small] .focus-markdown { font-size:clamp(15px,1.3vw,16px); }
-.focus-mist[data-font-size=large] .focus-markdown { font-size:clamp(19px,1.7vw,21px); }
-.focus-mist[data-font-size=extra] .focus-markdown { font-size:clamp(21px,1.9vw,24px); }
+.focus-mist[data-font-size] .focus-markdown { font:var(--reader-reading-size,18px)/1.95 var(--reader-serif); }
+.focus-mist[data-font-size=standard][data-large-text=true] .focus-markdown { font-size:20px; }
+.focus-mist .focus-table table { font-size:.9em; }
+.focus-mist .focus-markdown pre { font-size:.82em; }
 .focus-mist .focus-markdown a { color:var(--reader-accent); }
 .focus-mist .focus-markdown blockquote { border-color:var(--reader-accent); color:var(--reader-muted); }
 .focus-mist .focus-markdown pre,.focus-mist .focus-markdown code,.focus-mist .focus-table th,.focus-mist .focus-reference { background:#929db714; }
