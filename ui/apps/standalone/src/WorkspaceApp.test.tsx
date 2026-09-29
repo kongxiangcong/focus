@@ -81,8 +81,8 @@ it("shows the selected PDF backend and queued progress in the visible Inbox", as
   setup([item]);
   await screen.findByText(/本地 MinerU · 本地 MinerU 4.0.8 Standard V1 可用 · 排队中/);
 });
-it.each(["save", "discussion"])("retains the newest shared configuration when a late %s response arrives after another page refreshed", async action => {
-  history.replaceState(null, "", action === "save" ? "/settings" : "/library");
+it.each(["check", "discussion"])("retains the newest shared configuration when a late %s response arrives after another page refreshed", async action => {
+  history.replaceState(null, "", action === "check" ? "/settings" : "/library");
   const codex = { backend: "codex" as const, model: "gpt-6-astra", runtimePath: null, credentialFile: null };
   const deepseek = { ...codex, backend: "deepseek" as const, model: "deepseek-v4-flash" };
   const initial = { ...empty, revision: 1, configuration: { saved: codex, effective: codex, pending: false, busy: false, refreshBlocked: false } };
@@ -96,23 +96,25 @@ it.each(["save", "discussion"])("retains the newest shared configuration when a 
     listSources: vi.fn(async () => readerSuccess([{ sourceId: "a-paper", title: "A Paper", kind: "paper" as const, parseStatus: "ready" as const, error: null, noteCount: 0, topicIds: [], progress: { completed: 0, total: 0, planId: null, chunkId: null } }])),
     listTopics: vi.fn(async () => readerSuccess([])),
     subscribe: callback => { publish = callback; return () => {}; },
+    backendSetup: vi.fn(async (action, input) => readerSuccess({ backend: input.backend, runtimePath: null, status: action === "prepare" ? "installed" : "success", message: "OK" })),
     saveBackendConfiguration: vi.fn(() => new Promise<ReturnType<typeof readerSuccess<ReadingWindow>>>(resolve => { resolveSave = resolve; })),
     selectDiscussionSource: vi.fn(() => new Promise<ReturnType<typeof readerSuccess<ReadingWindow>>>(resolve => { resolveSave = resolve; })),
   };
   render(<WorkspaceApp host={host} />);
-  if (action === "save") {
-    await screen.findByText(/当前生效：Codex/);
+  if (action === "check") {
+    await screen.findByRole("radio", { name: "Codex" });
     fireEvent.click(screen.getByRole("radio", { name: "DeepSeek" }));
-    fireEvent.click(screen.getByRole("button", { name: "保存配置" }));
+    fireEvent.click(screen.getByRole("button", { name: "连接检查" }));
   } else {
     fireEvent.click(await screen.findByRole("button", { name: "详细" }));
     fireEvent.click(screen.getByRole("button", { name: "讨论" }));
   }
+  if (action === "check") await waitFor(() => expect(host.saveBackendConfiguration).toHaveBeenCalled());
   await act(async () => publish(readerSuccess({ ...initial, revision: 3, agent: { ...empty.agent!, backend: "deepseek" }, configuration: { ...initial.configuration, saved: deepseek, effective: deepseek } })));
   await act(async () => resolveSave(readerSuccess({ ...initial, revision: 2, configuration: { ...initial.configuration, saved: deepseek, pending: true } })));
   expect(screen.queryByText("配置更改，需要刷新页面")).not.toBeInTheDocument();
   if (action === "discussion") fireEvent.click(screen.getByRole("link", { name: "设置" }));
-  expect(screen.getByText(/当前生效：DeepSeek/)).toBeInTheDocument();
+  expect(screen.getByRole("radio", { name: "DeepSeek" })).toBeChecked();
 });
 it("edits original metadata and Topic membership through Host actions", async () => {
   const { host } = setup();

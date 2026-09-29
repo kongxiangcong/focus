@@ -437,7 +437,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       {busy && <p role="status">{busy}中…</p>}
     </main>}
     {route === "/settings" && <main className="settings-page"><h1>设置</h1>
-      <BackendSetupPanel host={host} effective={view?.agent?.backend} configuration={view?.configuration}
+      <BackendSetupPanel host={host} configuration={view?.configuration}
         onSaved={acceptView} />
       <section className="focus-reader__appearance-panel">
       <div className="settings-row"><label htmlFor="brightness">亮度</label><input id="brightness" type="range" min="85" max="110" value={brightness} onChange={e => { setBrightness(Number(e.target.value)); try { localStorage.setItem("focus.brightness", e.target.value); } catch { setError("无法保存亮度"); } }} /></div>

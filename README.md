@@ -2,27 +2,27 @@
 
 FOCUS 是一个本地、私有、以来源原文为锚点的极简阅读工作台。它把长期资产收敛为固定 Reading Plan、极小 Cursor State 和按 Chunk 隔离的 Reading Record；用户在一个自然会话中阅读、追问、检索、记录与继续，不需要切换交互模式。
 
-## 网页使用（本机 / 自托管）
+## 部署与使用
 
-网页 Agent Host 已实现：浏览器发起阅读、上传 PDF/HTML、连续对话、流式回复、
-Core 阅读资产落盘、审批和停止。后台使用 **Codex App Server**（固定版本）；
-国内 **WorkBuddy 本地助理**尚待开放平台应用授权与接入，网页显示待接入状态。CodeBuddy SDK 不代表国内 WorkBuddy。
-不需要打开运行时交互界面。真实模型与 MinerU 链路需要在本地凭据环境验收。
+FOCUS 通过网页上传资料、阅读、提问和保存笔记。运行 Python Host 的机器负责解析和模型调用。快速启动：
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate        # PowerShell: .\.venv\Scripts\Activate.ps1
 python -m pip install -r host/requirements.txt
 pnpm install --frozen-lockfile
 pnpm reader:build
+cp .env.example .env             # PowerShell: Copy-Item .env.example .env
 python -m host --workspace ./knowledge-base --network
-# 国内 WorkBuddy 前置配置见 docs/FOCUS_WorkBuddy_Local_Setup.md
 ```
 
-打开 `http://127.0.0.1:8765`。默认回环访问无需口令；显式配置访问口令时在网页输入。
-[完整配置、后端选择与本地验收](docs/FOCUS_Web_Agent_Quickstart.md)。
+打开 `http://127.0.0.1:8765`，在“设置”中选择 Codex 或 DeepSeek、选模型并点击“连接检查”。检查会安装缺失依赖并发起一次最小模型请求；成功后自动应用选择。Codex 使用 Host 用户的登录；DeepSeek 在仓库根目录的 `.env` 中填写 `DEEPSEEK_API_KEY`。PDF 优先使用 Host 本机 MinerU；需要 mineru.net 远端精准解析时在同一 `.env` 填写 `MINERU_API_TOKEN`。两个变量按需填写，`.env` 不提交。
+
+随后上传 PDF 或 SingleFile HTML，选择专题并开始解析；打开来源阅读、提问，点击“继续阅读”推进位置，明确要求时保存 Note。部署步骤、后端配置与页面操作见 [用户手册](docs/FOCUS_User_Manual.md)；真实链路验收见 [网页启动文档](docs/FOCUS_Web_Agent_Quickstart.md)。
 
 ## Skills 使用
 
-FOCUS 主要通过 Codex Skills 使用。一次完整流程只有四步：注册 Source、创建 Reading Plan、开始阅读、按需综合 Topic。
+命令行 Skills 是网页之外的可选入口。一套脚本流程有四步：注册 Source、创建 Reading Plan、开始阅读、按需综合 Topic。
 
 1. 用唯一的 `article-parser` 注册 PDF 或 HTML 来源。PDF 由后端服务器优先使用本地 MinerU，确认不可用时才选已配置的远端 API；完整 SingleFile HTML 使用本地 Mozilla Readability 和图片提取，不上传。
 2. 用 `focus-map` 为返回的 Source ID 创建 Reading Plan。重复调用会复用现有 Plan，只有明确要求重建时才会 reinitialize。
