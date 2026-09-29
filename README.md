@@ -16,7 +16,7 @@ cp .env.example .env             # PowerShell: Copy-Item .env.example .env
 python -m host --workspace ./knowledge-base --network
 ```
 
-打开 `http://127.0.0.1:8765`，在“设置”中选择 Codex 或 DeepSeek、选模型并点击“连接检查”。检查会安装缺失依赖并发起一次最小模型请求；成功后自动应用选择。Codex 使用 Host 用户的登录；DeepSeek 在仓库根目录的 `.env` 中填写 `DEEPSEEK_API_KEY`。PDF 优先使用 Host 本机 MinerU；需要 mineru.net 远端精准解析时在同一 `.env` 填写 `MINERU_API_TOKEN`。两个变量按需填写，`.env` 不提交。
+打开 `http://127.0.0.1:8765`，在“设置”中选择 Codex 或 DeepSeek、选模型并点击“连接检查”。检查会安装缺失依赖并发起一次最小模型请求；成功后自动应用选择。Codex 可在设置页点击“登录 Codex”并完成浏览器授权；DeepSeek 在仓库根目录的 `.env` 中填写 `DEEPSEEK_API_KEY`。PDF 优先使用 Host 本机 MinerU；需要 mineru.net 远端精准解析时在同一 `.env` 填写 `MINERU_API_TOKEN`。两个变量按需填写，`.env` 不提交。
 
 随后上传 PDF 或 SingleFile HTML，选择专题并开始解析；打开来源阅读、提问，点击“继续阅读”推进位置，明确要求时保存 Note。部署步骤、后端配置与页面操作见 [用户手册](docs/FOCUS_User_Manual.md)；真实链路验收见 [网页启动文档](docs/FOCUS_Web_Agent_Quickstart.md)。
 

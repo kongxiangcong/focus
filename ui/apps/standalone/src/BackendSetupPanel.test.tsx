@@ -50,6 +50,24 @@ it("keeps the current selection when the model request fails", async () => {
   expect(saveBackendConfiguration).not.toHaveBeenCalled();
 });
 
+it("offers Codex browser login and waits for confirmed authentication", async () => {
+  const backendSetup = vi.fn(async (action: string) => readerSuccess({
+    backend: "codex", runtimePath: "/codex", status: action === "prepare" ? "installed" : action === "login-start" ? "waiting" : "authenticated",
+    message: "OK", ...(action === "login-start" ? { loginId: "login-1", authUrl: "https://auth.openai.com/test" } : {}),
+  }));
+  render(<BackendSetupPanel host={{ backendSetup } as unknown as ReaderHost} />);
+  expect(screen.getByRole("button", { name: "登录 Codex" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "登录 Codex" }));
+  const link = await screen.findByRole("link", { name: "打开浏览器授权" });
+  expect(link).toHaveAttribute("href", "https://auth.openai.com/test");
+  expect(screen.getByRole("button", { name: "取消登录" })).toBeEnabled();
+  await waitFor(() => expect(screen.getByText("Codex 登录成功。可继续进行连接检查。")).toBeInTheDocument(), { timeout: 3000 });
+  expect(backendSetup.mock.calls.map(call => call[0])).toEqual(["prepare", "login-start", "login-status"]);
+  expect(screen.queryByRole("link", { name: "打开浏览器授权" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("radio", { name: "DeepSeek" }));
+  expect(screen.queryByRole("button", { name: "登录 Codex" })).not.toBeInTheDocument();
+});
+
 it("discards a late preparation after unmounting", async () => {
   let resolve!: (value: ReaderHostResult<BackendSetupResult>) => void;
   const backendSetup = vi.fn(() => new Promise<ReaderHostResult<BackendSetupResult>>(done => { resolve = done; }));
