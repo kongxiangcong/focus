@@ -54,7 +54,7 @@ Topic 只是 Source 的组织与标签关系；文章资产只有一份。`sanit
 
 ### 2.2 Agent Runtime
 
-模型—工具循环由所选执行环境负责：现有 Codex App Server，拟接入的 OpenAI Agents SDK 或受限直接模型调用适配器、Pi、WorkBuddy，以及 DSH 原生 Runtime。
+模型—工具循环由所选执行环境负责：现有 Codex App Server，拟接入的 OpenAI Agents SDK 或受限直接模型调用适配器、Pi，以及 DSH 原生 Runtime。
 
 “OpenAI SDK”必须在实施 ADR 中区分普通模型客户端和 Agents SDK。普通客户端不等于完整 Agent Runtime；直接使用客户端就需要应用自己承担循环和工具管理。开放式问答优先复用已有运行时；固定输出任务可按需使用直接调用适配器，但不为此建设通用 harness。[S4]
 
@@ -70,7 +70,7 @@ Topic 只是 Source 的组织与标签关系；文章资产只有一份。`sanit
 
 ### 3.1 Core：知识资产与一致性
 
-Core 负责 Source／Topic／Inbox／Bundle／Blog／Note／Plan／Cursor 的身份、关系、路径安全、版本、持久化与允许的状态转换。Core 不导入 OpenAI、Pi、DSH、WorkBuddy 类型，不包含品牌条件分支。
+Core 负责 Source／Topic／Inbox／Bundle／Blog／Note／Plan／Cursor 的身份、关系、路径安全、版本、持久化与允许的状态转换。Core 不导入 OpenAI、Pi、DSH 类型，不包含品牌条件分支。
 
 模型只返回候选结果，所有正式产物由 Core 校验后提交。模型输出“已经保存”不构成成功事实。Core 提交必须携带预期版本、请求 ID 与写入方身份；取消后的迟到结果不得提交。
 
@@ -125,7 +125,6 @@ focus/
 │   │   ├── codex/
 │   │   ├── openai/
 │   │   ├── pi/
-│   │   └── workbuddy/
 │   └── parsers/
 │       ├── mineru-cloud/
 │       └── mineru-local/           # 单独能力验收；不能默认为已接通
@@ -173,7 +172,7 @@ Standalone 直接调用 Python Application；DSH TypeScript Host 通过受管理
 
 不要求所有 Runtime 原生具有相同的 JSON schema 输出机制。可以通过受控输出工具或文本解析加公共校验来实现同一终态契约；达不到所需能力则标为不支持，不能返回“成功”。
 
-Pi SDK 提供自定义集成、会话、事件与中断等能力，但具体版本和工具配置必须验证；不能假定换包名即可兼容。[S7] 当前 FOCUS 公开 `WorkBuddyBackend` 明确抛出不可用错误，所以它是候选适配器，不能列为已实现后端，更不能用 CodeBuddy 冒充。[S9]
+Pi SDK 提供自定义集成、会话、事件与中断等能力，但具体版本和工具配置必须验证；不能假定换包名即可兼容。[S7]
 
 ### 5.1 业务与 Runtime 各管什么
 
@@ -231,11 +230,11 @@ Pi SDK 提供自定义集成、会话、事件与中断等能力，但具体版�
 
 ### P5：逐个扩展 Runtime 并发布能力矩阵（后续扩展已跳过）
 
-2026-09-26 范围修订：以阶段 6B 的 Codex／DeepSeek SDK Backend、统一设置和共同业务验收为本轮交付范围。[阶段 7 覆盖核对](docs/requirements/v0.2/stage-7-runtimes.md) 确认公共 Runtime 要求已由 6B 承接；其余 OpenAI、Pi、WorkBuddy 适配器暂无独立必要需求，阶段 7 已跳过，不另建能力矩阵产品，不作为 v0.2 发布条件。以下保留为未来按需扩展的原则，不构成本轮实施承诺；6B 的未完成实现及验收仍归 6B。
+2026-09-26 范围修订：以阶段 6B 的 Codex／DeepSeek SDK Backend、统一设置和共同业务验收为本轮交付范围。[阶段 7 覆盖核对](docs/requirements/v0.2/stage-7-runtimes.md) 确认公共 Runtime 要求已由 6B 承接；其余 OpenAI、Pi 适配器暂无独立必要需求，阶段 7 已跳过，不另建能力矩阵产品，不作为 v0.2 发布条件。以下保留为未来按需扩展的原则，不构成本轮实施承诺；6B 的未完成实现及验收仍归 6B。
 
-OpenAI、Pi、WorkBuddy 按凭据、接口可用性与实际优先级逐个接入；不需要全部完成才交付 P3。每个 Adapter 必须通过工具限制、来源隔离、取消、流式终态、结果校验与业务幂等测试。
+OpenAI、Pi 按凭据、接口可用性与实际优先级逐个接入；不需要全部完成才交付 P3。每个 Adapter 必须通过工具限制、来源隔离、取消、流式终态、结果校验与业务幂等测试。
 
-不能仅用 fake SDK 测试作为真实后端已支持的依据。WorkBuddy 的授权与公开接口验证是独立门槛，不应拖住共用工作流开发。
+不能仅用 fake SDK 测试作为真实后端已支持的依据。
 
 ### 开发中的约束
 
@@ -309,6 +308,3 @@ https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/do
 
 [S8] DSH Web Client architecture：
 https://github.com/deepseek-ai/deepseek-harness/blob/ddefc45fbc7f8e46dd73185e68295696d1297887/docs/subsystems/web-client.md
-
-[S9] FOCUS 当前 WorkBuddy 占位实现：
-https://github.com/kongxiangcong/focus/blob/1de307f51c9bd674b8c7efc053e57e5e5b777276/host/backends/workbuddy.py

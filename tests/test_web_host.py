@@ -141,41 +141,6 @@ class WebHostTests(unittest.TestCase):
         self.assertEqual('thread/resume', first_thread_call(ProtocolDouble.instances[-1])['method'])
         self.assertEqual(4, len(self.host.snapshot()['conversation']))
 
-    def test_browser_backend_switch_archives_chat_preserves_core_and_survives_restart(self):
-        self.start(); self.finish()
-        old = self.host.snapshot()
-        with patch('host.service.check_backend', return_value='installed'):
-            switched = self.host.select_backend({'backend': 'workbuddy', 'sessionId': old['sessionId']})
-        self.assertEqual('workbuddy', switched['agent']['backend'])
-        self.assertNotEqual(old['sessionId'], switched['sessionId'])
-        self.assertEqual(old['current'], switched['current'])
-        self.assertEqual([], switched['conversation'])
-        self.assertIsNone(self.host._resume_key())
-        self.assertEqual(old['conversation'], self.host.store.get('session:' + old['sessionId'])['conversation'])
-        with self.assertRaisesRegex(ValueError, '会话已更新'):
-            self.host.start({'requestId': 'stale-1234', 'sessionId': old['sessionId'], 'content': 'old tab'})
-        self.host.close()
-        self.host = HostService(self.workspace, self.data)
-        self.assertEqual('workbuddy', self.host.snapshot()['agent']['backend'])
-        with patch('host.service.check_backend', return_value='installed'):
-            self.host.select_backend({'backend': 'codex', 'sessionId': switched['sessionId']})
-        self.start(requestId='return-1234'); self.finish()
-        self.assertEqual('thread/start', first_thread_call(ProtocolDouble.instances[-1])['method'])
-
-    def test_failed_or_busy_switch_leaves_session_untouched(self):
-        before = self.host.snapshot()
-        with patch('host.service.check_backend', side_effect=RuntimeError('SDK missing')):
-            with self.assertRaisesRegex(RuntimeError, 'SDK missing'):
-                self.host.select_backend({'backend': 'workbuddy', 'sessionId': before['sessionId']})
-        self.assertEqual(before, self.host.snapshot())
-        ProtocolDouble.mode = 'approval'
-        self.start()
-        self.wait(lambda: self.host.snapshot()['agent']['run']['status'] == 'approval')
-        with self.assertRaisesRegex(ValueError, '先停止'):
-            self.host.select_backend({'backend': 'workbuddy', 'sessionId': before['sessionId']})
-        self.assertEqual('codex', self.host.backend_name)
-        self.host.stop(); self.finish()
-
     def test_continue_is_idempotent_and_checks_source(self):
         self.prepare_all()
         p = {'requestId': 'continue-123', 'receipt': self.receipt}

@@ -63,8 +63,7 @@ Agent task is running. File operations belong to Core/SourceLibrary, not the UI.
 Routes retain Host/Origin checks and authentication. Library interfaces extend
 ReaderHost optionally, preserving fixture/DSH adapters. Settings persist appearance
 locally and backend selection through the existing Host setting; backend switches
-create a fresh conversation without touching reading assets. WorkBuddy remains
-unavailable as specified by ADR 0007 until its integration is implemented.
+create a fresh conversation without touching reading assets.
 
 ## Visual revision, 2026-09-17 (Mist shell)
 
@@ -81,4 +80,4 @@ but this revision's backend accepts only PDF library uploads, exposes no recent
 reading timestamp, and has no network-settings endpoint. With backend/protocol
 changes excluded, the UI submits selected PDF/HTML through the existing adapter
 and surfaces upload errors; missing times are not invented; network control is
-visibly unavailable. WorkBuddy remains disabled regardless of backend metadata.
+visibly unavailable.

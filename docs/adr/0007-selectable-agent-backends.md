@@ -5,9 +5,8 @@ status: accepted
 # Select Agent backends without changing Focus Core authority
 
 The browser uses ReaderHost.selectBackend; HostService owns session switching and
-adapters translate runtime events. Codex uses the App Server. The domestic
-WorkBuddy option is unavailable until its Open Platform local-assistant integration
-is implemented and authorized. CodeBuddy SDK is a distinct, unregistered experiment.
+adapters translate runtime events. Codex uses the App Server and DeepSeek uses
+the Harness SDK.
 
 Stage 6B revision (2026-09-26): Backend choice supplies Agent capabilities to one
 shared FOCUS feature set. It must not create separate business implementations or
@@ -63,13 +62,7 @@ switch to another executable after failure.
 These are accepted target decisions, not implementation claims. The current Host
 still archives its session on switching, retains some startup-bound or Codex-only
 runtime paths, and stores selection in its workspace-bound database.
-Backend selection tests use a protocol double; they do not establish WorkBuddy readiness.
+Backend selection tests use a protocol double; live connectivity needs separate verification.
 
 Provider processes receive independent environment copies; switching must not mutate
-Host proxy settings. Credentials and permissions stay server-side. Codex workspace-write
-and the CodeBuddy permission callback are not equivalent OS-level isolation mechanisms.
-
-The earlier claim that CodeBuddy SDK is a domestic WorkBuddy SDK is withdrawn.
-See [official research](../../research/workbuddy-codex-agent-integration.md),
-[local-assistant setup](../FOCUS_WorkBuddy_Local_Setup.md) and
-[structure and acceptance](../FOCUS_Agent_Architecture.md).
+Host proxy settings. Credentials and permissions stay server-side.

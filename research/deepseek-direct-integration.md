@@ -59,7 +59,7 @@ DeepSeek 官方提供 Codex provider 配置指南，并明确其 API 原生支�
 
 核对基线：2026-09-26，HEAD `d6ab8b4` 加当前未提交修改。以下是源码静态分析；未安装新 SDK、未调用模型、未做浏览器或 Runtime 验收。
 
-- [Backend](../host/backends/base.py) 已定义会话、回合、回复、打断、关闭和事件边界；[注册入口](../host/backends/__init__.py) 当前只有 Codex 与 WorkBuddy 项。DeepSeek SDK 可作为新增 Backend 的候选，无须在 DSH UI 中重新实现 Focus。工具回调、审批、恢复和事件语义仍需逐项映射验证。
+- [Backend](../host/backends/base.py) 已定义会话、回合、回复、打断、关闭和事件边界；[注册入口](../host/backends/__init__.py) 管理 Codex 与 DeepSeek。工具回调、审批、恢复和事件语义仍需逐项映射验证。
 - [CodexBackend](../host/backends/codex.py) 当前直接驱动固定版本 App Server JSON-RPC；[依赖](../host/requirements.txt) 为 `openai-codex==0.154.0`。它不是直接调用 OpenAI 模型 API。官方 [Codex Python SDK](https://learn.chatgpt.com/docs/codex-sdk) 同样通过本地 App Server 和配套运行时提供 Agent 能力；因此 DeepSeek 的子进程 SDK 在集成层级上更接近 Codex SDK。
 - [ReadingRuntime](../.agents/core/reading_application.py) 已有 `context/plan/translate/check/cancel` 候选接口；[AgentReadingRuntime](../host/reading_runtime.py) 向后端提供任务数据、接收 JSON，并拒绝工具请求。固定任务可考虑 API 适配器，但需继续满足 Core 的校验和取消契约；不能只替换调用地址就宣称完成。
 - [BlogApplication](../.agents/core/blog_application.py) 接收 Runtime 的 `files`，由可信应用代码写入候选目录，再校验和提交；[CodexBlogRuntime](../host/blog_runtime.py) 的正文生成也已是给定来源和方法后的结构化输出。不过 `search_implementation` 还承担官方实现检索，API 路线需要明确检索工具的执行者，不能把只有生成的适配器标为完整博客能力。

@@ -1,15 +1,8 @@
-"""Per-backend proxy routing.
-
-Why this file exists: the two backends do not live on the same network. Codex
-talks to OpenAI, which from a mainland-CN machine needs the user's VPN; WorkBuddy
-talks to a China-region endpoint that a VPN only makes slower or unreachable.
-Desktop VPN clients leave `HTTP_PROXY`/`HTTPS_PROXY` behind in the environment
-even after they disconnect, so the Host rewrites those variables for the selected
-backend instead of trusting whatever it inherited from the shell.
+"""Per-backend proxy routing without changing the Host environment.
 
 Modes for `FOCUS_<BACKEND>_PROXY`:
   inherit  keep the inherited variables (default for codex)
-  bypass   drop every proxy variable and set NO_PROXY=* (default for workbuddy)
+  bypass   drop every proxy variable and set NO_PROXY=*
   <url>    pin an explicit proxy, e.g. http://127.0.0.1:7890
 
 Each backend receives its own environment copy, so browser switching never
@@ -21,11 +14,11 @@ PROXY_KEYS = ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_pro
 NO_PROXY_KEYS = ('NO_PROXY', 'no_proxy')
 INHERIT = 'inherit'
 BYPASS = 'bypass'
-DEFAULT_MODES = {'workbuddy': BYPASS}
+DEFAULT_MODES = {}
 
 
 def proxy_mode(backend, env=None):
-    """Resolve the mode for `backend`; workbuddy bypasses, everything else inherits."""
+    """Resolve the mode for `backend`; the default is inherit."""
     source = os.environ if env is None else env
     default = DEFAULT_MODES.get(backend, INHERIT)
     raw = source.get(f'FOCUS_{str(backend).upper()}_PROXY')

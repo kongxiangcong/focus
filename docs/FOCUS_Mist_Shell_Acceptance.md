@@ -20,7 +20,7 @@ lives in `FocusReader.tsx`; there is no separate `MistReader.tsx` at this base.
 - Continue remains an explicit Core operation; prompt navigation does not change
   Cursor. Chunk translation/source switching and image rendering are preserved.
 - Brightness and four-position font slider persist locally. Backend switching
-  uses ReaderHost; WorkBuddy stays disabled. ADR 0008 records the visual revision.
+  uses ReaderHost. ADR 0008 records the visual revision.
 
 ## Verification
 

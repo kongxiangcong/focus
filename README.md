@@ -1,233 +1,43 @@
 # FOCUS
 
-FOCUS 是一个本地、私有、以来源原文为锚点的极简阅读工作台。它把长期资产收敛为固定 Reading Plan、极小 Cursor State 和按 Chunk 隔离的 Reading Record；用户在一个自然会话中阅读、追问、检索、记录与继续，不需要切换交互模式。
+FOCUS 是一个在本机运行的论文阅读网页：上传 PDF 或 SingleFile HTML，按专题整理来源，生成阅读内容和博客，在同一页面提问、继续阅读并保存笔记。浏览器是日常使用入口；解析、模型调用和文件存储都在运行 FOCUS 后端的机器上完成。
 
-## 部署与使用
+## 本地部署
 
-FOCUS 通过网页上传资料、阅读、提问和保存笔记。运行 Python Host 的机器负责解析和模型调用。快速启动：
+准备 Python 3.10+、Node.js 20.19+ 或 22.12+、pnpm。从仓库根目录执行：
 
 ```bash
+git clone https://github.com/kongxiangcong/focus.git
+cd focus
 python -m venv .venv
-source .venv/bin/activate        # PowerShell: .\.venv\Scripts\Activate.ps1
+source .venv/bin/activate       # Windows PowerShell 用 .\.venv\Scripts\Activate.ps1
 python -m pip install -r host/requirements.txt
 pnpm install --frozen-lockfile
 pnpm reader:build
-cp .env.example .env             # PowerShell: Copy-Item .env.example .env
+```
+
+在仓库根目录新建 **`.env`**，按需填写这两个值，空着的可以保留：
+
+```dotenv
+MINERU_API_TOKEN=
+DEEPSEEK_API_KEY=
+```
+
+- **PDF 解析**：后端默认先检查它所在机器的本地 MinerU（`http://127.0.0.1:18765`，4.0.8 Standard V1）。本地服务可用时，`MINERU_API_TOKEN` 留空；没有本地 MinerU 时，填入 mineru.net 的 Token，使用远端精准解析 API。浏览器所在电脑的 MinerU 不参与选择。
+- **模型**：使用 DeepSeek 时填写 `DEEPSEEK_API_KEY`；使用 Codex 时在网页设置页点击“登录 Codex”完成授权，不需要 DeepSeek Key。`.env` 只保存在本机，已被 Git 忽略，不要提交密钥。
+
+启动网页后端：
+
+```bash
 python -m host --workspace ./knowledge-base --network
 ```
 
-打开 `http://127.0.0.1:8765`，在“设置”中选择 Codex 或 DeepSeek、选模型并点击“连接检查”。检查会安装缺失依赖并发起一次最小模型请求；成功后自动应用选择。Codex 可在设置页点击“登录 Codex”并完成浏览器授权；DeepSeek 在仓库根目录的 `.env` 中填写 `DEEPSEEK_API_KEY`。PDF 优先使用 Host 本机 MinerU；需要 mineru.net 远端精准解析时在同一 `.env` 填写 `MINERU_API_TOKEN`。两个变量按需填写，`.env` 不提交。
+浏览器打开 <http://127.0.0.1:8765>。在“设置”中选择 Codex 或 DeepSeek、选择模型并点击“连接检查”；它会准备缺失的后端依赖，并发送一次最小模型请求，成功后自动应用。Host 默认只允许本机访问。知识库保存在 `knowledge-base/`，会话保存在单独的 Host data 目录；重装或搬迁时两者都要备份。
 
-随后上传 PDF 或 SingleFile HTML，选择专题并开始解析；打开来源阅读、提问，点击“继续阅读”推进位置，明确要求时保存 Note。部署步骤、后端配置与页面操作见 [用户手册](docs/FOCUS_User_Manual.md)；真实链路验收见 [网页启动文档](docs/FOCUS_Web_Agent_Quickstart.md)。
+## 最小使用例子
 
-## Skills 使用
+1. 在“知识库”点击“上传”，选一篇 `paper.pdf`，创建专题“端侧 NPU”，点击“开始解析并生成博客”。
+2. 打开这篇来源，在阅读页提问“这篇论文的核心机制是什么？”；问题不会推进阅读位置。
+3. 点击“继续阅读”进入下一段；需要保留结论时，在对话里说“把刚才的结论保存为一条笔记”。
 
-命令行 Skills 是网页之外的可选入口。一套脚本流程有四步：注册 Source、创建 Reading Plan、开始阅读、按需综合 Topic。
-
-1. 用唯一的 `article-parser` 注册 PDF 或 HTML 来源。PDF 由后端服务器优先使用本地 MinerU，确认不可用时才选已配置的远端 API；完整 SingleFile HTML 使用本地 Mozilla Readability 和图片提取，不上传。
-2. 用 `focus-map` 为返回的 Source ID 创建 Reading Plan。重复调用会复用现有 Plan，只有明确要求重建时才会 reinitialize。
-3. 用 `focus-read` 阅读单个 Source，或按 Topic manifest 中的 Source ID 顺序连续阅读。
-4. 只有明确请求时，才用 `focus-read` 生成带 Source ID 与原文行号锚点的 Topic Synthesis。
-
-最小对话示例：
-
-~~~text
-用户：用 $article-parser 解析 D:\papers\DeepStack.pdf，short name 用 DeepStack，加入 Topic“AI Systems”（topic id: ai-systems）。
-用户：用 $focus-map 为 DeepStack-paper 创建阅读计划。
-用户：用 $focus-read 按 Topic ai-systems 开始阅读。
-用户：继续阅读。
-用户：基于这个 Topic 已保存的 Reading Notes 和相关原文范围，生成带来源锚点的综合。
-~~~
-
-Parser 成功后会返回稳定的 `source_id`，例如 `DeepStack-paper`。完整原标题保存在 `title`，稳定工作名保存在 `short_name`；Topic 只保存有序 Source ID，不复制 Source 资产。同一规范 URL 或同一 PDF 再次注册时会复用已有 Source。
-
-### 准备环境
-
-- 使用 Python 运行仓库内脚本；脚本仅依赖 Python 标准库。
-- 默认 `FOCUS_PDF_PARSER=auto`；后端服务器可用的 `http://127.0.0.1:18765` 本地 MinerU 4.0.8 Standard V1 无需 Token。仅使用远端时在环境变量 `MINERU_API_TOKEN` 或仓库根目录被 Git 忽略的 `.env` 中配置 Token。
-- 从仓库根目录运行命令，私有数据默认写入被 Git 忽略的 `knowledge-base/`。
-- 不要提交 PDF、HTML、Parser Bundle、Reading Records、Topic Synthesis、`.env` 或 Token。
-
-PowerShell：
-
-~~~powershell
-Set-Location D:\dsh-proj\focus
-$workspace = Join-Path $PWD "knowledge-base"
-~~~
-
-### 命令行最小例子
-
-下面的例子注册一篇 Paper，同时创建 `ai-systems` Topic 并把 Source 放入其有序列表：
-
-~~~powershell
-$paper = python -B -X utf8 .agents/skills/article-parser/scripts/article_parser.py parse-file `
-  D:\papers\DeepStack.pdf `
-  --workspace $workspace `
-  --short-name "DeepStack" `
-  --topic "AI Systems" `
-  --topic-id ai-systems |
-  ConvertFrom-Json
-
-$sourceId = $paper.source_id
-~~~
-
-Article 使用同一注册语义：
-
-~~~powershell
-python -B -X utf8 .agents/skills/article-parser/scripts/article_parser.py parse-file `
-  "C:/reading/article.html" `
-  --workspace $workspace `
-  --short-name "核心对象与主张" `
-  --topic "AI Systems" `
-  --topic-id ai-systems
-~~~
-
-网页文章先用 SingleFile 保存成图片内嵌的单个 HTML，再调用 `parse-file <article.html>`；URL 直接解析与 MinerU-HTML 已退役。FOCUS 不会绕过访问限制。
-
-创建或复用 Source 自己的 Reading Plan：
-
-~~~powershell
-python -B -X utf8 .agents/skills/focus-map/scripts/focus_map.py map `
-  --workspace $workspace `
-  --source-id $sourceId
-~~~
-
-第一次调用若返回 `reading_plan_input_missing`，由 `focus-map` 读取 canonical `parser-bundle/content.md`，生成最小 Plan JSON，并在同一回合通过 stdin 再次调用；草案不落盘。直接使用 Skill 时这一步由 Codex 完成。
-
-按 Topic 顺序选择第一个未完成 Source，并显示当前 Chunk：
-
-~~~powershell
-$cursor = python -B -X utf8 .agents/skills/focus-read/scripts/focus_read.py topic `
-  ai-systems --workspace $workspace |
-  ConvertFrom-Json
-
-python -B -X utf8 .agents/skills/focus-read/scripts/focus_read.py current `
-  --workspace $workspace
-~~~
-
-只有用户明确要求继续阅读时才推进 Cursor；使用上一步返回的 receipt 可以防止重复推进：
-
-~~~powershell
-python -B -X utf8 .agents/skills/focus-read/scripts/focus_read.py continue `
-  --workspace $workspace `
-  --expected-plan-id $cursor.plan_id `
-  --expected-chunk-id $cursor.chunk_id
-~~~
-
-Topic Synthesis 先做有界检索并核对选中的原文范围，再把 claims 草案通过 stdin 交给 `synthesize-topic`。每条 claim 的 anchor 必须与 Reading Note 或 `topic-range` 选中的范围一致：
-
-~~~powershell
-python -B -X utf8 .agents/skills/focus-read/scripts/focus_read.py topic-search `
-  ai-systems --workspace $workspace --query "stacked memory" --limit 5
-
-python -B -X utf8 .agents/skills/focus-read/scripts/focus_read.py topic-range `
-  ai-systems DeepStack-paper --workspace $workspace --start 120 --end 138
-
-$draft = @{
-  selected_ranges = @(
-    @{ source_id = "DeepStack-paper"; source_lines = @(120, 138) }
-  )
-  claims = @(
-    @{
-      text = "这里填写由选定原文支持的简洁 claim。"
-      anchors = @(
-        @{ source_id = "DeepStack-paper"; source_lines = @(120, 138) }
-      )
-    }
-  )
-} | ConvertTo-Json -Depth 6
-
-$draft | python -B -X utf8 .agents/skills/focus-read/scripts/focus_read.py synthesize-topic `
-  ai-systems --workspace $workspace
-~~~
-
-示例中的 Source ID、查询词和行号需要替换为 Parser 返回值与 `topic-search`/`topic-range` 的真实结果。Synthesis 是显式生成的派生产物，不会自动改写，也不会复制 Parser Bundle、Reading Records 或对话。
-
-## 公开 Skills
-
-- article-parser：提供 PDF 即授权本次 MinerU 上传；选定完整 SingleFile HTML 则本地提取正文与图片；统一注册或复用 Paper Source / Article Source，不混淆来源类型，也不绕过访问控制或适配发布平台。
-- article-blog：从 Parser Bundle 生成独立 Blog Output（Reading Blog、Value Analysis 与合并 index.html），不读取或修改私人阅读数据。
-- focus-map：为已注册 Reading Source 创建、复用或显式重建固定 Reading Plan。
-- focus-read：展示当前 Chunk；按 Topic 有序跨 Source 阅读；执行有界 Source/Topic 搜索、Notes、Cursor 推进与显式 Source-anchored Topic Synthesis。
-
-## 阅读闭环
-
-~~~text
-Source Library
-  -> Topic manifest: 有序 Source ID 引用
-  -> focus-map: 固定 chunks.jsonl 与 glossary.tsv
-  -> focus-read: state.json 恢复当前 Chunk
-  -> 自由阅读、追问、检索
-  -> records/<chunk_id>.json 保存纯翻译和精简 Notes
-  -> 明确继续阅读时推进一个 Chunk 或下一个 Topic Source
-  -> 显式综合时写入带 Source Anchor 的 claims
-~~~
-
-只有 continue_reading 能移动 Reading Cursor。解释、确认、换例子、来源检索、外部检索和旁支任务都不会移动 Cursor。
-
-## Workspace
-
-~~~text
-knowledge-base/
-├── state.json
-├── topics/<topic_id>/
-│   ├── topic.yaml
-│   └── synthesis/synthesis-NNN.json
-└── sources/<source_id>/
-    ├── source.yaml
-    ├── parser-bundle/
-    ├── blog/
-    └── reading/plans/<plan_id>/
-        ├── chunks.jsonl
-        ├── glossary.tsv
-        └── records/<chunk_id>.json
-~~~
-
-state.json 只保存当前 Reading Source、可选 current_topic_id 及每份 Source 的 current_plan_id/current_chunk_id。Topic 只按顺序引用 Source ID；Source 可以不属于 Topic，也可以被多个 Topic 引用。chunks.jsonl 只保存固定身份、顺序和原文锚点。Reading Record 只保存当前 Chunk 的可选纯中文翻译与 thought、emphasis、question、clarification Notes。
-
-原始用户—模型对话由宿主会话保存。Notes 只保留有限句子的稳定总结或关键词，不复制对话，不评价用户理解、掌握或能力。普通状态恢复和 Chunk 展示不返回历史 Notes；Glossary 只投影当前原文实际命中的术语。
-
-## 开发与验证
-
-### Host-agnostic Focus Reader
-
-独立 Reader 壳位于 `ui/`。`reader-ui` 只依赖 `ReaderHost` Interface；Standalone Fixture/HTTP Adapter 与后续 DSH Adapter 都位于这个 Seam 的宿主侧，不会把运输协议或宿主状态带进 Reader Module。
-
-~~~powershell
-pnpm install
-pnpm reader:dev
-pnpm reader:typecheck
-pnpm reader:test
-pnpm reader:build
-~~~
-
-Standalone 默认使用同源真实 HTTP Host。只有显式设置 `VITE_FOCUS_READER_BASE_URL=fixture` 时才使用不读取私人 Workspace 的中文合成 Fixture Adapter。当前 `reader-ui` 已采用本会话弥散光场 prototype 的正式初步实现：单栏连续 Reading Chunk、完整历史深度、与 Reading Cursor 对应的光场、Continue Reading 交接、当前段落旁注、操作锁和 reduced-motion 均位于 `ReaderHost` seam 内侧。
-
-原 UI 的证据等级是 Contract verified、Fixture verified、Browser verified 和 Production build verified。新 Host 的离线集成验证与真实链路待验收项见网页启动文档；不声称 Live-agent verified 或 Production accepted。设计结论与正式规格分别见 `docs/design/focus-reader-design-verdict.md` 和 `docs/design/focus-reader-ui-spec.md`。
-
-Skills 的脚本都从各自目录解析。Windows 下使用：
-
-~~~powershell
-python -B -X utf8 scripts/<script>.py ...
-~~~
-
-后端接入与切换的测试：`tests/test_agent_backends.py`（假 SDK 驱动保留的 CodeBuddy 实验适配器，真实 Core 校验落盘）。
-
-运行完整验证：
-
-~~~powershell
-python -B -X utf8 -m unittest discover -s tests -v
-~~~
-
-整个 knowledge-base/ 必须保持 Git 忽略。PDF、Parser Bundle、Blog Output、翻译、Notes、state.json、.env、Token 和签名 URL 都不能进入公开仓库。
-
-本地文件按以下边界管理，规则见 `.gitignore`：
-
-- 知识库：`knowledge-base/`、`knowledge-base-*/` 和旧 `workspace/`，包含原件、解析包、博客、译文、笔记与阅读状态。
-- 单独保存的文章：根目录的 `articles/`、`papers/`、`uploads/`、`parser-bundle/`、`blog-output/`，根目录 HTML/HTM 和所有 PDF；`tests/fixtures/` 中的 PDF 可作为明确的测试夹具跟踪。
-- 本机数据：`.env` 及其变体、`.workbuddy/`、Host/Runtime 目录与锁、缓存、依赖、构建结果及日志；`.env.example`、`.env.sample`、`.env.template` 可跟踪，但只能含占位值。
-- `.scratch/` 默认忽略；已有规格、工单与经过检查的精简验收证据继续跟踪，新文档按需显式加入。文章正文、完整会话和知识库不得用 `git add -f` 加入。
-
-UI 的 HTML 入口、源码、研究文档和正式测试夹具继续版本管理。自定义 `--workspace` 路径应先加入本地忽略规则；添加忽略项不会自动移除已跟踪文件，可用 `git ls-files` 检查，必要时仅用 `git rm --cached` 取消跟踪并保留磁盘文件。
-
-当前项目与代码结构见 [Agent 架构](docs/FOCUS_Agent_Architecture.md)，国内 WorkBuddy 的官方接入区别见 [调研](research/workbuddy-codex-agent-integration.md)。
+开发或排查解析流程时使用 [Skills 与 Python CLI 调试说明](docs/FOCUS_Debug_CLI.md)；日常阅读无需这些命令。
