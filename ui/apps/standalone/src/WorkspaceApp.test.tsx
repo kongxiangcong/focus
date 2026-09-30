@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ReaderHost, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
+import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ReaderHostResult, type ReaderHost, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
 import { WorkspaceApp } from "./WorkspaceApp";
 const empty: ReadingWindow = { status: "empty", current: null, history: [], conversation: [], source: { sourceId: "", title: "", topicId: null }, sessionId: "s1",
   agent: { run: null, catalog: { sources: [], topics: [] }, backend: "codex", backends: [{ id: "codex", label: "Codex" }, { id: "deepseek", label: "DeepSeek" }] } };
@@ -30,6 +30,7 @@ function setup(initialInbox: readonly IngestionItem[] = [], initialWindow: Readi
     createTopic: vi.fn(async () => readerSuccess({})), manageTopic: vi.fn(async () => readerSuccess({})),
     deletionImpact: vi.fn(async id => readerSuccess({ sourceId: id, title: "A Paper", topics: [{ topicId: "topic", title: "编译", sourceIds: [id] }], assets: { bundle: true, blog: true, notes: true, plans: 1, progress: true } })),
     clearSource: vi.fn(async () => readerSuccess(empty)),
+    saveSourceDetails: vi.fn(async () => readerSuccess(empty)),
     renameSource: vi.fn(async () => readerSuccess({})),
     startIngestion: vi.fn(async () => readerSuccess(confirmed)),
     confirmIngestion: vi.fn(async () => readerSuccess(confirmed)),
@@ -69,7 +70,7 @@ it("accepts saved HTML and explains local parsing in the Inbox confirmation", as
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [file] } });
   expect(screen.getByText(/本地 HTML 解析器（不上传原件）/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
-  await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["html-1"], expect.any(String)));
+  await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["html-1"], expect.any(String), true));
   expect(host.stageIngestion).toHaveBeenCalled();
   expect(host.processIngestion).not.toHaveBeenCalled();
 });
@@ -81,7 +82,7 @@ it("shows the selected PDF backend and queued progress in the visible Inbox", as
   setup([item]);
   await screen.findByText(/本地 MinerU · 本地 MinerU 4.0.8 Standard V1 可用 · 排队中/);
 });
-it.each(["check", "discussion"])("retains the newest shared configuration when a late %s response arrives after another page refreshed", async action => {
+it.each(["check", "open"])("retains the newest shared configuration when a late %s response arrives after another page refreshed", async action => {
   history.replaceState(null, "", action === "check" ? "/settings" : "/library");
   const codex = { backend: "codex" as const, model: "gpt-6-astra", runtimePath: null, credentialFile: null };
   const deepseek = { ...codex, backend: "deepseek" as const, model: "deepseek-v4-flash" };
@@ -98,22 +99,24 @@ it.each(["check", "discussion"])("retains the newest shared configuration when a
     subscribe: callback => { publish = callback; return () => {}; },
     backendSetup: vi.fn(async (action, input) => readerSuccess({ backend: input.backend, runtimePath: null, status: action === "prepare" ? "installed" : "success", message: "OK" })),
     saveBackendConfiguration: vi.fn(() => new Promise<ReturnType<typeof readerSuccess<ReadingWindow>>>(resolve => { resolveSave = resolve; })),
-    selectDiscussionSource: vi.fn(() => new Promise<ReturnType<typeof readerSuccess<ReadingWindow>>>(resolve => { resolveSave = resolve; })),
+    openSource: vi.fn(() => new Promise<ReturnType<typeof readerSuccess<ReadingWindow>>>(resolve => { resolveSave = resolve; })),
   };
   render(<WorkspaceApp host={host} />);
   if (action === "check") {
     await screen.findByRole("radio", { name: "Codex" });
     fireEvent.click(screen.getByRole("radio", { name: "DeepSeek" }));
     fireEvent.click(screen.getByRole("button", { name: "连接检查" }));
+    await screen.findByText("连接检查通过；点击保存设置后启用。");
+    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   } else {
     fireEvent.click(await screen.findByRole("button", { name: "详细" }));
-    fireEvent.click(screen.getByRole("button", { name: "讨论" }));
+    fireEvent.click(screen.getByRole("button", { name: "准备阅读" }));
   }
   if (action === "check") await waitFor(() => expect(host.saveBackendConfiguration).toHaveBeenCalled());
   await act(async () => publish(readerSuccess({ ...initial, revision: 3, agent: { ...empty.agent!, backend: "deepseek" }, configuration: { ...initial.configuration, saved: deepseek, effective: deepseek } })));
   await act(async () => resolveSave(readerSuccess({ ...initial, revision: 2, configuration: { ...initial.configuration, saved: deepseek, pending: true } })));
   expect(screen.queryByText("配置更改，需要刷新页面")).not.toBeInTheDocument();
-  if (action === "discussion") fireEvent.click(screen.getByRole("link", { name: "设置" }));
+  if (action === "open") fireEvent.click(screen.getByRole("link", { name: "设置" }));
   expect(screen.getByRole("radio", { name: "DeepSeek" })).toBeChecked();
 });
 it("edits original metadata and Topic membership through Host actions", async () => {
@@ -123,12 +126,15 @@ it("edits original metadata and Topic membership through Host actions", async ()
   fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
   fireEvent.change(screen.getByRole("textbox", { name: "来源原题" }), { target: { value: "Correct title" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
-  await waitFor(() => expect(host.renameSource).toHaveBeenCalledWith("a-paper", "Correct title"));
+  await waitFor(() => expect(host.saveSourceDetails).toHaveBeenCalledWith("a-paper", "Correct title", ["topic"], expect.any(String)));
   await waitFor(() => expect(screen.queryByRole("textbox", { name: "来源原题" })).not.toBeInTheDocument());
   if (screen.getByRole("button", { name: "详细" }).getAttribute("aria-expanded") === "false") fireEvent.click(screen.getByRole("button", { name: "详细" }));
   fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "编译" }));
-  await waitFor(() => expect(host.manageTopic).toHaveBeenCalledWith("topic", "detach", { sourceId: "a-paper" }));
+  expect(host.manageTopic).not.toHaveBeenCalled();
+  expect(host.saveSourceDetails).toHaveBeenCalledTimes(1);
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  expect(host.saveSourceDetails).toHaveBeenCalledTimes(1);
   expect(host.deleteSource).not.toHaveBeenCalled();
 });
 it("freezes a mixed selection into one Topic batch and exposes each result", async () => {
@@ -151,7 +157,7 @@ it("freezes a mixed selection into one Topic batch and exposes each result", asy
     ],
   }]));
   fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
-  await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["one.pdf", "two.html"], expect.any(String)));
+  await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["one.pdf", "two.html"], expect.any(String), true));
   expect(host.stageIngestion).toHaveBeenNthCalledWith(1, files[0], { topicTitle: "编译" });
   expect(host.stageIngestion).toHaveBeenNthCalledWith(2, files[1], { topicTitle: "编译" });
   expect(await screen.findByText("编译 · 部分完成")).toBeVisible();
@@ -167,6 +173,7 @@ it("lands in Library and persists the chosen font across remounts", async () => 
   fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
   expect(screen.getByText("阅读字号预览 · 特大")).toHaveStyle({ fontSize: "26px" });
   expect(screen.getByRole("radio", { name: "DeepSeek" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   app.unmount(); setup();
   expect(await screen.findByRole("slider", { name: "字号" })).toHaveValue("3");
   fireEvent.click(screen.getByRole("link", { name: "阅读" }));
@@ -183,7 +190,7 @@ it("starts parsing and blog with one explicit confirmation", async () => {
   expect(host.stageIngestion).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
   await waitFor(() => expect(host.stageIngestion).toHaveBeenCalledWith(pdf, { topicTitle: "编译" }));
-  await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String)));
+  await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String), true));
   expect(host.confirmIngestion).not.toHaveBeenCalled();
   expect(host.processIngestion).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "详细" }));
@@ -192,7 +199,7 @@ it("starts parsing and blog with one explicit confirmation", async () => {
   expect(host.deleteSource).not.toHaveBeenCalled();
   fireEvent.click(await screen.findByRole("button", { name: "永久删除" }));
   await waitFor(() => expect(host.deleteSource).toHaveBeenCalledWith("a-paper"));
-  await waitFor(() => expect(screen.getByRole("button", { name: "从头阅读" })).toBeDisabled());
+  await waitFor(() => expect(screen.queryByRole("button", { name: "从头阅读" })).not.toBeInTheDocument());
   expect(host.rereadSource).not.toHaveBeenCalled();
 });
 it("filters source cards, exposes source resources, and rejects unsupported ingestion formats", async () => {
@@ -229,6 +236,8 @@ it("persists brightness and omits the unused network control", async () => {
   setup(); await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   fireEvent.change(screen.getByRole("slider", { name: "亮度" }), { target: { value: "90" } });
+  expect(localStorage.getItem("focus.brightness")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   expect(localStorage.getItem("focus.brightness")).toBe("90");
   expect(screen.queryByRole("switch", { name: "网络" })).not.toBeInTheDocument();
 });
@@ -251,7 +260,7 @@ it("shows the original unfinished task instead of a new one when the same file i
   expect(row).toHaveTextContent("远端状态待核对");
   expect(row).toHaveTextContent("编译");
   expect(host.processIngestion).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "知道了" }));
+  fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   expect(screen.queryByText(/该原件已有未完成任务/)).not.toBeInTheDocument();
 });
 it("explains the duplicate-parsing risk next to an explicit resubmission action", async () => {
@@ -356,12 +365,12 @@ it("offers querying the original task first when a remote reference exists", asy
 it("clears source discussion only after irreversible confirmation and supports cancellation", async () => {
   const { host } = setup();
   fireEvent.click(await screen.findByRole("button", { name: "详细" }));
-  fireEvent.click(screen.getByRole("button", { name: "清除讨论与笔记" }));
-  expect(screen.getByText(/不可撤销：删除本篇全部讨论/)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "重新阅读" }));
+  expect(screen.getByText(/将清除本篇讨论、笔记和阅读记录/)).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "取消" }));
   expect(host.clearSource).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "清除讨论与笔记" }));
-  fireEvent.click(screen.getByRole("button", { name: "不可撤销地清除" }));
+  fireEvent.click(screen.getByRole("button", { name: "重新阅读" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认重新阅读" }));
   await waitFor(() => expect(host.clearSource).toHaveBeenCalledWith("a-paper", expect.any(String)));
   expect(host.deleteSource).not.toHaveBeenCalled();
 });
@@ -370,7 +379,7 @@ it("keeps cards compact, expands details, and persists list display", async () =
   const app = setup();
   const title = await screen.findByRole("heading", { name: "A Paper" });
   const card = title.closest("article")!;
-  expect(within(card).getAllByRole("button").map(button => button.textContent)).toEqual(["打开博客", "开始阅读", "详细"]);
+  expect(within(card).getAllByRole("button").map(button => button.textContent)).toEqual(["打开博客", "继续阅读", "详细"]);
   expect(screen.queryByRole("button", { name: "管理来源" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "打开博客" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "详细" }));
@@ -381,8 +390,8 @@ it("keeps cards compact, expands details, and persists list display", async () =
   expect(card.parentElement).toHaveAttribute("data-view", "list");
   fireEvent.click(screen.getByRole("button", { name: "详细" }));
   expect(within(card).getAllByRole("button")).toHaveLength(3);
-  fireEvent.click(screen.getByRole("button", { name: "开始阅读" }));
-  await waitFor(() => expect(app.host.openSource).toHaveBeenCalledWith("a-paper"));
+  fireEvent.click(screen.getByRole("button", { name: "继续阅读" }));
+  await waitFor(() => expect(app.host.openSource).toHaveBeenCalledWith("a-paper", expect.any(String)));
   app.unmount(); setup();
   await screen.findByRole("heading", { name: "A Paper" });
   expect(screen.getByRole("button", { name: "列表显示" })).toHaveAttribute("aria-pressed", "true");
@@ -392,7 +401,7 @@ it("shows reading preparation and progress without expanding details, then requi
   const preparation: ReadingPreparation = { source_id: "a-paper", status: "running", step: "context", completed: 0, total: 0, ready: false, error: null, plan_id: null };
   vi.mocked(host.openSource!).mockResolvedValue(readerSuccess({ ...empty, preparations: { "a-paper": preparation } }));
   const card = (await screen.findByRole("heading", { name: "A Paper" })).closest("article")!;
-  fireEvent.click(within(card).getByRole("button", { name: "开始阅读" }));
+  fireEvent.click(within(card).getByRole("button", { name: "继续阅读" }));
   expect(await within(card).findByText("阅读准备中 · 正在分析全文")).toBeVisible();
   expect(within(card).getByRole("button", { name: "详细" })).toHaveAttribute("aria-expanded", "false");
   expect(within(card).getByRole("button", { name: "阅读准备中…" })).toBeDisabled();
@@ -413,8 +422,8 @@ it.each([
   expect(within(card).getByRole("button", { name: "详细" })).toHaveAttribute("aria-expanded", "false");
   expect(within(card).getByText(message)).toBeVisible();
   if (ready) {
-    fireEvent.click(within(card).getByRole("button", { name: "开始阅读" }));
-    await waitFor(() => expect(host.openSource).toHaveBeenCalledWith("a-paper"));
+    fireEvent.click(within(card).getByRole("button", { name: "继续阅读" }));
+    await waitFor(() => expect(host.openSource).toHaveBeenCalledWith("a-paper", expect.any(String)));
   }
 });
 it.each([
@@ -431,4 +440,74 @@ it.each([
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   fireEvent.click(screen.getByRole("link", { name: "知识库" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "A Paper" }).closest("article")).toHaveAttribute("data-status", expected));
+});
+
+it("T23/T24 allows unclassified parse-only upload with an explicit immutable scope", async () => {
+  const { host } = setup();
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "上传" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "解析后生成博客" }));
+  const file = new File(["%PDF test"], "unclassified.pdf");
+  fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [file] } });
+  fireEvent.click(screen.getByRole("button", { name: "仅解析入库" }));
+  await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String), false));
+  expect(host.stageIngestion).toHaveBeenCalledWith(file, {});
+});
+
+it("T2 appearance previews can be cancelled without touching saved settings", async () => {
+  setup(); await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("link", { name: "设置" }));
+  fireEvent.change(screen.getByRole("slider", { name: "亮度" }), { target: { value: "90" } });
+  fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
+  expect(localStorage.getItem("focus.fontSize")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "取消修改" }));
+  expect(screen.getByRole("slider", { name: "字号" })).toHaveValue("1");
+  expect(screen.getByRole("slider", { name: "亮度" })).toHaveValue("100");
+});
+
+it("T17/T18 routes expose all work and Stop targets only the selected preparation", async () => {
+  const { host } = setup([], { ...empty, workItems: [
+    { kind: "preparation", targetId: "a-paper", status: "running", label: "准备 A" },
+    { kind: "blog", targetId: "b-paper", status: "running", label: "生成 B" },
+  ] });
+  host.cancelPreparation = vi.fn(async () => readerSuccess(empty));
+  host.stop = vi.fn(async () => readerSuccess(empty));
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("link", { name: "设置" }));
+  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
+  const frame = screen.getByLabelText("任务框");
+  expect(frame).toHaveTextContent("生成 B");
+  fireEvent.click(within(frame).getAllByRole("button", { name: "停止此任务" })[0]);
+  await waitFor(() => expect(host.cancelPreparation).toHaveBeenCalledWith("a-paper"));
+  expect(host.stop).not.toHaveBeenCalled();
+});
+
+it("T22 source refresh does not await every blog status", async () => {
+  const { host } = setup();
+  host.blogStatus = vi.fn(() => new Promise<ReaderHostResult<BlogStatus>>(() => {}));
+  await screen.findByRole("heading", { name: "A Paper" });
+  expect(host.blogStatus).not.toHaveBeenCalled();
+});
+
+it("T20 retries the failed operation with the same request identity", async () => {
+  const { host } = setup();
+  vi.mocked(host.openSource!).mockResolvedValueOnce({ ok: false, error: { code: "unavailable", message: "结果未知", retryable: true } }).mockResolvedValue(readerSuccess(empty));
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "继续阅读" }));
+  await screen.findByRole("button", { name: "重试此操作" });
+  const firstRequest = vi.mocked(host.openSource!).mock.calls[0][1];
+  fireEvent.click(screen.getByRole("button", { name: "重试此操作" }));
+  await waitFor(() => expect(host.openSource).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(host.openSource!).mock.calls[1][1]).toBe(firstRequest);
+});
+
+it("T19 disconnection is never presented as idle and keeps the last known task", async () => {
+  let emit!: Parameters<NonNullable<ReaderHost["subscribe"]>>[0];
+  const { host } = setup();
+  host.subscribe = callback => { emit = callback; return () => {}; };
+  cleanup(); render(<WorkspaceApp host={host} />);
+  await screen.findByRole("heading", { name: "A Paper" });
+  await act(async () => emit({ ok: false, error: { code: "unavailable", message: "offline", retryable: true } }));
+  expect(screen.getByText("连接中断，正在恢复")).toBeInTheDocument();
+  expect(screen.queryByText("当前无工作")).not.toBeInTheDocument();
 });

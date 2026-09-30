@@ -51,7 +51,7 @@ class PreparedReadingTests(unittest.TestCase):
         chunks[0]['language'] = 'zh'; chunks[1]['language'] = 'en'; chunks[2]['language'] = 'mixed'
         path.write_text('\n'.join(json.dumps(c) for c in chunks)+'\n')
         self.assertEqual(['chunk-002', 'chunk-003'], self.host.core.core.preparation_status(source_id='fixture-paper')['pending'])
-        self.assertEqual('source-ready', self.host.snapshot()['current']['presentationStatus'])
+        self.assertEqual('source-ready', self.host.snapshot()['navigationCurrent']['presentationStatus'])
         self.prepare_all()
         self.assertTrue(self.host.core.core.preparation_status(source_id='fixture-paper')['ready'])
 
@@ -63,10 +63,10 @@ class PreparedReadingTests(unittest.TestCase):
             payload = {'requestId': 'cached-continue-123', 'receipt': {**self.receipt, 'readingRevision': 0}}
             with self.assertRaisesRegex(WorkspaceError, 'not ready'):
                 self.host.start(payload, continuing=True)
-            self.assertEqual('chunk-001', self.host.snapshot()['current']['chunkId'])
+            self.assertEqual('chunk-001', self.host.snapshot()['navigationCurrent']['chunkId'])
             from host.core_bridge import SourceLibrary
             SourceLibrary(self.workspace).restart_reading('fixture-paper')
-        self.assertEqual('chunk-001', self.host.snapshot()['current']['chunkId'])
+        self.assertEqual('chunk-001', self.host.snapshot()['navigationCurrent']['chunkId'])
         record = json.loads((self.workspace / 'sources/fixture-paper/reading/plans/plan-001/records/chunk-001.json').read_text())
         self.assertEqual('保留笔记', record['notes'][0]['content'])
         self.assertEqual('已准备的译文', record['translation'])
@@ -75,7 +75,7 @@ class PreparedReadingTests(unittest.TestCase):
     def test_missing_preparation_never_advances_and_failed_preparation_retains_assets(self):
         with self.assertRaisesRegex(WorkspaceError, 'not ready'):
             self.host.start({'requestId': 'unprepared-next', 'receipt': {**self.receipt, 'readingRevision': 0}}, continuing=True)
-        self.assertEqual('chunk-001', self.host.snapshot()['current']['chunkId'])
+        self.assertEqual('chunk-001', self.host.snapshot()['navigationCurrent']['chunkId'])
         self.host.library_read('fixture-paper')
         self.host.reading_workers['fixture-paper'].join(3)
         self.assertEqual('failed', self.host.snapshot()['preparations']['fixture-paper']['status'])
@@ -135,6 +135,6 @@ class PreparedReadingTests(unittest.TestCase):
         self.host.core.core.select_topic('test-topic')
         with self.assertRaisesRegex(WorkspaceError, 'not ready'):
             self.host.continue_cached({'requestId': 'topic-next-missing', 'receipt': {**self.receipt, 'readingRevision': 0}})
-        self.assertEqual('chunk-001', self.host.snapshot()['current']['chunkId'])
-        self.assertEqual('fixture-paper', self.host.snapshot()['current']['sourceId'])
+        self.assertEqual('chunk-001', self.host.snapshot()['navigationCurrent']['chunkId'])
+        self.assertEqual('fixture-paper', self.host.snapshot()['navigationCurrent']['sourceId'])
         self.assertEqual([], ProtocolDouble.instances)

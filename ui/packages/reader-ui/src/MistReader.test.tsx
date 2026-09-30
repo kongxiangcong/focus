@@ -102,7 +102,7 @@ it("streams one assistant card into the central timeline and keeps only prompts 
   const unsubscribe = vi.fn();
   const prompt = { messageId: "u1", chunkId: current.chunkId, role: "user" as const, content: "解释共享存储" };
   const answer = { messageId: "a1", chunkId: current.chunkId, role: "assistant" as const, content: "先确定 **生命周期**。" };
-  const pending: ReadingWindow = { ...first, revision: 2, conversation: [prompt], timeline: [{ kind: "reading", chunk: current }, { kind: "message", messageId: "u1" }] };
+  const pending: ReadingWindow = { ...first, revision: 2, conversation: [prompt], timeline: [{ kind: "reading" as const, chunk: current }, { kind: "message", messageId: "u1" }] };
   const host: ReaderHost = {
     getReadingWindow: vi.fn(async () => readerSuccess({ ...first, revision: 1 })),
     continueReading: vi.fn(async () => readerSuccess(first)),
@@ -151,7 +151,7 @@ it("shows immediate feedback and locks task-changing actions through startup and
   expect(screen.getByRole("status")).toHaveTextContent("正在打开下一段");
   expect(screen.getByRole("textbox")).toBeDisabled();
   expect(screen.getByRole("button", { name: "新会话" })).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "打开中" }));
+  fireEvent.click(screen.getByRole("button", { name: "打开中…" }));
   expect(host.continueReading).toHaveBeenCalledTimes(1);
   await act(async () => resolve(readerSuccess(running)));
   expect(screen.getByRole("status")).toHaveTextContent("连接助手");
@@ -167,4 +167,50 @@ it("shows immediate feedback and locks task-changing actions through startup and
   expect(screen.getByRole("textbox")).toHaveValue("保留草稿");
   expect(host.sendMessage).not.toHaveBeenCalled();
   expect(host.newSession).not.toHaveBeenCalled();
+});
+
+it("T3/T6 appends chunks chronologically and sends a pre-navigation draft with its original receipt", async () => {
+  const next = { ...current, chunkId: "chunk-002", index: 2, sectionPath: ["Results"] };
+  const second: ReadingWindow = { ...first, readingRevision: 2, current: next, history: [current],
+    timeline: [{ kind: "reading" as const, chunk: current, eventId: "r1" }, { kind: "reading" as const, chunk: next, eventId: "r2" }] };
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess({ ...first, readingRevision: 1,
+    timeline: [{ kind: "reading" as const, chunk: current, eventId: "r1" }] })),
+    continueReading: vi.fn(async () => readerSuccess(second)), sendMessage: vi.fn(async () => readerSuccess(second)) };
+  render(<FocusReader host={host} appearance="mist" />);
+  await screen.findByRole("heading", { name: "Method" });
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "第一段的草稿" } });
+  fireEvent.click(screen.getByRole("button", { name: "继续" }));
+  await screen.findByRole("heading", { name: "Results" });
+  expect(screen.getByRole("heading", { name: "Method" })).toBeInTheDocument();
+  expect([...document.querySelectorAll(".focus-output")].map(el => el.getAttribute("data-event-id"))).toEqual(["r1", "r2"]);
+  fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+  await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ chunkId: "chunk-001", planId: current.planId }) })));
+});
+
+it("T4 respects manual scrolling while streaming and resumes only through the latest-content action", async () => {
+  let emit!: Parameters<NonNullable<ReaderHost["subscribe"]>>[0];
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(first)), continueReading: vi.fn(), sendMessage: vi.fn(),
+    subscribe: callback => { emit = callback; return () => {}; } };
+  render(<FocusReader host={host} appearance="mist" />);
+  await screen.findByRole("heading", { name: "Method" });
+  const pane = screen.getByRole("main", { name: "阅读与对话" });
+  const scroll = vi.fn(); pane.scrollTo = scroll;
+  fireEvent.wheel(pane);
+  scroll.mockClear();
+  act(() => emit(readerSuccess({ ...first, revision: 2, conversation: [{ messageId: "stream", chunkId: current.chunkId, role: "assistant", content: "partial" }] })));
+  expect(scroll).not.toHaveBeenCalled();
+  expect(await screen.findByRole("button", { name: "查看新内容" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "查看新内容" }));
+  expect(screen.queryByRole("button", { name: "查看新内容" })).not.toBeInTheDocument();
+});
+
+it("T7/T8 a fresh session is blank and uses the persisted frontier for Continue", async () => {
+  const blank: ReadingWindow = { ...first, current: null, navigationCurrent: current, sessionFresh: true,
+    readingRevision: 8, readingStarted: true, history: [], timeline: [] };
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(blank)), continueReading: vi.fn(async () => readerSuccess(first)), sendMessage: vi.fn() };
+  render(<FocusReader host={host} appearance="mist" />);
+  await screen.findByRole("button", { name: "继续" });
+  expect(document.querySelectorAll(".focus-output")).toHaveLength(0);
+  fireEvent.click(screen.getByRole("button", { name: "继续" }));
+  await waitFor(() => expect(host.continueReading).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ chunkId: current.chunkId, readingRevision: 8 }) })));
 });

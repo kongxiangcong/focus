@@ -97,4 +97,5 @@ class LibraryHostTests(unittest.TestCase):
                 self.host.library_delete('fixture-paper')
         self.assertTrue((self.workspace / 'sources/fixture-paper/parser-bundle/content.md').is_file())
         self.assertEqual(state, (self.workspace / 'state.json').read_bytes())
-        self.assertEqual('reading', self.host.snapshot()['status'])
+        self.assertEqual('empty', self.host.snapshot()['status'])
+        self.assertEqual('chunk-001', self.host.snapshot()['navigationCurrent']['chunkId'])

@@ -155,3 +155,56 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
 }
 
 .library-full-title { margin:0 0 12px; line-height:1.6; font-weight:500; }
+/* Confirmed UX: one status region, independent reading selectors and materials. */
+.workspace-app { grid-template-rows:auto minmax(0,1fr); }
+.workspace-nav { grid-row:1 / 3; }
+.workspace-status { grid-column:2; grid-row:1; padding:8px 18px; min-width:0; background:#ffffff70; border-bottom:1px solid var(--reader-line); font-size:13px; z-index:5; }
+.workspace-status>div[role=status] { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.workspace-status button { min-height:36px; padding:6px 10px; }
+.workspace-status .workspace-error,.workspace-status .workspace-notice { position:static; margin-top:8px; }
+.workspace-task-frame { max-height:28dvh; overflow:auto; padding:8px 0; }
+.workspace-task-frame>div { padding:8px; border-bottom:1px solid var(--reader-line); }
+.workspace-reading,.library-page,.settings-page { grid-row:2; }
+.workspace-reading { padding-top:116px; }
+.reading-library-picker { left:auto; right:18px; width:240px; height:auto; display:flex; flex-direction:column; gap:6px; }
+.reading-library-picker label { display:flex; align-items:center; gap:6px; font-size:11px; }
+.reading-library-picker select { width:204px; max-width:none; height:32px; order:initial!important; }
+.reading-title-scroll { width:240px; overflow-x:auto; white-space:nowrap; font-size:11px; padding:3px 0; }
+.workspace-reading .focus-mist[data-materials-open=true] { padding-right:294px; }
+.reader-materials { position:absolute; top:56px; right:12px; bottom:16px; width:270px; overflow:auto; padding:12px; background:var(--reader-glass); border:1px solid var(--reader-line); border-radius:14px; z-index:3; }
+.reader-materials[hidden] { display:none; }
+.reader-materials .focus-source-notes { max-height:none; overflow:visible; }
+.reader-materials details { margin-bottom:16px; }
+.reader-materials ol { padding-left:18px; }
+.reader-materials li { margin-block:14px; overflow-wrap:anywhere; }
+.reader-materials textarea { width:100%; box-sizing:border-box; min-height:100px; }
+.reader-materials button { margin:3px; }
+.reader-materials-toggle { position:absolute; right:16px; top:12px; z-index:4; min-height:34px; }
+.mist-outline button[data-frontier=true] { border-color:var(--reader-accent); }
+.library-details .library-card-bottom>small { display:none; }
+.library-inbox details { margin-bottom:8px; }
+@media(max-width:850px) {
+ .workspace-reading .focus-mist[data-materials-open=true] { padding-right:0; }
+ .reader-materials { width:min(300px,calc(100% - 20px)); box-shadow:0 8px 36px #0003; }
+}
+@media(max-width:540px) {
+ .workspace-app { grid-template-rows:64px auto minmax(0,1fr); }
+ .workspace-nav { grid-row:1; }
+ .workspace-status { grid-column:1; grid-row:2; padding:6px 12px; }
+ .workspace-reading,.library-page,.settings-page { grid-column:1; grid-row:3; }
+ .workspace-reading { padding-top:116px; }
+ .reading-library-picker { left:auto; right:12px; width:240px; }
+ .workspace-reading .focus-stream { grid-row:2; }
+ .workspace-reading .mist-reading-actions { grid-row:3; width:100%; padding-inline:12px; flex-wrap:wrap; }
+ .workspace-reading .focus-bottom { grid-row:4; width:calc(100% - 24px); }
+ .workspace-reading .focus-mist { grid-template-rows:auto minmax(0,1fr) auto auto; }
+ .reader-materials-toggle { top:12px; }
+ .library-toolbar { flex-wrap:wrap; }
+}
+@media(max-width:850px) {
+ .reader-materials { bottom:190px; max-height:calc(100% - 240px); }
+}
+@media(max-width:540px) {
+ .workspace-reading .mist-sidebar { padding-right:112px; }
+ .reader-materials-toggle { top:12px; right:12px; max-width:108px; }
+}

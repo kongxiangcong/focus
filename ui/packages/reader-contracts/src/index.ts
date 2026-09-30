@@ -129,6 +129,7 @@ export interface SourceNoteOperation {
 export type SourceNoteRequestResult = SourceNoteOperation | { status: "saved"; note: SourceNote } | { status: "cancelled" };
 
 export interface ReadingWindow {
+  workItems?: readonly { kind: "chat" | "preparation" | "blog" | "ingestion" | "progress"; targetId: string; status: string; label: string; error?: string | null }[];
   configuration?: BackendConfigurationState;
   clearBusySources?: readonly string[];
   reviewChunk?: ReaderChunk | null;
@@ -144,7 +145,11 @@ export interface ReadingWindow {
   discussionId?: string;
   discussions?: readonly { discussionId: string; sourceId: string }[];
   sessionFresh?: boolean;
-  timeline?: readonly ({ kind: "reading"; chunk: ReaderChunk } | { kind: "message"; messageId: string })[];
+  readingStarted?: boolean;
+  resetVersion?: number;
+  /** Persistent frontier, also available when a fresh session hides its cards. */
+  navigationCurrent?: ReaderChunk | null;
+  timeline?: readonly ({ kind: "reading"; chunk: ReaderChunk; eventId?: string } | { kind: "message"; messageId: string })[];
   status: ReaderStatus;
   source: ReaderSource;
   /** Images bound to the current Source, including figures in unread Chunks. */
@@ -364,7 +369,7 @@ export interface ReaderHost {
   manageTopic?(topicId: string, action: "rename" | "delete" | "attach" | "detach" | "reorder", input: { title?: string; sourceId?: string; sourceIds?: readonly string[] }): Promise<ReaderHostResult<unknown>>;
   renameSource?(sourceId: string, title: string): Promise<ReaderHostResult<unknown>>;
   deletionImpact?(sourceId: string): Promise<ReaderHostResult<SourceDeletionImpact>>;
-  startBatch?(itemIds: readonly string[], requestId: string): Promise<ReaderHostResult<ProcessingBatch>>;
+  startBatch?(itemIds: readonly string[], requestId: string, generateBlog?: boolean): Promise<ReaderHostResult<ProcessingBatch>>;
   controlBatch?(batchId: string, action: "stop" | "continue" | "cancel-item" | "remove-item" | "retry-item" | "resubmit-item", requestId: string, itemId?: string, riskChoiceId?: string): Promise<ReaderHostResult<ProcessingBatch>>;
   stageIngestion?(file: File, target: IngestionTarget): Promise<ReaderHostResult<IngestionItem>>;
   /** `generateBlog` is the Inbox checkbox: one confirmation, one authorized follow-up. */
@@ -383,10 +388,11 @@ export interface ReaderHost {
   sourceOriginalUrl?(sourceId: string): string;
   sourceContentUrl?(sourceId: string): string;
   deleteSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  saveSourceDetails?(sourceId: string, title: string, topicIds: readonly string[], requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   clearSource?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
-  replanSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  replanSource?(sourceId: string, requestId?: string): Promise<ReaderHostResult<ReadingWindow>>;
   rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
-  openSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  openSource?(sourceId: string, requestId?: string): Promise<ReaderHostResult<ReadingWindow>>;
   activateReadingCandidate?(sourceId: string, planId: string, readingRevision: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   resumePreparation?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   cancelPreparation?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
@@ -415,7 +421,7 @@ export interface ReaderHost {
   ): Promise<ReaderHostResult<ReadingWindow>>;
   finishReading?(input: FinishReadingInput): Promise<ReaderHostResult<ReadingWindow>>;
   rereadReading?(input: RereadReadingInput): Promise<ReaderHostResult<ReadingWindow>>;
-  reviewChunk?(sourceId: string, planId: string, chunkId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  reviewChunk?(sourceId: string, planId: string, chunkId: string, requestId?: string): Promise<ReaderHostResult<ReadingWindow>>;
   readingRequestResult?(requestId: string): Promise<ReaderHostResult<ReadingWindow["readingOperation"]>>;
   sendMessage(
     input: SendReaderMessageInput,
@@ -424,7 +430,7 @@ export interface ReaderHost {
 }
 
 export function cursorReceipt(window: ReadingWindow): CursorReceipt | null {
-  const chunk = window.current;
+  const chunk = window.navigationCurrent ?? window.current;
   if (chunk === null) {
     return null;
   }

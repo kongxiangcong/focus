@@ -92,9 +92,11 @@ class SingleIngestionTests(unittest.TestCase):
         self.request('POST', '/library/inbox/' + item['item_id'] + '/start', {'requestId': 'new-model-confirm'})
         self.wait_blog(item['item_id'])
 
-    def test_missing_topic_and_damaged_html_cannot_publish(self):
+    def test_unclassified_parse_only_publishes_but_damaged_html_does_not(self):
         item = self.request('POST', '/library/inbox?name=test.pdf', b'%PDF no topic')
-        self.request('POST', '/library/inbox/' + item['item_id'] + '/start', {'requestId': 'no-topic'}, expected_status=400)
+        batch = self.request('POST', '/library/batches', {'itemIds': [item['item_id']], 'requestId': 'no-topic', 'generateBlog': False})
+        self.host.batch_workers[batch['batchId']].join(10)
+        self.assertEqual([], self.request('GET', '/library/sources')[0]['topicIds'])
         item = self.request('POST', '/library/inbox?name=bad.html&topic=Systems', saved_html(missing=True).encode())
         self.request('POST', '/library/inbox/' + item['item_id'] + '/start', {'requestId': 'bad-html'})
         deadline = time.monotonic() + 15
@@ -104,7 +106,7 @@ class SingleIngestionTests(unittest.TestCase):
                 break
             time.sleep(.05)
         self.assertEqual('article_image_missing', current['error']['error_id'])
-        self.assertEqual([], self.request('GET', '/library/sources'))
+        self.assertEqual(1, len(self.request('GET', '/library/sources')))
         self.assertEqual([], self.runtime.calls)
 
     def test_classification_service_failure_is_persisted_and_recoverable(self):

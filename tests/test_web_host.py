@@ -355,7 +355,7 @@ class WebHostTests(unittest.TestCase):
             r = connection.getresponse(); self.assertEqual(401, r.status); r.read()
             headers = {'Authorization': 'Bearer test-token'}
             connection.request('GET', '/reader/window', headers=headers)
-            r = connection.getresponse(); self.assertEqual('reading', json.loads(r.read())['value']['status'])
+            r = connection.getresponse(); self.assertEqual('empty', json.loads(r.read())['value']['status'])
             connection.request('POST', '/reader/upload?name=paper.pdf', b'%PDF test', headers)
             r = connection.getresponse(); upload = json.loads(r.read())['value']
             saved = self.host.store.get('upload:' + upload['attachmentId'])

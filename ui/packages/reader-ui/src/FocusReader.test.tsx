@@ -211,3 +211,25 @@ it("surfaces request preparation errors and unlocks the composer", async () => {
   expect(screen.getByRole("textbox")).toHaveValue("解释这段");
   expect(host.sendMessage).not.toHaveBeenCalled();
 });
+
+it("T15 restores the original source draft and never sends it to another source", async () => {
+  let emit: ((value: ReturnType<typeof readerSuccess<ReadingWindow>>) => void) | undefined;
+  const first = { ...firstWindow, sessionId: "s1", discussionId: "d1", revision: 1 };
+  const host: ReaderHost = {
+    getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(first)),
+    continueReading: vi.fn().mockResolvedValue(readerSuccess(first)),
+    subscribe: callback => { emit = callback; return () => {}; },
+    sendMessage: vi.fn().mockResolvedValue(readerSuccess(first)),
+  };
+  render(<FocusReader host={host} />);
+  await screen.findByText("The first chunk.");
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "材料一的草稿" } });
+  const other = { ...first, source: { ...first.source, sourceId: "other-paper" }, current: { ...first.current!, sourceId: "other-paper" }, discussionId: "d2", revision: 2 };
+  act(() => emit!(readerSuccess(other)));
+  expect(screen.getByRole("textbox")).toHaveValue("");
+  expect(host.sendMessage).not.toHaveBeenCalled();
+  act(() => emit!(readerSuccess({ ...first, revision: 3 })));
+  expect(screen.getByRole("textbox")).toHaveValue("材料一的草稿");
+  fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+  await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ sourceId: "fixture-paper", chunkId: "chunk-001" }) })));
+});

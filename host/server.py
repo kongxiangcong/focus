@@ -215,7 +215,7 @@ class Handler(BaseHTTPRequestHandler):
             result = service.batch_list()
         elif method == 'POST' and path == '/library/batches':
             payload = self._body()
-            result = service.batch_start(payload.get('itemIds'), request_id=payload.get('requestId'))
+            result = service.batch_start(payload.get('itemIds'), request_id=payload.get('requestId'), generate_blog=payload.get('generateBlog', True))
         elif method == 'POST' and path.startswith('/library/batches/'):
             parts = path[len('/library/batches/'):].split('/')
             if len(parts) != 2:
@@ -312,6 +312,8 @@ class Handler(BaseHTTPRequestHandler):
             elif method == 'POST' and len(parts) == 2 and parts[1] == 'discuss':
                 payload = self._body()
                 result = service.select_discussion_source(source_id, discussion_id=payload.get('discussionId'))
+            elif method == 'POST' and len(parts) == 2 and parts[1] == 'manage':
+                result = service.save_source_details(source_id, self._body())
             elif method == 'POST' and len(parts) == 2 and parts[1] == 'clear':
                 result = service.clear_source(source_id, self._body())
             elif method == 'DELETE' and len(parts) == 1:
@@ -361,6 +363,9 @@ class Handler(BaseHTTPRequestHandler):
                       else service.change_progress(progress_id, payload, operation))
         elif method == 'GET' and path.startswith('/reader/requests/'):
             result = service.reading_request_result(unquote(path[len('/reader/requests/'):]))
+        elif method == 'POST' and path == '/reader/review':
+            payload = self._body()
+            result = service.review_chunk(payload.get('sourceId'), payload.get('planId'), payload.get('chunkId'), payload.get('requestId'))
         elif method == 'GET' and path.startswith('/reader/review/'):
             parts = path[len('/reader/review/'):].split('/')
             if len(parts) != 3:
