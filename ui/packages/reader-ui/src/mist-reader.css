@@ -55,7 +55,7 @@
 .focus-mist .focus-new-content { position:sticky; top:0; left:auto; transform:none; order:-1; font-size:12px!important; }
 .mist-reading-actions { grid-column:2; grid-row:2; width:min(760px,calc(100% - 80px));justify-self:center;display:flex; align-items:center; gap:8px; min-width:0; padding:6px 0; font-size:12px; }
 .mist-reading-actions>span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--reader-muted); }
-.mist-reading-actions .focus-reader__continue { min-height:46px; padding:10px 24px; }
+.mist-reading-actions .focus-reader__continue { margin-left:auto; min-height:46px; padding:10px 24px; }
 .focus-mist .focus-dialog { background:var(--reader-paper); border-radius:17px; }
 @keyframes mist-settle { from { opacity:.5; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
 @media(max-width:1200px) { .focus-mist{grid-template-columns:86px minmax(0,1fr)}.focus-mist .focus-content{padding-inline:24px}.focus-mist .focus-bottom{padding:0}.mist-reading-actions{padding-inline:24px} }

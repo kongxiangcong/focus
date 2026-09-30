@@ -12,7 +12,7 @@ root=Path(tempfile.mkdtemp(prefix='focus-browser-'))
 shutil.copytree(workspace,root/'knowledge-base',dirs_exist_ok=True);fixture.tearDown()
 workspace=root/'knowledge-base';source=workspace/'sources/fixture-paper';plan=source/'reading/plans/plan-001'
 metadata=json.loads((source/'source.yaml').read_text())
-metadata['title']='A very long research material title for horizontal keyboard scrolling ' * 5
+metadata['title']='A very long research material title for compact toolbar layout ' * 5
 (source/'source.yaml').write_text(json.dumps(metadata))
 lines=[];chunks=[]
 for i in range(1,10):
@@ -43,6 +43,12 @@ host.source_notes.save('fixture-paper', bundle=host.source_notes.bundle_version(
  request_id='browser-note-001', intent_id='browser-note-intent', content='Browser note before editing',
  kind='conclusion', origin='user', evidence_role='explanation')
 host.prepare_reading('fixture-paper',request_id=uuid.uuid4().hex);host.reading_workers['fixture-paper'].join(5);host.open_prepared_reading('fixture-paper',request_id=uuid.uuid4().hex)
+# Published-blog UI fixture; the browser supplies deterministic iframe HTML.
+# Model generation is outside this layout suite.
+blog_fixture={'sourceId':'fixture-paper','generated':True,'runStatus':'completed','methodVersion':'ui-fixture',
+ 'artifacts':{name:{'status':'completed','updatedAt':None} for name in ('value_analysis','reading_blog','html')},
+ 'valueAnalysis':{'applicable':True,'reason':''},'verificationLevel':'paper_reading','warnings':[],'error':None}
+host._blog_summary=lambda: {'fixture-paper':blog_fixture}
 server=Server(('127.0.0.1',8765),host)
 print('ISOLATED SERVER READY',flush=True)
 try:

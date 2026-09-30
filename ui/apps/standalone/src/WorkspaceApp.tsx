@@ -84,7 +84,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [uploadTopic, setUploadTopic] = useState("");
   const [blogs, setBlogs] = useState<Readonly<Record<string, BlogStatus>>>({});
   const [blogViewer, setBlogViewer] = useState("");
+  function closeBlogViewer() { blogDialog.current?.close(); setBlogViewer(""); }
   const uploadDialog = useRef<HTMLDialogElement>(null);
+  const blogDialog = useRef<HTMLDialogElement>(null);
   const confirmation = useRef<HTMLDialogElement>(null);
   const locked = useRef(false);
   const requestVersion = useRef(0);
@@ -158,6 +160,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     timer = window.setTimeout(() => void poll(), 1500);
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [host, workPollKey]);
+  useEffect(() => { if (blogViewer) blogDialog.current?.showModal(); else blogDialog.current?.close(); }, [blogViewer]);
   useEffect(() => { if (management) managementDialog.current?.showModal(); else managementDialog.current?.close(); }, [management]);
   useEffect(() => { if (confirm) confirmation.current?.showModal(); else confirmation.current?.close(); }, [confirm]);
   useEffect(() => { if (view?.blog) setBlogs(view.blog); }, [view?.blog]);
@@ -392,14 +395,27 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <nav aria-label="应用导航">{([["/library", "知识库", "▤"], ["/reading", "阅读", "☷"], ["/settings", "设置", "☼"]] as const).map(([path, title, icon]) =>
         <a key={path} href={path} aria-current={route === path ? "page" : undefined} onClick={e => { e.preventDefault(); navigate(path); }}><span aria-hidden="true">{icon}</span>{title}</a>)}</nav>
     </header>
-    <section className="workspace-status" aria-label="当前工作">
-      <div role="status">{connectionLost ? "连接中断，正在恢复" : !view ? "正在连接" : primaryWork ? `${primaryWork.label}${runningWork.length > 1 ? ` · 另有 ${runningWork.length - 1} 项工作` : ""}` : "当前无工作"}
-        {attention.length > 0 && <span> · {attention.length} 项待处理</span>}
-        <button aria-expanded={taskDetails} onClick={() => setTaskDetails(!taskDetails)}>任务详情</button>
+    <header className="workspace-header">
+      <div className="workspace-toolbar">
+        {route === "/reading" ? <div className="reading-library-picker">
+          <label><span className="workspace-sr-only">专题</span><select aria-label="阅读专题" value={readingTopic} onChange={e => setReadingTopic(e.target.value)}><option value="">全部专题</option>{topics.map(t => <option key={t.topicId} value={t.topicId}>{t.title}</option>)}</select></label>
+          <label><span className="workspace-sr-only">材料</span><select aria-label="选择阅读材料" title={view?.source.title} value={view?.source.sourceId || ""} disabled={!!busy || active} onChange={e => { if (e.target.value) void enterReading(e.target.value); }}><option value="">选择材料</option>{sources.filter(s => s.sourceId === view?.source.sourceId || !readingTopic || s.topicIds.includes(readingTopic)).map(s => <option key={s.sourceId} value={s.sourceId}>{s.shortName || s.title}</option>)}</select></label>
+        </div> : <h1>{route === "/library" ? "知识库" : "设置"}</h1>}
+        <div className="workspace-header-actions">
+          <section className="workspace-status" aria-label="当前工作">
+            <span className="workspace-sr-only" role="status">{connectionLost ? "连接中断，正在恢复" : !view ? "正在连接" : primaryWork ? `${primaryWork.label} · ${runningWork.length} 项进行中` : "当前无工作"}{attention.length > 0 ? ` · ${attention.length} 项待处理` : ""}</span>
+            <button className="workspace-task-toggle" aria-label="任务详情" aria-controls="workspace-tasks" aria-expanded={taskDetails} onClick={() => setTaskDetails(!taskDetails)}>
+              <span className="workspace-status-dot" data-active={runningWork.length > 0} data-attention={connectionLost || attention.length > 0} aria-hidden="true" />
+              <span>{connectionLost ? "连接中断" : !view ? "连接中" : runningWork.length ? `${runningWork.length} 项进行中` : attention.length ? `${attention.length} 项待处理` : "任务"}</span>
+              <svg className="workspace-chevron" aria-hidden="true" width="16" height="16" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+          </section>
+          {route === "/library" && <button className="workspace-primary" disabled={uploadDisabled} onClick={() => chooseUpload()}>上传</button>}
+        </div>
       </div>
-      {taskDetails && <div className="workspace-task-frame" aria-label="任务框">
-        {work.length === 0 && <p>没有进行中或待处理的任务。</p>}
-        {work.map(item => <div key={`${item.kind}:${item.targetId}`}><span>{item.label} · {runningStatuses.includes(item.status) ? "进行中" : "待处理"}</span>
+      {taskDetails && <div className="workspace-task-frame" id="workspace-tasks" aria-label="任务框">
+        {work.length === 0 && batches.length === 0 && inbox.length === 0 && <p>没有进行中或待处理的任务。</p>}
+        {work.filter(item => item.kind !== "ingestion" || (!inbox.some(entry => entry.itemId === item.targetId) && !batches.some(batch => batch.items.some(entry => entry.itemId === item.targetId)))).map(item => <div key={`${item.kind}:${item.targetId}`}><span>{item.label} · {runningStatuses.includes(item.status) ? "进行中" : "待处理"}</span>
           {item.error && <p role="alert">{item.error}</p>}
           {runningStatuses.includes(item.status) && item.status !== "pending" && <button disabled={!!busy} onClick={() => void stopWork(item)}>停止此任务</button>}
           {!runningStatuses.includes(item.status) && item.kind === "preparation" && host.resumePreparation && <button disabled={!!busy} onClick={() => void operate("重试准备", () => identified(`resume:${item.targetId}`, id => host.resumePreparation!(item.targetId, id)))}>重试准备</button>}
@@ -407,29 +423,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           {!runningStatuses.includes(item.status) && (item.kind === "ingestion" || item.kind === "blog") && <button onClick={() => navigate("/library")}>查看并恢复</button>}
           {!runningStatuses.includes(item.status) && item.kind === "chat" && <button onClick={() => navigate("/reading")}>查看并重新提问</button>}
         </div>)}
-      </div>}
-      {view?.agent?.run?.status === "approval" && <AgentControls agent={view.agent} onStop={() => host.stop && void host.stop().then(result => { if (result.ok) acceptView(result.value); })} onAnswer={async input => {
-        const result = await host.approve?.(input); if (result?.ok) { acceptView(result.value); return true; } return false;
-      }} />}
-      {!uploadOpen && error && <div className="workspace-error" role="alert">{error}<button onClick={() => { setError(""); if (retryAction) retryAction(); else void refresh(); }}>{retryAction ? "重试此操作" : "刷新状态"}</button></div>}
-      {!error && (notice || readyNotice) && <div className="workspace-notice" role="status">{readyNotice || notice}<button onClick={() => { setNotice(""); setReadyNotice(""); }}>关闭</button></div>}
-    </section>
-    <div className="workspace-reading" hidden={route !== "/reading"}>
-      <div className="reading-library-picker">
-        <label>专题<select aria-label="阅读专题" value={readingTopic} onChange={e => setReadingTopic(e.target.value)}><option value="">全部专题</option>{topics.map(t => <option key={t.topicId} value={t.topicId}>{t.title}</option>)}</select></label>
-        <label>材料<select aria-label="选择阅读材料" value={view?.source.sourceId || ""} disabled={!!busy || active} onChange={e => { if (e.target.value) void enterReading(e.target.value); }}><option value="">选择材料</option>{sources.filter(s => s.sourceId === view?.source.sourceId || !readingTopic || s.topicIds.includes(readingTopic)).map(s => <option key={s.sourceId} value={s.sourceId}>{s.shortName || s.title}</option>)}</select></label>
-        <div className="reading-title-scroll" tabIndex={0} aria-label="材料完整标题">{view?.source.title}</div>
-      </div>
-      <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} /></div>
-    {route === "/library" && <main className="library-page" data-dragging={dragging}
-      onDragOver={e => { e.preventDefault(); if (!uploadDisabled) setDragging(true); }}
-      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }}
-      onDrop={e => { e.preventDefault(); setDragging(false); if (!uploadDisabled) chooseUpload(Array.from(e.dataTransfer.files)); }}>
-      <div className="page-heading"><h1>知识库</h1>
-        <button className="workspace-primary" disabled={uploadDisabled} onClick={() => chooseUpload()}>上传</button>
-      </div>
-
-      {batches.length > 0 && <section className="library-inbox" aria-label="处理任务"><h2>处理任务</h2>{batches.map(batch => <details key={batch.batchId} open={batch.status !== "completed"}><summary>{batch.status === "completed" ? "已完成任务" : "当前任务 / 待处理"}</summary><article>
+      {batches.length > 0 && <section className="library-inbox" aria-label="处理任务"><h2>上传任务</h2>{batches.map(batch => <details key={batch.batchId}><summary>{batch.status === "completed" ? "已完成任务" : "当前任务 / 待处理"}</summary><article>
         <h3>{topics.find(t => t.topicId === batch.topicId)?.title ?? batch.topicId} · {batchStatusText[batch.status]}</h3>
         {["confirmed", "running"].includes(batch.status) && <button disabled={!!busy || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "stop")}>停止整批</button>}
         {["paused", "partial"].includes(batch.status) && <button disabled={!!busy || batch.executing || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "continue")}>继续剩余工作</button>}
@@ -449,7 +443,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           {item.sourceId && <div className="inbox-links">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(item.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(item.sourceId)} target="_blank" rel="noreferrer">正文</a>}</div>}
         </div>)}
       </article></details>)}</section>}
-      {inbox.some(item => !batches.some(batch => batch.items.some(entry => entry.itemId === item.itemId))) && <section className="library-inbox" aria-label="Inbox"><div className="library-inbox-heading"><h2>Inbox</h2><button disabled={!!busy} onClick={() => void refresh()}>刷新状态</button></div>{inbox.filter(item => !batches.some(batch => batch.items.some(entry => entry.itemId === item.itemId))).map(item => <article key={item.itemId} className="library-inbox-item" data-status={item.status}>
+      {inbox.some(item => !batches.some(batch => batch.items.some(entry => entry.itemId === item.itemId))) && <section className="library-inbox" aria-label="Inbox"><div className="library-inbox-heading"><h2>单项上传</h2><button disabled={!!busy} onClick={() => void refresh()}>刷新状态</button></div>{inbox.filter(item => !batches.some(batch => batch.items.some(entry => entry.itemId === item.itemId))).map(item => <article key={item.itemId} className="library-inbox-item" data-status={item.status}>
         <div><strong>{item.fileName}</strong><span>{statusText[item.status]}</span><small>{item.topicTitle ?? topics.find(t => t.topicId === item.topicId)?.title ?? "不关联专题"}</small></div>
         {item.parserBackend && <p role="status">{item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"}{item.selectionReason ? ` · ${item.selectionReason}` : ""}{item.parserProgress?.status ? ` · ${item.parserProgress.status === "queued" ? "排队中" : item.parserProgress.status === "running" ? "解析中" : item.parserProgress.status}` : ""}{typeof item.parserProgress?.percent === "number" ? ` · ${Math.round(item.parserProgress.percent)}%` : ""}</p>}
         {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>PDF 由运行 FOCUS 后端的服务器自动选择本地 MinerU 或远端 MinerU API；HTML 使用本地解析。解析仅用于建立 Source 并关联专题，不会自动进入阅读。</p>
@@ -469,6 +463,19 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         {(item.error || item.topicError) && <p className="inbox-error">{item.topicError?.message ?? item.error?.message}</p>}
       </article>)}</section>}
       {managementBusy && <p role="status">部分操作暂不可用：当前任务正在使用材料。可在任务详情停止对应任务后重试。</p>}
+      </div>}
+      {view?.agent?.run?.status === "approval" && <AgentControls agent={view.agent} onStop={() => host.stop && void host.stop().then(result => { if (result.ok) acceptView(result.value); })} onAnswer={async input => {
+        const result = await host.approve?.(input); if (result?.ok) { acceptView(result.value); return true; } return false;
+      }} />}
+      {!uploadOpen && error && <div className="workspace-error" role="alert">{error}<button onClick={() => { setError(""); if (retryAction) retryAction(); else void refresh(); }}>{retryAction ? "重试此操作" : "刷新状态"}</button></div>}
+      {!error && (notice || readyNotice) && <div className="workspace-notice" role="status">{readyNotice || notice}<button onClick={() => { setNotice(""); setReadyNotice(""); }}>关闭</button></div>}
+    </header>
+    <div className="workspace-reading" hidden={route !== "/reading"}>
+      <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} /></div>
+    {route === "/library" && <main className="library-page" data-dragging={dragging}
+      onDragOver={e => { e.preventDefault(); if (!uploadDisabled) setDragging(true); }}
+      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }}
+      onDrop={e => { e.preventDefault(); setDragging(false); if (!uploadDisabled) chooseUpload(Array.from(e.dataTransfer.files)); }}>
       <div className="library-layout"><aside className="library-topics" aria-label="专题"><h2>专题</h2><button disabled={managementBusy || !host.createTopic} onClick={() => openManagement("create")}>新建专题</button><button aria-pressed={!topic} onClick={() => setTopic("")}>全部 <span>{sources.length}</span></button>{topics.map(t => <button key={t.topicId} aria-pressed={topic === t.topicId} onClick={() => setTopic(t.topicId)}>{t.title}<span>{t.sourceIds.length}</span></button>)}</aside>
         <section className="library-sources" aria-label="材料列表">{selectedTopic && <div>
           <button disabled={managementBusy || !host.manageTopic} onClick={() => openManagement("rename", selectedTopic.topicId, selectedTopic.title)}>重命名专题</button>
@@ -485,8 +492,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
               <button title={active ? "请先完成或停止当前问答" : busy ? `${busy}中` : undefined} disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready" || (view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready)} onClick={() => void enterReading(s.sourceId)}>{view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready ? "阅读准备中…" : ["failed", "cancelled", "interrupted"].includes(view?.preparations?.[s.sourceId]?.status ?? "") && !view?.preparations?.[s.sourceId]?.selected_ready ? "重试准备" : readingStatus(s) === "completed" ? "查看已读" : s.progress.completed > 0 ? "继续阅读" : view?.preparations?.[s.sourceId]?.selected_ready || view?.preparations?.[s.sourceId]?.ready ? "开始阅读" : "准备阅读"}</button>
               <button aria-expanded={expandedSources.has(s.sourceId)} aria-controls={`source-details-${s.sourceId}`} onClick={() => toggleDetails(s.sourceId)}>详细</button>
             </div>
-            {view?.preparations?.[s.sourceId] && <p className="library-preparation" role="status">{preparationText(view.preparations[s.sourceId])}</p>}
+
             {expandedSources.has(s.sourceId) && <div className="library-details" id={`source-details-${s.sourceId}`}>
+            {view?.preparations?.[s.sourceId] && <p className="library-preparation" role="status">{preparationText(view.preparations[s.sourceId])}</p>}
             <p className="library-parse-status">解析：{s.parseStatus === "ready" ? "已完成" : "失败"}{s.error ? ` · ${s.error}` : ""}</p>
             <div><button disabled={managementBusy || !host.saveSourceDetails} onClick={() => openManagement("source", s.sourceId, s.title)}>管理来源</button>
               {selectedTopic && <><button aria-label={`${s.title} 上移`} disabled={managementBusy || selectedTopic.sourceIds.indexOf(s.sourceId) === 0} onClick={() => moveSource(s.sourceId, -1)}>上移</button><button aria-label={`${s.title} 下移`} disabled={managementBusy || selectedTopic.sourceIds.indexOf(s.sourceId) === selectedTopic.sourceIds.length - 1} onClick={() => moveSource(s.sourceId, 1)}>下移</button></>}
@@ -513,7 +521,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         </section></div>
       {busy && <p role="status">{busy}中…</p>}
     </main>}
-    {route === "/settings" && <main className="settings-page"><h1>设置</h1>
+    {route === "/settings" && <main className="settings-page">
       <BackendSetupPanel host={host} configuration={view?.configuration}
         onSaved={acceptView} onSaveAppearance={saveAppearance} onCancelAppearance={() => { setFontSize(savedAppearance.current.fontSize); setBrightness(savedAppearance.current.brightness); }} />
       <section className="focus-reader__appearance-panel">
@@ -544,9 +552,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length}>{busy ? "开始中…" : generateOnUpload ? "开始解析并生成博客" : "仅解析入库"}</button></div>
       </form>
     </dialog>
-    {blogViewer && host.blogUrl && <dialog className="workspace-blog-viewer" open onCancel={() => setBlogViewer("")}>
-      <div className="blog-viewer-head"><h2>博客：{sources.find(s => s.sourceId === blogViewer)?.shortName || sources.find(s => s.sourceId === blogViewer)?.title}</h2>
-        <div><a href={host.blogUrl(blogViewer)} target="_blank" rel="noreferrer">新窗口打开</a><button onClick={() => setBlogViewer("")}>关闭</button></div></div>
+    {blogViewer && host.blogUrl && <dialog className="workspace-blog-viewer" ref={blogDialog} aria-labelledby="blog-viewer-title" onCancel={e => { e.preventDefault(); closeBlogViewer(); }}>
+      <div className="blog-viewer-head"><h2 id="blog-viewer-title">博客：{sources.find(s => s.sourceId === blogViewer)?.shortName || sources.find(s => s.sourceId === blogViewer)?.title}</h2>
+        <div><a href={host.blogUrl(blogViewer)} target="_blank" rel="noreferrer">新窗口打开</a><button onClick={closeBlogViewer}>关闭</button></div></div>
       <iframe title="博客" src={host.blogUrl(blogViewer)} />
     </dialog>}
     <dialog className="workspace-confirm" ref={confirmation} onCancel={() => setConfirm(null)}><h2>{confirm?.action === "clear" ? "重新阅读本篇？" : confirm?.action === "delete" ? "删除材料？" : confirm?.action === "replan" ? "重新规划？" : "从头阅读？"}</h2><p>{confirm?.source.title}</p><p>{confirm?.action === "clear" ? "将清除本篇讨论、笔记和阅读记录，并从第一段重新开始。原文、译文和博客保留。" : confirm?.action === "delete" ? "原件、正文、图片、博客、计划、笔记和阅读进度将永久删除。历史聊天保留并标记来源已删除。" : confirm?.action === "replan" ? "重新分段并准备译文；保留旧计划、译文和笔记，不重复解析。" : "回到第一段，保留现有分段、译文和笔记。"}</p>{confirm?.action === "delete" && deletionImpact && <div aria-label="删除影响"><p>受影响专题：{deletionImpact.topics.map(t => t.title).join("、") || "无"}</p><ul>
@@ -563,7 +571,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       void operate(action === "clear" ? "重新阅读" : action === "delete" ? "删除" : action === "replan" ? "重新规划" : "从头阅读", () => action === "clear" ? host.clearSource!(source.sourceId, confirm.requestId!) : action === "delete" ? host.deleteSource!(source.sourceId) : action === "replan" ? identified(`replan:${source.sourceId}`, id => host.replanSource!(source.sourceId, id)) : host.rereadReading!({ receipt: receipt!, requestId: createReaderId(), sessionId: view?.sessionId }), action === "reread");
     }}>{busy || (confirm?.action === "clear" ? "确认重新阅读" : confirm?.action === "delete" ? "永久删除" : confirm?.action === "replan" ? "确认重新规划" : "确认从头阅读")}</button></div>{error && <p role="alert">{error}</p>}</dialog>
     {view?.configuration?.pending && <aside role="status" className="configuration-notice"
-      style={{ position: "fixed", right: 20, bottom: 20, zIndex: 100, padding: "12px 16px", background: "var(--surface, #fff)", color: "#252525", border: "1px solid #b8b8b8", borderRadius: 12, boxShadow: "0 4px 20px #0002" }}>
+      >
       <p>{view.configuration.refreshBlocked ? "任务运行中，完成后请刷新以应用配置" : "配置更改，需要刷新页面"}</p>
       <button onClick={() => window.location.reload()}>Reload</button>
     </aside>}
