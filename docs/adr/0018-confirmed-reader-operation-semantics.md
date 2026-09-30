@@ -27,3 +27,11 @@ The user's subsequent review replaces the original status-strip placement, expan
 - Use shared theme colors, restrained borders, aligned toolbar controls and consistent spacing across reading, library, settings and dialogs.
 
 Design references: Apple HIG [Layout](https://developer.apple.com/design/human-interface-guidelines/layout) (hierarchy and progressive disclosure) and [Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars) (controls related to the current content). This applies their information hierarchy principles to the existing web theme.
+
+## Preparation notification dismissal
+
+- Failed, timed-out, interrupted, cancelled and conflicting preparation prompts expose a Close (×) action. It hides the prompt immediately, without confirmation. It neither cancels the runtime nor deletes or resets Source, Parser Bundle, Plan, translations, notes or reading progress. Running work still uses the separately named Cancel Preparation action.
+- Persist dismissal in Host data, bound to both the preparation run and its attempt. Keep the underlying Core result for recovery. Suppress dismissed prompts in the task projection and source details across reload and Host restart.
+- Send the expected attempt with dismissal. A stale Close cannot hide a newer attempt. Explicit preparation/resume creates a new attempt whose state can be shown again; dismissal never starts a retry. Retain a Prepare Reading entry, including when a previous ready Plan remains usable.
+- Display timed-out preparation as “准备超时”, with Retry and Close. Preserve a typed timeout marker for new failures; recognize persisted legacy timeout diagnostics in projection. A closed/cancelled candidate connection is separate from elapsed deadline.
+- Persist failure in the Close request restores the card and reports that the Close was not saved. No silent retry.

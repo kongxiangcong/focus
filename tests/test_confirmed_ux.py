@@ -174,6 +174,86 @@ class ConfirmedUXTests(unittest.TestCase):
         self.assertFalse(any(w['kind'] == 'chat' for w in self.host.snapshot()['workItems']))
         self.host.state['run'] = None
 
+    def failed_preparation(self, message='Runtime timed out'):
+        run = self.host.reading_app.begin('fixture-paper', request_id=uuid.uuid4().hex, rebuild=True)
+        self.host.reading_app.core.fail('fixture-paper', run['run_id'], run['attempt'], run['bundle'], message)
+        return self.host.snapshot()['preparations']['fixture-paper']
+
+    def test_preparation_dismissal_survives_restart_without_cancelling_or_mutating_assets(self):
+        self.advance()
+        preparation = self.failed_preparation()
+        self.assertTrue(preparation['timed_out'])
+        before = self.host.snapshot()
+        assets = {str(path.relative_to(self.workspace)): path.read_bytes()
+                  for path in self.workspace.rglob('*') if path.is_file()}
+        with patch.object(self.host.reading_app, 'resume') as resume, patch.object(self.host.reading_app, 'cancel') as cancel:
+            closed = self.host.dismiss_preparation('fixture-paper', {'attempt': preparation['attempt']})
+            resume.assert_not_called()
+            cancel.assert_not_called()
+        self.assertTrue(closed['preparations']['fixture-paper']['dismissed'])
+        self.assertEqual('failed', closed['preparations']['fixture-paper']['status'])
+        self.assertFalse(any(item['kind'] == 'preparation' for item in closed['workItems']))
+        self.assertEqual(before['readingProgress'], closed['readingProgress'])
+        self.assertEqual(before['readingRevision'], closed['readingRevision'])
+        self.assertEqual(assets, {str(path.relative_to(self.workspace)): path.read_bytes()
+                                 for path in self.workspace.rglob('*') if path.is_file()})
+        self.host.dismiss_preparation('fixture-paper', {'attempt': preparation['attempt']})
+        self.host.close()
+        self.host = HostService(self.workspace, self.fixture.root / 'host', reading_runtime=stage4.ReadingRuntimeDouble())
+        self.assertTrue(self.host.snapshot()['preparations']['fixture-paper']['dismissed'])
+        self.assertFalse(self.host.reading_workers)
+        self.assertEqual(assets, {str(path.relative_to(self.workspace)): path.read_bytes()
+                                 for path in self.workspace.rglob('*') if path.is_file()})
+
+    def test_preparation_dismissal_is_attempt_bound_and_new_explicit_attempt_reappears(self):
+        old = self.failed_preparation('network unavailable')
+        self.assertFalse(old['timed_out'])
+        self.host.dismiss_preparation('fixture-paper', {'attempt': old['attempt']})
+        resumed = self.host.reading_app.resume('fixture-paper', request_id=uuid.uuid4().hex)
+        self.assertFalse(self.host.snapshot()['preparations']['fixture-paper']['dismissed'])
+        with self.assertRaisesRegex(ValueError, '已变化'):
+            self.host.dismiss_preparation('fixture-paper', {'attempt': old['attempt']})
+        with self.assertRaisesRegex(ValueError, '仍在运行'):
+            self.host.dismiss_preparation('fixture-paper', {'attempt': resumed['attempt']})
+        self.host.reading_app.core.fail('fixture-paper', resumed['run_id'], resumed['attempt'], resumed['bundle'], '请求超时')
+        current = self.host.snapshot()
+        self.assertTrue(current['preparations']['fixture-paper']['timed_out'])
+        self.assertFalse(current['preparations']['fixture-paper']['dismissed'])
+        self.assertTrue(any(item['kind'] == 'preparation' for item in current['workItems']))
+
+    def test_typed_timeout_without_message_is_still_projected_as_timeout(self):
+        with patch.object(self.host.reading_app.runtime, 'context', side_effect=TimeoutError()):
+            self.host.prepare_reading('fixture-paper', request_id=uuid.uuid4().hex, rebuild=True)
+            self.host.reading_workers['fixture-paper'].join(3)
+        preparation = self.host.snapshot()['preparations']['fixture-paper']
+        self.assertEqual('failed', preparation['status'])
+        self.assertTrue(preparation['timed_out'])
+        resumed = self.host.reading_app.resume('fixture-paper', request_id=uuid.uuid4().hex)
+        self.assertFalse(resumed['timed_out'])
+
+    def test_preparation_dismissal_http_contract(self):
+        import http.client
+        import threading
+        from host.server import Server
+        preparation = self.failed_preparation()
+        server = Server(('127.0.0.1', 0), self.host)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=3)
+            connection.request('POST', '/library/sources/fixture-paper/preparation/dismiss',
+                               body=json.dumps({'attempt': preparation['attempt']}), headers={'Content-Type': 'application/json'})
+            response = connection.getresponse()
+            payload = json.loads(response.read())
+            connection.close()
+            self.assertEqual(200, response.status)
+            self.assertTrue(payload['ok'])
+            self.assertTrue(payload['value']['preparations']['fixture-paper']['dismissed'])
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(3)
+
 
 class ConfirmedUploadTests(unittest.TestCase):
     import test_stage5_ingestion as single

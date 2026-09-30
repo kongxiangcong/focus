@@ -60,7 +60,9 @@ class CandidateTurns:
                             return json.loads(fenced.group(1) if fenced else raw)
                         except json.JSONDecodeError as exc:
                             raise BackendError(f'Runtime 未返回合法 JSON（第 {exc.lineno} 行，第 {exc.colno} 列）。') from exc
-                raise BackendError('任务已取消或等待超时。')
+                if time.monotonic() >= deadline:
+                    raise TimeoutError('任务等待超时。')
+                raise BackendError('任务已取消或连接已关闭。')
             finally:
                 backend.close()
                 with self.lock:

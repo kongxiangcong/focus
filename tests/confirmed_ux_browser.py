@@ -49,6 +49,9 @@ blog_fixture={'sourceId':'fixture-paper','generated':True,'runStatus':'completed
  'artifacts':{name:{'status':'completed','updatedAt':None} for name in ('value_analysis','reading_blog','html')},
  'valueAnalysis':{'applicable':True,'reason':''},'verificationLevel':'paper_reading','warnings':[],'error':None}
 host._blog_summary=lambda: {'fixture-paper':blog_fixture}
+if os.environ.get('FOCUS_BROWSER_FAILED_PREPARATION') == '1':
+ run=host.reading_app.begin('fixture-paper',request_id=uuid.uuid4().hex,rebuild=True)
+ host.reading_app.core.fail('fixture-paper',run['run_id'],run['attempt'],run['bundle'],'Runtime timed out',timed_out=True)
 server=Server(('127.0.0.1',8765),host)
 print('ISOLATED SERVER READY',flush=True)
 try:

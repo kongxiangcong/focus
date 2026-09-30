@@ -21,6 +21,7 @@ const preparationSteps: Record<string, string> = {
 };
 function preparationText(preparation: ReadingPreparation) {
   if (preparation.ready) return preparation.candidate ? "新计划已就绪；旧阅读仍保留，可手动打开新计划" : "阅读已准备好，可手动点击开始阅读";
+  if (preparation.timed_out) return "准备超时";
   const subject = preparation.candidate ? "新计划" : "阅读";
   const step = preparationSteps[preparation.step] ?? "正在准备";
   if (preparation.status === "running") return `${subject}准备中 · ${step}${preparation.total > 0 ? ` · ${preparation.completed}/${preparation.total} 段` : ""}`;
@@ -47,6 +48,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [generateOnUpload, setGenerateOnUpload] = useState(true);
   const [connectionLost, setConnectionLost] = useState(false);
   const [taskDetails, setTaskDetails] = useState(false);
+  const [closingPreparations, setClosingPreparations] = useState<Readonly<Record<string, string>>>({});
   const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
   const refreshing = useRef(false);
   const blogRefreshing = useRef(new Set<string>());
@@ -203,11 +205,48 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     acceptView(result.value);
     navigate("/reading");
   }
+  function preparationHidden(sourceId: string) {
+    const prepared = view?.preparations?.[sourceId];
+    return !!prepared?.dismissed || !!(prepared?.attempt && closingPreparations[sourceId] === prepared.attempt);
+  }
+  function preparationFailed(sourceId: string) {
+    return ["failed", "cancelled", "interrupted", "bundle_changed", "commit_conflict"].includes(view?.preparations?.[sourceId]?.status ?? "");
+  }
+  async function dismissPreparation(sourceId: string) {
+    const attempt = view?.preparations?.[sourceId]?.attempt;
+    if (!attempt || !host.dismissPreparation) return;
+    setClosingPreparations(old => ({ ...old, [sourceId]: attempt }));
+    const restore = () => setClosingPreparations(old => { if (old[sourceId] !== attempt) return old; const next = { ...old }; delete next[sourceId]; return next; });
+    try {
+      const result = await host.dismissPreparation(sourceId, attempt);
+      if (result.ok) acceptView(result.value);
+      else { restore(); setError(result.error.message); }
+    } catch { restore(); setError("关闭提示未保存，请检查连接后再次关闭。"); }
+  }
+  async function retryPreparation(sourceId: string) {
+    const prepared = view?.preparations?.[sourceId];
+    if (prepared && ["failed", "cancelled", "interrupted"].includes(prepared.status) && host.resumePreparation) {
+      await operate("准备阅读", () => identified(`resume:${sourceId}`, id => host.resumePreparation!(sourceId, id)));
+    } else if (host.replanSource) {
+      await operate("准备阅读", () => identified(`replan:${sourceId}`, id => host.replanSource!(sourceId, id)));
+    }
+  }
+  function preparationNotice(sourceId: string) {
+    const prepared = view?.preparations?.[sourceId];
+    if (!prepared || preparationHidden(sourceId)) return null;
+    return <section className="preparation-notice" aria-label="准备阅读状态">
+      <div className="preparation-notice-heading">
+        <p role="status">{preparationText(prepared)}</p>
+        {preparationFailed(sourceId) && prepared.attempt && host.dismissPreparation && <button className="preparation-dismiss" aria-label="关闭准备阅读提示" title="关闭这次状态提示" onClick={() => void dismissPreparation(sourceId)}>×</button>}
+      </div>
+      {preparationFailed(sourceId) && (host.resumePreparation || host.replanSource) && <button disabled={!!busy || active} onClick={() => void retryPreparation(sourceId)}>重试</button>}
+    </section>;
+  }
   async function enterReading(sourceId: string) {
     if (!host.openSource) return;
     const prepared = view?.preparations?.[sourceId];
-    if (prepared && !prepared.selected_ready && ["failed", "cancelled", "interrupted"].includes(prepared.status)) {
-      if (host.resumePreparation) await operate("重试准备", () => identified(`resume:${sourceId}`, id => host.resumePreparation!(sourceId, id)));
+    if (prepared && !prepared.selected_ready && preparationFailed(sourceId)) {
+      await retryPreparation(sourceId);
       return;
     }
     await operate("阅读", () => identified(`open:${sourceId}`, id => host.openSource!(sourceId, id)), !!(prepared?.ready || prepared?.selected_ready));
@@ -374,13 +413,13 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   };
   const resumableStatuses: readonly IngestionItem["status"][] = ["retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "cancelled", "interrupted"];
   const runningStatuses = ["running", "approval", "stopping", "processing", "confirmed", "pending", "generating"];
-  const work = view?.workItems ?? [];
+  const work = (view?.workItems ?? []).filter(item => item.kind !== "preparation" || !preparationHidden(item.targetId));
   const runningWork = work.filter(w => runningStatuses.includes(w.status));
   const attention = work.filter(w => !runningStatuses.includes(w.status));
   const primaryWork = runningWork.find(w => w.status === "approval") ?? runningWork.find(w => w.kind === "ingestion") ?? runningWork[0];
   async function stopWork(item: (typeof work)[number]) {
     if (item.kind === "chat" && host.stop) await operate("停止问答", () => host.stop!());
-    if (item.kind === "preparation" && host.cancelPreparation) await operate("停止准备", () => host.cancelPreparation!(item.targetId));
+    if (item.kind === "preparation" && host.cancelPreparation) await operate("取消准备", () => host.cancelPreparation!(item.targetId));
     if (item.kind === "progress" && host.cancelReadingProgress) await operate("停止补记", () => host.cancelReadingProgress!(item.targetId));
     if (item.kind === "blog") await cancelBlog(item.targetId);
     if (item.kind === "ingestion") {
@@ -403,10 +442,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         </div> : <h1>{route === "/library" ? "知识库" : "设置"}</h1>}
         <div className="workspace-header-actions">
           <section className="workspace-status" aria-label="当前工作">
-            <span className="workspace-sr-only" role="status">{connectionLost ? "连接中断，正在恢复" : !view ? "正在连接" : primaryWork ? `${primaryWork.label} · ${runningWork.length} 项进行中` : "当前无工作"}{attention.length > 0 ? ` · ${attention.length} 项待处理` : ""}</span>
+            <span className="workspace-sr-only" role="status">{connectionLost ? "连接中断，正在恢复" : !view ? "正在连接" : primaryWork ? `${primaryWork.label} · ${runningWork.length} 项进行中` : "当前无工作"}{attention.length > 0 ? ` · ${attention.length} 项需查看` : ""}</span>
             <button className="workspace-task-toggle" aria-label="任务详情" aria-controls="workspace-tasks" aria-expanded={taskDetails} onClick={() => setTaskDetails(!taskDetails)}>
               <span className="workspace-status-dot" data-active={runningWork.length > 0} data-attention={connectionLost || attention.length > 0} aria-hidden="true" />
-              <span>{connectionLost ? "连接中断" : !view ? "连接中" : runningWork.length ? `${runningWork.length} 项进行中` : attention.length ? `${attention.length} 项待处理` : "任务"}</span>
+              <span>{connectionLost ? "连接中断" : !view ? "连接中" : runningWork.length ? `${runningWork.length} 项进行中` : attention.length ? `${attention.length} 项需查看` : "任务"}</span>
               <svg className="workspace-chevron" aria-hidden="true" width="16" height="16" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
           </section>
@@ -415,10 +454,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       </div>
       {taskDetails && <div className="workspace-task-frame" id="workspace-tasks" aria-label="任务框">
         {work.length === 0 && batches.length === 0 && inbox.length === 0 && <p>没有进行中或待处理的任务。</p>}
-        {work.filter(item => item.kind !== "ingestion" || (!inbox.some(entry => entry.itemId === item.targetId) && !batches.some(batch => batch.items.some(entry => entry.itemId === item.targetId)))).map(item => <div key={`${item.kind}:${item.targetId}`}><span>{item.label} · {runningStatuses.includes(item.status) ? "进行中" : "待处理"}</span>
-          {item.error && <p role="alert">{item.error}</p>}
-          {runningStatuses.includes(item.status) && item.status !== "pending" && <button disabled={!!busy} onClick={() => void stopWork(item)}>停止此任务</button>}
-          {!runningStatuses.includes(item.status) && item.kind === "preparation" && host.resumePreparation && <button disabled={!!busy} onClick={() => void operate("重试准备", () => identified(`resume:${item.targetId}`, id => host.resumePreparation!(item.targetId, id)))}>重试准备</button>}
+        {work.filter(item => item.kind !== "ingestion" || (!inbox.some(entry => entry.itemId === item.targetId) && !batches.some(batch => batch.items.some(entry => entry.itemId === item.targetId)))).map(item => <div key={`${item.kind}:${item.targetId}`}><span>{item.label}{item.kind === "preparation" && preparationFailed(item.targetId) ? "" : ` · ${runningStatuses.includes(item.status) ? "进行中" : "待处理"}`}</span>
+          {item.error && (item.kind !== "preparation" || !view?.preparations?.[item.targetId]) && <p role="alert">{item.error}</p>}
+          {runningStatuses.includes(item.status) && item.status !== "pending" && <button disabled={!!busy} onClick={() => void stopWork(item)}>{item.kind === "preparation" ? "取消准备" : "停止此任务"}</button>}
+          {item.kind === "preparation" && preparationFailed(item.targetId) && preparationNotice(item.targetId)}
           {!runningStatuses.includes(item.status) && item.kind === "progress" && host.retryReadingProgress && <button disabled={!!busy} onClick={() => void operate("补记", () => identified(`progress:${item.targetId}`, id => host.retryReadingProgress!(item.targetId, id)))}>补记</button>}
           {!runningStatuses.includes(item.status) && (item.kind === "ingestion" || item.kind === "blog") && <button onClick={() => navigate("/library")}>查看并恢复</button>}
           {!runningStatuses.includes(item.status) && item.kind === "chat" && <button onClick={() => navigate("/reading")}>查看并重新提问</button>}
@@ -489,12 +528,13 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
             </div>
             <div className="library-card-actions">
               <button disabled={!host.blogUrl || !blogs[s.sourceId]?.generated || blogs[s.sourceId]?.artifacts?.html?.status !== "completed"} onClick={() => setBlogViewer(s.sourceId)}>打开博客</button>
-              <button title={active ? "请先完成或停止当前问答" : busy ? `${busy}中` : undefined} disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready" || (view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready)} onClick={() => void enterReading(s.sourceId)}>{view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready ? "阅读准备中…" : ["failed", "cancelled", "interrupted"].includes(view?.preparations?.[s.sourceId]?.status ?? "") && !view?.preparations?.[s.sourceId]?.selected_ready ? "重试准备" : readingStatus(s) === "completed" ? "查看已读" : s.progress.completed > 0 ? "继续阅读" : view?.preparations?.[s.sourceId]?.selected_ready || view?.preparations?.[s.sourceId]?.ready ? "开始阅读" : "准备阅读"}</button>
+              <button title={active ? "请先完成或停止当前问答" : busy ? `${busy}中` : undefined} disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready" || (view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready)} onClick={() => void enterReading(s.sourceId)}>{view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready ? "阅读准备中…" : preparationFailed(s.sourceId) && !view?.preparations?.[s.sourceId]?.selected_ready ? preparationHidden(s.sourceId) ? "准备阅读" : "重试准备" : readingStatus(s) === "completed" ? "查看已读" : s.progress.completed > 0 ? "继续阅读" : view?.preparations?.[s.sourceId]?.selected_ready || view?.preparations?.[s.sourceId]?.ready ? "开始阅读" : "准备阅读"}</button>
+              {preparationHidden(s.sourceId) && preparationFailed(s.sourceId) && view?.preparations?.[s.sourceId]?.selected_ready && <button disabled={!!busy || active || (!host.resumePreparation && !host.replanSource)} onClick={() => void retryPreparation(s.sourceId)}>准备阅读</button>}
               <button aria-expanded={expandedSources.has(s.sourceId)} aria-controls={`source-details-${s.sourceId}`} onClick={() => toggleDetails(s.sourceId)}>详细</button>
             </div>
 
             {expandedSources.has(s.sourceId) && <div className="library-details" id={`source-details-${s.sourceId}`}>
-            {view?.preparations?.[s.sourceId] && <p className="library-preparation" role="status">{preparationText(view.preparations[s.sourceId])}</p>}
+            {preparationNotice(s.sourceId)}
             <p className="library-parse-status">解析：{s.parseStatus === "ready" ? "已完成" : "失败"}{s.error ? ` · ${s.error}` : ""}</p>
             <div><button disabled={managementBusy || !host.saveSourceDetails} onClick={() => openManagement("source", s.sourceId, s.title)}>管理来源</button>
               {selectedTopic && <><button aria-label={`${s.title} 上移`} disabled={managementBusy || selectedTopic.sourceIds.indexOf(s.sourceId) === 0} onClick={() => moveSource(s.sourceId, -1)}>上移</button><button aria-label={`${s.title} 下移`} disabled={managementBusy || selectedTopic.sourceIds.indexOf(s.sourceId) === selectedTopic.sourceIds.length - 1} onClick={() => moveSource(s.sourceId, 1)}>下移</button></>}

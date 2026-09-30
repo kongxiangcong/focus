@@ -492,7 +492,7 @@ it("T17/T18 routes expose all work and Stop targets only the selected preparatio
   fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
   const frame = screen.getByLabelText("任务框");
   expect(frame).toHaveTextContent("生成 B");
-  fireEvent.click(within(frame).getAllByRole("button", { name: "停止此任务" })[0]);
+  fireEvent.click(within(frame).getByRole("button", { name: "取消准备" }));
   await waitFor(() => expect(host.cancelPreparation).toHaveBeenCalledWith("a-paper"));
   expect(host.stop).not.toHaveBeenCalled();
 });
@@ -564,4 +564,65 @@ it("uses a modal blog viewer and restores the workspace on Escape", async () => 
   fireEvent(dialog, new Event("cancel", { bubbles: false }));
   expect(screen.queryByTitle("博客")).not.toBeInTheDocument();
   modal.mockRestore();
+});
+
+function failedPreparationWindow(dismissed = false, attempt = "attempt-1"): ReadingWindow {
+  return { ...empty, preparations: { "a-paper": {
+    source_id: "a-paper", status: "failed", step: "translate", completed: 1, total: 4,
+    ready: false, selected_ready: false, plan_id: "plan-001", error: "Runtime timed out",
+    attempt, timed_out: true, dismissed,
+  } }, workItems: dismissed ? [] : [{ kind: "preparation", targetId: "a-paper", status: "failed", label: "准备阅读 · A Paper", error: "Runtime timed out" }] };
+}
+
+it("removes a timed-out preparation immediately, without confirmation, retry or cancellation", async () => {
+  const { host } = setup([], failedPreparationWindow());
+  let resolve!: (result: ReturnType<typeof readerSuccess<ReadingWindow>>) => void;
+  host.dismissPreparation = vi.fn(() => new Promise<ReaderHostResult<ReadingWindow>>(done => { resolve = done; }));
+  host.cancelPreparation = vi.fn(async () => readerSuccess(empty));
+  host.resumePreparation = vi.fn(async () => readerSuccess(empty));
+  const confirm = vi.spyOn(window, "confirm");
+  cleanup(); render(<WorkspaceApp host={host} />);
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
+  expect(screen.getByText("准备超时", { exact: true })).toBeVisible();
+  expect(screen.getByRole("button", { name: "重试" })).toBeEnabled();
+  expect(screen.queryByText(/待处理/)).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "关闭准备阅读提示" }));
+  expect(screen.queryByText("准备超时", { exact: true })).not.toBeInTheDocument();
+  expect(screen.queryByLabelText("准备阅读状态")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "准备阅读" })).toBeEnabled();
+  expect(host.dismissPreparation).toHaveBeenCalledWith("a-paper", "attempt-1");
+  expect(host.cancelPreparation).not.toHaveBeenCalled();
+  expect(host.resumePreparation).not.toHaveBeenCalled();
+  expect(confirm).not.toHaveBeenCalled();
+  await act(async () => resolve(readerSuccess(failedPreparationWindow(true))));
+  expect(screen.queryByText("准备超时", { exact: true })).not.toBeInTheDocument();
+  confirm.mockRestore();
+});
+
+it("keeps dismissed preparation hidden after reload and exposes the next explicit attempt", async () => {
+  const { host } = setup([], failedPreparationWindow(true));
+  host.dismissPreparation = vi.fn(async () => readerSuccess(empty));
+  host.resumePreparation = vi.fn(async () => readerSuccess(failedPreparationWindow(false, "attempt-2")));
+  cleanup(); render(<WorkspaceApp host={host} />);
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
+  fireEvent.click(screen.getByRole("button", { name: "详细" }));
+  expect(screen.queryByLabelText("准备阅读状态")).not.toBeInTheDocument();
+  expect(host.resumePreparation).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "准备阅读" }));
+  await waitFor(() => expect(host.resumePreparation).toHaveBeenCalledWith("a-paper", expect.any(String)));
+  expect(screen.getAllByLabelText("准备阅读状态")).toHaveLength(2);
+  expect(screen.getAllByText("准备超时", { exact: true })).toHaveLength(2);
+});
+
+it("restores a preparation card and reports persistence failure if dismiss could not be saved", async () => {
+  const { host } = setup([], failedPreparationWindow());
+  host.dismissPreparation = vi.fn(async (): Promise<ReaderHostResult<ReadingWindow>> => ({ ok: false as const, error: { code: "unavailable", message: "关闭提示未保存", retryable: true } }));
+  cleanup(); render(<WorkspaceApp host={host} />);
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
+  fireEvent.click(screen.getByRole("button", { name: "关闭准备阅读提示" }));
+  expect(await screen.findByText("关闭提示未保存", { selector: ".workspace-error" })).toBeVisible();
+  expect(screen.getByText("准备超时", { exact: true })).toBeVisible();
 });

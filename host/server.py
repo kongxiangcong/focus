@@ -282,6 +282,8 @@ class Handler(BaseHTTPRequestHandler):
                     payload = self._body()
                     if parts[2] == 'resume':
                         result = service.resume_preparation(source_id, request_id=payload.get('requestId'))
+                    elif parts[2] == 'dismiss':
+                        result = service.dismiss_preparation(source_id, payload)
                     elif parts[2] == 'cancel':
                         result = service.cancel_preparation(source_id, request_id=payload.get('requestId'))
                     elif parts[2] == 'glossary':

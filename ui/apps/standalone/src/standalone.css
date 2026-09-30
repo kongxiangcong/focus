@@ -240,3 +240,10 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
  .blog-viewer-head a { font-size:11px; }
  .workspace-blog-viewer { width:calc(100vw - 20px); height:90dvh; }
 }
+
+/* Dismissible preparation feedback never owns or deletes reading assets. */
+.preparation-notice { padding:12px; border:1px solid var(--reader-line); border-radius:10px; background:#ffffff70; font-size:12px; }
+.preparation-notice-heading { display:flex; align-items:flex-start; gap:12px; }
+.preparation-notice-heading p { flex:1; min-width:0; margin:0 0 8px; overflow-wrap:anywhere; }
+.workspace-app .preparation-dismiss { padding:0; min-width:32px; min-height:32px; font-size:20px; border-color:transparent; flex-shrink:0; }
+.workspace-task-frame>div>.preparation-notice { flex-basis:100%; }

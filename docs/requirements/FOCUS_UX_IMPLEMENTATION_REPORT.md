@@ -117,3 +117,21 @@ PYTHONPATH=tests:.agents:. python tests/confirmed_ux_browser.py
 - 博客使用 showModal 进入浏览器顶层；关闭与 Escape 都明确关闭模态并返回原页面。
 
 本轮验证：97 项前端测试通过（37 reader-ui + 60 standalone），类型检查和生产构建通过。浏览器原有 8 组流程继续通过，另增任务默认收起/标题同排及桌面、390px 宽博客关闭点击目标、Escape 验证。博客摘要、iframe 内容和批次为确定性展示夹具，不能据此声称真实博客生成或 MinerU 链路已验收。中文截图仍受测试环境字库限制。本轮没有修改后端业务逻辑，也没有重新运行全量 Python；原回归基线与真实服务验收边界仍有效。
+
+## 准备阅读提示关闭（2026-09-30）
+
+失败/超时等未完成提示增加右上角 ×。点击立即隐藏，不弹确认框，不调用重试、取消、删除或重置；Host 按 run/attempt 持久化关闭记录，刷新及后端重启后仍不显示。原 Core 准备结果保留，论文入口仍可主动准备；旧关闭请求不能影响新的准备尝试。运行中的“取消准备”单独命名。超时显示“准备超时”，提供“重试”和 ×；同时区分真正超时与已取消/连接关闭。
+
+验证：47 项候选超时、Host/Core 阅读及关闭专项测试通过；101 项前端测试、类型检查和构建通过。新增真实 Chromium/HTTP 用例验证立即隐藏、无确认、不触发重试/取消、刷新保持、阅读进度不变、新尝试重新出现及旧请求隔离；原有 10 组浏览器流程继续通过。关闭前后整个隔离 Workspace 的文件字节一致，Host 重启后也保持一致。
+
+扩展运行 test_prepared_reading 时，既有 test_replan_preserves_previous_assets 仍因旧 mock 引用不存在的 host.service.check_backend 报错；在修改前提交的隔离归档中复现了相同错误。本轮未修复该基线项，也未重跑全量 Python 或真实外部模型/MinerU。
+
+新增浏览器脚本使用相同隔离 Host，替换执行脚本并设置 FOCUS_BROWSER_FAILED_PREPARATION=1：
+
+```bash
+FOCUS_BROWSER_FAILED_PREPARATION=1 \
+FOCUS_BROWSER_SCRIPT="$PWD/tests/preparation_dismiss_browser.mjs" \
+FOCUS_PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
+FOCUS_CHROMIUM_EXECUTABLE=/absolute/path/to/chromium \
+PYTHONPATH=tests:.agents:. python tests/confirmed_ux_browser.py
+```
