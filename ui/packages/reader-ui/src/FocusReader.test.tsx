@@ -172,6 +172,7 @@ describe("FocusReader unified flow", () => {
       readingProgress: [{ ...entry, status: "saved", topic: "别名地址的作用" }] }));
     await screen.findByText("The second chunk.");
     expect(screen.getByText(/生成未完成，已读位置不受影响/)).not.toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "笔记与记录" }));
     fireEvent.click(screen.getByText("阅读记录 · 1"));
     expect(screen.getByText(/生成未完成，已读位置不受影响/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "补记" }));

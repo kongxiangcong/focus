@@ -12,6 +12,7 @@ from core.reading_workspace import (WorkspaceCore, WorkspaceError, validate_sour
 from core.source_library import SourceLibrary
 from core.source_notes import SourceNotes
 from core.discussion_application import DiscussionApplication
+from .figure_catalog import source_figures
 
 ACTIONS = {
     'search': ('search_source', {'query': 'string', 'limit': 'integer', 'source_id': 'string|null', 'bundle_version': 'string|null'}),
@@ -51,8 +52,7 @@ class CoreBridge:
         cached = self._figures_cache.get(source_id)
         if cached and cached[0] == signature:
             return cached[1]
-        lines = content.read_text(encoding='utf-8', errors='replace').splitlines()
-        bound = self.core.read_source_range(start=1, end=len(lines), source_id=source_id)['images'] if lines else []
+        bound = source_figures(content.parent, content.read_text(encoding='utf-8', errors='replace'))
         figures = []
         seen = set()
         for image in bound:

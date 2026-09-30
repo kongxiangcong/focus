@@ -189,7 +189,7 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
 .reading-library-picker { position:static; width:auto; height:auto; display:flex; justify-content:flex-start; flex:1; min-width:0; gap:8px; }
 .reading-library-picker label { min-width:0; flex:1; max-width:320px; }
 .reading-library-picker select { width:100%; max-width:100%; height:36px; order:initial!important; border:1px solid var(--reader-line); background:#ffffff70; border-radius:10px; font-size:12px; padding:6px 10px; }
-.workspace-reading .focus-mist[data-materials-open=true] { padding-right:294px; }
+.workspace-reading .focus-mist[data-materials-open=true] { padding-right:0; }
 .workspace-reading .focus-content { padding-top:28px; padding-bottom:12vh; margin-inline:auto; }
 .reader-materials { position:absolute; top:52px; right:12px; bottom:16px; width:270px; overflow:auto; padding:16px; background:var(--reader-glass); border:1px solid var(--reader-line); border-radius:var(--reader-radius); z-index:3; }
 .reader-materials[hidden] { display:none; }
@@ -247,3 +247,21 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
 .preparation-notice-heading p { flex:1; min-width:0; margin:0 0 8px; overflow-wrap:anywhere; }
 .workspace-app .preparation-dismiss { padding:0; min-width:32px; min-height:32px; font-size:20px; border-color:transparent; flex-shrink:0; }
 .workspace-task-frame>div>.preparation-notice { flex-basis:100%; }
+
+/* The standalone progress rail lives in the app rail, outside the text columns. */
+.workspace-reading .reader-split.focus-mist { grid-template-columns:minmax(0,1fr); }
+.workspace-reading .reader-split.focus-mist[data-side-open=true] { grid-template-columns:minmax(340px,var(--reader-text-share,60fr)) 8px minmax(280px,var(--reader-side-share,40fr)); }
+.workspace-reading .reader-split .focus-stream,.workspace-reading .reader-split .mist-history-rail { grid-column:1; }
+.workspace-reading .reader-split .focus-bottom,.workspace-reading .reader-split .mist-reading-actions { grid-column:1; }
+.workspace-reading .reader-split .reader-side-toolbar { grid-column:1 / -1; }
+.workspace-reading .reader-split .reader-column-resizer { grid-column:2; }
+.workspace-reading .reader-split .reader-side-space { grid-column:3; }
+@media(max-width:1050px) {
+ .workspace-reading .reader-split.focus-mist[data-side-open] { grid-template-columns:minmax(0,1fr); }
+}
+@media(max-width:540px) {
+ .workspace-reading .reader-split .reader-side-toolbar { grid-row:2; }
+ .workspace-reading .reader-split .focus-stream,.workspace-reading .reader-split .mist-history-rail { grid-row:3; }
+ .workspace-reading .reader-split .mist-reading-actions { grid-row:4; }
+ .workspace-reading .reader-split .focus-bottom { grid-row:5; }
+}

@@ -29,6 +29,7 @@ await page.getByRole('button',{name:'新会话',exact:true}).click();await page.
 await page.reload();await page.getByRole('button',{name:'继续',exact:true}).waitFor();assert.equal(await page.locator('.focus-output').count(),0);
 await next(9);view=await api();assert.equal(view.navigationCurrent.index,9);results.push('T7/T26 new session / refresh / next 9');
 // Sidebar hides without occupying center space; narrow layout and large font.
+if (await page.getByRole('button',{name:'笔记与记录',exact:true}).count()) await page.getByRole('button',{name:'笔记与记录',exact:true}).click();
 await page.getByRole('button',{name:'隐藏资料栏',exact:true}).click();const hiddenWidth=(await stream.boundingBox()).width;
 await page.getByRole('button',{name:'笔记与记录',exact:true}).click();assert.ok((await stream.boundingBox()).width<hiddenWidth);
 // Exercise the sidebar through real HTTP mutations; none may move the frontier.
