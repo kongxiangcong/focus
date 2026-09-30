@@ -169,6 +169,9 @@ export interface ReadingWindow {
 }
 
 export interface ReadingPreparation {
+  attempt?: string;
+  dismissed?: boolean;
+  timed_out?: boolean;
   source_id: string;
   status: "running" | "ready" | "failed" | "cancelled" | "interrupted" | "bundle_changed" | "commit_conflict";
   step: string;
@@ -394,6 +397,7 @@ export interface ReaderHost {
   rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   openSource?(sourceId: string, requestId?: string): Promise<ReaderHostResult<ReadingWindow>>;
   activateReadingCandidate?(sourceId: string, planId: string, readingRevision: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  dismissPreparation?(sourceId: string, attempt: string): Promise<ReaderHostResult<ReadingWindow>>;
   resumePreparation?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   cancelPreparation?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   selectDiscussionSource?(sourceId: string, discussionId?: string): Promise<ReaderHostResult<ReadingWindow>>;

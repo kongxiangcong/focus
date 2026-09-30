@@ -224,9 +224,15 @@ class HostService:
                 preparation = self.reading_app.status(source_id)
                 if preparation:
                     preparations[source_id] = {key: preparation.get(key) for key in
-                        ('source_id', 'status', 'step', 'total', 'completed', 'ready', 'error', 'plan_id',
+                        ('source_id', 'status', 'step', 'total', 'completed', 'ready', 'error', 'plan_id', 'attempt',
                          'glossary_revision',
                          'selected_plan_id', 'selected_ready', 'candidate')}
+                    projected = preparations[source_id]
+                    projected['timed_out'] = preparation['status'] == 'failed' and bool(
+                        preparation.get('timed_out') or re.search(r'timeout|timed[ -]?out|超时', preparation.get('error') or '', re.IGNORECASE))
+                    dismissed = self.store.get('dismissedPreparation:' + source_id)
+                    projected['dismissed'] = dismissed == {
+                        'run_id': preparation['run_id'], 'attempt': preparation['attempt']}
             window['preparations'] = preparations
             window['clearBusySources'] = [source['sourceId'] for source in SourceLibrary(self.workspace).overview() if self.source_clear_busy(source['sourceId'])]
             window['agent'] = {'run': self.state['run'], 'catalog': self.core.catalog(),
@@ -248,7 +254,7 @@ class HostService:
         if run and run['status'] in ('running', 'approval', 'stopping', 'failed', 'interrupted'):
             add('chat', run['runId'], run['status'], '等待你的确认' if run['status'] == 'approval' else '正在回答问题' if run['status'] == 'running' else '问答任务', run.get('error'))
         for source_id, preparation in window['preparations'].items():
-            if preparation['status'] in ('running', 'failed', 'interrupted', 'cancelled', 'bundle_changed', 'commit_conflict'):
+            if not preparation.get('dismissed') and preparation['status'] in ('running', 'failed', 'interrupted', 'cancelled', 'bundle_changed', 'commit_conflict'):
                 add('preparation', source_id, preparation['status'], '准备阅读 · ' + titles.get(source_id, source_id), preparation.get('error'))
         for source_id, blog in window['blog'].items():
             if blog.get('runStatus') in ('running', 'failed', 'interrupted', 'cancelled'):
@@ -321,6 +327,19 @@ class HostService:
                 worker.start()
             self.changed()
             return {**self.snapshot(), 'readingOperation': self.reading_app.core.request_result(source_id, payload.get('requestId'))}
+
+    def dismiss_preparation(self, source_id, payload):
+        """Hide this attempt's notification; no Core asset or runtime mutation."""
+        with self.lock:
+            preparation = self.reading_app.status(source_id)
+            if not preparation or payload.get('attempt') != preparation['attempt']:
+                raise ValueError('准备任务已变化，请刷新后关闭当前提示。')
+            if preparation['status'] not in ('failed', 'interrupted', 'cancelled', 'bundle_changed', 'commit_conflict'):
+                raise ValueError('当前准备仍在运行或已就绪；取消准备与关闭失败提示是不同操作。')
+            self.store.put('dismissedPreparation:' + source_id, {
+                'run_id': preparation['run_id'], 'attempt': preparation['attempt']})
+            self.changed()
+            return self.snapshot()
 
     def cancel_preparation(self, source_id, *, request_id=None):
         request_id = request_id or uuid.uuid4().hex

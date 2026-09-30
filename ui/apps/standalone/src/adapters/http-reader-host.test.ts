@@ -154,3 +154,13 @@ it("sends both HTTP actions without randomUUID and preserves supplied retry IDs"
   await host.continueReading({ receipt, requestId: ids[0] });
   expect(JSON.parse(fetch.mock.calls[2][1]!.body as string).requestId).toBe(ids[0]);
 });
+
+
+it("dismisses only the referenced preparation attempt through its dedicated endpoint", async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({ ok: true, value: completedWindow }), { status: 200 }));
+  const host = new HttpReaderHost({ baseUrl: "http://127.0.0.1:4317", fetch });
+  expect(await host.dismissPreparation("Model A-paper", "attempt-1")).toEqual({ ok: true, value: completedWindow });
+  expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:4317/library/sources/Model%20A-paper/preparation/dismiss", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ attempt: "attempt-1" }),
+  });
+});
