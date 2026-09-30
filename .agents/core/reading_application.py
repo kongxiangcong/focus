@@ -364,13 +364,23 @@ class ReadingCore:
             selected = state["sources"].get(source_id)
             if (state.get("current_source_id") != source_id or not selected
                 or selected.get("current_plan_id") != plan_id
-                or selected.get("current_chunk_id") != chunk_id
                 or int(state.get("reading_revision", 0)) != reading_revision):
                 raise WorkspaceError("cursor_changed", "阅读位置已改变，请刷新后重试。")
             if not selected.get("reading_started") or not self._plan_ready(source_id, plan_id):
                 raise WorkspaceError("reading_not_ready", "Reading Plan is not ready")
             chunks = _read_chunk_records(self._root(source_id) / "reading" / "plans" / plan_id / "chunks.jsonl")
             ids = [chunk["chunk_id"] for chunk in chunks]
+            frontier = selected.get("current_chunk_id")
+            if operation == "continue" and chunk_id in ids and (frontier is None or ids.index(chunk_id) < ids.index(frontier)):
+                if chunk_id == ids[-1]:
+                    raise WorkspaceError("reading_completed", "本篇已读完")
+                result = {"operation": "browse", "source_id": source_id, "plan_id": plan_id,
+                          "chunk_id": ids[ids.index(chunk_id) + 1], "reading_revision": reading_revision}
+                state.setdefault("reading_requests", {})[request_id] = {"input": payload, "result": result}
+                _write_document(state_path, state)
+                return result
+            if frontier != chunk_id:
+                raise WorkspaceError("cursor_changed", "阅读位置已改变，请刷新后重试。")
             if operation == "continue":
                 if chunk_id not in ids or chunk_id == ids[-1]:
                     raise WorkspaceError("reading_last_requires_finish", "Use Finish on the final Chunk")
@@ -421,7 +431,7 @@ class ReadingCore:
             chunks = _read_chunk_records(self._root(source_id) / "reading" / "plans" / plan_id / "chunks.jsonl")
             ids = [chunk["chunk_id"] for chunk in chunks]
             current = selected.get("current_chunk_id")
-            if chunk_id not in ids or (current is not None and ids.index(chunk_id) >= ids.index(current)):
+            if not selected.get("reading_started") or chunk_id not in ids or (current is not None and ids.index(chunk_id) > ids.index(current)):
                 raise WorkspaceError("reading_review_unread", "Only already read Chunks may be reviewed")
             return self.core.preparation_chunk(source_id=source_id, plan_id=plan_id, chunk_id=chunk_id)
 

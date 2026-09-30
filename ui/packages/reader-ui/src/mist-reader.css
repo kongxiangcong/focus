@@ -15,7 +15,7 @@
 .mist-outline button { position:relative; margin-left:-22px; width:42px; min-height:42px; padding:0; font:11px var(--reader-ui); flex-shrink:0; }
 .mist-outline button>span:first-child { display:grid; place-items:center; width:24px; height:24px; margin:auto; border-radius:50%; background:var(--reader-paper); color:var(--reader-faint); }
 .mist-outline button[aria-current=step]>span:first-child { background:var(--reader-ink); color:white; box-shadow:0 0 0 6px #778b971a,0 0 32px #778b9740; }
-.focus-mist .focus-stream { grid-column:2; grid-row:1; position:relative; scroll-behavior:smooth; }
+.focus-mist .focus-stream { overflow-anchor:none; grid-column:2; grid-row:1; position:relative; scroll-behavior:smooth; }
 .focus-mist .focus-content { max-width:850px; padding:18vh clamp(20px,3vw,44px) 35vh; }
 .focus-mist .focus-output { min-width:0; opacity:var(--depth-opacity,1); transition:opacity var(--reader-duration-move) var(--reader-ease-out); margin-bottom:28px; }
 .focus-mist .focus-output:hover,.focus-mist .focus-output:focus-within { opacity:1; }

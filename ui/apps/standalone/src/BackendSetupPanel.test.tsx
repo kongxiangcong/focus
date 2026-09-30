@@ -8,7 +8,7 @@ import { BackendSetupPanel } from "./BackendSetupPanel";
 afterEach(cleanup);
 const empty = { status: "empty" as const, source: { sourceId: "", title: "", topicId: null }, current: null, history: [], conversation: [] };
 
-it("checks installation and model access before selecting and applying the backend", async () => {
+it("checks without applying, then saves and applies only on explicit confirmation", async () => {
   const backendSetup = vi.fn(async (action: string, input: { backend: string }) => readerSuccess({
     backend: input.backend, runtimePath: "/private/runtime", status: action === "prepare" ? "installed" : "success", message: "OK",
   }));
@@ -20,6 +20,10 @@ it("checks installation and model access before selecting and applying the backe
   fireEvent.change(screen.getByRole("combobox", { name: "模型" }), { target: { value: "deepseek-flash" } });
   expect(saveBackendConfiguration).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "连接检查" }));
+  await screen.findByText("连接检查通过；点击保存设置后启用。");
+  expect(saveBackendConfiguration).not.toHaveBeenCalled();
+  expect(refreshBackendConfiguration).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await waitFor(() => expect(refreshBackendConfiguration).toHaveBeenCalledOnce());
   expect(backendSetup.mock.calls.map(call => call[0])).toEqual(["prepare", "check"]);
   expect(saveBackendConfiguration).toHaveBeenCalledWith(expect.objectContaining({ backend: "deepseek", model: "deepseek-flash" }));
@@ -79,4 +83,11 @@ it("discards a late preparation after unmounting", async () => {
   await act(async () => resolve(readerSuccess({ backend: "codex", runtimePath: "/codex", status: "installed", message: "OK" })));
   expect(backendSetup).toHaveBeenCalledOnce();
   expect(saveBackendConfiguration).not.toHaveBeenCalled();
+});
+
+it("T2 reports appearance failure separately from a successfully applied backend", async () => {
+  render(<BackendSetupPanel host={{ saveBackendConfiguration: vi.fn(async () => readerSuccess(empty)),
+    refreshBackendConfiguration: vi.fn(async () => readerSuccess(empty)) } as unknown as ReaderHost} onSaveAppearance={() => false} />);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  expect(await screen.findByRole("status")).toHaveTextContent("后端设置已保存并应用；外观未保存");
 });

@@ -78,9 +78,9 @@ class ReadingProgressTests(unittest.TestCase):
     def test_failed_generation_retry_does_not_advance_and_edit_fences_late_candidate(self):
         self.runtime.fail = True
         self.host.state['conversation'].extend([
-            {'messageId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'chunkId': 'chunk-001', 'readingPass': 1,
+            {'messageId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'chunkId': 'chunk-001', 'reference': {'planId': 'plan-001'}, 'readingPass': 1,
              'role': 'user', 'content': '我理解了别名地址的作用'},
-            {'messageId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'chunkId': 'chunk-001', 'readingPass': 1,
+            {'messageId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'chunkId': 'chunk-001', 'reference': {'planId': 'plan-001'}, 'readingPass': 1,
              'role': 'assistant', 'content': '这里有一个例子。'},
         ])
         request_id = uuid.uuid4().hex
@@ -140,9 +140,9 @@ class ReadingProgressTests(unittest.TestCase):
     def test_discussion_from_previous_pass_is_not_reused(self):
         self.host.state['conversation'].extend([
             {'messageId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'chunkId': 'chunk-001',
-             'readingPass': 1, 'role': 'user', 'content': '我理解了旧轮次'},
+             'reference': {'planId': 'plan-001'}, 'readingPass': 1, 'role': 'user', 'content': '我理解了旧轮次'},
             {'messageId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'chunkId': 'chunk-001',
-             'readingPass': 1, 'role': 'assistant', 'content': '旧轮次的解释'},
+             'reference': {'planId': 'plan-001'}, 'readingPass': 1, 'role': 'assistant', 'content': '旧轮次的解释'},
         ])
         self.host.continue_cached({'receipt': self.receipt(), 'requestId': uuid.uuid4().hex})
         self.host.continue_cached({'receipt': self.receipt(), 'requestId': uuid.uuid4().hex})
@@ -160,9 +160,9 @@ class ReadingProgressTests(unittest.TestCase):
         self.runtime.pause = True
         self.host.state['conversation'].extend([
             {'messageId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'chunkId': 'chunk-001',
-             'readingPass': 1, 'role': 'user', 'content': '解释第一段'},
+             'reference': {'planId': 'plan-001'}, 'readingPass': 1, 'role': 'user', 'content': '解释第一段'},
             {'messageId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'chunkId': 'chunk-001',
-             'readingPass': 1, 'role': 'assistant', 'content': '这里是一个例子'},
+             'reference': {'planId': 'plan-001'}, 'readingPass': 1, 'role': 'assistant', 'content': '这里是一个例子'},
         ])
         request_id = uuid.uuid4().hex
         self.host.continue_cached({'receipt': self.receipt(), 'requestId': request_id})
@@ -178,9 +178,9 @@ class ReadingProgressTests(unittest.TestCase):
     def test_question_about_understanding_is_not_recorded_as_understood(self):
         self.host.state['conversation'].extend([
             {'messageId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'chunkId': 'chunk-001',
-             'readingPass': 1, 'role': 'user', 'content': '我理解了吗？请再举例。'},
+             'reference': {'planId': 'plan-001'}, 'readingPass': 1, 'role': 'user', 'content': '我理解了吗？请再举例。'},
             {'messageId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'chunkId': 'chunk-001',
-             'readingPass': 1, 'role': 'assistant', 'content': '这里有另一个例子'},
+             'reference': {'planId': 'plan-001'}, 'readingPass': 1, 'role': 'assistant', 'content': '这里有另一个例子'},
         ])
         request_id = uuid.uuid4().hex
         self.host.continue_cached({'receipt': self.receipt(), 'requestId': request_id})

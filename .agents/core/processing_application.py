@@ -19,11 +19,14 @@ class ProcessingApplication:
     def authorized(self, item_id):
         return item_id in _read_document(self.path, {})
 
+    def wants_blog(self, item_id):
+        return 'reading_blog' in _read_document(self.path, {}).get(item_id, {}).get('scope', [])
+
     def _binding(self, item):
         return {'fingerprint': item['fingerprint'], 'topic_id': item['topic_id'],
                 'services': item['services'], 'blog_config': _component_config(self.blog.runtime)}
 
-    def confirm(self, item_id, *, request_id):
+    def confirm(self, item_id, *, request_id, generate_blog=True):
         if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 160:
             raise WorkspaceError('request_id_invalid', 'A stable request identity is required')
         with self.lock:
@@ -35,6 +38,8 @@ class ProcessingApplication:
                 raise WorkspaceError('request_conflict', 'Request identity belongs to another original')
             existing = scopes.get(item_id)
             if existing:
+                if ('reading_blog' in existing['scope']) != generate_blog:
+                    raise WorkspaceError('processing_scope_conflict', '原任务的处理范围已确认，请恢复原任务。')
                 if existing['fingerprint'] != item['fingerprint'] or existing['topic_id'] != item['topic_id']:
                     raise WorkspaceError('confirmation_required', 'The confirmed original or Topic has changed')
                 if any(existing[key] != value for key, value in self._binding(item).items()):
@@ -48,14 +53,17 @@ class ProcessingApplication:
                 topic = next((entry for entry in library.topics() if entry['topicId'] == item['topic_id']), None)
                 if topic is None:
                     raise WorkspaceError('topic_missing', 'Select an existing Topic')
+            elif item.get('topic_title'):
+                topic = library.create_topic(item['topic_title'])
             else:
-                topic = library.create_topic(item.get('topic_title'))
-            self.ingestion.update_staged(item_id, topic_id=topic['topicId'], topic_title=None)
+                topic = None
+            if topic:
+                self.ingestion.update_staged(item_id, topic_id=topic['topicId'], topic_title=None)
             item = self.ingestion.confirm(item_id, services=item['services'],
                                           purpose='register source and generate blog', scope='ingestion')
             scopes[item_id] = {
                 'request_id': request_id, **self._binding(item),
-                'scope': ['ingestion', 'reading_blog', 'conditional_value_analysis', 'html'],
+                'scope': ['ingestion', 'reading_blog', 'conditional_value_analysis', 'html'] if generate_blog else ['ingestion'],
             }
             _write_document(self.path, scopes)
             return item
@@ -84,7 +92,7 @@ class ProcessingApplication:
                                                   start_allowed=start_allowed)
                 else:
                     item = self.ingestion.process(item_id, request_id=execution_id, start_allowed=start_allowed)
-            if item['status'] == 'completed':
+            if item['status'] == 'completed' and 'reading_blog' in scope['scope']:
                 (submit_blog or self.blog.generate)(item['source_id'], request_id=execution_id + ':blog',
                                                     authorized_by='ingestion_confirmation')
             return item

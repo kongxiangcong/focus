@@ -18,6 +18,12 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const [draft, setDraft] = useState("");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [reference, setReference] = useState<ReaderChunk | null>(null);
+  const [materialsOpen, setMaterialsOpen] = useState(() => { try { return localStorage.getItem("focus.materialsOpen") !== "false"; } catch { return true; } });
+  const drafts = useRef<Record<string, { text: string; reference: ReaderChunk | null; noteId: string | null; note: string; noteRevision: number | null; progressId: string | null; progress: string; progressRevision: number | null }>>({});
+  const mutationIds = useRef(new Map<string, string>());
+  function mutationId(key: string) { if (!mutationIds.current.has(key)) mutationIds.current.set(key, createReaderId()); return mutationIds.current.get(key)!; }
+  const draftOwner = useRef("");
+  const [recoverDraft, setRecoverDraft] = useState(false);
   const [reviewChunk, setReviewChunk] = useState<ReaderChunk | null>(null);
   const [discussionFocus, setDiscussionFocus] = useState<string | null>(null);
   const [operation, setOperation] = useState("");
@@ -56,13 +62,27 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     setNewContent(false); setEditingNoteId(null); setEditDraft(""); setEditBaseRevision(null); setNoteError(""); setNoteConflict(null);
     setEditingProgressId(null); setProgressDraft(""); setProgressBaseRevision(null); setProgressConflict(null); setProgressError(""); follow.current = true;
   }
+  const draftState = useRef({ reference, editingNoteId, editDraft, editBaseRevision, editingProgressId, progressDraft, progressBaseRevision });
+  draftState.current = { reference, editingNoteId, editDraft, editBaseRevision, editingProgressId, progressDraft, progressBaseRevision };
   function accept(value: ReadingWindow) {
     if (!alive.current || (value.revision !== undefined && value.revision < revision.current)) return;
-    if (session.current && value.sessionId && value.sessionId !== session.current) clearSessionUI();
-    if (displayedSource.current && value.source.sourceId !== displayedSource.current) clearSessionUI();
+    const owner = `${value.source.sourceId}:${value.discussionId ?? value.sessionId}`;
+    if (draftOwner.current && owner !== draftOwner.current) {
+      drafts.current[draftOwner.current] = { text: draftRef.current, reference: draftState.current.reference, noteId: draftState.current.editingNoteId,
+        note: draftState.current.editDraft, noteRevision: draftState.current.editBaseRevision, progressId: draftState.current.editingProgressId,
+        progress: draftState.current.progressDraft, progressRevision: draftState.current.progressBaseRevision };
+      try { sessionStorage.setItem("focus.drafts", JSON.stringify(drafts.current)); } catch { /* In-memory recovery remains available. */ }
+      clearSessionUI();
+      const prior = drafts.current[owner];
+      if (prior) { setDraft(prior.text); setReference(prior.reference); setEditingNoteId(prior.noteId); setEditDraft(prior.note); setEditBaseRevision(prior.noteRevision); setEditingProgressId(prior.progressId); setProgressDraft(prior.progress); setProgressBaseRevision(prior.progressRevision); }
+      setRecoverDraft(Object.values(drafts.current).some(d => !!d.text || !!d.note || !!d.progress));
+    }
+    draftOwner.current = owner;
     session.current = value.sessionId;
     displayedSource.current = value.source.sourceId;
     revision.current = value.revision ?? revision.current;
+    if (value.reviewChunk) setReviewChunk(value.reviewChunk.chunkId === value.navigationCurrent?.chunkId ? null : value.reviewChunk);
+    else if (value.readingOperation?.operation === "continue" || value.readingOperation?.operation === "open") setReviewChunk(null);
     setView(value);
     setConnection("");
   }
@@ -86,25 +106,53 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   }, [host]);
 
   useEffect(() => {
+    try { drafts.current = JSON.parse(sessionStorage.getItem("focus.drafts") ?? "{}"); } catch { /* malformed draft storage is ignored */ }
+    setRecoverDraft(Object.values(drafts.current).some(d => !!d.text || !!d.note || !!d.progress));
+  }, []);
+  useEffect(() => {
+    if (!draftOwner.current) return;
+    drafts.current[draftOwner.current] = { text: draft, reference, noteId: editingNoteId, note: editDraft,
+      noteRevision: editBaseRevision, progressId: editingProgressId, progress: progressDraft, progressRevision: progressBaseRevision };
+    try { sessionStorage.setItem("focus.drafts", JSON.stringify(drafts.current)); } catch { /* memory fallback */ }
+  }, [draft, reference, editingNoteId, editDraft, editingProgressId, progressDraft]);
+  useEffect(() => {
     if (panel) dialog.current?.showModal(); else dialog.current?.close();
   }, [panel]);
 
+  const resetVersions = useRef<Record<string, number>>((() => {
+    try { return JSON.parse(sessionStorage.getItem("focus.draftResetVersions") ?? "{}"); } catch { return {}; }
+  })());
+  useEffect(() => {
+    if (!view?.source.sourceId || view.resetVersion === undefined) return;
+    const source = view.source.sourceId;
+    const previous = resetVersions.current[source];
+    resetVersions.current[source] = view.resetVersion;
+    try { sessionStorage.setItem("focus.draftResetVersions", JSON.stringify(resetVersions.current)); } catch { /* memory fallback */ }
+    if (previous !== undefined && previous !== view.resetVersion) {
+      for (const key of Object.keys(drafts.current)) if (key.startsWith(`${source}:`)) delete drafts.current[key];
+      clearSessionUI();
+      try { sessionStorage.setItem("focus.drafts", JSON.stringify(drafts.current)); } catch { /* memory fallback */ }
+    }
+  }, [view?.source.sourceId, view?.resetVersion]);
   const current = view?.current ?? null;
+  const frontier = view?.navigationCurrent ?? current;
   useEffect(() => { setReviewChunk(null); }, [view?.source.sourceId, view?.readingRevision]);
   const agent = view?.agent;
   const active = !!agent?.run && ["running", "approval", "stopping"].includes(agent.run.status);
   const uploading = uploads.some(u => u.state === "uploading");
   const blocked = active || !!operation;
-  const chunks = view ? [...view.history, ...(current ? [current] : [])] : [];
+  const chunks = view ? [...view.history, ...(current ? [current] : view.readingStarted && frontier ? [frontier] : [])] : [];
   const displayed = reviewChunk ?? current;
-  const entries = [
+  const ordered = view?.timeline ?? [
     ...(displayed ? [{ kind: "reading" as const, chunk: displayed }] : []),
     ...(view?.conversation ?? []).map(message => ({ kind: "message" as const, messageId: message.messageId })),
   ];
+  const entries = [...ordered, ...(view?.timeline ? (view.conversation ?? []).filter(m => !ordered.some(e => e.kind === "message" && e.messageId === m.messageId)).map(m => ({ kind: "message" as const, messageId: m.messageId })) : [])];
   const visibleChunks = entries.flatMap(e => e.kind === "reading" ? [e.chunk] : []);
-  const focusedIndex = displayed && !active && discussionFocus !== chunkKey(displayed) ? 0 : entries.length - 1;
-  const displayEmpty = view?.status === "empty" && entries.length === 0;
+  const focusedIndex = view?.timeline ? entries.length - 1 : displayed && !active && discussionFocus !== chunkKey(displayed) ? 0 : entries.length - 1;
+  const displayEmpty = entries.length === 0;
   const contentVersion = `${view?.sessionId}:${displayed?.chunkId}:${entries.length}:${view?.conversation.map(m => m.content).join('\n')}:${displayed?.translation?.length}`;
+  const positioned = useRef<string | undefined>(undefined);
   function settle() {
     const pane = stream.current;
     if (!pane) return;
@@ -112,7 +160,12 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     const target = pane.querySelector<HTMLElement>('[data-current-output="true"]');
     if (!target) return;
     const area = pane.getBoundingClientRect(), box = target.getBoundingClientRect();
-    const top = pane.scrollTop + box.top - area.top - Math.max(24, (pane.clientHeight - box.height) / 2);
+    const identity = target.dataset.eventId;
+    const initial = positioned.current !== identity;
+    positioned.current = identity;
+    const top = initial ? pane.scrollTop + box.top - area.top - Math.max(24, (pane.clientHeight - box.height) / 2)
+      : box.bottom > area.bottom - 24 ? pane.scrollTop + box.bottom - area.bottom + 24 : pane.scrollTop;
+    if (top === pane.scrollTop) return;
     pane.scrollTo?.({ top, behavior: globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
   }
   useLayoutEffect(() => {
@@ -132,6 +185,12 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     return () => observer.disconnect();
   }, [mist, visible, view !== null]);
 
+  function pauseFollow() {
+    follow.current = false;
+    const pane = stream.current;
+    // Cancel an in-flight smooth settle before honoring the user's navigation.
+    pane?.scrollTo?.({ top: pane.scrollTop, behavior: "instant" });
+  }
   async function perform(label: string, task: () => Promise<ReaderHostResult<ReadingWindow>>, success?: () => void) {
     if (locked.current) return;
     locked.current = true; setOperation(label); setFailure(null);
@@ -150,7 +209,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     if (!view || blocked || uploading || !content.trim()) return;
     setDiscussionFocus(displayed ? chunkKey(displayed) : null);
     follow.current = true;
-    const selected = reference ?? reviewChunk;
+    const selected = reference ?? reviewChunk ?? displayed;
     const attachmentIds = (includeAttachments ? uploads : []).flatMap(u => u.attachment ? [u.attachment.attachmentId] : []);
     const sentUploads = (includeAttachments ? uploads : []).filter(u => u.state === "ready").map(u => u.id);
     const input: SendReaderMessageInput = {
@@ -168,12 +227,24 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     });
   }
   function next() {
-    if (!view || !current || blocked || reviewChunk || current.index === current.total) return;
-    const input: ContinueReadingInput = { receipt: cursorReceipt(view)!, sessionId: view.sessionId };
-    void perform("下一段", () => {
-      input.requestId ??= createReaderId();
-      return host.continueReading(input);
-    }, () => { setReference(null); setDiscussionFocus(null); });
+    if (!view || !frontier || blocked) return;
+    const selected = reviewChunk ?? frontier;
+    if (selected.index === selected.total) return;
+    const input: ContinueReadingInput = { receipt: { sourceId: selected.sourceId, planId: selected.planId,
+      chunkId: selected.chunkId, readingRevision: view.readingRevision }, sessionId: view.sessionId, requestId: createReaderId() };
+    follow.current = true;
+    void perform("下一段", () => host.continueReading(input), () => { setDiscussionFocus(null); });
+  }
+  function freshContinue() {
+    if (!view || !frontier || blocked) return;
+    const input = { receipt: cursorReceipt(view)!, sessionId: view.sessionId, requestId: createReaderId() };
+    follow.current = true;
+    void perform("下一段", () => host.continueReading(input));
+  }
+  function finishFresh() {
+    if (!view || !frontier || !host.finishReading || blocked) return;
+    const input = { receipt: cursorReceipt(view)!, sessionId: view.sessionId, requestId: createReaderId() };
+    void perform("完成本篇", () => host.finishReading!(input));
   }
   function reset() {
     if (!host.newSession || !view?.sessionId || blocked) return;
@@ -217,9 +288,11 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   async function changeNote(note: SourceNote, action: "edit" | "delete" | "undo", expectedRevision = note.revision) {
     if (!host.changeSourceNote || !view) return;
     const content = action === "edit" ? editDraft : undefined;
-    const result = await host.changeSourceNote(note.sourceId, note.noteId, action, expectedRevision, createReaderId(), content);
+    const key = JSON.stringify([note.sourceId, note.noteId, action, expectedRevision, content]);
+    const result = await host.changeSourceNote(note.sourceId, note.noteId, action, expectedRevision, mutationId(key), content);
     if (!result.ok) { setNoteError(result.error.message); return; }
     accept(result.value);
+    mutationIds.current.delete(key);
     const outcome = result.value.noteOperation;
     if (outcome?.status === "conflict") {
       setNoteConflict(outcome.current ?? null);
@@ -230,10 +303,12 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   }
   async function changeProgress(entry: ReadingProgressEntry, action: "edit" | "delete", expectedRevision = entry.revision) {
     if (!host.changeReadingProgress) return;
+    const key = JSON.stringify([entry.progress_id, action, expectedRevision, action === "edit" ? progressDraft : undefined]);
     const result = await host.changeReadingProgress(entry.progress_id, action, expectedRevision,
-      createReaderId(), action === "edit" ? progressDraft : undefined);
+      mutationId(key), action === "edit" ? progressDraft : undefined);
     if (!result.ok) { setProgressError(result.error.message); return; }
     accept(result.value);
+    mutationIds.current.delete(key);
     if (result.value.progressOperation?.status === "conflict") {
       setProgressConflict(result.value.progressOperation.current ?? null);
       setProgressError("阅读记录已改变；输入已保留，请查看当前版本后重新提交。");
@@ -246,22 +321,22 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   function review(chunk: ReaderChunk) {
     setDiscussionFocus(null);
     setPanel(null);
-    if (current && chunk.chunkId === current.chunkId) { setReviewChunk(null); return; }
     if (!host.reviewChunk) { setReviewChunk(chunk); return; }
-    void perform("回看", () => host.reviewChunk!(chunk.sourceId, chunk.planId, chunk.chunkId), () => {
-      setReviewChunk(chunk); setReference(null); follow.current = true;
+    const requestId = createReaderId();
+    void perform("回看", () => host.reviewChunk!(chunk.sourceId, chunk.planId, chunk.chunkId, requestId), () => {
+      setReviewChunk(chunk.chunkId === frontier?.chunkId ? null : chunk); if (!draftRef.current) setReference(null); follow.current = true;
     });
   }
 
   const outline = view?.outline ?? Array.from({ length: current?.total ?? chunks.at(-1)?.total ?? 0 }, (_, i) => ({ chunkId: `chunk-${String(i + 1).padStart(3, "0")}`, index: i + 1, sectionPath: [] as string[] }));
   const progressEntries = view?.readingProgress ?? [];
-  return <div className={`focus-reader${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}
+  return <div onKeyDown={event => { if (event.key === "Escape" && materialsOpen) { setMaterialsOpen(false); event.currentTarget.querySelector<HTMLButtonElement>(".reader-materials-toggle")?.focus(); } }} data-materials-open={mist && materialsOpen} className={`focus-reader${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}
     style={{ "--reader-reading-size": `${readingFontSizes[fontSize]}px` } as CSSProperties}>
     {mist && <aside className="mist-sidebar" aria-label="阅读进度与操作">
       <div className="mist-progress-label"><span>阅读进度</span><span>{view?.status === "completed" ? "已读完" : `${current?.index ?? 0} / ${current?.total ?? 0}`}</span></div>
       <nav className="mist-outline" aria-label="段落目录">{outline.map(item => {
         const loaded = chunks.find(c => c.chunkId === item.chunkId);
-        return <button key={item.chunkId} disabled={!loaded} aria-current={current?.chunkId === item.chunkId && !reviewChunk ? "step" : undefined}
+        return <button key={item.chunkId} disabled={!loaded} data-frontier={frontier?.chunkId === item.chunkId} aria-current={displayed?.chunkId === item.chunkId ? "step" : undefined}
           onClick={() => loaded && review(loaded)}><span>{String(item.index).padStart(2, "0")}</span><span className="focus-sr-only">{loaded?.sectionPath.at(-1) ?? item.sectionPath.at(-1) ?? "未读段落"}</span></button>;
       })}</nav>
     </aside>}
@@ -275,7 +350,55 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         <button className="focus-new" disabled={!host.newSession || !view || blocked} onClick={reset}>新建会话</button>
       </nav>
     </header>}
-    <main className="focus-stream" ref={stream} aria-label="阅读与对话" tabIndex={0} onWheel={() => { if (mist) follow.current = false; }} onTouchStart={() => { if (mist) follow.current = false; }} onKeyDown={e => { if (mist && ["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown"].includes(e.key)) follow.current = false; }} onScroll={() => {
+        {mist && <button className="reader-materials-toggle" aria-controls="reader-materials" aria-expanded={materialsOpen} onClick={() => {
+          setMaterialsOpen(!materialsOpen); try { localStorage.setItem("focus.materialsOpen", String(!materialsOpen)); } catch { /* current toggle still works */ }
+        }}>{materialsOpen ? "隐藏资料栏" : "笔记与记录"}</button>}
+        <aside id="reader-materials" role={mist ? "complementary" : "group"} className="reader-materials" hidden={mist && !materialsOpen} aria-label="笔记与阅读记录">
+        {view?.discussions && <details><summary>历史讨论 · {view.discussions.length}</summary>{view.discussions.map((d, i) => <button key={d.discussionId} disabled={blocked} onClick={() => host.selectDiscussionSource && void perform("打开历史讨论", () => host.selectDiscussionSource!(d.sourceId, d.discussionId))}>讨论 {i + 1}</button>)}</details>}
+
+        {view?.noteFeedback && <p role="status" className="focus-note-feedback">{view.noteFeedback.status === "saved" ? "已记下" : "未保存，可重试"}</p>}
+        {view?.source.sourceId && view.sourceNotes && <details className="focus-source-notes"><summary>笔记 · {view.sourceNotes.filter(note => !note.deleted).length}</summary>
+          {noteError && <p role="alert">{noteError}</p>}
+          {view.sourceNotes.length === 0 ? <p>明确说“记下来”后，笔记会保存在这篇材料下。</p> :
+            <ol>{view.sourceNotes.filter(note => !note.deleted || note.canUndo).map(note => <li key={note.noteId}>
+              {editingNoteId === note.noteId ? <div><textarea aria-label="编辑笔记" value={editDraft} onChange={event => setEditDraft(event.target.value)} />
+                {noteConflict && <p>已保存版本：{noteConflict.content}</p>}
+                {noteConflict ? <button disabled={!editDraft.trim()} onClick={() => void changeNote(note, "edit", noteConflict.revision)}>重新提交</button> :
+                  <button disabled={!editDraft.trim()} onClick={() => void changeNote(note, "edit", editBaseRevision ?? note.revision)}>保存修改</button>}
+                <button onClick={() => { setEditingNoteId(null); setEditBaseRevision(null); setNoteConflict(null); setNoteError(""); }}>取消</button></div> :
+                <><span>{note.deleted ? "已删除，可撤销" : note.content}</span>
+                  {!note.deleted && <button onClick={() => { setEditingNoteId(note.noteId); setEditDraft(note.content); setEditBaseRevision(note.revision); setNoteConflict(null); setNoteError(""); }}>编辑</button>}
+                  {!note.deleted && <button onClick={() => void changeNote(note, "delete")}>删除</button>}
+                  {note.canUndo && <button onClick={() => void changeNote(note, "undo")}>撤销</button>}
+
+                </>}
+            </li>)}</ol>}
+        </details>}
+        {view?.source.sourceId && view.readingProgress && <details className="focus-source-notes"><summary>阅读记录 · {progressEntries.filter(entry => !entry.deleted).length}</summary>
+          {progressError && <p role="alert">{progressError}</p>}
+          {progressEntries.length === 0 ? <p>推进或完成本篇后，此处显示已读记录。</p> : <ol>{progressEntries.filter(entry => !entry.deleted).map(entry =>
+            <li key={entry.progress_id}>
+              <small>第 {entry.reading_pass} 轮 · {entry.chunk_id}</small>
+              {editingProgressId === entry.progress_id ? <div>
+                <textarea aria-label="更正阅读记录" value={progressDraft} onChange={event => setProgressDraft(event.target.value)} />
+                {progressConflict && <p>当前版本：{progressConflict.topic ?? progressConflict.fact}</p>}
+                <button disabled={!progressDraft.trim()} onClick={() => void changeProgress(entry, "edit", progressConflict?.revision ?? progressBaseRevision ?? entry.revision)}>{progressConflict ? "重新提交" : "保存更正"}</button>
+                <button onClick={() => { setEditingProgressId(null); setProgressConflict(null); setProgressError(""); }}>取消</button>
+              </div> : <>
+                <span>{entry.deleted ? "已删除" : [entry.fact, entry.topic, entry.user_understanding].filter(Boolean).join(" · ")}</span>
+                {!entry.deleted && <button onClick={() => { setEditingProgressId(entry.progress_id); setProgressDraft(entry.topic ?? entry.fact); setProgressBaseRevision(entry.revision); setProgressConflict(null); setProgressError(""); }}>更正</button>}
+                {!entry.deleted && <button onClick={() => { if (window.confirm("删除这条阅读记录？阅读位置不会改变。")) void changeProgress(entry, "delete"); }}>删除</button>}
+                {!entry.deleted && ["pending", "failed", "interrupted"].includes(entry.status) && host.retryReadingProgress &&
+                  <button onClick={() => { const requestId = createReaderId(); void perform("补记", () => host.retryReadingProgress!(entry.progress_id, requestId)); }}>补记</button>}
+                {!entry.deleted && entry.status === "generating" && <small>整理中…</small>}
+                {!entry.deleted && entry.status === "generating" && host.cancelReadingProgress &&
+                  <button onClick={() => void perform("停止补记", () => host.cancelReadingProgress!(entry.progress_id))}>停止补记</button>}
+                {!entry.deleted && (entry.status === "failed" || entry.status === "interrupted") && <small>生成未完成，已读位置不受影响。</small>}
+              </>}
+            </li>)}</ol>}
+        </details>}
+        </aside>
+    <main className="focus-stream" ref={stream} aria-label="阅读与对话" tabIndex={0} onWheel={() => { if (mist) pauseFollow(); }} onTouchStart={() => { if (mist) pauseFollow(); }} onKeyDown={e => { if (mist && ["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown"].includes(e.key)) pauseFollow(); }} onScroll={() => {
       if (mist) return;
       const el = stream.current!;
       follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
@@ -283,7 +406,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     }}>
       <div className="focus-content">
         {!view && <p role="status">{connection ? "暂时无法连接" : "正在打开…"}</p>}
-        {reviewChunk && <p className="focus-review-banner">正在回看第 {reviewChunk.index} 段 · 正式位置未改变 <button onClick={() => { setReviewChunk(null); setReference(null); }}>返回当前阅读</button></p>}
+        {reviewChunk && <p className="focus-review-banner">正在回看第 {reviewChunk.index} 段 · 正式位置未改变 <button onClick={() => { if (frontier) review(frontier); }}>返回当前阅读</button></p>}
         {view && displayEmpty && <section className="focus-start">
           <span className="focus-start__label" aria-hidden="true">▤</span>
           <h1>{view.readingUnavailable ? view.source.title : view.source.sourceId ? `讨论 ${view.source.title}` : "打开一份材料"}</h1>
@@ -295,10 +418,10 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         {entries.map((e, index) => {
           const message = e.kind === "message" ? view?.conversation.find(m => m.messageId === e.messageId) : null;
           const content = e.kind === "reading" ? <ReadingChunk chunk={e.chunk} onReference={referenceChunk} /> : message ? <ReaderConversation messages={[message]} chunks={chunks} figures={view?.figures} figureSourceId={view?.source.sourceId} /> : null;
-          return <div key={e.kind === "reading" ? chunkKey(e.chunk) : e.messageId} className="focus-output" data-current-output={index === focusedIndex}
+          return <div key={e.kind === "reading" ? ("eventId" in e ? e.eventId : undefined) ?? `${chunkKey(e.chunk)}:${index}` : e.messageId} data-event-id={e.kind === "reading" ? ("eventId" in e ? e.eventId : undefined) ?? `${chunkKey(e.chunk)}:${index}` : e.messageId} className="focus-output" data-current-output={index === focusedIndex}
             style={mist ? { "--depth-opacity": Math.max(.38, 1 - Math.abs(focusedIndex - index) * .18) } as CSSProperties : undefined}>{content}</div>;
         })}
-        {view?.status === "completed" && !reviewChunk && <div className="focus-finished">已完成本篇 <button disabled={!host.rereadReading || blocked} onClick={reread}>从头重读</button><button onClick={() => setPanel("contents")}>查看已读段落</button></div>}
+        {view?.status === "completed" && !reviewChunk && <div className="focus-finished">已完成本篇 <button disabled={!host.clearSource || blocked} onClick={() => { if (view && window.confirm("将清除本篇讨论、笔记和阅读记录，并从第一段重新开始。原文、译文和博客保留。")) { const requestId = createReaderId(); void perform("重新阅读", () => host.clearSource!(view.source.sourceId, requestId)); } }}>重新阅读</button><button onClick={() => setPanel("contents")}>查看已读段落</button></div>}
       </div>
     </main>
     {mist && <nav className="mist-history-rail" aria-label="历史提问">{view?.conversation.filter(m => m.role === "user").map(m => <button key={m.messageId} aria-label={m.content} onClick={() => {
@@ -313,55 +436,17 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         follow.current = true; setNewContent(false); settle();
       }}>{mist ? "查看新内容" : "有新内容 · 回到底部 ↓"}</button>}
       <div className="focus-composer-wrap">
-        {view?.noteFeedback && <p role="status" className="focus-note-feedback">{view.noteFeedback.status === "saved" ? "已记下" : "未保存，可重试"}</p>}
-        {view?.source.sourceId && view.sourceNotes && <details className="focus-source-notes"><summary>笔记 · {view.sourceNotes.filter(note => !note.deleted).length}</summary>
-          {noteError && <p role="alert">{noteError}</p>}
-          {view.sourceNotes.length === 0 ? <p>明确说“记下来”后，笔记会保存在这篇材料下。</p> :
-            <ol>{view.sourceNotes.filter(note => !note.deleted || note.canUndo).map(note => <li key={note.noteId}>
-              {editingNoteId === note.noteId ? <div><textarea aria-label="编辑笔记" value={editDraft} onChange={event => setEditDraft(event.target.value)} />
-                {noteConflict && <p>已保存版本：{noteConflict.content}</p>}
-                {noteConflict ? <button disabled={!editDraft.trim()} onClick={() => void changeNote(note, "edit", noteConflict.revision)}>重新提交</button> :
-                  <button disabled={!editDraft.trim()} onClick={() => void changeNote(note, "edit", editBaseRevision ?? note.revision)}>保存修改</button>}
-                <button onClick={() => { setEditingNoteId(null); setEditBaseRevision(null); setNoteConflict(null); setNoteError(""); }}>取消</button></div> :
-                <><span>{note.deleted ? "已删除，可撤销" : note.content}</span>
-                  {!note.deleted && <button onClick={() => { setEditingNoteId(note.noteId); setEditDraft(note.content); setEditBaseRevision(note.revision); setNoteConflict(null); setNoteError(""); }}>编辑</button>}
-                  {note.canUndo && <button onClick={() => void changeNote(note, "undo")}>撤销</button>}
+        {recoverDraft && <details><summary>恢复草稿</summary>{Object.entries(drafts.current).filter(([, d]) => d.text || d.note || d.progress).map(([key, d]) => <div key={key}><p>{d.reference?.sourceId ?? key.split(":")[0]}：{d.text || d.note || d.progress}</p><button disabled={key.split(":")[0] !== view?.source.sourceId} onClick={() => { setDraft(d.text); setReference(d.reference); setEditingNoteId(d.noteId); setEditDraft(d.note); setEditBaseRevision(d.noteRevision); setEditingProgressId(d.progressId); setProgressDraft(d.progress); setProgressBaseRevision(d.progressRevision); setRecoverDraft(false); }}>恢复草稿</button></div>)}</details>}
 
-                </>}
-            </li>)}</ol>}
-        </details>}
-        {view?.source.sourceId && view.readingProgress && <details className="focus-source-notes"><summary>阅读记录 · {progressEntries.filter(entry => !entry.deleted).length}</summary>
-          {progressError && <p role="alert">{progressError}</p>}
-          {progressEntries.length === 0 ? <p>推进或完成本篇后，此处显示已读记录。</p> : <ol>{progressEntries.map(entry =>
-            <li key={entry.progress_id}>
-              <small>第 {entry.reading_pass} 轮 · {entry.chunk_id}</small>
-              {editingProgressId === entry.progress_id ? <div>
-                <textarea aria-label="更正阅读记录" value={progressDraft} onChange={event => setProgressDraft(event.target.value)} />
-                {progressConflict && <p>当前版本：{progressConflict.topic ?? progressConflict.fact}</p>}
-                <button disabled={!progressDraft.trim()} onClick={() => void changeProgress(entry, "edit", progressConflict?.revision ?? progressBaseRevision ?? entry.revision)}>{progressConflict ? "重新提交" : "保存更正"}</button>
-                <button onClick={() => { setEditingProgressId(null); setProgressConflict(null); setProgressError(""); }}>取消</button>
-              </div> : <>
-                <span>{entry.deleted ? "已删除" : [entry.fact, entry.topic, entry.user_understanding].filter(Boolean).join(" · ")}</span>
-                {!entry.deleted && <button onClick={() => { setEditingProgressId(entry.progress_id); setProgressDraft(entry.topic ?? entry.fact); setProgressBaseRevision(entry.revision); setProgressConflict(null); setProgressError(""); }}>更正</button>}
-                {!entry.deleted && <button onClick={() => void changeProgress(entry, "delete")}>删除</button>}
-                {!entry.deleted && ["pending", "failed", "interrupted"].includes(entry.status) && host.retryReadingProgress &&
-                  <button onClick={() => void perform("补记", () => host.retryReadingProgress!(entry.progress_id, createReaderId()))}>补记</button>}
-                {!entry.deleted && entry.status === "generating" && <small>整理中…</small>}
-                {!entry.deleted && entry.status === "generating" && host.cancelReadingProgress &&
-                  <button onClick={() => void perform("停止补记", () => host.cancelReadingProgress!(entry.progress_id))}>停止补记</button>}
-                {!entry.deleted && (entry.status === "failed" || entry.status === "interrupted") && <small>生成未完成，已读位置不受影响。</small>}
-              </>}
-            </li>)}</ol>}
-        </details>}
         {mist && <button className="mist-composer-toggle" aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>{collapsed ? "展开" : "收起"}</button>}
         {connection && <div className="focus-error" role="alert">{connection}<button onClick={() => void reconnect()}>重新连接</button></div>}
         {failure && <div className="focus-error" role="alert">{failure.message}<button disabled={!!operation} onClick={failure.retry}>{failure.label}</button><button aria-label="关闭错误" onClick={() => setFailure(null)}>×</button></div>}
         {operation && !active && <p className="focus-operation" role="status">{operation === "下一段" ? "正在打开下一段…" : `${operation}中…`}</p>}
-        {agent && <AgentControls agent={agent} onStop={() => void perform("停止", () => host.stop!())} onAnswer={async input => {
+        {agent && active && <AgentControls agent={agent} onStop={() => void perform("停止", () => host.stop!())} onAnswer={async input => {
           const result = await host.approve?.(input);
           if (result?.ok) { accept(result.value); return true; } return false;
         }} />}
-        {reference && <div className="focus-reference"><span>引用第 {reference.index} 段 · {reference.sectionPath.at(-1)}</span><button aria-label="取消引用" onClick={() => setReference(null)}>×</button></div>}
+        {reference && <div className="focus-reference"><span>引用第 {reference.index} 段 · {reference.sectionPath.at(-1)}</span><button onClick={() => setReference(displayed)}>改为当前段落</button></div>}
         {uploads.length > 0 && <ul className="focus-attachments">{uploads.map(u => <li key={u.id}>
           <span title={u.file.name}>{u.file.name}</span><small>{u.state === "uploading" ? "上传中" : u.state === "failed" ? "上传失败" : "已上传"}</small>
           {u.state === "failed" && <button title={u.error} onClick={() => void upload(u.file, u.id)}>重试上传</button>}
@@ -370,7 +455,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         <form hidden={mist && collapsed} className="focus-composer" onSubmit={e => { e.preventDefault(); send(); }}>
           <label className="focus-sr-only" htmlFor="focus-question">输入问题或阅读需求</label>
           <textarea id="focus-question" ref={composer} rows={mist ? 1 : 2} disabled={blocked} value={draft} placeholder="问问这段原文…"
-            onChange={e => setDraft(e.target.value)} onKeyDown={e => {
+            onChange={e => { if (!draft && e.target.value && !reference) setReference(displayed); setDraft(e.target.value); }} onKeyDown={e => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); }
             }} />
           <div className="focus-composer__actions">
@@ -385,7 +470,13 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         {!mist && current && !reviewChunk && <div className="focus-next"><button disabled={blocked} onClick={current.index === current.total ? finish : next}>{current.index === current.total ? "完成本篇" : operation === "下一段" ? "正在打开…" : "下一段 →"}</button></div>}
       </div>
     </div>
-    {mist && <footer className="mist-reading-actions"><span title={view?.source.title}>{view?.source.title || "阅读工作台"}</span><button disabled={!host.newSession || !view || blocked} onClick={reset}>新会话</button>{view?.sessionFresh && host.resumeReading && <button disabled={blocked} onClick={resume}>恢复</button>}{reviewChunk ? <button onClick={() => { setReviewChunk(null); setReference(null); }}>返回当前阅读</button> : current ? <button className="focus-reader__continue" disabled={blocked} onClick={() => { follow.current = true; current.index === current.total ? finish() : next(); }}>{current.index === current.total ? "完成本篇" : operation === "下一段" ? "打开中" : "继续"}</button> : null}</footer>}
+    {mist && <footer className="mist-reading-actions"><span title={view?.source.title}>{view?.source.title || "阅读工作台"}</span><button disabled={!host.newSession || !view || blocked} onClick={reset}>新会话</button>
+      <button className="focus-reader__continue" disabled={blocked || (!frontier && !reviewChunk) || (view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total))}
+        onClick={() => { follow.current = true; view?.sessionFresh ? (view.readingStarted && frontier?.index === frontier?.total ? finishFresh() : freshContinue()) : displayed?.index === displayed?.total && !reviewChunk ? finish() : next(); }}>
+        {view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total) ? "已读完" : (view?.sessionFresh && view.readingStarted && frontier?.index === frontier?.total) || (!view?.sessionFresh && displayed?.index === displayed?.total && !reviewChunk) ? "完成本篇" : operation === "下一段" ? "打开中…" : "继续"}</button>
+      {blocked && <span>{active ? "请等待回答完成，或停止此问答" : `${operation}中`}</span>}
+    </footer>}
+
     <dialog ref={dialog} className="focus-dialog" onCancel={() => setPanel(null)} onClick={e => { if (e.target === dialog.current) setPanel(null); }}>
       <header><h2>{panel === "materials" ? "材料" : panel === "contents" ? "已加载段落" : "阅读设置"}</h2><button aria-label="关闭" onClick={() => setPanel(null)}>×</button></header>
       {panel === "materials" && <>

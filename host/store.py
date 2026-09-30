@@ -49,14 +49,14 @@ class Store:
     def save(self):
         self.put('session', self.state)
 
-    def clear_discussions(self, source_id, request_id):
+    def clear_discussions(self, source_id, request_id, *, reset_reading=False):
         from .source_clear import scrub
         with self.lock, self.db:
             self.db.execute('PRAGMA secure_delete=ON')
-            current = scrub(self.state, source_id)
+            current = scrub(self.state, source_id, reset_reading=reset_reading)
             for key, raw in self.db.execute("SELECT key, value FROM state WHERE key LIKE 'session:%' OR key LIKE 'execution:%'").fetchall():
                 self.db.execute('UPDATE state SET value=? WHERE key=?',
-                    (json.dumps(scrub(json.loads(raw), source_id), ensure_ascii=False), key))
+                    (json.dumps(scrub(json.loads(raw), source_id, reset_reading=reset_reading), ensure_ascii=False), key))
             self.db.execute('UPDATE state SET value=? WHERE key=?', (json.dumps(current, ensure_ascii=False), 'session'))
             operations = self.get('sourceClears')
             operations[request_id]['status'] = 'completed'

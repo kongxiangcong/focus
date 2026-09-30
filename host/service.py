@@ -108,8 +108,11 @@ class HostService:
             raise BackendError(f'未知 Agent 后端 {backend!r}；可选：{", ".join(sorted(BACKENDS))}')
         if not self.state['timeline'] and self.state['displayReading']:
             window = self.core.window()
-            for c in [*window['history'], *([window['current']] if window['current'] else [])]:
-                self.state['timeline'].append({'kind': 'reading', 'receipt': {k: c[k] for k in ('sourceId', 'planId', 'chunkId')}})
+            selection = json.loads((self.workspace / 'state.json').read_text()).get('sources', {}).get(window['source']['sourceId'], {}) if (self.workspace / 'state.json').is_file() else {}
+            for c in ([*window['history'], *([window['current']] if window['current'] else [])] if selection.get('reading_started') else []):
+                self._append_reading({k: c[k] for k in ('sourceId', 'planId', 'chunkId')})
+            if selection.get('reading_started') and window['current']:
+                self.state['readingMarker'] = [{k: window['current'][k] for k in ('sourceId', 'planId', 'chunkId')}, window.get('readingRevision'), self.state['sessionId']]
             self.state['timeline'].extend({'kind': 'message', 'messageId': m['messageId']} for m in self.state['conversation'])
             self.store.save()
 
@@ -134,17 +137,27 @@ class HostService:
     def changed(self):
         if self.state['displayReading']:
             current = self._safe_state()
-            if current.get('chunk_id'):
+            selected = json.loads((self.workspace / 'state.json').read_text()).get('sources', {}).get(current.get('source_id'), {}) if (self.workspace / 'state.json').is_file() else {}
+            if current.get('chunk_id') and selected.get('reading_started'):
                 receipt = {'sourceId': current['source_id'], 'planId': current['plan_id'], 'chunkId': current['chunk_id']}
-                if not any(e.get('receipt') == receipt for e in self.state['timeline']):
-                    self.state['timeline'].append({'kind': 'reading', 'receipt': receipt})
+                marker = [receipt, self.core.window().get('readingRevision'), self.state['sessionId']]
+                if self.state.get('readingMarker') != marker:
+                    self._append_reading(receipt)
+                    self.state['readingMarker'] = marker
         self.store.save()
         self.generation += 1
         self.condition.notify_all()
 
+    def _append_reading(self, receipt):
+        source_id = receipt['sourceId']
+        self.state['timeline'].append({'kind': 'reading', 'receipt': receipt,
+            'eventId': uuid.uuid4().hex, 'sessionId': self.state['sessionId'],
+            'discussionId': discussions.select(self.state, source_id)})
+
     def snapshot(self):
         with self.lock:
             self.source_clear.recover()
+            self.recover_source_edits()
             self.store.expire_logs()
             self._reconcile_deleted_sources()
             window = self.core.window()
@@ -161,7 +174,16 @@ class HostService:
             window['revision'] = self.generation
             window['sessionId'] = self.state['sessionId']
             window['configuration'] = self.configuration_status()
-            window['sessionFresh'] = not self.state['displayReading'] and not self.state['conversation']
+            window['sessionFresh'] = not self.state['displayReading']
+            window['navigationCurrent'] = window['current']
+            selected_state = json.loads((self.workspace / 'state.json').read_text()) if (self.workspace / 'state.json').is_file() else {}
+            window['readingStarted'] = bool(selected_state.get('sources', {}).get(note_source, {}).get('reading_started'))
+            window['resetVersion'] = sum(1 for source in selected_state.get('source_resets', {}).values() if source == note_source)
+            if not self.state['displayReading'] or (window['navigationCurrent'] and not window['readingStarted']):
+                window['sessionFresh'] = True
+                window['current'] = None
+                if window['status'] != 'completed':
+                    window['status'] = 'empty'
             projected = {(c['sourceId'], c['planId'], c['chunkId']): c for c in [*window['history'], *([window['current']] if window['current'] else [])]}
             window['timeline'] = []
             window['unavailableReferences'] = []
@@ -174,7 +196,7 @@ class HostService:
                     except (ValueError, WorkspaceError):
                         window['unavailableReferences'].append({**receipt, 'reason': '原版本引用不可定位'})
                         continue
-                    window['timeline'].append({'kind': 'reading', 'chunk': chunk})
+                    window['timeline'].append({**entry, 'chunk': chunk})
                 else:
                     window['timeline'].append(entry)
             messages = self.state['conversation']
@@ -188,7 +210,8 @@ class HostService:
                 visible_ids = {m['messageId'] for m in messages}
                 window['timeline'] = [e for e in window['timeline']
                                       if (e['kind'] == 'message' and e['messageId'] in visible_ids)
-                                      or (e['kind'] == 'reading' and e['chunk']['sourceId'] == note_source)]
+                                      or (e['kind'] == 'reading' and self.state['displayReading'] and e['chunk']['sourceId'] == note_source
+                                          and (not e.get('discussionId') or e['discussionId'] == discussion_id))]
             window['conversation'] = json.loads(json.dumps(messages))
             window['sourceNotes'] = self.source_notes.list(note_source, include_deleted=True) if note_source else []
             window['readingProgress'] = self.progress_core.list(note_source) if note_source else []
@@ -211,9 +234,35 @@ class HostService:
                                'backends': [{'id': name, 'label': {'codex': 'Codex', 'deepseek': 'DeepSeek'}[name],
                                              'unavailableReason': getattr(adapter, 'unavailable_reason', None)}
                                             for name, adapter in BACKENDS.items()]}
-            if discussion_source and self.state['run'] and self.state['run'].get('sourceId') != discussion_source:
-                window['agent']['run'] = None
+            window['workItems'] = self.work_items(window)
             return json.loads(json.dumps(window))
+
+    def work_items(self, window):
+        """Project durable business attempts; never infer work from the last log line."""
+        items = []
+        titles = {s['sourceId']: s.get('shortName') or s['title'] for s in SourceLibrary(self.workspace).overview()}
+        def add(kind, target, status, label, error=None):
+            items.append({'kind': kind, 'targetId': target, 'status': status,
+                          'label': label, 'error': error})
+        run = self.state.get('run')
+        if run and run['status'] in ('running', 'approval', 'stopping', 'failed', 'interrupted'):
+            add('chat', run['runId'], run['status'], '等待你的确认' if run['status'] == 'approval' else '正在回答问题' if run['status'] == 'running' else '问答任务', run.get('error'))
+        for source_id, preparation in window['preparations'].items():
+            if preparation['status'] in ('running', 'failed', 'interrupted', 'cancelled', 'bundle_changed', 'commit_conflict'):
+                add('preparation', source_id, preparation['status'], '准备阅读 · ' + titles.get(source_id, source_id), preparation.get('error'))
+        for source_id, blog in window['blog'].items():
+            if blog.get('runStatus') in ('running', 'failed', 'interrupted', 'cancelled'):
+                add('blog', source_id, blog['runStatus'], '生成博客 · ' + titles.get(source_id, source_id), (blog.get('error') or {}).get('message'))
+        # Inbox/Core files are atomic. Avoid taking the batch lock under the Host lock.
+        for item in self.ingestion.list_inbox():
+            if not item.get('deleted') and item['status'] not in ('completed', 'awaiting_confirmation'):
+                add('ingestion', item['item_id'], item['status'], '正在解析 ' + item['file_name'] if item['status'] in ('processing', 'confirmed') else '解析待处理 · ' + item['file_name'], (item.get('error') or {}).get('message'))
+        state_path = self.workspace / 'state.json'
+        state = json.loads(state_path.read_text()) if state_path.is_file() else {}
+        for entry in state.get('reading_progress', {}).values():
+            if not entry['deleted'] and entry['status'] in ('pending', 'generating', 'failed', 'interrupted'):
+                add('progress', entry['progress_id'], entry['status'], '整理阅读记录 · ' + titles.get(entry['source_id'], entry['source_id']), entry.get('error'))
+        return items
 
     def _run_reading_preparation(self, source_id, run_id, attempt):
         def progress_changed():
@@ -306,6 +355,7 @@ class HostService:
             self.source_notes.bundle_version(source_id)
             discussions.select(self.state, source_id, discussion_id=discussion_id)
             self.state['discussionSourceId'] = source_id
+            self.state['displayReading'] = True
             self.changed()
             return self.snapshot()
 
@@ -330,6 +380,52 @@ class HostService:
         from .core_bridge import SourceLibrary
         with self.lock:
             return SourceLibrary(self.workspace).topics()
+
+    def recover_source_edits(self):
+        operations = self.store.get('sourceEdits') or {}
+        library = SourceLibrary(self.workspace)
+        changed = False
+        for operation in operations.values():
+            if operation['status'] != 'pending':
+                continue
+            source_id = operation['sourceId']
+            library.rename_source(source_id, operation['title'])
+            for topic in library.topics():
+                wanted = topic['topicId'] in operation['topicIds']
+                attached = source_id in topic['sourceIds']
+                if wanted and not attached:
+                    library.attach(source_id, existing_topic_id=topic['topicId'])
+                elif attached and not wanted:
+                    library.detach(topic['topicId'], source_id)
+            operation['status'] = 'completed'
+            changed = True
+        if changed:
+            self.store.put('sourceEdits', operations)
+
+    def save_source_details(self, source_id, payload):
+        with self.lock:
+            self._library_management_idle()
+            request_id = payload.get('requestId')
+            if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9-]{8,80}', request_id):
+                raise ValueError('保存需要唯一请求身份。')
+            title, ids = payload.get('title'), payload.get('topicIds')
+            library = SourceLibrary(self.workspace)
+            library.get(source_id)
+            if not isinstance(title, str) or not title.strip() or len(title) > 1000:
+                raise ValueError('来源标题无效。')
+            known = {t['topicId'] for t in library.topics()}
+            if not isinstance(ids, list) or any(i not in known for i in ids):
+                raise ValueError('所属专题已改变，请刷新后保存。')
+            operations = self.store.get('sourceEdits') or {}
+            binding = {'sourceId': source_id, 'title': title.strip(), 'topicIds': sorted(set(ids))}
+            prior = operations.get(request_id)
+            if prior and any(prior[k] != v for k, v in binding.items()):
+                raise ValueError('请求身份已用于另一项修改。')
+            operations.setdefault(request_id, {**binding, 'status': 'pending'})
+            self.store.put('sourceEdits', operations)
+            self.recover_source_edits()
+            self.changed()
+            return self.snapshot()
 
     def library_manage(self, operation, *, topic_id=None, source_id=None, title=None, source_ids=None):
         with self.lock:
@@ -362,7 +458,8 @@ class HostService:
 
     def _library_management_idle(self):
         self._library_idle()
-        if any(w.is_alive() for w in (*self.blog_workers.values(), *self.batch_workers.values(), *self.reading_workers.values(), *self.progress_workers.values())):
+        self.recover_source_edits()
+        if any(w.is_alive() for w in (*self.blog_workers.values(), *self.batch_workers.values(), *self.reading_workers.values(), *self.progress_workers.values(), *self.ingestion_workers.values())):
             raise WorkspaceError('library_busy', '请等待当前任务结束，或先停止任务后再管理材料。')
 
     def deletion_impact(self, source_id):
@@ -422,13 +519,15 @@ class HostService:
                 batch['executing'] = bool(worker and worker.is_alive())
         return batches
 
-    def batch_start(self, item_ids, *, request_id):
+    def batch_start(self, item_ids, *, request_id, generate_blog=True):
+        if type(generate_blog) is not bool:
+            raise ValueError('生成博客选项无效。')
         app = self._batch_app()
         with self._batch_admission(), app.lock:
             with self.lock:
                 if isinstance(item_ids, list) and any(self.ingestion_workers.get(i) and self.ingestion_workers[i].is_alive() for i in item_ids if isinstance(i, str)):
                     raise WorkspaceError('batch_item_busy', '材料正在处理中，请等待原任务结束。')
-            batch = app.create(item_ids, request_id=request_id)
+            batch = app.create(item_ids, request_id=request_id, generate_blog=generate_blog)
             return self._launch_batch(app, batch)
 
     def _cancel_batch_item(self, item_id):
@@ -708,15 +807,27 @@ class HostService:
                 raise ValueError('Continue 不保存旧 Chunk Notes；请使用 Source Notes。')
             receipt = payload.get('receipt') or {}
             newly_committed = self.reading_request_result(payload.get('requestId')) is None
-            result = self.reading_app.continue_reading(
+            selected = json.loads((self.workspace / 'state.json').read_text())['sources'].get(receipt.get('sourceId'), {})
+            if not selected.get('reading_started'):
+                state = json.loads((self.workspace / 'state.json').read_text())
+                if newly_committed and (state.get('current_source_id') != receipt.get('sourceId') or selected.get('current_plan_id') != receipt.get('planId') or selected.get('current_chunk_id') != receipt.get('chunkId') or state.get('reading_revision', 0) != receipt.get('readingRevision')):
+                    raise WorkspaceError('cursor_changed', '阅读位置已改变，请刷新后重试。')
+                result = self.reading_app.core.open_ready(receipt.get('sourceId'), request_id=payload.get('requestId'))
+            else:
+                result = self.reading_app.continue_reading(
                 source_id=receipt.get('sourceId'), plan_id=receipt.get('planId'),
                 chunk_id=receipt.get('chunkId'), reading_revision=receipt.get('readingRevision'),
                 request_id=payload.get('requestId'))
             self.state['run'] = None
             self.state['displayReading'] = True
             self.changed()
+            if result['operation'] == 'browse':
+                self._append_reading({'sourceId': result['source_id'], 'planId': result['plan_id'], 'chunkId': result['chunk_id']})
+                self.changed()
             window = {**self.snapshot(), 'readingOperation': result}
-            if newly_committed:
+            if result['operation'] == 'browse':
+                window['reviewChunk'] = self.core.reference({'sourceId': result['source_id'], 'planId': result['plan_id'], 'chunkId': result['chunk_id']})
+            if newly_committed and result.get('progress_id'):
                 self._start_progress(result['progress_id'])
             return window
 
@@ -725,6 +836,7 @@ class HostService:
             if payload.get('sessionId', self.state['sessionId']) != self.state['sessionId']:
                 raise ValueError('会话已更新，请重新连接。')
             self._library_idle()
+            self.state['displayReading'] = True
             receipt = payload.get('receipt') or {}
             newly_committed = self.reading_request_result(payload.get('requestId')) is None
             result = self.reading_app.finish_reading(
@@ -743,7 +855,9 @@ class HostService:
             return
         scoped = [dict(m) for m in self.state['conversation']
                   if m.get('sourceId') == entry['source_id'] and m.get('chunkId') == entry['chunk_id']
-                  and m.get('readingPass') == entry['reading_pass']]
+                  and m.get('readingPass') == entry['reading_pass']
+                  and (m.get('reference') or {}).get('planId') == entry['plan_id']
+                  and m.get('bundle', entry['bundle']) == entry['bundle']]
         worker = threading.Thread(target=self._run_progress,
             args=(progress_id, request_id or 'initial-' + progress_id, scoped), daemon=True)
         self.progress_workers[progress_id] = worker
@@ -809,9 +923,26 @@ class HostService:
             self.changed()
             return {**self.snapshot(), 'readingOperation': result}
 
-    def review_chunk(self, source_id, plan_id, chunk_id):
+    def review_chunk(self, source_id, plan_id, chunk_id, request_id=None):
         with self.lock:
+            if request_id is not None:
+                if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9-]{8,80}', request_id):
+                    raise ValueError('回看需要唯一请求身份。')
+                views = self.state.setdefault('readingViews', {})
+                binding = [source_id, plan_id, chunk_id]
+                if request_id in views:
+                    if views[request_id] != binding:
+                        raise ValueError('回看请求身份已用于其他段落。')
+                    return {**self.snapshot(), 'reviewChunk': self.core.reference({'sourceId': source_id, 'planId': plan_id, 'chunkId': chunk_id})}
             reviewed = self.reading_app.review(source_id=source_id, plan_id=plan_id, chunk_id=chunk_id)
+            if request_id is not None:
+                views[request_id] = binding
+            self.state['displayReading'] = True
+            current = self.core.window()
+            if current['current']:
+                self.state['readingMarker'] = [{k: current['current'][k] for k in ('sourceId', 'planId', 'chunkId')}, current.get('readingRevision'), self.state['sessionId']]
+            self._append_reading({'sourceId': source_id, 'planId': plan_id, 'chunkId': chunk_id})
+            self.changed()
             return {**self.snapshot(), 'reviewChunk': self.core.project_chunk(reviewed)}
 
     def reading_request_result(self, request_id):
@@ -945,7 +1076,7 @@ class HostService:
                                               'updatedAt': int(time.time() * 1000)}}
             self.state['requests'][request_id] = {'discussion': discussion} if discussion else run_id
             self.state['conversation'].append({'messageId': uuid.uuid4().hex, 'chunkId': chunk_id, 'role': 'user',
-                                               'reference': receipt, 'sourceId': source_id,
+                                               'reference': receipt, 'sourceId': source_id, 'bundle': discussion.get('bundle') if discussion else None,
                                                'discussionId': discussion.get('discussionId') if discussion else None,
                                                'readingPass': discussion.get('readingPass') if discussion else None,
                                                'content': display_content + ''.join('\n附件：' + f['name'] for f in attachments)})
@@ -1331,7 +1462,7 @@ class HostService:
         if not message:
             bound_receipt = (self.active_discussion or {}).get('receipt')
             message = {'messageId': item_id, 'chunkId': (bound_receipt or {}).get('chunkId') or '',
-                       'reference': bound_receipt,
+                       'reference': bound_receipt, 'bundle': (self.active_discussion or {}).get('bundle'),
                        'sourceId': self.active_discussion['sourceId'] if self.active_discussion else None,
                        'discussionId': self.active_discussion.get('discussionId') if self.active_discussion else None,
                        'readingPass': self.active_discussion.get('readingPass') if self.active_discussion else None,
@@ -1453,7 +1584,7 @@ class HostService:
                 if source_id:
                     discussions.select(self.state, source_id, new=True)
                     self.state.update(sessionId=uuid.uuid4().hex, threadId=None, resumeBackend=None,
-                                      run=None, discussionSourceId=source_id)
+                                      run=None, discussionSourceId=source_id, displayReading=False, readingMarker=None)
                 else:
                     self._archive_session()
                 self.changed()

@@ -39,7 +39,7 @@ class BatchApplication:
     def _read(self):
         return _read_document(self.path, {})
 
-    def create(self, item_ids, *, request_id):
+    def create(self, item_ids, *, request_id, generate_blog=True):
         if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 100:
             raise WorkspaceError('request_id_invalid', 'A stable batch request identity is required')
         if not isinstance(item_ids, list) or not item_ids or not all(isinstance(i, str) for i in item_ids):
@@ -49,7 +49,7 @@ class BatchApplication:
             batches = self._read()
             for batch in batches.values():
                 if batch['requestId'] == request_id:
-                    if batch['itemIds'] != item_ids:
+                    if batch['itemIds'] != item_ids or batch.get('generateBlog', True) != generate_blog:
                         raise WorkspaceError('request_conflict', 'The confirmed batch is immutable')
                     return self._view(batch)
                 if set(batch['itemIds']) & set(item_ids) and batch['status'] in ('confirmed', 'running', 'paused'):
@@ -67,13 +67,13 @@ class BatchApplication:
                       for t in SourceLibrary(self.processing.ingestion.workspace).topics()}
             targets = {topics.get(i.get('topic_id')) if i.get('topic_id')
                        else (i.get('topic_title') or '').strip().casefold() for i in items}
-            if len(targets) != 1 or not next(iter(targets)):
+            if len(targets) != 1:
                 raise WorkspaceError('batch_topic_invalid', '所有材料必须属于同一个有效专题。')
-            confirmed = [self.processing.confirm(i, request_id=request_id + ':' + str(n))
+            confirmed = [self.processing.confirm(i, request_id=request_id + ':' + str(n), generate_blog=generate_blog)
                          for n, i in enumerate(item_ids)]
             batch_id = uuid.uuid4().hex
             batch = {'batchId': batch_id, 'requestId': request_id, 'itemIds': item_ids,
-                     'topicId': confirmed[0]['topic_id'], 'status': 'confirmed',
+                     'topicId': confirmed[0]['topic_id'], 'generateBlog': generate_blog, 'status': 'confirmed',
                      'cursor': 0, 'activeItemId': None, 'error': None, 'itemErrors': {},
                      'workIds': item_ids, 'excluded': [], 'requests': {}, 'executionId': request_id, 'resuming': False, 'resubmission': None}
             batches[batch_id] = batch
@@ -105,7 +105,7 @@ class BatchApplication:
                 status = 'queued'
             elif item['status'] == 'cancelled' or (blog or {}).get('runStatus') == 'cancelled':
                 status = 'cancelled'
-            elif item['status'] == 'completed' and (blog or {}).get('runStatus') == 'completed':
+            elif item['status'] == 'completed' and ((blog or {}).get('runStatus') == 'completed' or not self.processing.wants_blog(item_id)):
                 status = 'completed'
             else:
                 status = 'partial' if item.get('source_id') else 'failed'

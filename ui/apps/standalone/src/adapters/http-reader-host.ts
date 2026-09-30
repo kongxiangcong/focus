@@ -211,8 +211,8 @@ export class HttpReaderHost implements ReaderHost {
     }
   }
 
-  async startBatch(itemIds: readonly string[], requestId: string): Promise<ReaderHostResult<ProcessingBatch>> {
-    return this.batchRequest('/library/batches', { itemIds, requestId });
+  async startBatch(itemIds: readonly string[], requestId: string, generateBlog = true): Promise<ReaderHostResult<ProcessingBatch>> {
+    return this.batchRequest('/library/batches', { itemIds, requestId, generateBlog });
   }
 
   controlBatch(batchId: string, action: Parameters<NonNullable<ReaderHost['controlBatch']>>[1], requestId: string, itemId?: string, riskChoiceId?: string): Promise<ReaderHostResult<ProcessingBatch>> {
@@ -338,14 +338,14 @@ export class HttpReaderHost implements ReaderHost {
   deleteSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}`, { method: "DELETE" });
   }
-  replanSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
-    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/replan`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: createReaderId() }) });
+  replanSource(sourceId: string, requestId = createReaderId()): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/replan`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });
   }
   rereadSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/reread`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   }
-  openSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
-    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/open`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: createReaderId() }) });
+  openSource(sourceId: string, requestId = createReaderId()): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/open`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });
   }
   activateReadingCandidate(sourceId: string, planId: string, readingRevision: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/activate`, { method: "POST",
@@ -357,9 +357,9 @@ export class HttpReaderHost implements ReaderHost {
       { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });
   }
 
-  cancelPreparation(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
+  cancelPreparation(sourceId: string, requestId = createReaderId()): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/preparation/cancel`,
-      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId: createReaderId() }) });
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });
   }
 
   selectDiscussionSource(sourceId: string, discussionId?: string): Promise<ReaderHostResult<ReadingWindow>> {
@@ -427,9 +427,8 @@ export class HttpReaderHost implements ReaderHost {
       body: JSON.stringify({ expectedRevision, requestId, content }) });
   }
 
-  reviewChunk(sourceId: string, planId: string, chunkId: string): Promise<ReaderHostResult<ReadingWindow>> {
-    return this.request(`/reader/review/${encodeURIComponent(sourceId)}/${encodeURIComponent(planId)}/${encodeURIComponent(chunkId)}`,
-      { method: "GET" });
+  reviewChunk(sourceId: string, planId: string, chunkId: string, requestId = createReaderId()): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request('/reader/review', { method: 'POST', body: JSON.stringify({ sourceId, planId, chunkId, requestId }) });
   }
 
   async readingRequestResult(requestId: string): Promise<ReaderHostResult<ReadingWindow["readingOperation"]>> {
@@ -464,9 +463,12 @@ export class HttpReaderHost implements ReaderHost {
       body: JSON.stringify({ backend, sessionId }) });
   }
 
+  saveSourceDetails(sourceId: string, title: string, topicIds: readonly string[], requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/manage`, { method: "POST", body: JSON.stringify({ title, topicIds, requestId }) });
+  }
   clearSource(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/clear`, {
-      method: "POST", body: JSON.stringify({ requestId, confirmed: true }),
+      method: "POST", body: JSON.stringify({ requestId, confirmed: true, resetReading: true }),
     });
   }
 

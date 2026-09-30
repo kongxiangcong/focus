@@ -167,6 +167,8 @@ class ProgressApplication:
             scoped = [m for m in discussion if m.get('sourceId') == entry['source_id']
                       and m.get('chunkId') == entry['chunk_id']
                       and m.get('readingPass') == entry['reading_pass']
+                      and (m.get('reference') or {}).get('planId', m.get('planId')) == entry['plan_id']
+                      and m.get('bundle', entry['bundle']) == entry['bundle']
                       and m.get('role') in ('user', 'assistant') and isinstance(m.get('content'), str)]
             # A user turn without an answer is not a completed discussion.
             if not any(m['role'] == 'assistant' and m['content'].strip() for m in scoped):

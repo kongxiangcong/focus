@@ -100,7 +100,7 @@ _Avoid_: Learning progress, understanding state, mastery state
 _Avoid_: Lock, revision, second state authority
 
 **Continue Reading**:
-读者明确要求向后阅读时，将 Reading Cursor 推进一个 Chunk 的唯一操作。
+读者明确要求向后阅读时打开所查看 Chunk 的下一段。在已读范围内仅追加回看事件；到达正式前沿后才推进 Reading Cursor 并生成一条 Reading Progress Entry。新会话从持久前沿继续，未开始阅读时首次继续打开第一段。
 _Avoid_: Bare continue, confirmed, understood, mastered, passed
 
 **Topic Reading**:
@@ -122,6 +122,15 @@ _Avoid_: Backend-specific chat, native Runtime Session, Reading Note, reading ch
 **Clear Source Discussion and Notes**:
 用户确认后清除一份 Reading Source 的全部 FOCUS Discussions、派生讨论摘要和 Reading Notes，并使关联运行上下文失效。它保留 Reading Plan、Reading Cursor、Blog Output 和 Reading Progress Entries，不等于删除来源。
 _Avoid_: Delete Source, reset reading progress, clear one Backend chat
+
+**Reset Source Reading（重新阅读）**:
+用户明确确认后，清除目标 Source 的讨论、派生摘要、显式笔记及恢复副本、全部阅读记录及其修改请求副本；将所选 Plan 的 Cursor 初始化到第一段但标记未开始。原件、Parser Bundle、Plan、译文、Blog、Topic 和其他 Source 保留。使用持久清除日志向前恢复；活动写者必须停止并等待，或明确阻止重置。知识库与阅读完成页均使用此操作。
+
+**Fresh Reading Session（新会话）**:
+仅清空当前显示，创建新的讨论身份；资产、已读前沿和旧讨论事件保留。清屏跨刷新持久化，第一次继续从正式前沿打开下一段；回看不改变此起点。
+
+**Reading Timeline**:
+按出现次序保存阅读窗口、用户问题和回复；每次阅读出现具有独立事件身份，并绑定 Source、Plan 和 Discussion。问题草稿保留起草时的引用，只有用户明确更改引用才跟随新段落。
 
 **Reading Progress Entry**:
 每个 Reading Chunk 推进或完成本篇时系统简短保存的阅读进度记录，记载读过的段落、实际讨论的话题及用户明确表达的理解；与主动 Reading Note 分开，不表示系统对能力的评价，也不决定阅读位置。
@@ -148,7 +157,7 @@ _Avoid_: Public fixture, reusable project asset, user profile
 _Avoid_: Understanding score, per-Topic progress copy
 
 **Reading Review**:
-对已读 Reading Chunk 的只读回看，可围绕所查看内容提问，但不改变 Reading Cursor 或完成状态，也不授权从该历史位置继续推进。
+对已读 Reading Chunk 的回看，可围绕所查看内容提问或继续打开下一段；在已读范围内不改变 Reading Cursor、不重复补记，也不改变完成状态。最后一段已完成时继续明确禁用。
 _Avoid_: Second cursor, unread preview, reread from start
 
 **Reading Preparation**:

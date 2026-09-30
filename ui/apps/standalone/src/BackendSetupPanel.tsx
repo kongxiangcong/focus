@@ -7,8 +7,8 @@ const models = {
 } as const;
 type Backend = keyof typeof models;
 
-export function BackendSetupPanel({ host, configuration, onSaved }: {
-  host: ReaderHost; configuration?: BackendConfigurationState; onSaved?: (view: ReadingWindow) => void;
+export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearance, onCancelAppearance }: {
+  host: ReaderHost; configuration?: BackendConfigurationState; onSaved?: (view: ReadingWindow) => void; onSaveAppearance?: () => boolean; onCancelAppearance?: () => void;
 }) {
   const [input, setInput] = useState<BackendSetupInput>({ backend: "codex", model: models.codex[0] });
   const [checking, setChecking] = useState(false);
@@ -76,18 +76,25 @@ export function BackendSetupPanel({ host, configuration, onSaved }: {
       if (!alive.current || version !== revision.current) return;
       if (!connected.ok) { setError(connected.error.message); return; }
       if (connected.value.status !== "success") { setError(connected.value.message); return; }
-      // A successful check selects this backend and model. Configuration stays off the UI.
-      const selected = await host.saveBackendConfiguration({ ...payload, credentialFile: undefined });
-      if (!alive.current || version !== revision.current) return;
-      if (!selected.ok) { setError(selected.error.message); return; }
-      onSaved?.(selected.value);
-      const applied = await host.refreshBackendConfiguration();
-      if (!alive.current || version !== revision.current) return;
-      if (!applied.ok) { setError(applied.error.message); return; }
-      onSaved?.(applied.value);
-      setFeedback(applied.value.configuration?.pending ? "连接成功，任务结束后刷新页面应用。" : "连接成功，已启用所选模型。");
+      setFeedback("连接检查通过；点击保存设置后启用。");
     } catch { if (alive.current && version === revision.current) setError("连接检查失败，请重试。"); }
     finally { if (alive.current && version === revision.current) setChecking(false); }
+  }
+
+  async function save() {
+    const appearanceSaved = onSaveAppearance?.();
+    if (!host.saveBackendConfiguration || !host.refreshBackendConfiguration) { setFeedback(appearanceSaved ? "外观已保存；此宿主不支持保存后端配置。" : "外观未保存。此宿主不支持保存后端配置。"); return; }
+    setChecking(true); setError(""); setFeedback("");
+    try {
+      const result = await host.saveBackendConfiguration({ ...input,
+        runtimePath: saved?.backend === input.backend ? saved.runtimePath ?? undefined : undefined });
+      if (!result.ok) { setError(`${appearanceSaved ? "外观已保存；" : appearanceSaved === false ? "外观未保存；" : ""}后端配置未保存：${result.error.message}`); return; }
+      onSaved?.(result.value);
+      const applied = await host.refreshBackendConfiguration();
+      if (!applied.ok) { setError(`配置已保存，但尚未应用：${applied.error.message}`); return; }
+      onSaved?.(applied.value); setFeedback(appearanceSaved === false ? "后端设置已保存并应用；外观未保存，请重试。" : "设置已保存并应用。");
+    } catch { setError(`${appearanceSaved ? "外观已保存；" : appearanceSaved === false ? "外观未保存；" : ""}后端保存结果未知，请刷新配置确认后重试。`); }
+    finally { setChecking(false); }
   }
 
   const options = [...new Set([...(models[input.backend] as readonly string[]),
@@ -111,6 +118,13 @@ export function BackendSetupPanel({ host, configuration, onSaved }: {
       onClick={() => void loginOperation("login-start")}>{loginBusy ? "登录处理中…" : "登录 Codex"}</button>}
     {login?.authUrl && <p><a href={login.authUrl} target="_blank" rel="noopener noreferrer">打开浏览器授权</a>
       <button disabled={loginBusy} onClick={() => void loginOperation("login-cancel")}>取消登录</button></p>}
+    <button disabled={checking || loginBusy || !!login || configuration?.busy }
+      onClick={() => void save()}>保存设置</button>
+    <button disabled={checking || loginBusy || !!login} onClick={() => {
+      onCancelAppearance?.();
+      change({ backend: saved?.backend ?? "codex", model: saved?.model ?? models.codex[0] });
+    }}>取消修改</button>
+    {configuration?.busy && <p role="status">当前任务正在使用后端，请等待任务结束后保存；可先编辑设置。</p>}
     {feedback && <p role="status">{feedback}</p>}
     {error && <p role="alert">{error}</p>}
   </section>;
