@@ -352,6 +352,11 @@ export class HttpReaderHost implements ReaderHost {
       headers: { "content-type": "application/json" }, body: JSON.stringify({ planId, readingRevision, requestId }) });
   }
 
+  dismissPreparation(sourceId: string, attempt: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/preparation/dismiss`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ attempt }) });
+  }
+
   resumePreparation(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/preparation/resume`,
       { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });

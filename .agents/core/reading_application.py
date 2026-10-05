@@ -155,7 +155,7 @@ class ReadingCore:
                 "method": METHOD_VERSION, "runtime": runtime, "status": "running",
                 "step": "context", "context": None, "context_revision": None,
                 "glossary_revision": None, "plan_revision": None, "check": None, "repair_rounds": 0,
-                "transport_retries": 0, "error": None, "rebuild": rebuild,
+                "transport_retries": 0, "error": None, "timed_out": False, "rebuild": rebuild,
                 "ready_plans": dict(old.get("ready_plans", {})) if old else {},
                 "requests": {**requests, request_id: {"input": request_payload,
                     "result": {"operation": request_payload["operation"], "run_id": None,
@@ -492,7 +492,7 @@ class ReadingCore:
                 "attempt": run["attempt"], "status": run["status"],
                 "repair_rounds": run["repair_rounds"], "error": run.get("error")})
             run.update(request_id=request_id, attempt=uuid.uuid4().hex, writer_id=self.writer_id,
-                       status="running", error=None, repair_rounds=0, transport_retries=0)
+                       status="running", error=None, timed_out=False, repair_rounds=0, transport_retries=0)
             run.setdefault("requests", {})[request_id] = {"input": request_payload,
                 "result": {"operation": "resume", "source_id": source_id,
                            "run_id": run["run_id"], "attempt": run["attempt"], "status": "started"}}
@@ -530,7 +530,7 @@ class ReadingCore:
             self._write(source_id, run)
             return run
 
-    def fail(self, source_id: str, run_id: str, attempt: str, bundle: str, message: str) -> None:
+    def fail(self, source_id: str, run_id: str, attempt: str, bundle: str, message: str, *, timed_out: bool = False) -> None:
         with _LOCK:
             try:
                 run = self._guard(source_id, run_id, attempt, bundle)
@@ -543,7 +543,7 @@ class ReadingCore:
                 run.update(status="commit_conflict", error=f"{exc.error_id}: {str(exc)}")
                 self._write(source_id, run)
                 return
-            run.update(status="failed", error=message[:500])
+            run.update(status="failed", error=message[:500], timed_out=timed_out)
             self._write(source_id, run)
 
     def commit_context(self, source_id: str, run_id: str, attempt: str, bundle: str,
@@ -881,5 +881,6 @@ class ReadingApplication:
                                                        chunk_id, translation, repair=True)
                     notify()
         except Exception as exc:
-            self.core.fail(source_id, run_id, attempt, bundle, str(exc))
+            self.core.fail(source_id, run_id, attempt, bundle, str(exc),
+                           timed_out=isinstance(exc, TimeoutError) or isinstance(exc.__cause__, TimeoutError))
             raise

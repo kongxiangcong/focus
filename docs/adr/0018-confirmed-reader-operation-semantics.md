@@ -15,3 +15,23 @@ The confirmed 2026-09-30 UX specification supersedes ADR 0008, 0010 and 0015 whe
 - A shared work projection presents ingestion, preparation, blog, discussion/approval and progress tasks on all routes. Cancellation targets one business attempt. Terminal success is not active work, disconnected clients retain an unknown connection state, and recoverable failures remain available.
 - Topic/material reading selectors are independent of library filtering. Notes, progress and discussion history occupy a hideable right sidebar, with a narrow-screen drawer. Metadata and membership are drafts committed by one recoverable operation.
 - Upload grants freeze both optional Topic association and the generate-blog choice. Parse-only completes without a blog invocation. Default upload preserves the parse-plus-blog workflow.
+
+## 2026-09-30 visual refinement
+
+The user's subsequent review replaces the original status-strip placement, expanded active batches and horizontally scrollable full-title presentation. Reading and storage semantics above remain the same.
+
+- Share the work summary with the page title or reading selectors. No independent status row.
+- One downward-chevron disclosure owns work details, upload batches and single upload items. Everything starts collapsed, including active batches. Keep original stop, retry and recovery actions inside it; avoid listing the same ingestion twice.
+- Reading identifies the material through its selector. Remove the separate scrolling title and repeated footer title. Preparation details live behind source details; the main reading button still communicates preparation or retry.
+- Blog viewing uses a modal dialog in the browser top layer, with visible Close, Escape and focus restoration. Page chrome cannot cover it.
+- Use shared theme colors, restrained borders, aligned toolbar controls and consistent spacing across reading, library, settings and dialogs.
+
+Design references: Apple HIG [Layout](https://developer.apple.com/design/human-interface-guidelines/layout) (hierarchy and progressive disclosure) and [Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars) (controls related to the current content). This applies their information hierarchy principles to the existing web theme.
+
+## Preparation notification dismissal
+
+- Failed, timed-out, interrupted, cancelled and conflicting preparation prompts expose a Close (×) action. It hides the prompt immediately, without confirmation. It neither cancels the runtime nor deletes or resets Source, Parser Bundle, Plan, translations, notes or reading progress. Running work still uses the separately named Cancel Preparation action.
+- Persist dismissal in Host data, bound to both the preparation run and its attempt. Keep the underlying Core result for recovery. Suppress dismissed prompts in the task projection and source details across reload and Host restart.
+- Send the expected attempt with dismissal. A stale Close cannot hide a newer attempt. Explicit preparation/resume creates a new attempt whose state can be shown again; dismissal never starts a retry. Retain a Prepare Reading entry, including when a previous ready Plan remains usable.
+- Display timed-out preparation as “准备超时”, with Retry and Close. Preserve a typed timeout marker for new failures; recognize persisted legacy timeout diagnostics in projection. A closed/cancelled candidate connection is separate from elapsed deadline.
+- Persist failure in the Close request restores the card and reports that the Close was not saved. No silent retry.

@@ -29,6 +29,7 @@ await page.getByRole('button',{name:'新会话',exact:true}).click();await page.
 await page.reload();await page.getByRole('button',{name:'继续',exact:true}).waitFor();assert.equal(await page.locator('.focus-output').count(),0);
 await next(9);view=await api();assert.equal(view.navigationCurrent.index,9);results.push('T7/T26 new session / refresh / next 9');
 // Sidebar hides without occupying center space; narrow layout and large font.
+if (await page.getByRole('button',{name:'笔记与记录',exact:true}).count()) await page.getByRole('button',{name:'笔记与记录',exact:true}).click();
 await page.getByRole('button',{name:'隐藏资料栏',exact:true}).click();const hiddenWidth=(await stream.boundingBox()).width;
 await page.getByRole('button',{name:'笔记与记录',exact:true}).click();assert.ok((await stream.boundingBox()).width<hiddenWidth);
 // Exercise the sidebar through real HTTP mutations; none may move the frontier.
@@ -65,8 +66,13 @@ await page.getByRole('button',{name:'保存设置',exact:true}).click();
 await page.getByRole('link',{name:'阅读',exact:true}).click();await page.setViewportSize({width:390,height:844});
 await page.waitForTimeout(300);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
 assert.ok((await page.getByRole('button',{name:'完成本篇',exact:true}).boundingBox()).y<844);
-const title=page.getByLabel('材料完整标题', {exact:true}); await title.focus(); await page.keyboard.press('End');
-assert.ok(await title.evaluate(el=>el.scrollWidth>el.clientWidth));
+assert.equal(await page.locator('.reading-title-scroll').count(),0);
+await page.getByRole('combobox',{name:'选择阅读材料',exact:true}).focus();
+assert.ok(await page.getByRole('combobox',{name:'选择阅读材料',exact:true}).getAttribute('title'));
+const pickerBox=await page.locator('.reading-library-picker').boundingBox();
+const taskBox=await page.getByRole('button',{name:'任务详情',exact:true}).boundingBox();
+assert.ok(Math.abs(pickerBox.y-taskBox.y)<10);
+assert.equal(await page.locator('.workspace-task-frame').count(),0);
 await page.getByRole('button',{name:'隐藏资料栏',exact:true}).focus();await page.keyboard.press('Enter');
 await page.getByRole('button',{name:'笔记与记录',exact:true}).click();await page.keyboard.press('Escape');
 assert.equal(await page.getByRole('button',{name:'笔记与记录',exact:true}).count(),1);
@@ -94,5 +100,50 @@ await next(4);view=await api();assert.equal(view.navigationCurrent.index,4);
 assert.equal(view.readingRevision,frontier.readingRevision+1);
 assert.equal(view.readingProgress.length,frontier.readingProgress.length+1);
 results.push('T5 review reaches frontier then advances exactly once');
+// Deterministic published blog fixture: this suite verifies the UI, not model generation.
+await page.route('**/library/sources/fixture-paper/blog',route=>route.fulfill({json:{ok:true,value:{
+ sourceId:'fixture-paper',generated:true,runStatus:'completed',methodVersion:'ui-fixture',
+ artifacts:{value_analysis:{status:'completed'},reading_blog:{status:'completed'},html:{status:'completed'}},
+ valueAnalysis:{applicable:true,reason:''},verificationLevel:'paper_reading',warnings:[],error:null
+}}}));
+await page.route('**/library/sources/fixture-paper/blog/html',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body><h1>Published blog fixture</h1><p>Readable content for viewer layout verification.</p></body></html>'}));
+// One disclosure owns all upload history; it starts hidden even with multiple batches.
+await page.route('**/library/batches', route=>route.fulfill({json:{ok:true,value:[
+ {batchId:'visual-running',topicId:'未分类',status:'running',error:null,items:[{itemId:'visual-item',fileName:'visual.pdf',sourceId:null,status:'processing',ingestionStatus:'processing',blog:null,error:null}]},
+ {batchId:'visual-done',topicId:'未分类',status:'completed',error:null,items:[]}
+]}}));
+await page.setViewportSize({width:1440,height:1000});
+await page.goto('http://127.0.0.1:8765/library');
+await page.getByRole('button',{name:'详细',exact:true}).waitFor();
+const toggle=page.getByRole('button',{name:'任务详情',exact:true});
+assert.equal(await toggle.getAttribute('aria-expanded'),'false');
+assert.equal(await page.locator('.library-inbox').count(),0);
+const titleBox=await page.getByRole('heading',{name:'知识库',exact:true}).boundingBox();
+const toggleBox=await toggle.boundingBox();assert.ok(Math.abs(titleBox.y-toggleBox.y)<12);
+await toggle.click();
+assert.equal(await page.locator('.library-inbox details[open]').count(),0);
+await page.locator('.library-inbox summary').first().click();
+await page.getByText('visual.pdf',{exact:true}).waitFor();
+await toggle.click();assert.equal(await page.locator('.library-inbox').count(),0);
+await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-library.png`});
+results.push('UI task history hidden by default, single disclosure, heading alignment');
+// A modal uses the browser top layer: the close target must win hit testing.
+await page.getByRole('button',{name:'详细',exact:true}).click();
+const openBlog=page.getByRole('button',{name:'打开博客',exact:true});
+await page.waitForFunction(()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='打开博客')?.disabled===false);
+for (const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
+ await page.setViewportSize(viewport);await openBlog.click();
+ const viewer=page.locator('.workspace-blog-viewer');
+ assert.equal(await viewer.evaluate(el=>el.matches(':modal')),true);
+ const close=viewer.getByRole('button',{name:'关闭',exact:true});
+ assert.equal(await close.evaluate(el=>{const r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}),true);
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
+ await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-blog-${viewport.width}.png`});
+ await close.click();assert.equal(await viewer.count(),0);
+ assert.equal(await openBlog.evaluate(el=>el===document.activeElement),true);
+ await openBlog.click();await page.keyboard.press('Escape');assert.equal(await viewer.count(),0);
+ assert.equal(await openBlog.evaluate(el=>el===document.activeElement),true);
+}
+results.push('UI blog top-layer close hit target and Escape at desktop/narrow widths');
 assert.deepEqual(errors,[]);
 fs.writeFileSync(`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-browser-results.json`,JSON.stringify({results,errors},null,2));console.log(JSON.stringify({results,errors}));await browser.close();

@@ -6,6 +6,7 @@ import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import "katex/dist/katex.min.css";
+import { scanFigures, type Figure, type FigureNode } from "./figures";
 
 const components: Components = {
   table: ({ children }) => <div className="focus-table" tabIndex={0}><table>{children}</table></div>,
@@ -22,7 +23,9 @@ const schema = {
     code: [["className", /^language-./, "math-inline", "math-display"]],
     td: [...(defaultSchema.attributes?.td ?? []), "colSpan", "rowSpan"],
     th: [...(defaultSchema.attributes?.th ?? []), "colSpan", "rowSpan"],
+    img: [...(defaultSchema.attributes?.img ?? []), "role", ["className", "math", "equation"]],
   },
+  tagNames: [...(defaultSchema.tagNames ?? []), "figure", "figcaption"],
 };
 type MarkNode = { type: string; value?: string; tagName?: string; properties?: Record<string, unknown>; children?: MarkNode[] };
 // Handle ==highlight== and bold labels that CommonMark leaves literal before Chinese text.
@@ -57,9 +60,23 @@ function CellContent({ children }: { children: ReactNode }) {
     ? <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins}>{child}</Markdown>
     : child);
 }
-export const MarkdownContent = memo(function MarkdownContent({ text, sourceId }: { text: string; sourceId?: string }) {
-  return <div className="focus-markdown"><Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins}
-    components={components} urlTransform={(url, key) => {
+export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, figures, onFigure, inlineFigures = false }: {
+  text: string; sourceId?: string; figures?: readonly Figure[]; onFigure?: (figure: Figure) => void; inlineFigures?: boolean;
+}) {
+  function markFigures() {
+    return (tree: FigureNode) => {
+      if (!sourceId || !figures || !onFigure) return;
+      for (const { node, id } of scanFigures(tree, sourceId, inlineFigures, text).nodes) {
+        const figure = figures.find(f => f.id === id);
+        if (figure) node.data = { ...node.data, readerFigure: figure };
+      }
+    };
+  }
+  return <div className="focus-markdown"><Markdown remarkPlugins={remarkPlugins} rehypePlugins={[...rehypePlugins, markFigures]}
+    components={{ ...components, img: ({ node, src, alt }) => {
+      const figure = (node as FigureNode | undefined)?.data?.readerFigure;
+      return figure && onFigure ? <button className="reader-figure-link" onClick={() => onFigure(figure)}>查看{figure.label}</button> : <img src={src} alt={alt ?? ""} loading="lazy" />;
+    } }} urlTransform={(url, key) => {
       if (sourceId && key === "src" && !/^(?:[a-z]+:|\/)/i.test(url)) {
         return `/reader/assets/${encodeURIComponent(sourceId)}/${url}`;
       }

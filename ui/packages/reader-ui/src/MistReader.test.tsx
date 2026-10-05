@@ -74,7 +74,9 @@ it("renders rich Markdown and the referenced source figure in the assistant outp
   expect(within(output).getByRole("heading", { name: "2.1 硬件建模" })).toBeVisible();
   expect(within(output).getByText("内存控制器：").tagName).toBe("STRONG");
   expect(within(output).getByText("逐周期检查").tagName).toBe("MARK");
-  expect(within(output).getByRole("img", { name: "图 1 LP5X-PIM 架构" })).toHaveAttribute("src", figure.src);
+  expect(within(output).queryByRole("img")).not.toBeInTheDocument();
+  fireEvent.click(within(output).getByRole("button", { name: "查看图 1" }));
+  expect(screen.getByRole("region", { name: "阅读资料侧栏" }).querySelector('.reader-figure-scroll img')).toHaveAttribute("src", figure.src);
 });
 it("renders an explicit Markdown image in an answer without duplicating the figure", async () => {
   const illustrated = { ...current, images: [{ src: "/reader/assets/demo-paper/images/image-001.png", caption: "图 1 架构" }] };
@@ -82,9 +84,9 @@ it("renders an explicit Markdown image in an answer without duplicating the figu
     content: "图 1：![架构](images/image-001.png)" };
   const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess({ ...first, current: illustrated, conversation: [answer] })), continueReading: vi.fn(), sendMessage: vi.fn() };
   render(<FocusReader host={host} appearance="mist" />);
-  const output = (await screen.findByRole("img", { name: "架构" })).closest("article")!;
-  expect(within(output).getAllByRole("img")).toHaveLength(1);
-  expect(within(output).getByRole("img", { name: "架构" })).toHaveAttribute("src", illustrated.images[0].src);
+  const output = (await screen.findByText("图 1：")).closest("article")!;
+  expect(within(output).queryByRole("img")).not.toBeInTheDocument();
+  expect(within(output).getAllByRole("button", { name: "查看图 1" })).toHaveLength(1);
 });
 it("only resolves figure references to bound images from the same source", async () => {
   const illustrated = { ...current, images: [
