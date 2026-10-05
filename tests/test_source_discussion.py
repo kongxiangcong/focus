@@ -10,7 +10,7 @@ import test_focus_read
 from core.source_library import SourceLibrary
 from core.reading_workspace import _read_document, _write_document
 from core.reading_workspace import WorkspaceError
-from host.service import HostService
+from workspace_fixture import HostService
 from host.core_bridge import TOOL
 
 
@@ -49,6 +49,11 @@ class CandidateRuntime:
 
 
 class DiscussionTests(unittest.TestCase):
+    def test_qualified_explicit_note_request_and_negation(self):
+        for content, expected in [('请保存为一条简短笔记。', True), ('不要保存为一条简短笔记。', False), ('只解释这条笔记。', False)]:
+            with self.subTest(content=content):
+                scope = self.host.discussion_app.bind(source_id='fixture-paper', request_id='note-intent-test', content=content)
+                self.assertEqual(expected, scope['saveIntent'])
     def setUp(self):
         self.fixture = test_focus_read.FocusReadTests()
         self.fixture.setUp()

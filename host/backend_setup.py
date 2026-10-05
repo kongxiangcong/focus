@@ -12,6 +12,11 @@ import time
 import subprocess
 import sys
 import importlib.util
+import hashlib
+import hmac
+import json
+import secrets
+from urllib.request import Request, urlopen, build_opener, ProxyHandler
 from contextlib import contextmanager
 from urllib.parse import urlsplit
 from pathlib import Path
@@ -19,6 +24,7 @@ from pathlib import Path
 from .proxy import backend_environment
 from .runtime import AppServer
 from .backends.base import safe_backend_error
+from .configuration import DEFAULT_MODELS
 
 
 def deepseek_key(credential_file=None):
@@ -40,6 +46,15 @@ def runtime_path(backend, explicit=None):
         raise ValueError('请选择 Codex 或 DeepSeek。')
     if explicit:
         return str(Path(explicit).expanduser().absolute())
+    # Prefer the already-installed SDK's matching protocol carrier.  A global
+    # CLI may be older than the machine's Codex configuration.  This is local
+    # discovery only; an explicit selection is never replaced.
+    if backend == 'codex':
+        try:
+            from codex_cli_bin import bundled_codex_path
+            return str(bundled_codex_path())
+        except (ImportError, FileNotFoundError):
+            pass
     installed = shutil.which('codex' if backend == 'codex' else 'dsh')
     if installed:
         return installed
@@ -58,6 +73,69 @@ class BackendSetup:
         self.login_lock = threading.RLock()
         self.login = None
         self.install_lock = threading.Lock()
+        self.check_lock = threading.RLock()
+        self.authentication_salt = secrets.token_bytes(32)
+        self.connections = {}
+
+    def environment_id(self, payload, status):
+        path = Path(status['runtimePath']) if status.get('runtimePath') else None
+        runtime = (str(path.resolve()), path.stat().st_size, path.stat().st_mtime_ns) if path and path.is_file() else None
+        if status['backend'] == 'deepseek':
+            authentication = deepseek_key(payload.get('credentialFile'))
+        else:
+            home = Path(os.getenv('CODEX_HOME') or Path.home() / '.codex')
+            auth = home / 'auth.json'
+            authentication = auth.read_text(encoding='utf-8') if auth.is_file() else ''
+        private = json.dumps([status['backend'], runtime, authentication, os.getenv('DEEPSEEK_BASE_URL') if status['backend'] == 'deepseek' else None])
+        return hmac.new(self.authentication_salt, private.encode(), hashlib.sha256).hexdigest()
+
+    def discover(self, payload, status):
+        if status['backend'] == 'codex':
+            values, cursor, seen = [], None, set()
+            with self.codex_account_runtime(status) as rpc:
+                while True:
+                    result = rpc.request('model/list', {'limit': 100, 'cursor': cursor, 'includeHidden': False}, timeout=20)
+                    values.extend(item['model'] for item in result.get('data', []) if isinstance(item.get('model'), str))
+                    cursor = result.get('nextCursor')
+                    if not cursor:
+                        break
+                    if cursor in seen:
+                        raise ValueError('model list pagination repeated')
+                    seen.add(cursor)
+            return list(dict.fromkeys(values))
+        base = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com').rstrip('/')
+        if urlsplit(base).scheme != 'https':
+            raise ValueError('model endpoint must use HTTPS')
+        request = Request(base + '/models', headers={'Authorization': 'Bearer ' + deepseek_key(payload.get('credentialFile'))})
+        environment = backend_environment('deepseek')
+        proxy = environment.get('HTTPS_PROXY') or environment.get('https_proxy')
+        proxies = {} if environment.get('NO_PROXY') == '*' else {'https': proxy} if proxy else None
+        opener = build_opener(ProxyHandler(proxies))
+        with opener.open(request, timeout=20) as response:
+            result = json.load(response)
+        # DSH's official provider uses the Anthropic Messages protocol.  Only
+        # text models whose supplier metadata declares that path are offered.
+        return [item['id'] for item in result['data'] if isinstance(item.get('id'), str)
+                and 'text' in item.get('input_modalities', []) and 'text' in item.get('output_modalities', [])
+                and isinstance(item.get('api_capabilities', {}).get('anthropic_messages'), dict)]
+
+    def models(self, payload):
+        status = self.inspect(payload)
+        environment = self.environment_id(payload, status)
+        if environment not in self.connections:
+            return {**status, 'status': 'failed', 'catalogStatus': 'not-loaded', 'environmentId': environment,
+                    'message': '先通过此环境的连接检查，再加载模型清单。'}
+        try:
+            models = self.discover(payload, status)
+            if not models:
+                raise ValueError('no supported models')
+            refreshed = self.environment_id(payload, status)
+            self.connections[refreshed] = self.connections[environment]
+            return {**status, 'status': 'success', 'catalogStatus': 'loaded', 'models': models,
+                    'environmentId': refreshed, 'message': '真实模型清单已加载；清单不代表所有模型已验证。'}
+        except Exception:
+            return {**status, 'status': 'success', 'catalogStatus': 'failed', 'environmentId': environment,
+                    'models': [], 'message': '连接已通过，模型清单加载失败；可重试清单或使用默认模型。'}
 
     def prepare(self, payload):
         with self.install_lock:
@@ -150,6 +228,24 @@ class BackendSetup:
                         self.close()
 
     def check(self, payload):
+        with self.check_lock:
+            status = self.prepare(payload)
+            if status['status'] != 'installed':
+                return {**status, 'status': 'failed', 'dependencyStatus': status['status']}
+            environment = self.environment_id(payload, status)
+            model = (payload.get('model') or DEFAULT_MODELS[status['backend']]) if environment in self.connections else DEFAULT_MODELS[status['backend']]
+            result = self.infer({**payload, 'runtimePath': status['runtimePath'], 'model': model})
+            result.update(environmentId=environment, checkedModel=model, dependencyStatus='installed')
+            if result['status'] == 'success':
+                # Bind the receipt to the authentication state after refresh.
+                environment = self.environment_id(payload, status)
+                self.connections[environment] = model
+                catalog = self.models({**payload, 'runtimePath': status['runtimePath']})
+                result.update(environmentId=catalog.get('environmentId', environment), catalogStatus=catalog.get('catalogStatus'),
+                              models=catalog.get('models', []), catalogMessage=catalog['message'])
+            return result
+
+    def infer(self, payload):
         from .backends import create_backend
         status = self.inspect(payload)
         if status['status'] == 'unavailable':
@@ -222,6 +318,8 @@ class BackendSetup:
             return self.account(payload)
         if action == 'check':
             return self.check(payload)
+        if action == 'models':
+            return self.models(payload)
         if action in ('login-start', 'login-status', 'login-cancel'):
             return self.login_operation(action, payload)
         raise ValueError('未知 Backend 设置操作。')

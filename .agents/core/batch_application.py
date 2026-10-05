@@ -255,3 +255,7 @@ class BatchApplication:
         finally:
             with self.lock:
                 self.running.discard(batch_id)
+
+
+from .workspace_lifecycle import guard_workspace_class
+BatchApplication = guard_workspace_class(BatchApplication)

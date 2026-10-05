@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import test_focus_read
 from host.core_bridge import CoreBridge
-from host.service import HostService
+from workspace_fixture import HostService
 from host.server import Server
 from host.store import Store
 from host.runtime import AppServer
@@ -128,7 +128,7 @@ class WebHostTests(unittest.TestCase):
 
     def test_snapshot_exposes_bound_images_across_the_source(self):
         figures = self.host.snapshot()['figures']
-        self.assertIn({'src': '/reader/assets/fixture-paper/images/image-001.png',
+        self.assertIn({'src': '/reader/assets/fixture-paper/images/image-001.png?instance=' + self.host.lease.instance_id,
                        'caption': 'Figure 1: Architecture overview.'}, figures)
 
     def test_question_stream_persistence_and_resume_never_advance(self):
@@ -334,7 +334,7 @@ class WebHostTests(unittest.TestCase):
     def test_restart_marks_active_run_interrupted(self):
         self.host.state['run'] = {'runId': 'old', 'status': 'running', 'error': None, 'approvals': [], 'activity': []}
         self.host.store.save()
-        another = Store(self.data, self.workspace)
+        another = Store(self.workspace / 'discussions', self.workspace)
         self.assertEqual('interrupted', another.state['run']['status'])
         another.close()
         self.host.state['run'] = None
@@ -359,7 +359,7 @@ class WebHostTests(unittest.TestCase):
             connection.request('POST', '/reader/upload?name=paper.pdf', b'%PDF test', headers)
             r = connection.getresponse(); upload = json.loads(r.read())['value']
             saved = self.host.store.get('upload:' + upload['attachmentId'])
-            self.assertEqual(b'%PDF test', Path(saved['path']).read_bytes())
+            self.assertEqual(b'%PDF test', (self.workspace / saved['path']).read_bytes())
             connection.request('POST', '/reader/upload?name=..%2Fsecret.pdf', b'x', headers)
             r = connection.getresponse(); self.assertEqual(400, r.status); r.read()
             connection.close()

@@ -107,8 +107,8 @@ it.each(["check", "open"])("retains the newest shared configuration when a late 
     await screen.findByRole("radio", { name: "Codex" });
     fireEvent.click(screen.getByRole("radio", { name: "DeepSeek" }));
     fireEvent.click(screen.getByRole("button", { name: "连接检查" }));
-    await screen.findByText("连接检查通过；点击保存设置后启用。");
-    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+    await screen.findByText(/连接检查通过；已检模型/);
+    fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
   } else {
     fireEvent.click(await screen.findByRole("button", { name: "详细" }));
     fireEvent.click(screen.getByRole("button", { name: "准备阅读" }));
@@ -176,7 +176,7 @@ it("lands in Library and persists the chosen font across remounts", async () => 
   fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
   expect(screen.getByText("阅读字号预览 · 特大")).toHaveStyle({ fontSize: "26px" });
   expect(screen.getByRole("radio", { name: "DeepSeek" })).toBeEnabled();
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
   app.unmount(); setup();
   expect(await screen.findByRole("slider", { name: "字号" })).toHaveValue("3");
   fireEvent.click(screen.getByRole("link", { name: "阅读" }));
@@ -242,7 +242,7 @@ it("persists brightness and omits the unused network control", async () => {
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   fireEvent.change(screen.getByRole("slider", { name: "亮度" }), { target: { value: "90" } });
   expect(localStorage.getItem("focus.brightness")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
   expect(localStorage.getItem("focus.brightness")).toBe("90");
   expect(screen.queryByRole("switch", { name: "网络" })).not.toBeInTheDocument();
 });

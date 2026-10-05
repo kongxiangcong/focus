@@ -112,3 +112,7 @@ class ProcessingApplication:
                 self.ingestion.prepare_continuation(item_id)
             scope['execution_request_id'] = request_id
             _write_document(self.path, scopes)
+
+
+from .workspace_lifecycle import guard_workspace_class
+ProcessingApplication = guard_workspace_class(ProcessingApplication)

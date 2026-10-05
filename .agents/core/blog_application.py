@@ -843,3 +843,7 @@ class BlogApplication:
             run["error"] = {"error_id": "blog_cancelled", "message": "Blog generation was cancelled"}
             self._save_run(run)
         return {**self.status(source_id), "cancelledAttempts": closed}
+
+
+from .workspace_lifecycle import guard_workspace_class
+BlogApplication = guard_workspace_class(BlogApplication)

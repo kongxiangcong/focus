@@ -5,7 +5,7 @@ sys.path[:0] = [str(repo), str(repo/'tests'), str(repo/'.agents')]
 from test_focus_read import FocusReadTests
 from test_stage4_reading import ReadingRuntimeDouble, QuestionRuntime
 from test_blog_host import ControlledBlogRuntime, ParserDouble
-from host.service import HostService
+from workspace_fixture import HostService
 from host.server import Server
 fixture=FocusReadTests();fixture.setUp();workspace,source,plan=fixture._workspace()
 root=Path(tempfile.mkdtemp(prefix='focus-browser-'))

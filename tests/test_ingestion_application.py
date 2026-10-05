@@ -12,7 +12,7 @@ from pathlib import Path
 from core import IngestionApplication, IngestionExternalError, SourceLibrary, WorkspaceError
 from core.ingestion import persist_candidate_result
 from host.server import Server
-from host.service import HostService
+from workspace_fixture import HostService
 
 
 class RecordingParser:
@@ -939,7 +939,7 @@ class IngestionApplicationTests(unittest.TestCase):
             self.assertEqual("completed", result["status"])
             self.assertEqual(result, host.inbox_item(staged["item_id"]))
         finally:
-            host.store.close()
+            host.close()
 
     def test_host_returns_the_existing_task_for_a_repeated_add(self):
         upload_root = self.workspace / "uploads" / "fixture"
@@ -966,7 +966,7 @@ class IngestionApplicationTests(unittest.TestCase):
             self.assertEqual(repeated["item_id"], host.inbox_item(repeated["item_id"])["item_id"])
             self.assertEqual(1, len(host.ingestion.list_inbox()))
         finally:
-            host.store.close()
+            host.close()
 
     def test_transient_failure_resumes_remote_task_twice_then_waits_for_manual_retry(self):
         parser = ResumableParser(failures=3)
@@ -1362,7 +1362,7 @@ class IngestionApplicationTests(unittest.TestCase):
                     ))
                     self.assertFalse(hasattr(host.ingestion, "runtime"))
                 finally:
-                    host.store.close()
+                    host.close()
 
     def test_host_entry_publishes_the_source_without_any_ai_review(self):
         workspace = self.root / "host-entry"
@@ -1499,7 +1499,7 @@ class IngestionApplicationTests(unittest.TestCase):
             self.assertEqual(("completed", "published"), (completed["status"], completed["document_status"]))
             self.assertEqual(completed, host.inbox_item(staged["item_id"]))
         finally:
-            host.store.close()
+            host.close()
 
     def test_http_entry_resubmit_validates_the_risk_choice_and_runs_the_application(self):
         workspace = self.root / "host-resubmit-entry"
@@ -1565,17 +1565,22 @@ class IngestionApplicationTests(unittest.TestCase):
             worker.join(5)
             host.close()
 
-    def test_host_writer_identity_persists_but_differs_between_host_data_roots(self):
+    def test_host_writer_identity_changes_per_open_and_rejects_second_writer(self):
         first = HostService(self.workspace, self.root / "host-one", ingestion_parser=ValidParser())
         first_id = first.ingestion.writer_id
         first.close()
         reopened = HostService(self.workspace, self.root / "host-one", ingestion_parser=ValidParser())
-        second = HostService(self.workspace, self.root / "host-two", ingestion_parser=ValidParser())
         try:
-            self.assertEqual(first_id, reopened.ingestion.writer_id)
-            self.assertNotEqual(first_id, second.ingestion.writer_id)
+            self.assertNotEqual(first_id, reopened.ingestion.writer_id)
+            with self.assertRaises(WorkspaceError) as error:
+                HostService(self.workspace, self.root / 'host-two', ingestion_parser=ValidParser())
+            self.assertEqual('workspace_busy', error.exception.error_id)
         finally:
             reopened.close()
+        second = HostService(self.workspace, self.root / 'host-two', ingestion_parser=ValidParser())
+        try:
+            self.assertNotEqual(first_id, second.ingestion.writer_id)
+        finally:
             second.close()
 
 

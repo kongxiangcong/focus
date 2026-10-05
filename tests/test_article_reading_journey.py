@@ -37,6 +37,8 @@ class ArticleReadingJourneyTests(unittest.TestCase):
         self.root.mkdir()
 
     def tearDown(self):
+        if hasattr(self, 'lease'):
+            self.lease.close()
         shutil.rmtree(self.root)
 
     @staticmethod
@@ -56,6 +58,9 @@ class ArticleReadingJourneyTests(unittest.TestCase):
     def test_local_article_parse_map_read_and_blog_prepare_share_one_bundle(self):
         workspace = self.root / "workspace"
         workspace.mkdir()
+        from core.workspace_lifecycle import create_workspace, WorkspaceLease
+        create_workspace(workspace)
+        self.lease = WorkspaceLease(workspace)
         html = self.root / "article.html"
         html.write_text("<html><head><title>中文系统文章</title></head><body><article><h1>中文系统文章</h1>"
                         "<h2>第一节</h2><p>第一段解释统一读写路径。" + "来源内容应当保持完整。" * 10 +

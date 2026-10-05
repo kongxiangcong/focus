@@ -189,13 +189,14 @@ class CoreBridge:
         return target
 
     def _image_url(self, source_id, image_path):
+        suffix = '?instance=' + self.instance_id if hasattr(self, 'instance_id') else ''
         path = Path(image_path).resolve()
         current = (self.workspace / 'sources' / source_id / 'parser-bundle').resolve()
         if path.is_relative_to(current):
-            return '/reader/assets/' + quote(source_id, safe='') + '/' + quote(str(path.relative_to(current)).replace('\\', '/'), safe='/')
+            return '/reader/assets/' + quote(source_id, safe='') + '/' + quote(str(path.relative_to(current)).replace('\\', '/'), safe='/') + suffix
         archived = (self.workspace / 'sources' / source_id / 'reading' / 'bundles').resolve()
         if path.is_relative_to(archived) and len(path.relative_to(archived).parts) > 1:
-            return '/reader/historical-assets/' + quote(source_id, safe='') + '/' + quote(str(path.relative_to(archived)).replace('\\', '/'), safe='/')
+            return '/reader/historical-assets/' + quote(source_id, safe='') + '/' + quote(str(path.relative_to(archived)).replace('\\', '/'), safe='/') + suffix
         raise ValueError('Image reference is outside a Source Bundle')
 
     def project_chunk(self, c):

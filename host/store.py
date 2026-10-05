@@ -1,4 +1,4 @@
-"""Host-owned durable conversation; never stored in Reading Records."""
+"""Workspace discussions and business receipts; separate from Reading Records."""
 import json
 import sqlite3
 import threading
@@ -9,21 +9,30 @@ from pathlib import Path
 
 class Store:
     def __init__(self, directory: Path, workspace: Path, *, clock=time.time):
+        from core.workspace_lifecycle import current_workspace_lease
+        self.lease = current_workspace_lease(workspace)
         self.clock = clock
+        self.machine_state = {}
         directory.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
         self.db = sqlite3.connect(directory / 'host.sqlite3', check_same_thread=False)
         self.db.execute('PRAGMA journal_mode=WAL')
         self.db.execute('CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
-        bound = self.get('workspace')
-        if bound is not None and bound != str(workspace):
-            raise ValueError('Host data directory belongs to a different workspace')
-        self.put('workspace', str(workspace))
+        from core.workspace_lifecycle import inspect_workspace
+        identity = inspect_workspace(workspace)['workspaceId']
+        bound = self.get('workspaceId')
+        if bound is not None and bound != identity:
+            self.db.close()
+            raise ValueError('Discussion data belongs to a different workspace')
+        self.put('workspaceId', identity)
         self.state = self.get('session') or {'threadId': None, 'conversation': [], 'run': None, 'requests': {}}
         self.state.setdefault('sessionId', uuid.uuid4().hex)
         self.state.setdefault('displayReading', True)
         self.state.setdefault('timeline', [])
         self.state.setdefault('resumeBackend', None)
+        # Native sessions are machine-local and never resumed from a backup.
+        self.state['threadId'] = None
+        self.state['resumeBackend'] = None
         self.save()
         run = self.state['run']
         if run and run['status'] in ('running', 'stopping', 'approval'):
@@ -38,18 +47,31 @@ class Store:
                 self.put(key, {'run': run})
 
     def get(self, key):
+        if key.startswith('runtimeCleanup:'):
+            return self.machine_state.get(key)
         with self.lock:
             row = self.db.execute('SELECT value FROM state WHERE key=?', (key,)).fetchone()
             return json.loads(row[0]) if row else None
 
     def put(self, key, value):
+        self.lease.require_current()
+        if key.startswith('runtimeCleanup:'):
+            self.machine_state[key] = value
+            return
+        def portable(item):
+            if isinstance(item, dict):
+                return {k: None if k in ('threadId', 'resumeBackend') else portable(v) for k, v in item.items()}
+            if isinstance(item, list):
+                return [portable(v) for v in item]
+            return item
         with self.lock, self.db:
-            self.db.execute('INSERT OR REPLACE INTO state VALUES (?, ?)', (key, json.dumps(value, ensure_ascii=False)))
+            self.db.execute('INSERT OR REPLACE INTO state VALUES (?, ?)', (key, json.dumps(portable(value), ensure_ascii=False)))
 
     def save(self):
         self.put('session', self.state)
 
     def clear_discussions(self, source_id, request_id, *, reset_reading=False):
+        self.lease.require_current()
         from .source_clear import scrub
         with self.lock, self.db:
             self.db.execute('PRAGMA secure_delete=ON')
@@ -65,6 +87,7 @@ class Store:
         self.db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
 
     def expire_logs(self):
+        self.lease.require_current()
         """Only Host-owned diagnostics expire; history and receipts never do."""
         now = self.clock()
         with self.lock, self.db:
@@ -93,8 +116,8 @@ class Store:
 
     def runtime_cleanup(self):
         with self.lock:
-            return [json.loads(row[0]) for row in self.db.execute(
-                "SELECT value FROM state WHERE key LIKE 'runtimeCleanup:%' ORDER BY rowid")]
+            return list(self.machine_state.values())
 
     def close(self):
+        self.db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
         self.db.close()

@@ -76,13 +76,16 @@ def _dotenv_token(path: Path) -> str:
     return ""
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
 def _token() -> str:
     value = os.environ.get(TOKEN_ENV, "").strip()
     if not value:
-        value = _dotenv_token(Path.cwd() / DOTENV_NAME)
+        value = _dotenv_token(PROJECT_ROOT / DOTENV_NAME)
     if not value:
         raise ParserError(
-            f"{TOKEN_ENV} is not configured in the process environment or {Path.cwd() / DOTENV_NAME}",
+            f"{TOKEN_ENV} is not configured in the process environment or project .env",
             recoverable=False,
             error_id="authentication_required",
         )

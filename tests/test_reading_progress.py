@@ -5,7 +5,7 @@ import unittest
 import uuid
 
 import test_focus_read
-from host.service import HostService
+from workspace_fixture import HostService
 from core.reading_progress import ReadingProgress
 from test_stage4_reading import ReadingRuntimeDouble, PlanningRuntime
 

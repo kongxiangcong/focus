@@ -12,7 +12,7 @@ import unittest
 import threading
 from urllib.parse import urlencode, quote
 
-from host.service import HostService
+from workspace_fixture import HostService
 from host.server import Server
 from test_blog_host import ControlledBlogRuntime, ParserDouble
 from test_html_ingestion import saved_html
@@ -50,7 +50,7 @@ class SingleIngestionTests(unittest.TestCase):
         if isinstance(body, dict):
             body = json.dumps(body)
             headers['Content-Type'] = 'application/json'
-        conn = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=5)
+        conn = http.client.HTTPConnection('127.0.0.1', self.server.server_port, timeout=30)
         try:
             conn.request(method, quote(path, safe="/?=&%+"), body, headers)
             response = conn.getresponse()
@@ -228,6 +228,7 @@ class StartupTests(unittest.TestCase):
                 env = {k: v for k, v in os.environ.items()
                        if k not in ('FOCUS_WORKSPACE', 'FOCUS_HOST_DATA', 'FOCUS_BACKEND', 'FOCUS_CODEX_BIN')}
                 env['PYTHONPATH'] = str(ROOT)
+                env['FOCUS_SETTINGS_FILE'] = str(root / 'machine/settings.json')
                 for restart in (False, True):
                     with socket.socket() as sock:
                         sock.bind(('127.0.0.1', 0))
@@ -241,9 +242,9 @@ class StartupTests(unittest.TestCase):
                             while True:
                                 try:
                                     conn = http.client.HTTPConnection('127.0.0.1', port, timeout=1)
-                                    conn.request('GET', '/library/inbox')
+                                    conn.request('GET', '/reader/workspace')
                                     response = conn.getresponse()
-                                    topics = json.loads(response.read())['value']
+                                    binding = json.loads(response.read())['value']
                                     conn.close()
                                     break
                                 except (OSError, KeyError):
@@ -251,17 +252,24 @@ class StartupTests(unittest.TestCase):
                                     if proc.poll() is not None or time.monotonic() > deadline:
                                         self.fail(log.read_text(encoding='utf-8'))
                                     time.sleep(.1)
-                            self.assertTrue((root / 'knowledge-base').is_dir())
+                            conn = http.client.HTTPConnection('127.0.0.1', port, timeout=10)
                             if restart:
-                                self.assertEqual('New Topic', topics[0]['topic_title'])
+                                self.assertTrue(binding['bound'])
+                                conn.request('GET', '/library/inbox', headers={'X-FOCUS-Instance': binding['workspace']['instanceId']})
+                                response = conn.getresponse()
+                                self.assertEqual('New Topic', json.loads(response.read())['value'][0]['topic_title'])
                             else:
-                                self.assertEqual([], topics)
-                                conn = http.client.HTTPConnection('127.0.0.1', port, timeout=2)
-                                conn.request('POST', '/library/inbox?name=new.pdf&topic=New%20Topic', b'%PDF new')
+                                self.assertFalse(binding['bound'])
+                                self.assertFalse((root / 'knowledge-base').exists())
+                                conn.request('POST', '/reader/workspace', json.dumps({'mode': 'create', 'path': str(root), 'generation': binding['generation']}), {'Content-Type': 'application/json'})
+                                response = conn.getresponse()
+                                self.assertEqual(200, response.status)
+                                binding = json.loads(response.read())['value']
+                                conn.request('POST', '/library/inbox?name=new.pdf&topic=New%20Topic', b'%PDF new', {'X-FOCUS-Instance': binding['workspace']['instanceId']})
                                 response = conn.getresponse()
                                 body = response.read()
-                                conn.close()
                                 self.assertEqual(201, response.status, body)
+                            conn.close()
                         finally:
                             if os.name == 'nt':
                                 subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'], capture_output=True)

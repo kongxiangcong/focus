@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from host.service import HostService
+from workspace_fixture import HostService
 
 
 class AccountRuntime:

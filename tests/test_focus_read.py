@@ -121,6 +121,8 @@ class FocusReadTests(unittest.TestCase):
 
     @staticmethod
     def _run(*args):
+        from workspace_fixture import publish_workspace
+        publish_workspace(Path(args[args.index('--workspace') + 1]))
         stdout = io.StringIO()
         stderr = io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):

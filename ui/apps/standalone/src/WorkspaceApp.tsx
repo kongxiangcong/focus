@@ -2,6 +2,7 @@ import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
 import { FocusReader, AgentControls, TaskProgress, readingFontSizes } from "@focus/reader-ui";
 import { BackendSetupPanel } from "./BackendSetupPanel";
+import { WorkspaceSelection } from './WorkspaceSelection';
 
 type Route = "/library" | "/reading" | "/settings";
 type FontSize = "small" | "standard" | "large" | "extra";
@@ -562,6 +563,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       {busy && <p role="status">{busy}中…</p>}
     </main>}
     {route === "/settings" && <main className="settings-page">
+      <WorkspaceSelection />
       <BackendSetupPanel host={host} configuration={view?.configuration}
         onSaved={acceptView} onSaveAppearance={saveAppearance} onCancelAppearance={() => { setFontSize(savedAppearance.current.fontSize); setBrightness(savedAppearance.current.brightness); }} />
       <section className="focus-reader__appearance-panel">

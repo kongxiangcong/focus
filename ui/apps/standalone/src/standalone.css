@@ -265,3 +265,13 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
  .workspace-reading .reader-split .mist-reading-actions { grid-row:4; }
  .workspace-reading .reader-split .focus-bottom { grid-row:5; }
 }
+.workspace-selection { width: min(100%, 42rem); color: var(--focus-text, #344044); }
+.workspace-selection form { display: grid; gap: .85rem; }
+.workspace-selection fieldset { display: flex; flex-wrap: wrap; gap: 1rem; padding: .8rem; border: 1px solid #d3d9d7; border-radius: .7rem; }
+.workspace-selection label { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+.workspace-selection input:not([type=radio]) { flex: 1 1 12rem; min-width: 0; padding: .65rem; border: 1px solid #c5ceca; border-radius: .5rem; background: #f7faf8; color: inherit; }
+.workspace-selection button { padding: .65rem 1rem; border: 1px solid #c5ceca; border-radius: .5rem; background: #eef3ef; color: inherit; cursor: pointer; }
+.workspace-selection button:disabled { opacity: .5; cursor: default; }
+.workspace-selection input:focus-visible, .workspace-selection button:focus-visible { outline: 2px solid #588874; outline-offset: 3px; }
+.workspace-selection p { font-size: .85rem; line-height: 1.6; }
+.workspace-location { overflow-wrap: anywhere; }

@@ -86,6 +86,8 @@ class FocusMapTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        from workspace_fixture import publish_workspace
+        publish_workspace(workspace)
         return workspace, source_root
 
     def _draft(self, chunks=None):

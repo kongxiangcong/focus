@@ -40,6 +40,8 @@ class ReadingJourneyTests(unittest.TestCase):
         self.root.mkdir()
 
     def tearDown(self):
+        if hasattr(self, 'lease'):
+            self.lease.close()
         shutil.rmtree(self.root)
 
     def _workspace(self):
@@ -70,6 +72,10 @@ class ReadingJourneyTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        from workspace_fixture import publish_workspace
+        from core.workspace_lifecycle import WorkspaceLease
+        publish_workspace(workspace)
+        self.lease = WorkspaceLease(workspace)
         draft = json.dumps(
                 {
                     "chunks": [

@@ -227,8 +227,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None, *, hosted: Any | None = None) -> int:
+    lease = None
     try:
         args = _build_parser().parse_args(argv)
+        from core.workspace_lifecycle import open_command_workspace
+        lease = open_command_workspace(args.workspace)
         args.func(args, hosted)
         return 0
     except (ParserError, WorkspaceError, OSError, zipfile.BadZipFile) as exc:
@@ -240,6 +243,9 @@ def main(argv: list[str] | None = None, *, hosted: Any | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    finally:
+        if lease:
+            lease.close()
 
 
 if __name__ == "__main__":

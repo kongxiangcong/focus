@@ -19,6 +19,7 @@ class Server(ThreadingHTTPServer):
 
     def __init__(self, address, service, token=None, public_origin=None):
         self.service = service
+        self.workbench = service if hasattr(service, 'operation') and hasattr(service, 'binding') else None
         self.token = token or secrets.token_urlsafe(32)
         self.public_origin = public_origin
         self.local_access = token is None and public_origin is None and address[0] in ('127.0.0.1', 'localhost')
@@ -126,7 +127,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def _blog(self, method, path, source_id, parts):
         """Blog Output: status, generation, per-artifact retry and the viewer document."""
-        service = self.server.service
+        service = self.active_service
         if method == 'GET' and len(parts) == 2:
             self._send(200, {'ok': True, 'value': service.blog_status(source_id)})
             return
@@ -157,7 +158,42 @@ class Handler(BaseHTTPRequestHandler):
         return
 
     def _api(self, method, path):
-        service = self.server.service
+        app = self.server.workbench
+        if app:
+            if path == '/reader/configuration' and method == 'GET':
+                self._send(200, {'ok': True, 'value': app.configuration_status()})
+                return
+            if path == '/reader/backend/setup' and method == 'POST':
+                payload = self._body()
+                self._send(200, {'ok': True, 'value': app.backend_setup(payload.get('action'), payload)})
+                return
+            if path == '/reader/workspace':
+                if method == 'GET':
+                    value = app.status()
+                else:
+                    payload = self._body()
+                    value = app.bind(payload, expected_generation=payload.get('generation', ''))
+                self._send(200, {'ok': True, 'value': value})
+                return
+            if path == '/reader/workspace/pick' and method == 'POST':
+                self._body()
+                self._send(200, {'ok': True, 'value': app.choose_directory()})
+                return
+            instance = self.headers.get('X-FOCUS-Instance') or parse_qs(urlsplit(self.path).query).get('instance', [None])[0]
+            if path == '/reader/events':
+                with app.lock:
+                    self.active_service = app.require_instance(instance)
+                self._business_api(method, path)
+            else:
+                with app.operation(instance) as service:
+                    self.active_service = service
+                    self._business_api(method, path)
+        else:
+            self.active_service = self.server.service
+            self._business_api(method, path)
+
+    def _business_api(self, method, path):
+        service = self.active_service
         if method == 'GET' and path == '/reader/events':
             self.send_response(200)
             self.send_header('Content-Type', 'text/event-stream; charset=utf-8')
@@ -168,6 +204,10 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             generation = -1
             while not service.shutting_down:
+                if self.server.workbench and self.server.workbench.host is not service:
+                    self.wfile.write(b'event: workspace-changed\ndata: {}\n\n')
+                    self.wfile.flush()
+                    break
                 with service.condition:
                     if generation == service.generation:
                         service.condition.wait(timeout=10)
@@ -436,7 +476,7 @@ class Handler(BaseHTTPRequestHandler):
                             raise ValueError('Upload interrupted')
                         out.write(data)
                         remaining -= len(data)
-                service.store.put('upload:' + upload_id, {'name': name, 'path': str(target)})
+                service.store.put('upload:' + upload_id, {'name': name, 'path': str(target.relative_to(service.workspace))})
             except Exception:
                 target.unlink(missing_ok=True)
                 root.rmdir()

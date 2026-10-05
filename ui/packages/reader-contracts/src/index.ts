@@ -129,6 +129,7 @@ export interface SourceNoteOperation {
 export type SourceNoteRequestResult = SourceNoteOperation | { status: "saved"; note: SourceNote } | { status: "cancelled" };
 
 export interface ReadingWindow {
+  workspace?: { workspaceId: string; instanceId: string; path: string };
   workItems?: readonly { kind: "chat" | "preparation" | "blog" | "ingestion" | "progress"; targetId: string; status: string; label: string; error?: string | null }[];
   configuration?: BackendConfigurationState;
   clearBusySources?: readonly string[];
@@ -469,7 +470,7 @@ export function createReaderId(): string {
   const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
-export type BackendSetupAction = "inspect" | "prepare" | "account" | "login-start" | "login-status" | "login-cancel" | "check";
+export type BackendSetupAction = "inspect" | "prepare" | "account" | "login-start" | "login-status" | "login-cancel" | "check" | "models";
 export interface BackendConfiguration {
   backend: "codex" | "deepseek";
   model: string;
@@ -482,6 +483,8 @@ export interface BackendConfigurationState {
   pending: boolean;
   busy: boolean;
   refreshBlocked: boolean;
+  preferences?: Partial<Record<"codex" | "deepseek", Omit<Partial<BackendConfiguration>, 'model'> & { model?: string | null }>>;
+  operationId?: string;
 }
 export interface BackendSetupInput {
   backend: "codex" | "deepseek";
@@ -489,6 +492,8 @@ export interface BackendSetupInput {
   model?: string;
   credentialFile?: string;
   loginId?: string;
+  requestId?: string;
+  preferences?: Partial<Record<'codex' | 'deepseek', Pick<BackendSetupInput, 'model' | 'runtimePath' | 'credentialFile'>>>;
 }
 export interface BackendSetupResult {
   backend: string;
@@ -497,4 +502,10 @@ export interface BackendSetupResult {
   message: string;
   authUrl?: string;
   loginId?: string;
+  environmentId?: string;
+  dependencyStatus?: string;
+  checkedModel?: string;
+  catalogStatus?: string;
+  catalogMessage?: string;
+  models?: string[];
 }

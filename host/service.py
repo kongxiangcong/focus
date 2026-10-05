@@ -27,6 +27,8 @@ from core.batch_application import BatchApplication
 from .reading_runtime import AgentReadingRuntime
 from .candidates import CandidateTurns
 from .configuration import UserSettings, DEFAULT_MODELS, normalize
+from core.workspace_lifecycle import WorkspaceLease, create_workspace
+from core.source_management import SourceManagement
 
 #: The Workbench offers one retry entry per artifact, named by granularity.
 BLOG_ARTIFACT_LABELS = {'value_analysis': '重新生成价值分析', 'reading_blog': '重新生成带读博客', 'html': '重新生成 HTML'}
@@ -39,19 +41,38 @@ class HostService:
     def __init__(self, workspace, data, *, model=None, codex_bin=None, backend=None,
                  backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None,
                  blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None, clock=time.time):
+        workspace = Path(workspace).resolve()
+        if not workspace.exists() or not any(workspace.iterdir()):
+            create_workspace(workspace)
+        self.lease = WorkspaceLease(workspace)
+        try:
+            self._initialize(workspace, data, model=model, codex_bin=codex_bin, backend=backend,
+                backend_factory=backend_factory, network=network, approval_policy=approval_policy,
+                ingestion_parser=ingestion_parser, blog_runtime=blog_runtime, reading_runtime=reading_runtime,
+                progress_runtime=progress_runtime, settings_path=settings_path, clock=clock)
+        except BaseException:
+            try:
+                if hasattr(self, 'store'):
+                    self.store.close()
+            finally:
+                self.lease.close()
+            raise
+
+    def _initialize(self, workspace, data, *, model=None, codex_bin=None, backend=None,
+                 backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None,
+                 blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None, clock=time.time):
         workspace.mkdir(parents=True, exist_ok=True)
         self.workspace = workspace.resolve()
         self.core = CoreBridge(self.workspace)
+        self.core.instance_id = self.lease.instance_id
         self.clock = clock
-        self.store = Store(data, self.workspace, clock=clock)
-        writer_id = self.store.get('ingestionWriterId')
-        if not isinstance(writer_id, str) or not writer_id:
-            writer_id = 'focus-host-' + uuid.uuid4().hex
-            self.store.put('ingestionWriterId', writer_id)
+        self.store = Store(self.workspace / 'discussions', self.workspace, clock=clock)
+        writer_id = self.lease.instance_id
         self.discussion_app = DiscussionApplication(self.workspace, writer_id=writer_id)
         self.source_notes = self.discussion_app.notes
         self.source_clear = SourceClear(self.store, self.source_notes)
         self.source_clear.recover()
+        self.source_management = SourceManagement(self.workspace, self.store)
         self.ingestion = IngestionApplication(
             self.workspace,
             parser=ingestion_parser or AutoMinerUParser(),
@@ -60,7 +81,7 @@ class HostService:
         self.lock = threading.RLock()
         self.condition = threading.Condition(self.lock)
         self.generation = int(time.time() * 1000)
-        self.model, self.codex_bin = model, codex_bin
+        self.model, self.codex_bin = model, str(codex_bin) if codex_bin is not None else None
         self.network, self.approval_policy = network, approval_policy
         backend = backend or DEFAULT_BACKEND
         self.backend_name, self.backend_factory = backend, backend_factory
@@ -173,6 +194,8 @@ class HostService:
                 window['figures'] = []
             window['revision'] = self.generation
             window['sessionId'] = self.state['sessionId']
+            window['workspace'] = {**self.lease.manifest, 'instanceId': self.lease.instance_id,
+                                   'path': str(self.workspace)}
             window['configuration'] = self.configuration_status()
             window['sessionFresh'] = not self.state['displayReading']
             window['navigationCurrent'] = window['current']
@@ -401,48 +424,12 @@ class HostService:
             return SourceLibrary(self.workspace).topics()
 
     def recover_source_edits(self):
-        operations = self.store.get('sourceEdits') or {}
-        library = SourceLibrary(self.workspace)
-        changed = False
-        for operation in operations.values():
-            if operation['status'] != 'pending':
-                continue
-            source_id = operation['sourceId']
-            library.rename_source(source_id, operation['title'])
-            for topic in library.topics():
-                wanted = topic['topicId'] in operation['topicIds']
-                attached = source_id in topic['sourceIds']
-                if wanted and not attached:
-                    library.attach(source_id, existing_topic_id=topic['topicId'])
-                elif attached and not wanted:
-                    library.detach(topic['topicId'], source_id)
-            operation['status'] = 'completed'
-            changed = True
-        if changed:
-            self.store.put('sourceEdits', operations)
+        self.source_management.recover_edits()
 
     def save_source_details(self, source_id, payload):
         with self.lock:
             self._library_management_idle()
-            request_id = payload.get('requestId')
-            if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9-]{8,80}', request_id):
-                raise ValueError('保存需要唯一请求身份。')
-            title, ids = payload.get('title'), payload.get('topicIds')
-            library = SourceLibrary(self.workspace)
-            library.get(source_id)
-            if not isinstance(title, str) or not title.strip() or len(title) > 1000:
-                raise ValueError('来源标题无效。')
-            known = {t['topicId'] for t in library.topics()}
-            if not isinstance(ids, list) or any(i not in known for i in ids):
-                raise ValueError('所属专题已改变，请刷新后保存。')
-            operations = self.store.get('sourceEdits') or {}
-            binding = {'sourceId': source_id, 'title': title.strip(), 'topicIds': sorted(set(ids))}
-            prior = operations.get(request_id)
-            if prior and any(prior[k] != v for k, v in binding.items()):
-                raise ValueError('请求身份已用于另一项修改。')
-            operations.setdefault(request_id, {**binding, 'status': 'pending'})
-            self.store.put('sourceEdits', operations)
-            self.recover_source_edits()
+            self.source_management.save_details(source_id, payload)
             self.changed()
             return self.snapshot()
 
@@ -497,7 +484,7 @@ class HostService:
             if not upload:
                 raise ValueError('上传文件不存在')
             return self.ingestion.stage_file(
-                Path(upload['path']), topic_title=topic_title, topic_id=topic_id
+                self.workspace / upload['path'], topic_title=topic_title, topic_id=topic_id
             )
 
     def inbox_confirm(self, item_id, *, generate_blog=False):
@@ -708,11 +695,7 @@ class HostService:
     # ------------------------------------------------------------------- blog
 
     def _blog_writer(self) -> str:
-        writer_id = self.store.get('blogWriterId')
-        if not isinstance(writer_id, str) or not writer_id:
-            writer_id = 'focus-host-' + uuid.uuid4().hex
-            self.store.put('blogWriterId', writer_id)
-        return writer_id
+        return self.lease.instance_id
 
     def _blog_app(self):
         """The blog Application is built once, on the same shared Core."""
@@ -1081,7 +1064,7 @@ class HostService:
                 file = self.store.get('upload:' + str(attachment_id))
                 if not file:
                     raise ValueError('Uploaded file no longer exists')
-                attachments.append(file)
+                attachments.append({**file, 'path': str(self.workspace / file['path'])})
             display_content = content
             chunk_id = (receipt or {}).get('chunkId', '')
             self.stop_requested = False
@@ -1127,9 +1110,10 @@ class HostService:
             return {'adapter': self.backend_name, 'model': self.models.get(self.backend_name)}
 
     def _configuration(self):
+        runtime = self.codex_bin if self.backend_name == 'codex' else self.deepseek_bin
         return {'backend': self.backend_name, 'model': self.models.get(self.backend_name),
-                'runtimePath': self.codex_bin if self.backend_name == 'codex' else self.deepseek_bin,
-                'credentialFile': self.deepseek_credentials if self.backend_name == 'deepseek' else None}
+                'runtimePath': str(runtime) if runtime is not None else None,
+                'credentialFile': str(self.deepseek_credentials) if self.backend_name == 'deepseek' and self.deepseek_credentials else None}
 
     def _configuration_busy(self):
         return bool(self.resetting or self.shutting_down or self.batch_admissions
@@ -1140,20 +1124,24 @@ class HostService:
 
     def configuration_status(self):
         with self.lock:
-            effective = self._configuration()
-            saved = self.settings.read() or effective
-            pending = saved != effective
-            return {'saved': saved, 'effective': effective, 'pending': pending,
-                    'busy': self._configuration_busy(), 'refreshBlocked': pending and self.refresh_blocked}
+            return self.settings.projection(self._configuration(), self._configuration_busy())
 
     def save_configuration(self, value):
-        value = normalize(value)
+        normalized = normalize(value)
         with self.lock:
             if self._configuration_busy():
                 raise ValueError('任务运行中，不能保存后端配置。')
-            self.settings.save(value)
-            if value == self._configuration():
-                self.refresh_blocked = False
+            old = self._configuration()
+            thread_id, resume_backend = self.state.get('threadId'), self.state.get('resumeBackend')
+            try:
+                # Activation is local; no installation, login or inference gate.
+                self._apply_configuration(normalized)
+                self.settings.save(value)
+            except BaseException:
+                self._apply_configuration(old)
+                self.state.update(threadId=thread_id, resumeBackend=resume_backend)
+                raise
+            self.refresh_blocked = False
             self.changed()
             return self.snapshot()
 
@@ -1174,9 +1162,6 @@ class HostService:
                 if self._configuration_busy():
                     self.refresh_blocked = True
                 else:
-                    status = self.setup.inspect(saved)
-                    if status['status'] == 'unavailable':
-                        raise ValueError(status['message'])
                     self._apply_configuration(saved)
                     self.refresh_blocked = False
             self.changed()
@@ -1194,6 +1179,10 @@ class HostService:
         workspace = workspace or self.workspace
         if self.backend_factory is not None:
             return self.backend_factory(workspace, **options)
+        prepared = self.setup.prepare({'backend': name, 'runtimePath': self.codex_bin if name == 'codex' else self.deepseek_bin})
+        if prepared['status'] != 'installed':
+            raise BackendError(prepared['message'])
+        options['codex_bin' if name == 'codex' else 'runtime_path'] = prepared['runtimePath']
         backend = create_backend(name, workspace, **options)
         receipt_id = uuid.uuid4().hex
         backend.cleanup_callback = lambda receipt: self.store.put('runtimeCleanup:' + receipt_id,
@@ -1541,10 +1530,10 @@ class HostService:
         if backend:
             backend.interrupt()
 
-    def stop(self):
+    def stop(self, *, project=True):
         with self.lock:
             if not self.state['run'] or self.state['run']['status'] not in ACTIVE:
-                return self.snapshot()
+                return self.snapshot() if project else None
             self.stop_requested = True
             if self.active_discussion:
                 self.discussion_app.cancel(self.active_discussion)
@@ -1559,7 +1548,7 @@ class HostService:
                 if worker.is_alive() and backend:
                     backend.close()
         threading.Thread(target=watchdog, daemon=True).start()
-        return self.snapshot()
+        return self.snapshot() if project else None
 
     def backend_setup(self, action, payload):
         if payload.get('backend') == 'codex' and not payload.get('runtimePath') and self.codex_bin:
@@ -1621,6 +1610,8 @@ class HostService:
             return self.snapshot()
 
     def close(self):
+        if self.lease.handle.closed:
+            return
         self.retention_stop.set()
         self.retention_worker.join(timeout=5)
         self.shutting_down = True
@@ -1655,7 +1646,7 @@ class HostService:
                 except (WorkspaceError, AttributeError):
                     pass
                 worker.join(timeout=15)
-        self.stop()
+        self.stop(project=False)
         for worker in list(self.batch_workers.values()):
             worker.join(timeout=15)
         if self.worker:
@@ -1664,4 +1655,11 @@ class HostService:
             self.backend.close()
             if self.worker:
                 self.worker.join(timeout=5)
+        workers = [self.retention_worker, *self.progress_workers.values(), *self.reading_workers.values(),
+                   *self.ingestion_workers.values(), *self.blog_workers.values(), *self.batch_workers.values()]
+        if self.worker:
+            workers.append(self.worker)
+        if any(worker.is_alive() for worker in workers):
+            raise WorkspaceError('workspace_stop_incomplete', '仍有业务写者未退出；工作区保持锁定，请等待后重试退出。')
         self.store.close()
+        self.lease.close()
