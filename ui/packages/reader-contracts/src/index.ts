@@ -60,6 +60,7 @@ export type BlogArtifactStatus =
 
 /** One Blog Output: the two Markdown artifacts plus the merged single-file page. */
 export interface BlogStatus {
+  attemptId?: string | null;
   sourceId: string;
   generated: boolean;
   artifacts: Record<BlogArtifactName, { status: BlogArtifactStatus; updatedAt: string | null }>;
@@ -130,7 +131,7 @@ export type SourceNoteRequestResult = SourceNoteOperation | { status: "saved"; n
 
 export interface ReadingWindow {
   workspace?: { workspaceId: string; instanceId: string; path: string };
-  workItems?: readonly { kind: "chat" | "preparation" | "blog" | "ingestion" | "progress"; targetId: string; status: string; label: string; error?: string | null }[];
+  workItems?: readonly { kind: "chat" | "preparation" | "blog" | "ingestion" | "progress"; targetId: string; status: string; label: string; error?: string | null; dismissed?: boolean }[];
   configuration?: BackendConfigurationState;
   clearBusySources?: readonly string[];
   reviewChunk?: ReaderChunk | null;
@@ -303,12 +304,14 @@ export interface SourceDeletionImpact {
 }
 
 export interface ProcessingBatch {
+  dismissed?: boolean;
   batchId: string;
   topicId: string | null;
   status: "confirmed" | "running" | "paused" | "completed" | "partial";
   error: { error_id: string; message: string } | null;
   executing?: boolean;
   items: readonly {
+    dismissed?: boolean;
     itemId: string; fileName: string; sourceId: string | null;
     status: "queued" | "processing" | "completed" | "failed" | "cancelled" | "partial" | "deleted";
     ingestionStatus: string; blog: BlogStatus | null;
@@ -322,6 +325,7 @@ export interface ProcessingBatch {
 }
 
 export interface IngestionItem {
+  dismissed?: boolean;
   itemId: string;
   fileName: string;
   status: IngestionStatus;
@@ -365,6 +369,7 @@ export interface LibrarySource {
 }
 
 export interface ReaderHost {
+  clearFinishedStatuses?(requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   listTopics?(): Promise<ReaderHostResult<readonly LibraryTopic[]>>;
   listSources?(): Promise<ReaderHostResult<readonly LibrarySource[]>>;
   listInbox?(): Promise<ReaderHostResult<readonly IngestionItem[]>>;

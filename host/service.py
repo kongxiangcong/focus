@@ -15,6 +15,7 @@ from .backends import BACKENDS, DEFAULT_BACKEND, BackendError, create_backend
 from .backends.base import APPROVAL_TITLES, COMMAND_APPROVAL, FILE_APPROVAL, PERMISSIONS_APPROVAL, USER_INPUT
 from .core_bridge import CoreBridge, ROOT, WorkspaceError, SourceLibrary, DiscussionApplication
 from .store import Store
+from .status_notifications import StatusNotifications, fingerprint
 from . import discussions
 from .source_clear import SourceClear
 from .backend_setup import BackendSetup, deepseek_key, runtime_path
@@ -264,34 +265,58 @@ class HostService:
                                              'unavailableReason': getattr(adapter, 'unavailable_reason', None)}
                                             for name, adapter in BACKENDS.items()]}
             window['workItems'] = self.work_items(window)
+            for item in window['workItems']:
+                if item['kind'] == 'preparation' and item['dismissed']:
+                    window['preparations'][item['targetId']]['dismissed'] = True
             return json.loads(json.dumps(window))
 
     def work_items(self, window):
         """Project durable business attempts; never infer work from the last log line."""
         items = []
         titles = {s['sourceId']: s.get('shortName') or s['title'] for s in SourceLibrary(self.workspace).overview()}
-        def add(kind, target, status, label, error=None):
-            items.append({'kind': kind, 'targetId': target, 'status': status,
-                          'label': label, 'error': error})
+        def add(kind, target, status, label, error=None, record=None):
+            item = {'kind': kind, 'targetId': target, 'status': status,
+                    'label': label, 'error': error, 'notificationId': fingerprint(record or {}),
+                    'executing': bool((record or {}).get('executing'))}
+            items.append(StatusNotifications(self.store).project('work', kind + ':' + target, item))
         run = self.state.get('run')
         if run and run['status'] in ('running', 'approval', 'stopping', 'failed', 'interrupted'):
-            add('chat', run['runId'], run['status'], '等待你的确认' if run['status'] == 'approval' else '正在回答问题' if run['status'] == 'running' else '问答任务', run.get('error'))
+            add('chat', run['runId'], run['status'], '等待你的确认' if run['status'] == 'approval' else '正在回答问题' if run['status'] == 'running' else '问答任务', run.get('error'), {'runId': run['runId']})
         for source_id, preparation in window['preparations'].items():
             if not preparation.get('dismissed') and preparation['status'] in ('running', 'failed', 'interrupted', 'cancelled', 'bundle_changed', 'commit_conflict'):
-                add('preparation', source_id, preparation['status'], '准备阅读 · ' + titles.get(source_id, source_id), preparation.get('error'))
+                add('preparation', source_id, preparation['status'], '准备阅读 · ' + titles.get(source_id, source_id), preparation.get('error'), {'attempt': preparation['attempt']})
         for source_id, blog in window['blog'].items():
             if blog.get('runStatus') in ('running', 'failed', 'interrupted', 'cancelled'):
-                add('blog', source_id, blog['runStatus'], '生成博客 · ' + titles.get(source_id, source_id), (blog.get('error') or {}).get('message'))
+                add('blog', source_id, blog['runStatus'], '生成博客 · ' + titles.get(source_id, source_id), (blog.get('error') or {}).get('message'), {'attemptId': blog.get('attemptId'), 'executing': blog.get('executing')})
         # Inbox/Core files are atomic. Avoid taking the batch lock under the Host lock.
         for item in self.ingestion.list_inbox():
             if not item.get('deleted') and item['status'] not in ('completed', 'awaiting_confirmation'):
-                add('ingestion', item['item_id'], item['status'], '正在解析 ' + item['file_name'] if item['status'] in ('processing', 'confirmed') else '解析待处理 · ' + item['file_name'], (item.get('error') or {}).get('message'))
+                add('ingestion', item['item_id'], item['status'], '正在解析 ' + item['file_name'] if item['status'] in ('processing', 'confirmed') else '解析待处理 · ' + item['file_name'], (item.get('error') or {}).get('message'), item)
         state_path = self.workspace / 'state.json'
         state = json.loads(state_path.read_text()) if state_path.is_file() else {}
         for entry in state.get('reading_progress', {}).values():
             if not entry['deleted'] and entry['status'] in ('pending', 'generating', 'failed', 'interrupted'):
-                add('progress', entry['progress_id'], entry['status'], '整理阅读记录 · ' + titles.get(entry['source_id'], entry['source_id']), entry.get('error'))
+                attempts = [receipt.get('result', {}).get('attempt')
+                            for receipt in state.get('progress_requests', {}).values()
+                            if receipt.get('input', {}).get('progress_id') == entry['progress_id']]
+                add('progress', entry['progress_id'], entry['status'], '整理阅读记录 · ' + titles.get(entry['source_id'], entry['source_id']), entry.get('error'), {**entry, 'attempts': attempts})
         return items
+
+    def clear_finished_statuses(self, request_id):
+        # Batch -> Host is the existing lock order. Capture batch views before
+        # taking the Host lock; changed attempts cannot match old receipts.
+        batches = self.batch_list()
+        with self.lock:
+            notices = StatusNotifications(self.store)
+            entries = [('work', item['kind'] + ':' + item['targetId'], item)
+                       for item in self.snapshot()['workItems']]
+            entries.extend(('inbox', item['item_id'], item) for item in self.ingestion.list_inbox())
+            for batch in batches:
+                entries.append(('batch', batch['batchId'], batch))
+                entries.extend(('batch-item', item['itemId'], item) for item in batch['items'])
+            notices.clear(entries, request_id)
+            self.changed()
+            return self.snapshot()
 
     def _run_reading_preparation(self, source_id, run_id, attempt):
         def progress_changed():
@@ -519,10 +544,15 @@ class HostService:
 
     def batch_list(self):
         batches = self._batch_app().list()
+        records = {item['item_id']: item for item in self.ingestion.list_inbox()}
         with self.lock:
             for batch in batches:
                 worker = self.batch_workers.get(batch['batchId'])
                 batch['executing'] = bool(worker and worker.is_alive())
+                for item in batch['items']:
+                    item['notificationId'] = fingerprint(records.get(item['itemId'], item))
+                batch['items'] = [StatusNotifications(self.store).project('batch-item', item['itemId'], item) for item in batch['items']]
+                batch.update(StatusNotifications(self.store).project('batch', batch['batchId'], batch))
         return batches
 
     def batch_start(self, item_ids, *, request_id, generate_blog=True):
@@ -656,7 +686,7 @@ class HostService:
 
     def inbox_items(self):
         with self.lock:
-            return self.ingestion.list_inbox()
+            return [StatusNotifications(self.store).project('inbox', item['item_id'], item) for item in self.ingestion.list_inbox()]
 
     def inbox_continue(self, item_id, *, request_id):
         with self.lock:

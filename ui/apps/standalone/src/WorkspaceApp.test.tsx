@@ -25,6 +25,7 @@ function setup(initialInbox: readonly IngestionItem[] = [], initialWindow: Readi
     listSources: vi.fn(async () => readerSuccess([{ sourceId: "a-paper", title: "A Paper", kind: "paper" as const, parseStatus: "ready" as const, error: null, noteCount: 2, topicIds: ["topic"], progress: { completed: 1, total: 4, planId: "plan-001", chunkId: "chunk-002" } }])),
     listInbox: vi.fn(async () => readerSuccess(initialInbox)), stageIngestion: vi.fn(async () => readerSuccess(staged)),
     listBatches: vi.fn(async () => readerSuccess([])),
+    clearFinishedStatuses: vi.fn(async () => readerSuccess(empty)),
     startBatch: vi.fn(async () => readerSuccess({ batchId: "batch-1", topicId: "topic", status: "confirmed" as const, error: null, items: [] })),
     controlBatch: vi.fn(async () => readerSuccess({ batchId: "batch-1", topicId: "topic", status: "paused" as const, error: null, items: [] })),
     createTopic: vi.fn(async () => readerSuccess({})), manageTopic: vi.fn(async () => readerSuccess({})),
@@ -137,6 +138,11 @@ it("edits original metadata and Topic membership through Host actions", async ()
   fireEvent.click(screen.getByRole("button", { name: "取消" }));
   expect(host.saveSourceDetails).toHaveBeenCalledTimes(1);
   expect(host.deleteSource).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '管理来源' }));
+  fireEvent.click(screen.getByRole('button', { name: '不关联专题' }));
+  expect(screen.getByRole('checkbox', { name: '编译' })).not.toBeChecked();
+  fireEvent.click(screen.getByRole('button', { name: '保存' }));
+  await waitFor(() => expect(host.saveSourceDetails).toHaveBeenNthCalledWith(2, 'a-paper', 'A Paper', [], expect.any(String)));
 });
 it("freezes a mixed selection into one Topic batch and exposes each result", async () => {
   const { host } = setup();
@@ -460,13 +466,36 @@ it.each([
 it("T23/T24 allows unclassified parse-only upload with an explicit immutable scope", async () => {
   const { host } = setup();
   await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole('button', { name: /^编译/ }));
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
+  expect(screen.getByRole('combobox', { name: '专题' })).toHaveValue('');
   fireEvent.click(screen.getByRole("checkbox", { name: "解析后生成博客" }));
   const file = new File(["%PDF test"], "unclassified.pdf");
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [file] } });
   fireEvent.click(screen.getByRole("button", { name: "仅解析入库" }));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String), false));
   expect(host.stageIngestion).toHaveBeenCalledWith(file, {});
+});
+
+it('clears terminal statuses while an active chat continues, and keeps source management available later', async () => {
+  const failed: IngestionItem = { itemId: 'failed', fileName: 'failed.pdf', status: 'failed', topicId: null, topicTitle: null, sourceId: null, documentStatus: 'failed', topicStatus: 'not_started' };
+  const initial: ReadingWindow = { ...empty, workItems: [
+    { kind: 'chat', targetId: 'chat-active', status: 'running', label: '正在回答问题' },
+    { kind: 'blog', targetId: 'a-paper', status: 'failed', label: '旧博客失败', error: 'old failure' },
+  ], agent: { ...empty.agent!, run: { runId: 'chat-active', status: 'running', approvals: [], activity: [], error: null } } };
+  const { host } = setup([failed], initial);
+  vi.mocked(host.clearFinishedStatuses!).mockImplementation(async () => {
+    vi.mocked(host.listInbox!).mockResolvedValue(readerSuccess([{ ...failed, dismissed: true }]));
+    return readerSuccess({ ...initial, workItems: initial.workItems!.map(item => ({ ...item, dismissed: item.status === 'failed' })) });
+  });
+  await screen.findByRole('heading', { name: 'A Paper' });
+  fireEvent.click(screen.getByRole('button', { name: '任务详情' }));
+  expect(screen.getByText('failed.pdf')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: '全部清空' }));
+  await waitFor(() => expect(screen.queryByText('failed.pdf')).not.toBeInTheDocument());
+  expect(screen.queryByText('old failure')).not.toBeInTheDocument();
+  expect(screen.getByText('正在回答问题 · 进行中')).toBeVisible();
+  expect(host.clearFinishedStatuses).toHaveBeenCalledWith(expect.any(String));
 });
 
 it("T2 appearance previews can be cancelled without touching saved settings", async () => {

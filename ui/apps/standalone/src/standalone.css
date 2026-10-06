@@ -281,6 +281,7 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
 .workspace-entry-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 .workspace-entry-footer p { flex-basis: 100%; margin: 0; overflow-wrap: anywhere; }
 .backend-setup__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.workspace-task-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .focus-entry { min-height: 100dvh; display: grid; place-items: center; padding: 24px; background: radial-gradient(ellipse at 0% 40%, #edccba60, transparent 60%), radial-gradient(ellipse at 100% 0%, #9cadc550, transparent 60%), var(--reader-paper); }
 .focus-entry > .workspace-selection { width: min(100%, 880px); padding: 32px; border: 1px solid #ffffffb0; border-radius: 20px; background: #ffffffe0; box-shadow: 0 16px 60px #34404410; }
 .focus-entry .workspace-selection > h2 { margin: 0; font-size: 26px; }

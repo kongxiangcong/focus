@@ -246,6 +246,7 @@ class BlogApplication:
                 if step.get("status") == STEP_RUNNING:
                     projection["artifacts"][name] = {"status": "generating", "updatedAt": None}
             projection["runStatus"] = run.get("status")
+            projection["attemptId"] = run.get("request_id")
             projection["error"] = run.get("error")
         else:
             projection["runStatus"] = RUN_IDLE

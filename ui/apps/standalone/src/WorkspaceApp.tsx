@@ -187,12 +187,13 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   useEffect(() => { if (uploadOpen) uploadDialog.current?.showModal(); else uploadDialog.current?.close(); }, [uploadOpen]);
 
   async function operate(label: string, operation: () => Promise<ReaderHostResult<ReadingWindow>>, read = false) {
-    if (locked.current || (active && !label.startsWith("停止"))) return;
+    if (locked.current || (active && !label.startsWith("停止") && label !== '全部清空')) return;
     locked.current = true; setBusy(label); setError(""); setRetryAction(null);
     try {
       const result = await operation();
       if (!result.ok) { setError(result.error.message); setRetryAction(() => () => void operate(label, operation, read)); return; }
       setRetryAction(null); acceptView(result.value); setConfirm(null);
+      if (label === '全部清空') { setNotice(''); setReadyNotice(''); }
       if (read) navigate("/reading");
       if (label === "上传") { setUploadOpen(false); setSelectedFiles([]); }
       await refresh();
@@ -401,7 +402,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   function chooseUpload(selected: readonly File[] = []) {
     if (selected.some(f => !/\.(pdf|html)$/i.test(f.name))) { setError("请选择 PDF 或 SingleFile HTML"); return; }
     setSelectedFiles(selected);
-    setUploadTopic(topics.find(t => t.topicId === topic)?.title ?? "");
+    setUploadTopic("");
     setGenerateOnUpload(true); setError(""); setUploadOpen(true);
   }
   const uploadDisabled = !!busy || active || !host.stageIngestion || !host.startBatch;
@@ -414,7 +415,13 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   };
   const resumableStatuses: readonly IngestionItem["status"][] = ["retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "cancelled", "interrupted"];
   const runningStatuses = ["running", "approval", "stopping", "processing", "confirmed", "pending", "generating"];
-  const work = (view?.workItems ?? []).filter(item => item.kind !== "preparation" || !preparationHidden(item.targetId));
+  const work = (view?.workItems ?? []).filter(item => !item.dismissed && (item.kind !== "preparation" || !preparationHidden(item.targetId)));
+  const taskBatches = batches.filter(batch => !batch.dismissed).map(batch => ({ ...batch, items: batch.items.filter(item => !item.dismissed) }));
+  const taskInbox = inbox.filter(item => !item.dismissed && !batches.some(batch => batch.items.some(entry => entry.itemId === item.itemId)));
+  async function clearStatuses() {
+    if (!host.clearFinishedStatuses || locked.current) return;
+    await operate('全部清空', () => identified('clear-statuses', id => host.clearFinishedStatuses!(id)));
+  }
   const runningWork = work.filter(w => runningStatuses.includes(w.status));
   const attention = work.filter(w => !runningStatuses.includes(w.status));
   const primaryWork = runningWork.find(w => w.status === "approval") ?? runningWork.find(w => w.kind === "ingestion") ?? runningWork[0];
@@ -454,7 +461,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         </div>
       </div>
       {taskDetails && <div className="workspace-task-frame" id="workspace-tasks" aria-label="任务框">
-        {work.length === 0 && batches.length === 0 && inbox.length === 0 && <p>没有进行中或待处理的任务。</p>}
+        <div className="workspace-task-actions"><span>任务状态</span><button disabled={!!busy || !host.clearFinishedStatuses} onClick={() => void clearStatuses()}>全部清空</button></div>
+        <small>清空已结束状态，运行中及等待开始的任务保留。</small>
+        {work.length === 0 && taskBatches.length === 0 && taskInbox.length === 0 && <p>没有进行中或待处理的任务。</p>}
         {work.filter(item => item.kind !== "ingestion" || (!inbox.some(entry => entry.itemId === item.targetId) && !batches.some(batch => batch.items.some(entry => entry.itemId === item.targetId)))).map(item => <div key={`${item.kind}:${item.targetId}`}><span>{item.label}{item.kind === "preparation" && preparationFailed(item.targetId) ? "" : ` · ${runningStatuses.includes(item.status) ? "进行中" : "待处理"}`}</span>
           {item.error && (item.kind !== "preparation" || !view?.preparations?.[item.targetId]) && <p role="alert">{item.error}</p>}
           {runningStatuses.includes(item.status) && item.status !== "pending" && <button disabled={!!busy} onClick={() => void stopWork(item)}>{item.kind === "preparation" ? "取消准备" : "停止此任务"}</button>}
@@ -463,7 +472,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           {!runningStatuses.includes(item.status) && (item.kind === "ingestion" || item.kind === "blog") && <button onClick={() => navigate("/library")}>查看并恢复</button>}
           {!runningStatuses.includes(item.status) && item.kind === "chat" && <button onClick={() => navigate("/reading")}>查看并重新提问</button>}
         </div>)}
-      {batches.length > 0 && <section className="library-inbox" aria-label="处理任务"><h2>上传任务</h2>{batches.map(batch => <details key={batch.batchId}><summary>{batch.status === "completed" ? "已完成任务" : "当前任务 / 待处理"}</summary><article>
+      {taskBatches.length > 0 && <section className="library-inbox" aria-label="处理任务"><h2>上传任务</h2>{taskBatches.map(batch => <details key={batch.batchId}><summary>{batch.status === "completed" ? "已完成任务" : "当前任务 / 待处理"}</summary><article>
         <h3>{topics.find(t => t.topicId === batch.topicId)?.title ?? batch.topicId ?? '未关联专题'} · {batchStatusText[batch.status]}</h3>
         {["confirmed", "running"].includes(batch.status) && <button disabled={!!busy || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "stop")}>停止整批</button>}
         {["paused", "partial"].includes(batch.status) && <button disabled={!!busy || batch.executing || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "continue")}>继续剩余工作</button>}
@@ -483,7 +492,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           {item.sourceId && <div className="inbox-links">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(item.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(item.sourceId)} target="_blank" rel="noreferrer">正文</a>}</div>}
         </div>)}
       </article></details>)}</section>}
-      {inbox.some(item => !batches.some(batch => batch.items.some(entry => entry.itemId === item.itemId))) && <section className="library-inbox" aria-label="Inbox"><div className="library-inbox-heading"><h2>单项上传</h2><button disabled={!!busy} onClick={() => void refresh()}>刷新状态</button></div>{inbox.filter(item => !batches.some(batch => batch.items.some(entry => entry.itemId === item.itemId))).map(item => <article key={item.itemId} className="library-inbox-item" data-status={item.status}>
+      {taskInbox.length > 0 && <section className="library-inbox" aria-label="Inbox"><div className="library-inbox-heading"><h2>单项上传</h2><button disabled={!!busy} onClick={() => void refresh()}>刷新状态</button></div>{taskInbox.map(item => <article key={item.itemId} className="library-inbox-item" data-status={item.status}>
         <div><strong>{item.fileName}</strong><span>{statusText[item.status]}</span><small>{item.topicTitle ?? topics.find(t => t.topicId === item.topicId)?.title ?? "不关联专题"}</small></div>
         {item.parserBackend && <p role="status">{item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"}{item.selectionReason ? ` · ${item.selectionReason}` : ""}{item.parserProgress?.status ? ` · ${item.parserProgress.status === "queued" ? "排队中" : item.parserProgress.status === "running" ? "解析中" : item.parserProgress.status}` : ""}{typeof item.parserProgress?.percent === "number" ? ` · ${Math.round(item.parserProgress.percent)}%` : ""}</p>}
         {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>PDF 由运行 FOCUS 后端的服务器自动选择本地 MinerU 或远端 MinerU API；HTML 使用本地解析。解析仅用于建立 Source 并关联专题，不会自动进入阅读。</p>
@@ -577,6 +586,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <h2>{management?.kind === "source" ? "管理来源" : management?.kind === "delete" ? "删除专题" : management?.kind === "rename" ? "重命名专题" : "新建专题"}</h2>
         {management?.kind === "delete" ? <p>删除“{managementTitle}”专题。全部来源、博客、笔记和阅读进度会保留。</p> : <label>{management?.kind === "source" ? "来源原题" : "专题名称"}<input aria-label={management?.kind === "source" ? "来源原题" : "专题名称"} required maxLength={management?.kind === "source" ? 1000 : 120} value={managementTitle} onChange={e => setManagementTitle(e.target.value)} /></label>}
         {management?.kind === "source" && <fieldset><legend>所属专题</legend>{topics.map(t => <label key={t.topicId}><input type="checkbox" checked={managementTopics.includes(t.topicId)} disabled={managementBusy || !host.saveSourceDetails} onChange={e => { const checked = e.target.checked; setManagementTopics(old => checked ? [...old, t.topicId] : old.filter(id => id !== t.topicId)); }} />{t.title}</label>)}</fieldset>}
+        {management?.kind === 'source' && <button type="button" disabled={managementBusy || !managementTopics.length} onClick={() => setManagementTopics([])}>不关联专题</button>}
         {error && <p role="alert">{error}</p>}
         <button type="button" disabled={!!busy} onClick={() => setManagement(null)}>取消</button>
         <button type="submit" disabled={managementBusy || (management?.kind !== "delete" && !managementTitle.trim())}>{management?.kind === "delete" ? "确认删除专题" : "保存"}</button>
@@ -585,7 +595,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     <dialog className="workspace-confirm workspace-upload" ref={uploadDialog} onCancel={() => setUploadOpen(false)}>
       <form onSubmit={e => { e.preventDefault(); void uploadAndStart(); }}>
         <h2>解析并生成博客</h2>
-        <label>专题<input list="upload-topics" disabled={!!busy} maxLength={120} value={uploadTopic} onChange={e => setUploadTopic(e.target.value)} placeholder="可选；留空进入未分类" /></label>
+        <label>专题（可选）<input aria-label="专题" list="upload-topics" disabled={!!busy} maxLength={120} value={uploadTopic} onChange={e => setUploadTopic(e.target.value)} placeholder="不关联专题；也可选择或输入专题" /></label>
+        <small>留空即可入库，之后可在“管理来源”中编辑所属专题。</small>
         <label><input type="checkbox" checked={generateOnUpload} onChange={e => setGenerateOnUpload(e.target.checked)} />解析后生成博客</label>
         <datalist id="upload-topics">{topics.map(t => <option key={t.topicId} value={t.title} />)}</datalist>
         <label className="upload-file">{selectedFiles.map(f => f.name).join("、") || "PDF / HTML"}<input aria-label="上传材料" type="file" multiple disabled={!!busy} accept=".pdf,.html,application/pdf,text/html" onChange={e => setSelectedFiles(Array.from(e.target.files ?? []))} /></label>

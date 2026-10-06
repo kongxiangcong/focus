@@ -14,4 +14,6 @@ def publish_workspace(workspace):
 
 def HostService(workspace, data, **kwargs):
     publish_workspace(workspace)
+    # Test Hosts must never inherit or overwrite the user's machine preferences.
+    kwargs.setdefault('settings_path', workspace.parent / 'fixture-machine-settings.json')
     return RealHostService(workspace, data, **kwargs)

@@ -11,6 +11,23 @@ const completedWindow: ReadingWindow = {
   conversation: [],
 };
 
+it('clears status notifications through the bound Host and decodes inbox dismissal', async () => {
+  const boundWindow = { ...completedWindow, workspace: { workspaceId: 'workspace', instanceId: 'instance', path: '/workspace' } };
+  const fetch = vi.fn<typeof globalThis.fetch>()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, value: boundWindow })))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, value: [{
+      item_id: 'item', file_name: 'paper.pdf', status: 'failed', topic_title: null,
+      topic_id: null, source_id: null, document_status: 'failed', topic_status: 'not_started', dismissed: true,
+    }] })));
+  const host = new HttpReaderHost({ baseUrl: 'http://127.0.0.1:4317', fetch, instanceId: 'instance' });
+  expect(await host.clearFinishedStatuses('clear-1')).toEqual({ ok: true, value: boundWindow });
+  const [, request] = fetch.mock.calls[0];
+  expect(request?.method).toBe('POST');
+  expect(new Headers(request?.headers).get('X-FOCUS-Instance')).toBe('instance');
+  expect(JSON.parse(request?.body as string)).toEqual({ requestId: 'clear-1' });
+  expect(await host.listInbox()).toMatchObject({ ok: true, value: [{ itemId: 'item', dismissed: true }] });
+});
+
 it('accepts batches without an associated topic, including control responses', async () => {
   const batch = {
     batchId: 'deleted-topic-batch', topicId: null, status: 'partial', error: null,

@@ -194,6 +194,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _business_api(self, method, path):
         service = self.active_service
+        if method == 'POST' and path == '/reader/status/clear':
+            self._send(200, {'ok': True, 'value': service.clear_finished_statuses(self._body().get('requestId'))})
+            return
         if method == 'GET' and path == '/reader/events':
             self.send_response(200)
             self.send_header('Content-Type', 'text/event-stream; charset=utf-8')

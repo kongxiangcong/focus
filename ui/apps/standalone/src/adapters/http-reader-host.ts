@@ -136,6 +136,7 @@ function decodeIngestionItem(value: unknown): IngestionItem | null {
   const topicError = item.topic_error as Record<string, unknown> | undefined;
   return {
     itemId: item.item_id, fileName: item.file_name, status: item.status as IngestionItem["status"],
+    ...(typeof item.dismissed === 'boolean' ? { dismissed: item.dismissed } : {}),
     topicTitle: item.topic_title as string | null, topicId: item.topic_id as string | null,
     sourceId: item.source_id as string | null, documentStatus: item.document_status,
     topicStatus: item.topic_status,
@@ -181,6 +182,10 @@ export class HttpReaderHost implements ReaderHost {
 
   async listTopics(): Promise<ReaderHostResult<readonly LibraryTopic[]>> {
     return this.libraryList<LibraryTopic>("/library/topics", item => typeof item.topicId === "string" && typeof item.title === "string" && isStringArray(item.sourceIds));
+  }
+
+  clearFinishedStatuses(requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request('/reader/status/clear', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ requestId }) });
   }
 
   listBatches(): Promise<ReaderHostResult<readonly ProcessingBatch[]>> {
