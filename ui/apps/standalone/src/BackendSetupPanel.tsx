@@ -131,6 +131,7 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
         {options.map(model => <option key={model} value={model}>{model}</option>)}
       </select></label>
     </fieldset>
+    <div className="backend-setup__actions">
     <button type="button" disabled={checking || loginBusy || !!login || !host.backendSetup}
       onClick={() => void check()}>{checking ? "检查中…" : "连接检查"}</button>
     {currentCatalog?.catalogStatus === 'failed' && <button type="button" disabled={checking} onClick={async () => {
@@ -143,10 +144,11 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
         else setError(result.error.message);
       } finally { if (alive.current && version === revision.current) setChecking(false); }
     }}>重试模型清单</button>}
-    {input.model && currentCatalog?.catalogStatus === 'loaded' && !currentCatalog.models?.includes(input.model) && <p role="status">已保存的模型不在当前清单中；保留选择，可重检或返回默认。</p>}
-    <p>{checked && checked.backend === input.backend && (!input.model || checked.checkedModel === input.model) ? '当前模型已验证（仅本次最小请求）。' : '当前模型尚未验证。'}</p>
     {input.backend === "codex" && <button type="button" disabled={checking || loginBusy || !!login || !host.backendSetup}
       onClick={() => void loginOperation("login-start")}>{loginBusy ? "登录处理中…" : "登录 Codex"}</button>}
+    </div>
+    {input.model && currentCatalog?.catalogStatus === 'loaded' && !currentCatalog.models?.includes(input.model) && <p role="status">已保存的模型不在当前清单中；保留选择，可重检或返回默认。</p>}
+    <p>{checked && checked.backend === input.backend && (!input.model || checked.checkedModel === input.model) ? '当前模型已验证（仅本次最小请求）。' : '当前模型尚未验证。'}</p>
     {login?.authUrl && <p><a href={login.authUrl} target="_blank" rel="noopener noreferrer">打开浏览器授权</a>
       <button type="button" disabled={loginBusy} onClick={() => void loginOperation("login-cancel")}>取消登录</button></p>}
     {!onDraft && <button type="button" disabled={checking || loginBusy || !!login || configuration?.busy }

@@ -534,7 +534,7 @@ it("keeps work and upload history hidden until the shared disclosure is opened, 
     { kind: "ingestion", targetId: "pending-1", status: "running", label: "解析 pending.pdf" },
     { kind: "blog", targetId: "b-paper", status: "running", label: "生成 B" },
   ] });
-  vi.mocked(host.listBatches!).mockResolvedValue(readerSuccess([{ batchId: "done", topicId: "topic", status: "completed", items: [], error: null }]));
+  vi.mocked(host.listBatches!).mockResolvedValue(readerSuccess([{ batchId: "done", topicId: null, status: "completed", items: [], error: null }]));
   cleanup(); render(<WorkspaceApp host={host} />);
   await screen.findByRole("heading", { name: "A Paper" });
   const toggle = screen.getByRole("button", { name: "任务详情" });
@@ -547,6 +547,7 @@ it("keeps work and upload history hidden until the shared disclosure is opened, 
   expect(screen.getByText("pending.pdf")).toBeVisible();
   expect(screen.queryByText("解析 pending.pdf · 进行中")).not.toBeInTheDocument();
   expect(screen.getByText("已完成任务").closest("details")).not.toHaveAttribute("open");
+  expect(screen.getByText("未关联专题 · 完成")).toBeInTheDocument();
   fireEvent.click(toggle);
   expect(screen.queryByLabelText("任务框")).not.toBeInTheDocument();
 });

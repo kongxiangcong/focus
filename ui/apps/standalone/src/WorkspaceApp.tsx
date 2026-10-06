@@ -464,7 +464,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           {!runningStatuses.includes(item.status) && item.kind === "chat" && <button onClick={() => navigate("/reading")}>查看并重新提问</button>}
         </div>)}
       {batches.length > 0 && <section className="library-inbox" aria-label="处理任务"><h2>上传任务</h2>{batches.map(batch => <details key={batch.batchId}><summary>{batch.status === "completed" ? "已完成任务" : "当前任务 / 待处理"}</summary><article>
-        <h3>{topics.find(t => t.topicId === batch.topicId)?.title ?? batch.topicId} · {batchStatusText[batch.status]}</h3>
+        <h3>{topics.find(t => t.topicId === batch.topicId)?.title ?? batch.topicId ?? '未关联专题'} · {batchStatusText[batch.status]}</h3>
         {["confirmed", "running"].includes(batch.status) && <button disabled={!!busy || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "stop")}>停止整批</button>}
         {["paused", "partial"].includes(batch.status) && <button disabled={!!busy || batch.executing || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "continue")}>继续剩余工作</button>}
         {batch.error && <p role="status">{batch.error.message}</p>}

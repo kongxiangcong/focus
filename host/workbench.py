@@ -169,18 +169,8 @@ class Workbench:
                     'message': '后端设置操作失败，请检查认证和网络后重试。'}
 
     def choose_directory(self):
-        """A picker on the Host machine; cancel changes no draft or binding."""
-        try:
-            import tkinter as tk
-            from tkinter import filedialog
-            root = tk.Tk()
-            root.withdraw()
-            try:
-                return {'path': filedialog.askdirectory(parent=root, title='选择 FOCUS 工作区目录') or None}
-            finally:
-                root.destroy()
-        except Exception:
-            return {'path': None, 'error': '目录选择器不可用，请手动输入本机目录。'}
+        from host.directory_picker import choose_directory
+        return choose_directory()
 
     def close(self):
         with self.lock:

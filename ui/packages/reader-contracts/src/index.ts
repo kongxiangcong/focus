@@ -304,7 +304,7 @@ export interface SourceDeletionImpact {
 
 export interface ProcessingBatch {
   batchId: string;
-  topicId: string;
+  topicId: string | null;
   status: "confirmed" | "running" | "paused" | "completed" | "partial";
   error: { error_id: string; message: string } | null;
   executing?: boolean;

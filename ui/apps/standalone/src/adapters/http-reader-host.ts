@@ -155,7 +155,7 @@ function decodeIngestionItem(value: unknown): IngestionItem | null {
 function isBatch(value: unknown): value is ProcessingBatch {
   if (!value || typeof value !== "object") return false;
   const b = value as Record<string, unknown>;
-  return typeof b.batchId === "string" && typeof b.topicId === "string" &&
+  return typeof b.batchId === "string" && (b.topicId === null || typeof b.topicId === "string") &&
     ["confirmed", "running", "paused", "completed", "partial"].includes(String(b.status)) &&
     Array.isArray(b.items) && b.items.every(i => i && typeof i.itemId === "string" &&
       typeof i.fileName === "string" && (i.sourceId === null || typeof i.sourceId === "string") &&

@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useId, useState } from 'react';
 import type { BackendSetupInput } from '@focus/reader-contracts';
 
 export interface WorkspaceBindingStatus {
@@ -31,6 +31,8 @@ export function WorkspaceSelection({ status: initial, onOpened, children, config
   const [path, setPath] = useState('');
   const [name, setName] = useState('knowledge-base');
   const [busy, setBusy] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const pathId = useId();
   const [error, setError] = useState('');
   useEffect(() => {
     if (!initial) void workspaceRequest('/reader/workspace').then(next => {
@@ -40,6 +42,7 @@ export function WorkspaceSelection({ status: initial, onOpened, children, config
   if (!status) return null;
   return <section className="workspace-selection" aria-label="工作区选择">
     <h2>{status.bound ? '工作区' : '开始使用 FOCUS'}</h2>
+    {!status.bound && <p className="workspace-entry-intro">选择工作区与后端，开始阅读。</p>}
     {status.workspace && <p className="workspace-location">{status.workspace.path}</p>}
     {!editing && <button disabled={status.busy} onClick={() => setEditing(true)}>更换工作区</button>}
     {editing && <form onSubmit={async event => {
@@ -62,30 +65,39 @@ export function WorkspaceSelection({ status: initial, onOpened, children, config
         } catch { setError(String(cause)); }
       } finally { setBusy(false); }
     }}>
+      <div className="workspace-entry-fields">
       {status.error && <p role="alert">{status.error}</p>}
       {status.savedWorkspace && !status.bound && <p className="workspace-location">原位置：{status.savedWorkspace.path}</p>}
       <fieldset disabled={busy}><legend>打开方式</legend>
         {([['import', '导入工作区'], ['create', '新建工作区'], ...(status.savedWorkspace && !status.bound ? [['relocate', '重新定位原工作区']] : [])] as [typeof mode, string][]).map(([value, label]) =>
           <label key={value}><input type="radio" name="workspace-mode" value={value} checked={mode === value} onChange={() => setMode(value)} />{label}</label>)}
       </fieldset>
-      <label>{mode === 'create' ? '父目录' : '工作区目录'}<input autoFocus value={path} onChange={event => setPath(event.target.value)} disabled={busy} placeholder="运行 FOCUS 这台电脑上的目录" required /></label>
-      <button type="button" disabled={busy} onClick={async () => {
-        setBusy(true); setError('');
+      <div className="workspace-path-field">
+      <label htmlFor={pathId}>{mode === 'create' ? '父目录' : '工作区目录'}</label>
+      <div className="workspace-path-row">
+      <input id={pathId} autoFocus value={path} onChange={event => setPath(event.target.value)} disabled={busy || picking} placeholder="运行 FOCUS 这台电脑上的目录" required />
+      <button type="button" disabled={busy || picking} onClick={async () => {
+        setPicking(true); setError('');
         try {
           const response = await fetch(baseUrl + '/reader/workspace/pick', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
           const body = await response.json();
           if (!response.ok || !body.ok) throw new Error(body.error?.message ?? '目录选择失败');
           if (body.value.path) setPath(body.value.path);
           if (body.value.error) setError(body.value.error);
-        } catch (cause) { setError(String(cause)); } finally { setBusy(false); }
-      }}>选择目录</button>
+        } catch (cause) { setError(String(cause)); } finally { setPicking(false); }
+      }}>{picking ? '选择中…' : '选择目录'}</button>
+      </div></div>
       {mode === 'create' && <label>名称<input value={name} disabled={busy} onChange={event => setName(event.target.value)} required /></label>}
-      {children}
-      <p>退出所有使用该库的 FOCUS 进程，完成落盘后复制整个工作区目录即可备份；恢复到新位置后选择导入。</p>
+      <p className="workspace-backup-hint">退出 FOCUS、完成落盘后，复制整个工作区即可备份；恢复后选择导入。</p>
+      </div>
+      {children && <div className="workspace-entry-backend">{children}</div>}
+      <div className="workspace-entry-footer">
       {error && <p role="alert">{error}</p>}
       {busy && <p role="status">正在打开…</p>}
-      <button type="submit" disabled={busy || status.busy}>进入工作台</button>
-      {status.bound && <button type="button" disabled={busy} onClick={() => setEditing(false)}>取消</button>}
+      {picking && <p role="status">请在弹出的窗口选择目录。</p>}
+      <button type="submit" disabled={busy || picking || status.busy}>进入工作台</button>
+      {status.bound && <button type="button" disabled={busy || picking} onClick={() => setEditing(false)}>取消</button>}
+      </div>
     </form>}
   </section>;
 }

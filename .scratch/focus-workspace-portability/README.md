@@ -32,3 +32,5 @@ Status: resolved
 01 已完成：[证据](evidence-01.md)。02 在 01 验收及状态更新后完成：[证据](evidence-02.md)。03 在 02 验收及状态更新后完成：[证据](evidence-03.md)。
 
 最终审查 Standards／Spec 均无未解决发现。前端 115 项、类型检查及构建通过；最终 Python 435 项，11 failures／30 errors，全部 41 个失败身份在起点基线同名，新失败身份为零。真实 Codex／DeepSeek 完成最小连接、真实清单、明确手选模型业务、完整复制恢复与剩余阅读推进。真实首次授权和现场安装单列未测，不以替身声称执行过；没有独立 Windows 包或完整多宿主工程。
+
+进入页与知识库追加修复已完成：[后续验收](evidence-entry-followup.md)。目录按钮邻接路径栏，常见尺寸进入页无需滚动，Windows 使用 Explorer 目录窗口；修复空专题批次引发的知识库响应格式错误。前端 121 项、受影响 Python 15 项、类型检查、构建及真实页面验收通过，Standards／Spec 均无未解决发现。
