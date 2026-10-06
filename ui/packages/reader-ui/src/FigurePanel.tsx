@@ -2,10 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent";
 import type { Figure } from "./figures";
 
-export function FigurePanel({ figures, selected, selectionVersion, scope, onScope, onSelect }: {
-  figures: readonly Figure[]; selected: string | null; scope: "chunk" | "all";
+export function FigurePanel({ figures, selected, selectionVersion, onSelect }: {
+  figures: readonly Figure[]; selected: string | null;
   selectionVersion: number;
-  onScope: (scope: "chunk" | "all") => void; onSelect: (figure: Figure) => void;
+  onSelect: (figure: Figure) => void;
 }) {
   const scroll = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
@@ -23,23 +23,22 @@ export function FigurePanel({ figures, selected, selectionVersion, scope, onScop
   useLayoutEffect(() => {
     locating.current = !!selected;
     locate();
-  }, [selected, scope, selectionVersion]);
+  }, [selected, selectionVersion]);
   useEffect(() => {
     if (zoom) dialog.current?.showModal();
     else { dialog.current?.close(); if (opener.current?.isConnected) opener.current.focus({ preventScroll: true }); }
   }, [zoom]);
   return <>
-    <div className="reader-figure-controls"><strong>{scope === "all" ? "全文图片" : "本段图片"} · {figures.length}</strong>
-      {scope === "all" && <button onClick={() => onScope("chunk")}>返回本段图片</button>}
-      <details className="reader-figure-navigation"><summary>图片导航</summary>
-        <div role="group" aria-label="图片范围"><button aria-pressed={scope === "chunk"} onClick={() => onScope("chunk")}>本段图片</button><button aria-pressed={scope === "all"} onClick={() => onScope("all")}>全文图片</button></div>
+    <div className="reader-figure-controls">
+      <details className="reader-figure-navigation" open>
+        <summary>图片导航 · {figures.length}</summary>
         <nav aria-label="图片目录">{figures.map(f => <button key={f.id} title={f.caption || f.label} aria-current={selected === f.id ? "true" : undefined} onClick={() => onSelect(f)}>
-          <img src={f.src} alt="" loading="lazy" /><span>{f.label} · {f.caption.slice(0, 70) || "无图注"}</span>
+          {f.label}
         </button>)}</nav>
       </details>
     </div>
     <div ref={scroll} className="reader-figure-scroll" tabIndex={0} aria-label="图片浏览" onWheel={() => { locating.current = false; }} onTouchStart={() => { locating.current = false; }} onPointerDown={() => { locating.current = false; }} onKeyDown={() => { locating.current = false; }}>
-      {!figures.length && <p>{scope === "all" ? "来源尚无可用图片。" : "本段无图片。可在图片导航中选择全文图片。"}</p>}
+      {!figures.length && <p>来源尚无可用图片。</p>}
       {figures.map(f => <figure key={f.id} data-figure-id={f.id} data-selected={selected === f.id}>
         <button className="reader-figure-zoom" aria-label={`放大${f.label}`} onClick={event => { opener.current = event.currentTarget; setNatural(false); setZoom(f); }}>
           <img src={f.src} alt={f.caption || f.label} loading="lazy" onLoad={() => { if (locating.current) locate(); }} onError={() => setFailed(old => old.includes(f.id) ? old : [...old, f.id])} />

@@ -1,5 +1,21 @@
 # 阅读文字与图片分栏实现与验收
 
+## 图片导航调整（当前行为）
+
+以下调整替代原验收记录中的本段/全文范围切换和导航默认收起行为：
+
+- 顶部只保留一个图片区展开/隐藏按钮；图片模式移除重复的关闭按钮。
+- 图片区始终展示全文图库，导航默认展开，可独立收起；只显示紧凑图号，按数字排序，单行横向滚动，不显示缩略图或长图注列表。
+- 本段有图时定位本段首图，无图时仍可通过同一按钮打开全文图库。选图不改变正文位置、阅读游标或提问引用。
+- Reader UI 47 项测试通过（含图 1 到图 10、选图和开合保留选择）；Reader UI 与 Standalone 类型检查、生产构建及 diff 检查通过。
+- 专用端口隔离 HTTP Host + 本机 Chrome 的 4 组相关浏览器检查通过：桌面排布、全文定位/重复定位与正文位置、放大/资料栏/调宽、390px 横向导航和开合。pageerror 为零。
+- 完整旧图片浏览器流程在发送问题后的后续继续操作遇到禁用按钮超时，未宣称全流程通过。未修改业务继续逻辑。
+- Node 25 下测试需要将 `NODE_OPTIONS=--no-experimental-webstorage` 传给 Vitest 子进程。
+- 相关浏览器检查使用 `FOCUS_BROWSER_PORT=18765` 与 `FOCUS_BROWSER_NAVIGATION_ONLY=1`，其余运行参数沿用下方命令；专用端口避免与正在运行的阅读服务冲突。
+
+## 原实现验收记录（历史）
+
+
 基线：PR #12 `fix/quiet-ui-layout`，`9b8f233`。已先读 AGENTS.md、CONTEXT.md 与相关 ADR，实施计划见 [FOCUS_Reader_Figures_Plan.md](FOCUS_Reader_Figures_Plan.md)，展示决策见 [ADR 0019](../adr/0019-reader-text-and-figure-side-space.md)。
 
 ## 完成行为
