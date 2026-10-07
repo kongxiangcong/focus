@@ -133,7 +133,7 @@ class MinerUTransportTests(unittest.TestCase):
         previous_cwd = Path.cwd()
         try:
             os.chdir(self.root)
-            with mock.patch.dict(os.environ, {}, clear=False):
+            with mock.patch.dict(os.environ, {}, clear=False), mock.patch.object(PARSER, 'PROJECT_ROOT', self.root):
                 os.environ.pop("MINERU_API_TOKEN", None)
                 self.assertEqual("dotenv-token", PARSER._token())
             with mock.patch.dict(os.environ, {"MINERU_API_TOKEN": "environment-token"}):

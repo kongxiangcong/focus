@@ -126,7 +126,7 @@ class HTMLIngestionTests(unittest.TestCase):
         self.assertFalse((candidate / "source.html").exists())
 
     def test_http_upload_and_host_confirmation_use_local_html_service(self):
-        from host.service import HostService
+        from workspace_fixture import HostService
         from host.server import Server
         service = HostService(self.workspace, self.root / "host-data", ingestion_parser=NoRemoteParser())
         server = Server(("127.0.0.1", 0), service)

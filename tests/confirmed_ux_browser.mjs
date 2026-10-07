@@ -62,7 +62,7 @@ results.push('T16 note edit/delete/undo and progress edit/delete preserve cursor
 await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-desktop.png`});
 await page.getByRole('link',{name:'设置',exact:true}).click();await page.getByRole('slider',{name:'字号',exact:true}).fill('3');
 // Save appearance only is observed even if external backend config is not verified.
-await page.getByRole('button',{name:'保存设置',exact:true}).click();
+await page.getByRole('button',{name:'保存并应用',exact:true}).click();
 await page.getByRole('link',{name:'阅读',exact:true}).click();await page.setViewportSize({width:390,height:844});
 await page.waitForTimeout(300);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
 assert.ok((await page.getByRole('button',{name:'完成本篇',exact:true}).boundingBox()).y<844);

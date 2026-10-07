@@ -91,6 +91,8 @@ def _read_document(path: Path, default: dict[str, Any] | None = None) -> dict[st
 
 
 def _write_document(path: Path, value: dict[str, Any]) -> None:
+    from .workspace_lifecycle import require_write
+    require_write(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
@@ -1713,3 +1715,7 @@ class WorkspaceCore:
             {"topic_id": topic_id, "synthesis_id": synthesis_id, "claims": normalized_claims},
         )
         return {"ok": True, "status": "topic_synthesized", "topic_id": topic_id, "synthesis_id": synthesis_id, "path": str(path)}
+
+
+from .workspace_lifecycle import guard_workspace_class
+WorkspaceCore = guard_workspace_class(WorkspaceCore)

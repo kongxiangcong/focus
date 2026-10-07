@@ -11,6 +11,45 @@ const completedWindow: ReadingWindow = {
   conversation: [],
 };
 
+it('clears status notifications through the bound Host and decodes inbox dismissal', async () => {
+  const boundWindow = { ...completedWindow, workspace: { workspaceId: 'workspace', instanceId: 'instance', path: '/workspace' } };
+  const fetch = vi.fn<typeof globalThis.fetch>()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, value: boundWindow })))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, value: [{
+      item_id: 'item', file_name: 'paper.pdf', status: 'failed', topic_title: null,
+      topic_id: null, source_id: null, document_status: 'failed', topic_status: 'not_started', dismissed: true,
+    }] })));
+  const host = new HttpReaderHost({ baseUrl: 'http://127.0.0.1:4317', fetch, instanceId: 'instance' });
+  expect(await host.clearFinishedStatuses('clear-1')).toEqual({ ok: true, value: boundWindow });
+  const [, request] = fetch.mock.calls[0];
+  expect(request?.method).toBe('POST');
+  expect(new Headers(request?.headers).get('X-FOCUS-Instance')).toBe('instance');
+  expect(JSON.parse(request?.body as string)).toEqual({ requestId: 'clear-1' });
+  expect(await host.listInbox()).toMatchObject({ ok: true, value: [{ itemId: 'item', dismissed: true }] });
+});
+
+it('accepts batches without an associated topic, including control responses', async () => {
+  const batch = {
+    batchId: 'deleted-topic-batch', topicId: null, status: 'partial', error: null,
+    items: [{ itemId: 'deleted-item', fileName: 'paper.pdf', sourceId: null,
+      status: 'deleted', ingestionStatus: 'cancelled', blog: null, error: null }],
+  };
+  const fetch = vi.fn<typeof globalThis.fetch>()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, value: [batch] })))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, value: batch })));
+  const host = new HttpReaderHost({ baseUrl: 'http://127.0.0.1:4317', fetch });
+  expect(await host.listBatches()).toEqual({ ok: true, value: [batch] });
+  expect(await host.controlBatch(batch.batchId, 'stop', 'request-1')).toEqual({ ok: true, value: batch });
+});
+
+it.each([undefined, 123, {}])('rejects a malformed batch topic %j', async topicId => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({
+    ok: true, value: [{ batchId: 'batch', topicId, status: 'partial', items: [], error: null }],
+  })));
+  const host = new HttpReaderHost({ baseUrl: '', fetch });
+  expect(await host.listBatches()).toMatchObject({ ok: false, error: { code: 'invalid-response' } });
+});
+
 describe("HttpReaderHost", () => {
   it("normalizes the HTTP host behind ReaderHost", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(

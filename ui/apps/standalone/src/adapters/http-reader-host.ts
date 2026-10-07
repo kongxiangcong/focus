@@ -26,6 +26,7 @@ type Fetch = typeof fetch;
 export interface HttpReaderHostOptions {
   baseUrl: string;
   fetch?: Fetch;
+  instanceId?: string;
 }
 
 function isStringArray(value: unknown): value is readonly string[] {
@@ -135,6 +136,7 @@ function decodeIngestionItem(value: unknown): IngestionItem | null {
   const topicError = item.topic_error as Record<string, unknown> | undefined;
   return {
     itemId: item.item_id, fileName: item.file_name, status: item.status as IngestionItem["status"],
+    ...(typeof item.dismissed === 'boolean' ? { dismissed: item.dismissed } : {}),
     topicTitle: item.topic_title as string | null, topicId: item.topic_id as string | null,
     sourceId: item.source_id as string | null, documentStatus: item.document_status,
     topicStatus: item.topic_status,
@@ -154,7 +156,7 @@ function decodeIngestionItem(value: unknown): IngestionItem | null {
 function isBatch(value: unknown): value is ProcessingBatch {
   if (!value || typeof value !== "object") return false;
   const b = value as Record<string, unknown>;
-  return typeof b.batchId === "string" && typeof b.topicId === "string" &&
+  return typeof b.batchId === "string" && (b.topicId === null || typeof b.topicId === "string") &&
     ["confirmed", "running", "paused", "completed", "partial"].includes(String(b.status)) &&
     Array.isArray(b.items) && b.items.every(i => i && typeof i.itemId === "string" &&
       typeof i.fileName === "string" && (i.sourceId === null || typeof i.sourceId === "string") &&
@@ -164,14 +166,26 @@ function isBatch(value: unknown): value is ProcessingBatch {
 export class HttpReaderHost implements ReaderHost {
   private readonly baseUrl: string;
   private readonly fetch: Fetch;
+  private readonly instanceId?: string;
 
   constructor(options: HttpReaderHostOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
-    this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
+    const fetcher = options.fetch ?? globalThis.fetch.bind(globalThis);
+    this.instanceId = options.instanceId;
+    this.fetch = (input, init) => {
+      if (!this.instanceId) return fetcher(input, init);
+      const headers = new Headers(init?.headers);
+      if (this.instanceId) headers.set('X-FOCUS-Instance', this.instanceId);
+      return fetcher(input, { ...init, headers });
+    };
   }
 
   async listTopics(): Promise<ReaderHostResult<readonly LibraryTopic[]>> {
     return this.libraryList<LibraryTopic>("/library/topics", item => typeof item.topicId === "string" && typeof item.title === "string" && isStringArray(item.sourceIds));
+  }
+
+  clearFinishedStatuses(requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request('/reader/status/clear', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ requestId }) });
   }
 
   listBatches(): Promise<ReaderHostResult<readonly ProcessingBatch[]>> {
@@ -293,7 +307,7 @@ export class HttpReaderHost implements ReaderHost {
       { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   }
   blogUrl(sourceId: string): string {
-    return `${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/blog/html`;
+    return `${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/blog/html${this.instanceId ? '?instance=' + this.instanceId : ''}`;
   }
 
   private async blogRequest(path: string, init: RequestInit): Promise<ReaderHostResult<BlogStatus>> {
@@ -527,9 +541,9 @@ export class HttpReaderHost implements ReaderHost {
   }
 
   subscribe(listener: (result: ReaderHostResult<ReadingWindow>) => void): () => void {
-    const stream = new EventSource(`${this.baseUrl}/reader/events`);
+    const stream = new EventSource(`${this.baseUrl}/reader/events${this.instanceId ? '?instance=' + this.instanceId : ''}`);
     stream.addEventListener("snapshot", (event) => {
-      try { listener(decodeResult(JSON.parse((event as MessageEvent).data))); }
+      try { listener(this.boundResult(JSON.parse((event as MessageEvent).data))); }
       catch { listener({ ok: false, error: { code: "invalid-response", message: "任务状态流格式错误", retryable: true } }); }
     });
     stream.onerror = () => listener({ ok: false, error: { code: "unavailable", message: "连接中断，正在恢复；后台任务可能仍在运行。", retryable: true } });
@@ -551,7 +565,7 @@ export class HttpReaderHost implements ReaderHost {
           },
         };
       }
-      return decodeResult(await response.json());
+      return this.boundResult(await response.json());
     } catch (error) {
       if (init.signal?.aborted) {
         return {
@@ -568,6 +582,14 @@ export class HttpReaderHost implements ReaderHost {
         },
       };
     }
+  }
+
+  private boundResult(body: unknown): ReaderHostResult<ReadingWindow> {
+    const result = decodeResult(body);
+    if (this.instanceId && result.ok && result.value.workspace?.instanceId !== this.instanceId) {
+      return { ok: false, error: { code: 'invalid-response', message: '工作区打开实例已改变，请重新载入。', retryable: false } };
+    }
+    return result;
   }
 
   private async ingestionRequest(path: string, init: RequestInit): Promise<ReaderHostResult<IngestionItem>> {

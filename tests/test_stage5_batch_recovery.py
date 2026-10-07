@@ -1,6 +1,7 @@
 """Persisted batch controls exercised through the public HTTP boundary."""
 import time
 import threading
+import shutil
 import unittest
 
 import test_stage5_batch as batch_tests
@@ -44,6 +45,13 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual('paused', self.request('GET', '/library/batches')[0]['status'])
         self.assertEqual(1, len(self.request('GET', '/library/sources')))
         self.stop_host()
+        # Copy the stopped complete workspace, then hide the original.  A fresh
+        # machine Host must continue the remaining work without redoing sources.
+        original_root = self.root
+        self.root = original_root / '恢复 at new location'
+        self.root.mkdir()
+        shutil.copytree(original_root / 'knowledge-base', self.root / 'knowledge-base')
+        shutil.move(str(original_root / 'knowledge-base'), original_root / 'hidden-original')
         self.start_host()
         calls = list(self.runtime.calls)
         self.assertEqual('paused', self.request('GET', '/library/batches')[0]['status'])

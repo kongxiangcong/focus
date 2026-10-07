@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from core import WorkspaceCore, WorkspaceError
+from core.workspace_lifecycle import open_command_workspace
 
 
 def _read_text(path: Path, *, error_id: str, label: str) -> str:
@@ -122,8 +123,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    lease = None
     try:
         args = _build_parser().parse_args(argv)
+        lease = open_command_workspace(args.workspace)
         if args.command in {"current", "continue", "append-note", "list-notes", "update-glossary",
                             "retranslate", "switch", "topic", "topic-notes", "synthesize-topic"}:
             raise WorkspaceError("legacy_reading_retired",
@@ -213,6 +216,9 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    finally:
+        if lease:
+            lease.close()
 
 
 if __name__ == "__main__":

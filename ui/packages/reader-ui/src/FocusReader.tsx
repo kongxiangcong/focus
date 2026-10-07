@@ -23,7 +23,6 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const [reference, setReference] = useState<ReaderChunk | null>(null);
   const [sideMode, setSideMode] = useState<"figures" | "materials" | null>(null);
   const materialsOpen = sideMode === "materials";
-  const [figureScope, setFigureScope] = useState<"chunk" | "all">("chunk");
   const [selectedFigure, setSelectedFigure] = useState<string | null>(null);
   const [figureSelectionVersion, setFigureSelectionVersion] = useState(0);
   const [figureLanguages, setFigureLanguages] = useState<Record<string, boolean>>({});
@@ -167,8 +166,12 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const sourceFigures = allFigures.map(f => {
     const local = localized.get(f.id);
     return local && (local.bodyCaption || figureNumber.test(local.caption) || !f.caption) ? { ...f, caption: local.caption, label: local.label } : f;
+  }).sort((a, b) => {
+    const aNumber = a.label.match(figureNumber)?.[1];
+    const bNumber = b.label.match(figureNumber)?.[1];
+    if (!aNumber || !bNumber) return aNumber ? -1 : bNumber ? 1 : 0;
+    return aNumber.localeCompare(bNumber, undefined, { numeric: true });
   });
-  const shownFigures = figureScope === "all" ? sourceFigures : currentFigures;
   const ordered = view?.timeline ?? [
     ...(displayed ? [{ kind: "reading" as const, chunk: displayed }] : []),
     ...(view?.conversation ?? []).map(message => ({ kind: "message" as const, messageId: message.messageId })),
@@ -177,7 +180,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const readingOccurrence = [...entries].reverse().find(e => e.kind === "reading");
   const pictureContext = `${sourceId}:${view?.discussionId ?? view?.sessionId}:${displayed ? chunkKey(displayed) : ""}:${readingOccurrence && "eventId" in readingOccurrence ? readingOccurrence.eventId : ""}`;
   useEffect(() => {
-    setFigureScope("chunk"); setSelectedFigure(null); setFigureSelectionVersion(old => old + 1);
+    setSelectedFigure(currentFigures[0]?.id ?? null); setFigureSelectionVersion(old => old + 1);
     setSideMode(currentFigures.length ? "figures" : null);
   }, [pictureContext]);
   useEffect(() => { setFigureLanguages({}); }, [sourceId]);
@@ -191,7 +194,6 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   function showFigure(figure: Figure) {
     if (figure.sourceId !== sourceId) return;
     preserveReading(() => {
-      setFigureScope(currentFigures.some(f => f.id === figure.id) ? "chunk" : "all");
       setSelectedFigure(figure.id); setFigureSelectionVersion(old => old + 1); setSideMode("figures");
     });
   }
@@ -407,8 +409,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       </nav>
     </header>}
         <nav className="reader-side-toolbar" aria-label="阅读侧栏">
-          <button className="reader-figures-toggle" aria-controls="reader-side-space" aria-expanded={sideMode === "figures"} onClick={() => preserveReading(() => { setFigureScope("chunk"); setSideMode(sideMode === "figures" ? null : "figures"); })}>{sideMode === "figures" ? "隐藏图片区" : "本段图片"}</button>
-          <button onClick={() => preserveReading(() => { setFigureScope("all"); setSelectedFigure(null); setSideMode("figures"); })}>全文图片</button>
+          <button className="reader-figures-toggle" aria-controls="reader-side-space" aria-expanded={sideMode === "figures"} onClick={() => preserveReading(() => { setSideMode(sideMode === "figures" ? null : "figures"); })}>{sideMode === "figures" ? "隐藏图片区" : "展开图片区"}</button>
           <button className="reader-materials-toggle" aria-controls="reader-side-space" aria-expanded={materialsOpen} onClick={() => preserveReading(() => setSideMode(materialsOpen ? null : "materials"))}>{materialsOpen ? "隐藏资料栏" : "笔记与记录"}</button>
         </nav>
         {sideMode && <div className="reader-column-resizer" role="separator" aria-label="调整文字与侧栏宽度" aria-orientation="vertical" tabIndex={0} aria-valuemin={35} aria-valuemax={75} aria-valuenow={Math.round(textShare)} onKeyDown={event => {
@@ -419,8 +420,8 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
           resizeColumns((event.clientX - box.left - left) / (box.width - left - 8) * 100);
         }} />}
         <section id="reader-side-space" className="reader-side-space" aria-label="阅读资料侧栏" hidden={!sideMode}>
-        <header className="reader-side-heading"><button aria-pressed={sideMode === "figures"} onClick={() => preserveReading(() => setSideMode("figures"))}>图片</button><button aria-pressed={materialsOpen} onClick={() => preserveReading(() => setSideMode("materials"))}>笔记 / 记录</button><button aria-label="关闭阅读侧栏" onClick={() => preserveReading(() => setSideMode(null))}>×</button></header>
-        {sideMode === "figures" && <FigurePanel key={sourceId} figures={shownFigures} scope={figureScope} selected={selectedFigure} selectionVersion={figureSelectionVersion} onSelect={figure => preserveReading(() => { setSelectedFigure(figure.id); setFigureSelectionVersion(old => old + 1); })} onScope={scope => preserveReading(() => { setFigureScope(scope); setSelectedFigure(null); })} />}
+        <header className="reader-side-heading"><button aria-pressed={sideMode === "figures"} onClick={() => preserveReading(() => setSideMode("figures"))}>图片</button><button aria-pressed={materialsOpen} onClick={() => preserveReading(() => setSideMode("materials"))}>笔记 / 记录</button>{materialsOpen && <button aria-label="关闭阅读侧栏" onClick={() => preserveReading(() => setSideMode(null))}>×</button>}</header>
+        {sideMode === "figures" && <FigurePanel key={sourceId} figures={sourceFigures} selected={selectedFigure} selectionVersion={figureSelectionVersion} onSelect={figure => preserveReading(() => { setSelectedFigure(figure.id); setFigureSelectionVersion(old => old + 1); })} />}
         <aside id="reader-materials" role={mist ? "complementary" : "group"} className="reader-materials" hidden={!materialsOpen} aria-label="笔记与阅读记录">
         {view?.discussions && <details><summary>历史讨论 · {view.discussions.length}</summary>{view.discussions.map((d, i) => <button key={d.discussionId} disabled={blocked} onClick={() => host.selectDiscussionSource && void perform("打开历史讨论", () => host.selectDiscussionSource!(d.sourceId, d.discussionId))}>讨论 {i + 1}</button>)}</details>}
 

@@ -15,10 +15,13 @@ historical Continue, anchored drafts, session recovery and task semantics remain
   flow is centered with its reading maximum. Narrow screens use a drawer.
 - Figures and notes/progress/discussion history share one side space and never
   create a third reading column. Changing tabs keeps note and question drafts.
-- A new reading occurrence selects its Chunk's images in source order; no images
-  closes the side space. Full-source navigation can select unread figures without
-  opening an unread Chunk. Source changes discard figure selection and language
-  presentation state. The navigation disclosure starts collapsed.
+- The user's figure navigation request supersedes the Chunk/all scope controls.
+  One toolbar toggle opens/closes the figure panel, which always contains the full
+  source gallery. Its initially expanded navigation lists compact figure labels
+  in a single horizontally scrollable row and can be collapsed independently.
+  A new reading occurrence selects its Chunk's first figure; no images closes
+  the side space. Navigation can select unread figures without opening an unread
+  Chunk. Source changes discard figure selection and language presentation state.
 - Image identity resolves Source-relative paths and Host asset URLs, normalizing
   encoded paths and local fragments/query variants. It does not deduplicate unrelated
   paths by filename. Missing figure numbers use an explicit filename-based illustration

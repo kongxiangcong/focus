@@ -720,7 +720,8 @@ class BlogCore:
         if not isinstance(writer_id, str) or not writer_id.strip():
             raise WorkspaceError("writer_invalid", "Writer identity is required")
         owner = state.get("writer_id")
-        if owner not in {None, writer_id}:
+        from .workspace_lifecycle import writer_authorized
+        if not writer_authorized(self.workspace, writer_id, owner):
             raise WorkspaceError("writer_conflict", "Another writer owns this Workspace")
         state["writer_id"] = writer_id
 
@@ -729,7 +730,8 @@ class BlogCore:
         if not isinstance(writer_id, str) or not writer_id.strip():
             raise WorkspaceError("writer_invalid", "Writer identity is required")
         owner = self._state().get("writer_id")
-        if owner not in {None, writer_id}:
+        from .workspace_lifecycle import writer_authorized
+        if not writer_authorized(self.workspace, writer_id, owner):
             raise WorkspaceError("writer_conflict", "Another writer owns this Workspace")
 
     @staticmethod
@@ -886,3 +888,7 @@ class BlogCore:
 
 def _dump(value: dict[str, Any]) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
+
+
+from .workspace_lifecycle import guard_workspace_class
+BlogCore = guard_workspace_class(BlogCore)

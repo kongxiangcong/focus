@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import test_focus_read
 from test_stage6b_workflows import HarnessHistory, CodexHistory, HarnessCandidates, HarnessBlog, CodexCandidates
-from host.service import HostService
+from workspace_fixture import HostService
 from host.server import Server
 from test_blog_host import ParserDouble, ControlledBlogRuntime
 import test_stage5_ingestion as single
@@ -26,18 +26,15 @@ class ConfigurationTests(unittest.TestCase):
             self.host.close()
         self.fixture.tearDown()
 
-    def test_save_keeps_old_backend_until_refresh_and_preserves_discussion(self):
+    def test_one_save_applies_backend_and_preserves_discussion(self):
         with patch('host.backends.codex.AppServer', CodexHistory), patch('deepseek_harness.DeepSeekHarness', HarnessHistory):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='codex', settings_path=self.settings)
             before = self.host.select_discussion_source('fixture-paper')
-            saved = self.host.save_configuration({'backend': 'deepseek', 'model': 'deepseek-v4-flash'})
-            self.assertTrue(saved['configuration']['pending'])
-            self.assertEqual('codex', saved['agent']['backend'])
             self.host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': '请记住量子香蕉'})
             self.host.worker.join(5)
             original = self.host.snapshot()
             self.assertIn('Codex', original['conversation'][-1]['content'])
-            refreshed = self.host.refresh_configuration()
+            refreshed = self.host.save_configuration({'backend': 'deepseek', 'model': 'deepseek-v4-flash'})
             self.assertEqual('deepseek', refreshed['agent']['backend'])
             self.assertFalse(refreshed['configuration']['pending'])
             self.assertEqual(before['discussionId'], refreshed['discussionId'])
@@ -46,7 +43,7 @@ class ConfigurationTests(unittest.TestCase):
             self.host.worker.join(5)
             self.assertIn('量子香蕉', self.host.snapshot()['conversation'][-1]['content'])
 
-    def test_busy_reading_blocks_save_and_refresh_requires_another_idle_refresh(self):
+    def test_busy_reading_blocks_apply_and_leaves_both_configurations_unchanged(self):
         entered, released = threading.Event(), threading.Event()
         class WaitingHarness(HarnessCandidates):
             def run(self, prompt, **options):
@@ -55,22 +52,21 @@ class ConfigurationTests(unittest.TestCase):
                 return super().run(prompt, **options)
         with patch('deepseek_harness.DeepSeekHarness', WaitingHarness):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek', settings_path=self.settings)
-            self.host.save_configuration({'backend': 'codex', 'model': 'gpt-6-astra'})
             self.host.prepare_reading('fixture-paper', request_id=uuid.uuid4().hex)
             self.assertTrue(entered.wait(3))
             try:
                 with self.assertRaisesRegex(ValueError, '任务运行中'):
-                    self.host.save_configuration({'backend': 'deepseek', 'model': 'another-model'})
+                    self.host.save_configuration({'backend': 'codex', 'model': 'another-model'})
                 busy = self.host.refresh_configuration()['configuration']
-                self.assertTrue(busy['refreshBlocked'])
+                self.assertFalse(busy['refreshBlocked'])
                 self.assertEqual('deepseek', busy['effective']['backend'])
-                self.assertEqual('codex', busy['saved']['backend'])
+                self.assertEqual('deepseek', busy['effective']['backend'])
             finally:
                 released.set()
                 self.host.reading_workers['fixture-paper'].join(10)
             self.assertTrue(self.host.snapshot()['preparations']['fixture-paper']['ready'])
             self.assertEqual('deepseek', self.host.snapshot()['agent']['backend'])
-            self.assertEqual('codex', self.host.refresh_configuration()['agent']['backend'])
+            self.assertEqual('codex', self.host.save_configuration({'backend': 'codex'})['agent']['backend'])
 
     def test_reverting_saved_configuration_clears_pending_and_settings_cross_knowledge_bases(self):
         self.host = HostService(self.workspace, self.fixture.root / 'host', backend='codex', settings_path=self.settings)
@@ -86,14 +82,14 @@ class ConfigurationTests(unittest.TestCase):
         finally:
             other.close()
 
-    def test_refresh_rejects_missing_selected_runtime_without_fallback(self):
+    def test_missing_runtime_can_be_saved_but_ai_reports_it_without_fallback(self):
         self.host = HostService(self.workspace, self.fixture.root / 'host', backend='codex', settings_path=self.settings)
         self.host.save_configuration({'backend': 'deepseek', 'runtimePath': str(self.fixture.root / 'missing.exe')})
-        with self.assertRaisesRegex(ValueError, 'Runtime'):
-            self.host.refresh_configuration()
         state = self.host.snapshot()['configuration']
-        self.assertEqual('codex', state['effective']['backend'])
-        self.assertTrue(state['pending'])
+        self.assertEqual('deepseek', state['effective']['backend'])
+        self.assertFalse(state['pending'])
+        with self.assertRaisesRegex(Exception, 'Runtime'):
+            self.host._build_backend()
 
     def test_standalone_blog_worker_blocks_configuration_until_cancellation_settles(self):
         runtime = ControlledBlogRuntime()
@@ -106,14 +102,14 @@ class ConfigurationTests(unittest.TestCase):
         try:
             with self.assertRaisesRegex(ValueError, '任务运行中'):
                 self.host.save_configuration({'backend': 'codex'})
-            self.assertTrue(self.host.refresh_configuration()['configuration']['refreshBlocked'])
+            self.assertFalse(self.host.refresh_configuration()['configuration']['refreshBlocked'])
             self.host.blog_cancel('fixture-paper')
         finally:
             runtime.release.set()
             for worker in list(self.host.blog_workers.values()):
                 worker.join(5)
-        self.assertEqual('codex', self.host.snapshot()['agent']['backend'])
-        self.assertEqual('deepseek', self.host.refresh_configuration()['agent']['backend'])
+        self.assertEqual('deepseek', self.host.snapshot()['agent']['backend'])
+        self.assertEqual('codex', self.host.save_configuration({'backend': 'codex'})['agent']['backend'])
 
     def test_progress_worker_blocks_configuration_after_cursor_has_advanced(self):
         from test_reading_progress import ProgressRuntime
@@ -139,7 +135,7 @@ class ConfigurationTests(unittest.TestCase):
         try:
             with self.assertRaisesRegex(ValueError, '任务运行中'):
                 self.host.save_configuration({'backend': 'codex'})
-            self.assertTrue(self.host.refresh_configuration()['configuration']['refreshBlocked'])
+            self.assertFalse(self.host.refresh_configuration()['configuration']['refreshBlocked'])
         finally:
             runtime.release.set()
             self.host.progress_workers[request_id].join(5)

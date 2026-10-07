@@ -71,6 +71,8 @@ class ArticleParserTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def run_parser(self, args, hosted):
+        from workspace_fixture import publish_workspace
+        publish_workspace(self.workspace)
         stdout, stderr = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
             code = ARTICLE.main(args, hosted=hosted)

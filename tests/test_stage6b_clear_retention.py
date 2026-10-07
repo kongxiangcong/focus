@@ -73,9 +73,9 @@ class ClearRetentionTests(unittest.TestCase):
     def test_partial_disk_failure_is_visible_and_restart_completes_clear(self):
         import sqlite3
         from contextlib import closing
-        from host.service import HostService
+        from workspace_fixture import HostService
         self.discuss()
-        database = self.fixture.fixture.root / 'host' / 'host.sqlite3'
+        database = self.fixture.workspace / 'discussions' / 'host.sqlite3'
         # Storage-boundary failure after Core notes commit, before Host commit.
         with closing(sqlite3.connect(database)) as db, db:
             db.execute("CREATE TRIGGER fail_clear BEFORE UPDATE ON state WHEN NEW.key='session' BEGIN SELECT RAISE(FAIL, 'disk failure'); END")
@@ -95,7 +95,7 @@ class ClearRetentionTests(unittest.TestCase):
         self.assertEqual([], restored['conversation'])
 
     def test_detailed_activity_expires_seven_days_after_terminal_not_start(self):
-        from host.service import HostService
+        from workspace_fixture import HostService
         now = [1000000.0]
         self.host.close()
         class ActivityRuntime(test_source_discussion.CandidateRuntime):
@@ -157,14 +157,14 @@ class ClearRetentionTests(unittest.TestCase):
         import subprocess
         import sys
         from pathlib import Path
-        from host.service import HostService
+        from workspace_fixture import HostService
         self.host.close()
         script = r'''
 import os, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path.cwd() / 'tests'))
 import test_source_discussion
-from host.service import HostService
+from workspace_fixture import HostService
 class Paused(test_source_discussion.CandidateRuntime):
     def start_turn(self, **kwargs):
         self.events.put({'method': 'activity', 'params': {'id': 'crash', 'title': 'Test', 'detail': 'Before crash'}})

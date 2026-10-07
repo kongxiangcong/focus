@@ -8,7 +8,7 @@ from core.source_library import SourceLibrary
 from core.reading_progress import ProgressApplication
 import test_stage4_reading as stage4
 from test_reading_progress import ProgressRuntime
-from host.service import HostService
+from workspace_fixture import HostService
 
 
 class ConfirmedUXTests(unittest.TestCase):
@@ -185,7 +185,8 @@ class ConfirmedUXTests(unittest.TestCase):
         self.assertTrue(preparation['timed_out'])
         before = self.host.snapshot()
         assets = {str(path.relative_to(self.workspace)): path.read_bytes()
-                  for path in self.workspace.rglob('*') if path.is_file()}
+                  for path in self.workspace.rglob('*') if path.is_file() and
+                  (path.is_relative_to(self.workspace / 'sources') or path.name == 'state.json')}
         with patch.object(self.host.reading_app, 'resume') as resume, patch.object(self.host.reading_app, 'cancel') as cancel:
             closed = self.host.dismiss_preparation('fixture-paper', {'attempt': preparation['attempt']})
             resume.assert_not_called()
@@ -196,14 +197,16 @@ class ConfirmedUXTests(unittest.TestCase):
         self.assertEqual(before['readingProgress'], closed['readingProgress'])
         self.assertEqual(before['readingRevision'], closed['readingRevision'])
         self.assertEqual(assets, {str(path.relative_to(self.workspace)): path.read_bytes()
-                                 for path in self.workspace.rglob('*') if path.is_file()})
+                                 for path in self.workspace.rglob('*') if path.is_file() and
+                                 (path.is_relative_to(self.workspace / 'sources') or path.name == 'state.json')})
         self.host.dismiss_preparation('fixture-paper', {'attempt': preparation['attempt']})
         self.host.close()
         self.host = HostService(self.workspace, self.fixture.root / 'host', reading_runtime=stage4.ReadingRuntimeDouble())
         self.assertTrue(self.host.snapshot()['preparations']['fixture-paper']['dismissed'])
         self.assertFalse(self.host.reading_workers)
         self.assertEqual(assets, {str(path.relative_to(self.workspace)): path.read_bytes()
-                                 for path in self.workspace.rglob('*') if path.is_file()})
+                                 for path in self.workspace.rglob('*') if path.is_file() and
+                                 (path.is_relative_to(self.workspace / 'sources') or path.name == 'state.json')})
 
     def test_preparation_dismissal_is_attempt_bound_and_new_explicit_attempt_reappears(self):
         old = self.failed_preparation('network unavailable')

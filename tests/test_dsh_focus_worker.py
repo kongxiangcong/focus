@@ -9,7 +9,7 @@ import time
 import unittest
 from pathlib import Path
 
-from host.service import HostService
+from workspace_fixture import HostService
 
 
 ROOT = Path(__file__).resolve().parents[1]

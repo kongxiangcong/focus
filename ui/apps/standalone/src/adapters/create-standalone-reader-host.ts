@@ -3,7 +3,7 @@ import type { ReaderHost } from "@focus/reader-contracts";
 import { FixtureReaderHost } from "./fixture-reader-host";
 import { HttpReaderHost } from "./http-reader-host";
 
-export function createStandaloneReaderHost(baseUrl?: string): ReaderHost {
+export function createStandaloneReaderHost(baseUrl?: string, instanceId?: string): ReaderHost {
   const normalized = baseUrl?.trim();
-  return normalized === "fixture" ? new FixtureReaderHost() : new HttpReaderHost({ baseUrl: normalized ?? "" });
+  return normalized === "fixture" ? new FixtureReaderHost() : new HttpReaderHost({ baseUrl: normalized ?? "", instanceId });
 }

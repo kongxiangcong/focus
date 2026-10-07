@@ -482,7 +482,8 @@ class ReadingCore:
                 return run
             if run is None or run["status"] not in ("failed", "cancelled", "interrupted"):
                 raise WorkspaceError("reading_resume_invalid", "No interrupted preparation")
-            if run["writer_id"] != self.writer_id:
+            from .workspace_lifecycle import writer_authorized
+            if not writer_authorized(self.workspace, self.writer_id, run["writer_id"]):
                 raise WorkspaceError("reading_writer_changed", "Another writer owns preparation")
             if run["bundle"] != self._bundle_version(source_id):
                 raise WorkspaceError("reading_bundle_changed", "Parser Bundle changed")
@@ -503,7 +504,8 @@ class ReadingCore:
         with _LOCK:
             for path in (self.workspace / "sources").glob("*/reading/preparation.json"):
                 run = _read_document(path)
-                if run.get("status") == "running" and run.get("writer_id") == self.writer_id:
+                from .workspace_lifecycle import writer_authorized
+                if run.get("status") == "running" and writer_authorized(self.workspace, self.writer_id, run.get("writer_id")):
                     run.update(status="interrupted", error="Host restarted; resume explicitly")
                     _write_document(path, run)
 
@@ -884,3 +886,8 @@ class ReadingApplication:
             self.core.fail(source_id, run_id, attempt, bundle, str(exc),
                            timed_out=isinstance(exc, TimeoutError) or isinstance(exc.__cause__, TimeoutError))
             raise
+
+
+from .workspace_lifecycle import guard_workspace_class
+ReadingCore = guard_workspace_class(ReadingCore)
+ReadingApplication = guard_workspace_class(ReadingApplication)

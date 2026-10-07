@@ -190,3 +190,7 @@ class ProgressApplication:
                                         topic=None, user_understanding=None, error='generation_failed')
             except WorkspaceError:
                 return self.core.get(progress_id)
+
+
+from .workspace_lifecycle import guard_workspace_class
+ReadingProgress = guard_workspace_class(ReadingProgress)

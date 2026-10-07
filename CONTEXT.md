@@ -4,8 +4,17 @@ FOCUS 是一个以来源原文为锚点的私人阅读工作台。它保存可�
 
 ## Language
 
+**FOCUS Workbench（工作台）**:
+打开和操作 FOCUS Workspace 的应用入口；工作台的安装与升级独立于用户阅读数据。
+_Avoid_: Knowledge Base, user data directory
+
+**FOCUS Workspace（工作区）**:
+一份可独立保存、打开和搬迁的完整私人阅读数据集合，包含一个 Knowledge Base、FOCUS Discussions 和必要的业务恢复信息。
+程序、机器凭据及 Runtime 原生会话不属于工作区。
+_Avoid_: Code repository, application installation, native Runtime profile
+
 **Knowledge Base**:
-FOCUS 保存来源、专题及私人阅读资产的本地知识库，是跨会话恢复阅读与处理进展的唯一业务数据集合。
+FOCUS Workspace 中保存来源、专题及私人阅读资产的本地知识库，是这些资产及其关系的唯一权威集合。
 _Avoid_: Host chat history, duplicate asset store
 
 **Topic**:
@@ -116,7 +125,7 @@ _Avoid_: Chat history, plan row, learner record
 _Avoid_: Transcript, discussion log, assessment result, cognitive evidence
 
 **FOCUS Discussion**:
-FOCUS 中固定绑定一份 Reading Source 的持续讨论，独立于所选 Backend；切换 Backend 不拆分或重建讨论。讨论历史与显式 Reading Notes、Reading Cursor 分开，保留至用户明确清除。
+属于 FOCUS Workspace、固定绑定一份 Reading Source 的持续讨论，独立于所选 Backend；切换 Backend 不拆分或重建讨论。讨论历史与显式 Reading Notes、Reading Cursor 分开，保留至用户明确清除。
 _Avoid_: Backend-specific chat, native Runtime Session, Reading Note, reading checkpoint
 
 **Clear Source Discussion and Notes**:

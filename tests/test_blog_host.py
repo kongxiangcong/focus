@@ -19,7 +19,7 @@ from pathlib import Path
 
 from core.article_blog import STATUS_COMPLETED, STATUS_FAILED, STATUS_NOT_APPLICABLE
 from core.ingestion import persist_candidate_result
-from host.service import HostService
+from workspace_fixture import HostService
 from host.server import Server
 
 

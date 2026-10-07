@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from core import WorkspaceCore, WorkspaceError
+from core.workspace_lifecycle import open_command_workspace
 
 
 def _read_draft() -> dict | None:
@@ -46,8 +47,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    lease = None
     try:
         args = _build_parser().parse_args(argv)
+        lease = open_command_workspace(args.workspace)
         core = WorkspaceCore(args.workspace)
         if args.command == "prepare":
             if args.translation_stdin:
@@ -71,6 +74,9 @@ def main(argv: list[str] | None = None) -> int:
         error_id = exc.error_id if isinstance(exc, WorkspaceError) else "reading_plan_write_failed"
         print(json.dumps({"ok": False, "error_id": error_id, "message": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 1
+    finally:
+        if lease:
+            lease.close()
 
 
 if __name__ == "__main__":

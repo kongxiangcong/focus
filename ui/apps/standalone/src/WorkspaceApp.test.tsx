@@ -25,6 +25,7 @@ function setup(initialInbox: readonly IngestionItem[] = [], initialWindow: Readi
     listSources: vi.fn(async () => readerSuccess([{ sourceId: "a-paper", title: "A Paper", kind: "paper" as const, parseStatus: "ready" as const, error: null, noteCount: 2, topicIds: ["topic"], progress: { completed: 1, total: 4, planId: "plan-001", chunkId: "chunk-002" } }])),
     listInbox: vi.fn(async () => readerSuccess(initialInbox)), stageIngestion: vi.fn(async () => readerSuccess(staged)),
     listBatches: vi.fn(async () => readerSuccess([])),
+    clearFinishedStatuses: vi.fn(async () => readerSuccess(empty)),
     startBatch: vi.fn(async () => readerSuccess({ batchId: "batch-1", topicId: "topic", status: "confirmed" as const, error: null, items: [] })),
     controlBatch: vi.fn(async () => readerSuccess({ batchId: "batch-1", topicId: "topic", status: "paused" as const, error: null, items: [] })),
     createTopic: vi.fn(async () => readerSuccess({})), manageTopic: vi.fn(async () => readerSuccess({})),
@@ -107,8 +108,8 @@ it.each(["check", "open"])("retains the newest shared configuration when a late 
     await screen.findByRole("radio", { name: "Codex" });
     fireEvent.click(screen.getByRole("radio", { name: "DeepSeek" }));
     fireEvent.click(screen.getByRole("button", { name: "连接检查" }));
-    await screen.findByText("连接检查通过；点击保存设置后启用。");
-    fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+    await screen.findByText(/连接检查通过；已检模型/);
+    fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
   } else {
     fireEvent.click(await screen.findByRole("button", { name: "详细" }));
     fireEvent.click(screen.getByRole("button", { name: "准备阅读" }));
@@ -137,6 +138,11 @@ it("edits original metadata and Topic membership through Host actions", async ()
   fireEvent.click(screen.getByRole("button", { name: "取消" }));
   expect(host.saveSourceDetails).toHaveBeenCalledTimes(1);
   expect(host.deleteSource).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '管理来源' }));
+  fireEvent.click(screen.getByRole('button', { name: '不关联专题' }));
+  expect(screen.getByRole('checkbox', { name: '编译' })).not.toBeChecked();
+  fireEvent.click(screen.getByRole('button', { name: '保存' }));
+  await waitFor(() => expect(host.saveSourceDetails).toHaveBeenNthCalledWith(2, 'a-paper', 'A Paper', [], expect.any(String)));
 });
 it("freezes a mixed selection into one Topic batch and exposes each result", async () => {
   const { host } = setup();
@@ -176,7 +182,7 @@ it("lands in Library and persists the chosen font across remounts", async () => 
   fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
   expect(screen.getByText("阅读字号预览 · 特大")).toHaveStyle({ fontSize: "26px" });
   expect(screen.getByRole("radio", { name: "DeepSeek" })).toBeEnabled();
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
   app.unmount(); setup();
   expect(await screen.findByRole("slider", { name: "字号" })).toHaveValue("3");
   fireEvent.click(screen.getByRole("link", { name: "阅读" }));
@@ -242,7 +248,7 @@ it("persists brightness and omits the unused network control", async () => {
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   fireEvent.change(screen.getByRole("slider", { name: "亮度" }), { target: { value: "90" } });
   expect(localStorage.getItem("focus.brightness")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
   expect(localStorage.getItem("focus.brightness")).toBe("90");
   expect(screen.queryByRole("switch", { name: "网络" })).not.toBeInTheDocument();
 });
@@ -460,13 +466,36 @@ it.each([
 it("T23/T24 allows unclassified parse-only upload with an explicit immutable scope", async () => {
   const { host } = setup();
   await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole('button', { name: /^编译/ }));
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
+  expect(screen.getByRole('combobox', { name: '专题' })).toHaveValue('');
   fireEvent.click(screen.getByRole("checkbox", { name: "解析后生成博客" }));
   const file = new File(["%PDF test"], "unclassified.pdf");
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [file] } });
   fireEvent.click(screen.getByRole("button", { name: "仅解析入库" }));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String), false));
   expect(host.stageIngestion).toHaveBeenCalledWith(file, {});
+});
+
+it('clears terminal statuses while an active chat continues, and keeps source management available later', async () => {
+  const failed: IngestionItem = { itemId: 'failed', fileName: 'failed.pdf', status: 'failed', topicId: null, topicTitle: null, sourceId: null, documentStatus: 'failed', topicStatus: 'not_started' };
+  const initial: ReadingWindow = { ...empty, workItems: [
+    { kind: 'chat', targetId: 'chat-active', status: 'running', label: '正在回答问题' },
+    { kind: 'blog', targetId: 'a-paper', status: 'failed', label: '旧博客失败', error: 'old failure' },
+  ], agent: { ...empty.agent!, run: { runId: 'chat-active', status: 'running', approvals: [], activity: [], error: null } } };
+  const { host } = setup([failed], initial);
+  vi.mocked(host.clearFinishedStatuses!).mockImplementation(async () => {
+    vi.mocked(host.listInbox!).mockResolvedValue(readerSuccess([{ ...failed, dismissed: true }]));
+    return readerSuccess({ ...initial, workItems: initial.workItems!.map(item => ({ ...item, dismissed: item.status === 'failed' })) });
+  });
+  await screen.findByRole('heading', { name: 'A Paper' });
+  fireEvent.click(screen.getByRole('button', { name: '任务详情' }));
+  expect(screen.getByText('failed.pdf')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: '全部清空' }));
+  await waitFor(() => expect(screen.queryByText('failed.pdf')).not.toBeInTheDocument());
+  expect(screen.queryByText('old failure')).not.toBeInTheDocument();
+  expect(screen.getByText('正在回答问题 · 进行中')).toBeVisible();
+  expect(host.clearFinishedStatuses).toHaveBeenCalledWith(expect.any(String));
 });
 
 it("T2 appearance previews can be cancelled without touching saved settings", async () => {
@@ -534,7 +563,7 @@ it("keeps work and upload history hidden until the shared disclosure is opened, 
     { kind: "ingestion", targetId: "pending-1", status: "running", label: "解析 pending.pdf" },
     { kind: "blog", targetId: "b-paper", status: "running", label: "生成 B" },
   ] });
-  vi.mocked(host.listBatches!).mockResolvedValue(readerSuccess([{ batchId: "done", topicId: "topic", status: "completed", items: [], error: null }]));
+  vi.mocked(host.listBatches!).mockResolvedValue(readerSuccess([{ batchId: "done", topicId: null, status: "completed", items: [], error: null }]));
   cleanup(); render(<WorkspaceApp host={host} />);
   await screen.findByRole("heading", { name: "A Paper" });
   const toggle = screen.getByRole("button", { name: "任务详情" });
@@ -547,6 +576,7 @@ it("keeps work and upload history hidden until the shared disclosure is opened, 
   expect(screen.getByText("pending.pdf")).toBeVisible();
   expect(screen.queryByText("解析 pending.pdf · 进行中")).not.toBeInTheDocument();
   expect(screen.getByText("已完成任务").closest("details")).not.toHaveAttribute("open");
+  expect(screen.getByText("未关联专题 · 完成")).toBeInTheDocument();
   fireEvent.click(toggle);
   expect(screen.queryByLabelText("任务框")).not.toBeInTheDocument();
 });

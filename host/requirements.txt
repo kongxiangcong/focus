@@ -1,7 +1,5 @@
-# Bundles the matching official Codex app-server runtime. HTTP Host uses stdlib.
-# Codex and DeepSeek backends used by the web Host.
-openai-codex
-deepseek-harness-sdk
+# AI SDK/Runtime dependencies are prepared only for the selected backend when
+# explicitly checking connectivity or first using AI. HTTP Host uses stdlib.
 
 # Offline SingleFile HTML article extraction (also required without an AI backend).
 beautifulsoup4==4.13.4

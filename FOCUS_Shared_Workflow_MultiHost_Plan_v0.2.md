@@ -5,6 +5,8 @@
 适用产品：FOCUS 独立网页版与 FOCUS for DSH 原生插件
 性质：独立的 v0.2 需求与架构计划；不是已完成实现、兼容性或端到端验证声明。
 
+2026-10-06 后续范围修订：用户确认推进[工作区可迁移性与首次初始化](docs/requirements/workspace-portability-onboarding.md)，将完整 FOCUS 用户数据与项目程序分离，增加首次导入／新建、简洁 Backend 配置和停机目录备份恢复。后续明确取消独立 Windows 发行包，沿用现有启动方式，实施范围合并为三张票。按全新产品处理，不迁移当前用户记录；完整多宿主工程继续不实施。资产归属和后端配置的新决定见 ADR 0020／0021；此修订不表示相应功能已经实现。
+
 2026-09-26 后续交付路线修订：用户决定跳过原阶段 6 的 DSH 原生 FOCUS 交付，改为 [阶段 6B：SDK Backend 接入与设置切换](docs/requirements/v0.2/stage-6b-sdk-backends.md)。保留现有 FOCUS 独立界面和 Host，通过官方 DeepSeek Harness SDK 及其配套 Runtime 接入 Backend，与 Codex 并列供设置界面选择。下文完整 DSH 原生应用、P4 及双 Host 停机接管描述保留为原计划背景，后续以阶段 6B 为准；Core／Application／Methods 单一权威、独占写入及既有阶段结果继续有效。阶段 2D 的历史证据不能替代 SDK 验收；本修订不宣称新 Backend 已实现。
 
 ## 0. 决策摘要与对 v0.1 的修订

@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import test_focus_read
-from host.service import HostService
+from workspace_fixture import HostService
 
 
 class HarnessCandidates:

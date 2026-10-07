@@ -246,6 +246,7 @@ class BlogApplication:
                 if step.get("status") == STEP_RUNNING:
                     projection["artifacts"][name] = {"status": "generating", "updatedAt": None}
             projection["runStatus"] = run.get("status")
+            projection["attemptId"] = run.get("request_id")
             projection["error"] = run.get("error")
         else:
             projection["runStatus"] = RUN_IDLE
@@ -843,3 +844,7 @@ class BlogApplication:
             run["error"] = {"error_id": "blog_cancelled", "message": "Blog generation was cancelled"}
             self._save_run(run)
         return {**self.status(source_id), "cancelledAttempts": closed}
+
+
+from .workspace_lifecycle import guard_workspace_class
+BlogApplication = guard_workspace_class(BlogApplication)

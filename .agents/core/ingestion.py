@@ -131,7 +131,8 @@ class IngestionCore:
 
     def _authorize(self, state: dict[str, Any], writer_id: str) -> None:
         owner = state.get("writer_id")
-        if owner not in {None, writer_id}:
+        from .workspace_lifecycle import writer_authorized
+        if not writer_authorized(self.workspace, writer_id, owner):
             raise WorkspaceError("writer_conflict", "Another writer owns this Workspace")
         state["writer_id"] = writer_id
 
@@ -1108,3 +1109,8 @@ class IngestionApplication:
                     }
                 self._write(item_id, item)
             return self._public(item)
+
+
+from .workspace_lifecycle import guard_workspace_class
+IngestionCore = guard_workspace_class(IngestionCore)
+IngestionApplication = guard_workspace_class(IngestionApplication)

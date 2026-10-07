@@ -57,6 +57,27 @@ def canonical_article_url(value: str) -> str:
     return urllib.parse.urlunsplit((parsed.scheme.casefold(), netloc, path, urllib.parse.urlencode(query), ""))
 
 
+def deletion_cleanup_target(workspace: Path, source_id: str, relative: str) -> Path:
+    """Only source-owned paths recorded by the canonical delete transaction."""
+    validate_source_id(source_id)
+    if not isinstance(relative, str):
+        raise WorkspaceError('deletion_path_invalid', 'Invalid deletion receipt path')
+    target = workspace / relative
+    parts = Path(relative).parts
+    valid = (len(parts) == 2 and parts[0] == 'sources' and
+             re.fullmatch(r'\.' + re.escape(source_id) + r'\.[0-9a-f]{32}\.deleting', parts[1]))
+    valid = valid or (len(parts) == 3 and parts[:2] == ('blog', 'candidates') and
+                     re.fullmatch(re.escape(source_id) + r'-[0-9a-f]{32}', parts[2]))
+    if len(parts) == 3 and parts[0] == 'inbox' and parts[2] != 'item.json':
+        item = _read_document(workspace / 'inbox' / parts[1] / 'item.json')
+        valid = (item.get('deleted') is True and item.get('deleted_source_id') == source_id
+                 and item.get('status') == 'cancelled')
+    if (not valid or not target.resolve().is_relative_to(workspace)
+            or target.resolve() != target.absolute()):
+        raise WorkspaceError('deletion_path_invalid', 'Deletion receipt exceeds its Source scope')
+    return target
+
+
 class SourceLibrary:
     """Install each Parser Bundle once and own all ordered Topic references."""
 
@@ -69,14 +90,12 @@ class SourceLibrary:
     def _recover_deletions(self) -> None:
         state_path = self.workspace / 'state.json'
         state = _read_document(state_path, {})
-        for tombstone in state.get('deleted_sources', {}).values():
+        for source_id, tombstone in state.get('deleted_sources', {}).items():
             if not tombstone.get('pending_cleanup'):
                 continue
             try:
                 for relative in tombstone['cleanup_paths']:
-                    target = self.workspace / relative
-                    if not target.resolve().is_relative_to(self.workspace):
-                        raise WorkspaceError('deletion_path_invalid', 'Deletion path escapes knowledge base')
+                    target = deletion_cleanup_target(self.workspace, source_id, relative)
                     if target.is_symlink() or target.is_file():
                         target.unlink()
                     elif target.is_dir():
@@ -601,3 +620,7 @@ class SourceLibrary:
         self._recover_deletions()
         if self.deleted_sources()[source_id]['pending_cleanup']:
             raise WorkspaceError('deletion_cleanup_pending', 'Source references removed; file cleanup will retry when the knowledge base opens')
+
+
+from .workspace_lifecycle import guard_workspace_class
+SourceLibrary = guard_workspace_class(SourceLibrary)

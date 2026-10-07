@@ -5,7 +5,7 @@ sys.path[:0] = [str(repo), str(repo/'tests'), str(repo/'.agents')]
 from test_focus_read import FocusReadTests
 from test_stage4_reading import ReadingRuntimeDouble, QuestionRuntime
 from test_blog_host import ControlledBlogRuntime, ParserDouble
-from host.service import HostService
+from workspace_fixture import HostService
 from host.server import Server
 fixture=FocusReadTests();fixture.setUp();workspace,source,plan=fixture._workspace()
 root=Path(tempfile.mkdtemp(prefix='focus-browser-'))
@@ -62,7 +62,7 @@ host._blog_summary=lambda: {'fixture-paper':blog_fixture}
 if os.environ.get('FOCUS_BROWSER_FAILED_PREPARATION') == '1':
  run=host.reading_app.begin('fixture-paper',request_id=uuid.uuid4().hex,rebuild=True)
  host.reading_app.core.fail('fixture-paper',run['run_id'],run['attempt'],run['bundle'],'Runtime timed out',timed_out=True)
-server=Server(('127.0.0.1',8765),host)
+server=Server(('127.0.0.1',int(os.environ.get('FOCUS_BROWSER_PORT', '8765'))),host)
 print('ISOLATED SERVER READY',flush=True)
 try:
  if os.environ.get('FOCUS_BROWSER_SCRIPT'):

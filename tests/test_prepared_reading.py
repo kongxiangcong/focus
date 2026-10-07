@@ -107,6 +107,10 @@ class PreparedReadingTests(unittest.TestCase):
         script = Path(__file__).resolve().parents[1] / '.agents/skills/focus-map/scripts/focus_map.py'
         base = [sys.executable, '-X', 'utf8', str(script), 'prepare', '--workspace', str(self.workspace), '--source-id', 'fixture-paper']
         state = (self.workspace / 'state.json').read_bytes()
+        blocked = subprocess.run(base, text=True, capture_output=True)
+        self.assertEqual(1, blocked.returncode)
+        self.assertIn('workspace_busy', blocked.stderr)
+        self.host.close()
         status = json.loads(subprocess.check_output(base, text=True))
         self.assertEqual(3, status['total'])
         command = base + ['--plan-id', 'plan-001', '--chunk-id', 'chunk-003']

@@ -60,6 +60,7 @@ export type BlogArtifactStatus =
 
 /** One Blog Output: the two Markdown artifacts plus the merged single-file page. */
 export interface BlogStatus {
+  attemptId?: string | null;
   sourceId: string;
   generated: boolean;
   artifacts: Record<BlogArtifactName, { status: BlogArtifactStatus; updatedAt: string | null }>;
@@ -129,7 +130,8 @@ export interface SourceNoteOperation {
 export type SourceNoteRequestResult = SourceNoteOperation | { status: "saved"; note: SourceNote } | { status: "cancelled" };
 
 export interface ReadingWindow {
-  workItems?: readonly { kind: "chat" | "preparation" | "blog" | "ingestion" | "progress"; targetId: string; status: string; label: string; error?: string | null }[];
+  workspace?: { workspaceId: string; instanceId: string; path: string };
+  workItems?: readonly { kind: "chat" | "preparation" | "blog" | "ingestion" | "progress"; targetId: string; status: string; label: string; error?: string | null; dismissed?: boolean }[];
   configuration?: BackendConfigurationState;
   clearBusySources?: readonly string[];
   reviewChunk?: ReaderChunk | null;
@@ -302,12 +304,14 @@ export interface SourceDeletionImpact {
 }
 
 export interface ProcessingBatch {
+  dismissed?: boolean;
   batchId: string;
-  topicId: string;
+  topicId: string | null;
   status: "confirmed" | "running" | "paused" | "completed" | "partial";
   error: { error_id: string; message: string } | null;
   executing?: boolean;
   items: readonly {
+    dismissed?: boolean;
     itemId: string; fileName: string; sourceId: string | null;
     status: "queued" | "processing" | "completed" | "failed" | "cancelled" | "partial" | "deleted";
     ingestionStatus: string; blog: BlogStatus | null;
@@ -321,6 +325,7 @@ export interface ProcessingBatch {
 }
 
 export interface IngestionItem {
+  dismissed?: boolean;
   itemId: string;
   fileName: string;
   status: IngestionStatus;
@@ -364,6 +369,7 @@ export interface LibrarySource {
 }
 
 export interface ReaderHost {
+  clearFinishedStatuses?(requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   listTopics?(): Promise<ReaderHostResult<readonly LibraryTopic[]>>;
   listSources?(): Promise<ReaderHostResult<readonly LibrarySource[]>>;
   listInbox?(): Promise<ReaderHostResult<readonly IngestionItem[]>>;
@@ -469,7 +475,7 @@ export function createReaderId(): string {
   const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
-export type BackendSetupAction = "inspect" | "prepare" | "account" | "login-start" | "login-status" | "login-cancel" | "check";
+export type BackendSetupAction = "inspect" | "prepare" | "account" | "login-start" | "login-status" | "login-cancel" | "check" | "models";
 export interface BackendConfiguration {
   backend: "codex" | "deepseek";
   model: string;
@@ -482,6 +488,8 @@ export interface BackendConfigurationState {
   pending: boolean;
   busy: boolean;
   refreshBlocked: boolean;
+  preferences?: Partial<Record<"codex" | "deepseek", Omit<Partial<BackendConfiguration>, 'model'> & { model?: string | null }>>;
+  operationId?: string;
 }
 export interface BackendSetupInput {
   backend: "codex" | "deepseek";
@@ -489,6 +497,8 @@ export interface BackendSetupInput {
   model?: string;
   credentialFile?: string;
   loginId?: string;
+  requestId?: string;
+  preferences?: Partial<Record<'codex' | 'deepseek', Pick<BackendSetupInput, 'model' | 'runtimePath' | 'credentialFile'>>>;
 }
 export interface BackendSetupResult {
   backend: string;
@@ -497,4 +507,10 @@ export interface BackendSetupResult {
   message: string;
   authUrl?: string;
   loginId?: string;
+  environmentId?: string;
+  dependencyStatus?: string;
+  checkedModel?: string;
+  catalogStatus?: string;
+  catalogMessage?: string;
+  models?: string[];
 }

@@ -1,0 +1,255 @@
+{
+  "codex": {
+    "selectedModel": "gpt-5.6-sol",
+    "status": "passed",
+    "defaultConnection": {
+      "backend": "codex",
+      "runtimePath": "D:\\dsh-proj\\focus\\.venv\\Lib\\site-packages\\codex_cli_bin\\bin\\codex.exe",
+      "status": "success",
+      "message": "本次最小请求成功；不代表完整业务能力已通过验收。",
+      "environmentId": "333105a6d2334a8b3dc4592168d516c7d2a929ec0657249f0f83f00c316fe253",
+      "checkedModel": "gpt-6-astra",
+      "dependencyStatus": "installed",
+      "catalogStatus": "loaded",
+      "models": [
+        "gpt-6-astra",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.5"
+      ],
+      "catalogMessage": "真实模型清单已加载；清单不代表所有模型已验证。"
+    },
+    "selectedConnection": {
+      "backend": "codex",
+      "runtimePath": "D:\\dsh-proj\\focus\\.venv\\Lib\\site-packages\\codex_cli_bin\\bin\\codex.exe",
+      "status": "success",
+      "message": "本次最小请求成功；不代表完整业务能力已通过验收。",
+      "environmentId": "6bfe9d58b9a267a01afab3436471998f0c27ccc24448032e46bfedb4d4961612",
+      "checkedModel": "gpt-5.6-sol",
+      "dependencyStatus": "installed",
+      "catalogStatus": "loaded",
+      "models": [
+        "gpt-6-astra",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.5"
+      ],
+      "catalogMessage": "真实模型清单已加载；清单不代表所有模型已验证。"
+    },
+    "preparation": {
+      "source_id": "fixture-paper",
+      "status": "ready",
+      "step": "ready",
+      "total": 3,
+      "completed": 3,
+      "ready": true,
+      "error": null,
+      "plan_id": "plan-001",
+      "attempt": "48155e19585a45549af21f32fc87cd11",
+      "glossary_revision": "e210a0077ff082b08f1836565c205763b7b0b2b2f5345a69447da74688dbb767",
+      "selected_plan_id": "plan-001",
+      "selected_ready": true,
+      "candidate": false,
+      "timed_out": false,
+      "dismissed": false
+    },
+    "opened": {
+      "chunkId": "chunk-001",
+      "translationPresent": true
+    },
+    "discussion": {
+      "status": "completed",
+      "noteCount": 1,
+      "notes": [
+        {
+          "noteId": "df13eaa5d1094d4aa2bfca92e0590a25",
+          "sourceId": "fixture-paper",
+          "revision": 1,
+          "content": "该示例预测时间为 0.008 秒，属于模型计算而非硬件测量。",
+          "kind": "conclusion",
+          "origin": "user",
+          "bundle": "535cacb2f58290251d8f8fbba9f8b9052dc2e1789a72a4d33722f8cbe41164ed",
+          "anchor": {
+            "bundle": "535cacb2f58290251d8f8fbba9f8b9052dc2e1789a72a4d33722f8cbe41164ed",
+            "quote": "compute time is 0.002 s and memory time is 0.008 s, hence predicted time is 0.008 s. Predicted throughput is 500e9 operations/s. This is arithmetic, not a real-device result.",
+            "sourceId": "fixture-paper",
+            "sourceLines": [
+              8,
+              10
+            ]
+          },
+          "evidenceRole": "source_claim",
+          "deleted": false,
+          "canUndo": true,
+          "sourceUpdated": false,
+          "referenceStatus": "current"
+        }
+      ]
+    },
+    "blog": {
+      "sourceId": "fixture-paper",
+      "generated": true,
+      "artifacts": {
+        "value_analysis": {
+          "status": "completed",
+          "updatedAt": "2026-10-05T19:14:01+00:00"
+        },
+        "reading_blog": {
+          "status": "completed",
+          "updatedAt": "2026-10-05T19:12:41+00:00"
+        },
+        "html": {
+          "status": "completed",
+          "updatedAt": "2026-10-05T19:14:02+00:00"
+        }
+      },
+      "valueAnalysis": {
+        "applicable": true,
+        "direction": "performance_modeling",
+        "reason": "来源的主要贡献是基于算力、带宽、运算量和访存量预测算子执行时间与资源瓶颈的透明分析模型，属于性能建模。"
+      },
+      "verificationLevel": "paper_reading",
+      "warnings": [
+        "本次运行环境无网络，未检索论文内链接与官方仓库；实现相关结论只来自论文陈述"
+      ],
+      "methodVersion": "article-blog-v1",
+      "runStatus": "completed",
+      "error": null,
+      "executing": false
+    },
+    "restoredContinue": {
+      "status": "completed",
+      "identityPreserved": true,
+      "discussionPreserved": true,
+      "oldConversationPreserved": true,
+      "oldNotesPreserved": true,
+      "remainingReadingAdvanced": true
+    }
+  },
+  "deepseek": {
+    "selectedModel": "deepseek-flash",
+    "status": "passed",
+    "defaultConnection": {
+      "backend": "deepseek",
+      "runtimePath": "D:\\dsh-proj\\focus\\.venv\\Lib\\site-packages\\deepseek_harness_runtime\\runtime\\deepseek-harness-sdk-runtime-win-x64.exe",
+      "status": "success",
+      "message": "本次最小请求成功；不代表完整业务能力已通过验收。",
+      "environmentId": "3b6970c13f03f5648737ef9c5194c5c4cdbc9760bf6f9041cf4b488fb43b45a8",
+      "checkedModel": "deepseek-v4-flash",
+      "dependencyStatus": "installed",
+      "catalogStatus": "loaded",
+      "models": [
+        "deepseek-flash",
+        "deepseek-v4-pro"
+      ],
+      "catalogMessage": "真实模型清单已加载；清单不代表所有模型已验证。"
+    },
+    "selectedConnection": {
+      "backend": "deepseek",
+      "runtimePath": "D:\\dsh-proj\\focus\\.venv\\Lib\\site-packages\\deepseek_harness_runtime\\runtime\\deepseek-harness-sdk-runtime-win-x64.exe",
+      "status": "success",
+      "message": "本次最小请求成功；不代表完整业务能力已通过验收。",
+      "environmentId": "3b6970c13f03f5648737ef9c5194c5c4cdbc9760bf6f9041cf4b488fb43b45a8",
+      "checkedModel": "deepseek-flash",
+      "dependencyStatus": "installed",
+      "catalogStatus": "loaded",
+      "models": [
+        "deepseek-flash",
+        "deepseek-v4-pro"
+      ],
+      "catalogMessage": "真实模型清单已加载；清单不代表所有模型已验证。"
+    },
+    "preparation": {
+      "source_id": "fixture-paper",
+      "status": "ready",
+      "step": "ready",
+      "total": 3,
+      "completed": 3,
+      "ready": true,
+      "error": null,
+      "plan_id": "plan-001",
+      "attempt": "6ae1ce9a657242c58f96268b887b5b59",
+      "glossary_revision": "e210a0077ff082b08f1836565c205763b7b0b2b2f5345a69447da74688dbb767",
+      "selected_plan_id": "plan-001",
+      "selected_ready": true,
+      "candidate": false,
+      "timed_out": false,
+      "dismissed": false
+    },
+    "opened": {
+      "chunkId": "chunk-001",
+      "translationPresent": true
+    },
+    "discussion": {
+      "status": "completed",
+      "noteCount": 1,
+      "notes": [
+        {
+          "noteId": "2b843f46b3af464f8b268cd7643c2625",
+          "sourceId": "fixture-paper",
+          "revision": 1,
+          "content": "该示例预测时间为 0.008 秒，属于模型计算而非硬件测量",
+          "kind": "conclusion",
+          "origin": "user",
+          "bundle": "535cacb2f58290251d8f8fbba9f8b9052dc2e1789a72a4d33722f8cbe41164ed",
+          "anchor": {
+            "bundle": "535cacb2f58290251d8f8fbba9f8b9052dc2e1789a72a4d33722f8cbe41164ed",
+            "quote": "compute time is 0.002 s and memory time is 0.008 s, hence predicted time is 0.008 s. Predicted throughput is 500e9 operations/s. This is arithmetic, not a real-device result.",
+            "sourceId": "fixture-paper",
+            "sourceLines": [
+              9,
+              9
+            ]
+          },
+          "evidenceRole": "source_claim",
+          "deleted": false,
+          "canUndo": true,
+          "sourceUpdated": false,
+          "referenceStatus": "current"
+        }
+      ]
+    },
+    "blog": {
+      "sourceId": "fixture-paper",
+      "generated": true,
+      "artifacts": {
+        "value_analysis": {
+          "status": "completed",
+          "updatedAt": "2026-10-05T19:20:38+00:00"
+        },
+        "reading_blog": {
+          "status": "completed",
+          "updatedAt": "2026-10-05T19:20:04+00:00"
+        },
+        "html": {
+          "status": "completed",
+          "updatedAt": "2026-10-05T19:20:39+00:00"
+        }
+      },
+      "valueAnalysis": {
+        "applicable": true,
+        "direction": "performance_modeling",
+        "reason": "The source's main contribution is a transparent analytical model predicting operator time and limiting resource from compute and bandwidth bounds, which is performance modeling rather than hardware, DSE, compiler, or simulator work."
+      },
+      "verificationLevel": "paper_reading",
+      "warnings": [
+        "本次运行环境无网络，未检索论文内链接与官方仓库；实现相关结论只来自论文陈述",
+        "价值分析未说明实现是否实际运行"
+      ],
+      "methodVersion": "article-blog-v1",
+      "runStatus": "completed",
+      "error": null,
+      "executing": false
+    },
+    "restoredContinue": {
+      "status": "completed",
+      "identityPreserved": true,
+      "discussionPreserved": true,
+      "oldConversationPreserved": true,
+      "oldNotesPreserved": true,
+      "remainingReadingAdvanced": true
+    }
+  }
+}

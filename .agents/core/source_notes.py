@@ -153,7 +153,6 @@ class SourceNotes:
         if evidence_role == "source_claim" and anchor is None:
             raise WorkspaceError("note_anchor_required", "A Source claim requires a Source anchor")
         payload = {"sourceId": source_id, "bundle": bundle, "intentId": intent_id,
-                   "writerId": self.writer_id,
                    "content": content, "kind": kind, "origin": origin,
                    "evidenceRole": evidence_role, "anchor": anchor}
         digest = _payload_identity(payload)
@@ -195,7 +194,7 @@ class SourceNotes:
         elif content is not None:
             raise WorkspaceError("note_change_invalid", "Unexpected note content")
         payload = {"sourceId": source_id, "noteId": note_id, "expectedRevision": expected_revision,
-                   "writerId": self.writer_id, "operation": operation, "content": content}
+                   "operation": operation, "content": content}
         digest = _payload_identity(payload)
         with _LOCK, closing(self._connect(source_id)) as db, db:
             db.execute("BEGIN IMMEDIATE")
@@ -239,3 +238,7 @@ class SourceNotes:
             db.execute("INSERT INTO requests VALUES(?, ?, ?, 0)",
                        (request_id, digest, json.dumps(result, ensure_ascii=False)))
             return result
+
+
+from .workspace_lifecycle import guard_workspace_class
+SourceNotes = guard_workspace_class(SourceNotes)

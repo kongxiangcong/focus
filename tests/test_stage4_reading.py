@@ -8,7 +8,7 @@ import unittest
 import uuid
 
 import test_focus_read
-from host.service import HostService
+from workspace_fixture import HostService
 from host.server import Server
 from core.reading_workspace import WorkspaceError, _reading_plan_records, _source_heading_paths
 from core.reading_application import ReadingExternalError
@@ -373,13 +373,11 @@ class Stage4PreparationTests(unittest.TestCase):
         self.assertTrue(self.runtime.entered.wait(3))
         with self.assertRaises(WorkspaceError):
             self.host.prepare_reading("fixture-paper", request_id=request_id, rebuild=True)
-        second = HostService(self.workspace, self.fixture.root / "other-host", reading_runtime=ReadingRuntimeDouble())
         try:
             with self.assertRaises(WorkspaceError):
-                second.prepare_reading("fixture-paper", request_id=uuid.uuid4().hex)
+                HostService(self.workspace, self.fixture.root / "other-host", reading_runtime=ReadingRuntimeDouble())
             self.assertEqual("running", self.host.reading_app.status("fixture-paper")["status"])
         finally:
-            second.close()
             self.runtime.release.set()
             self.host.reading_workers["fixture-paper"].join(3)
 
