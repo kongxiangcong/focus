@@ -60,7 +60,7 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
 });
 
-it("accepts saved HTML and explains local parsing in the Inbox confirmation", async () => {
+it("accepts saved HTML and defaults to parsing with blog generation", async () => {
   const { host } = setup();
   const staged: IngestionItem = { itemId: "html-1", fileName: "article.html", status: "awaiting_confirmation", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["local-html"] };
   vi.mocked(host.stageIngestion!).mockResolvedValue(readerSuccess(staged));
@@ -69,7 +69,8 @@ it("accepts saved HTML and explains local parsing in the Inbox confirmation", as
   fireEvent.change(screen.getByRole("combobox", { name: "专题" }), { target: { value: "编译" } });
   const file = new File(["<html>article</html>"], "article.html", { type: "text/html" });
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [file] } });
-  expect(screen.getByText(/本地 HTML 解析器（不上传原件）/)).toBeInTheDocument();
+  expect(screen.getByRole("checkbox", { name: "仅解析入库" })).not.toBeChecked();
+  expect(screen.queryByText(/本地 HTML 解析器（不上传原件）/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["html-1"], expect.any(String), true));
   expect(host.stageIngestion).toHaveBeenCalled();
@@ -469,12 +470,44 @@ it("T23/T24 allows unclassified parse-only upload with an explicit immutable sco
   fireEvent.click(screen.getByRole('button', { name: /^编译/ }));
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
   expect(screen.getByRole('combobox', { name: '专题' })).toHaveValue('');
-  fireEvent.click(screen.getByRole("checkbox", { name: "解析后生成博客" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "仅解析入库" }));
   const file = new File(["%PDF test"], "unclassified.pdf");
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [file] } });
   fireEvent.click(screen.getByRole("button", { name: "仅解析入库" }));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String), false));
   expect(host.stageIngestion).toHaveBeenCalledWith(file, {});
+});
+
+it.each(["existing", "new", "unclassified"] as const)("uploads with a %s topic from the expandable picker", async mode => {
+  const { host } = setup();
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "上传" }));
+  const topic = screen.getByRole("combobox", { name: "专题" });
+  expect(topic).toHaveAttribute("aria-expanded", "false");
+  fireEvent.click(screen.getByRole("button", { name: "展开已有专题" }));
+  expect(screen.getByRole("listbox", { name: "已有专题" })).toBeVisible();
+  fireEvent.click(screen.getByRole("option", { name: "编译" }));
+  expect(topic).toHaveValue("编译");
+  expect(topic).toHaveAttribute("aria-expanded", "false");
+  if (mode === "new") {
+    fireEvent.change(topic, { target: { value: "架构探索" } });
+    fireEvent.keyDown(topic, { key: "Escape" });
+  } else if (mode === "unclassified") {
+    fireEvent.click(screen.getByRole("button", { name: "展开已有专题" }));
+    fireEvent.keyDown(topic, { key: "ArrowDown" });
+    fireEvent.keyDown(topic, { key: "Enter" });
+    expect(topic).toHaveValue("");
+  }
+  const parseOnly = screen.getByRole("checkbox", { name: "仅解析入库" });
+  fireEvent.click(parseOnly);
+  expect(parseOnly).toBeChecked();
+  fireEvent.click(parseOnly);
+  expect(parseOnly).not.toBeChecked();
+  const file = new File(["%PDF test"], "topic.pdf");
+  fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [file] } });
+  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String), true));
+  expect(host.stageIngestion).toHaveBeenCalledWith(file, mode === "unclassified" ? {} : { topicTitle: mode === "new" ? "架构探索" : "编译" });
 });
 
 it('clears terminal statuses while an active chat continues, and keeps source management available later', async () => {
