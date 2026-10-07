@@ -283,30 +283,59 @@ def _math_block(tex: str) -> str:
 
 
 def _inline(text: str, image_src) -> str:
-    text = _escape(text)
-    text = re.sub(r"\$\$(.+?)\$\$", lambda m: _math_block(m.group(1)), text, flags=re.DOTALL)
-    text = re.sub(r"(?<!\\)\$([^$\n]+?)\$", lambda m: _math_inline(m.group(1)), text)
-    text = re.sub(r"`([^`]+)`", r"<code>\1</code>", text)
-    text = re.sub(
-        r"!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;([^&]*)&quot;)?\)",
-        lambda m: f'<figure><img src="{image_src(m.group(2))}" alt="{m.group(1)}">'
-        + (f"<figcaption>{m.group(1)}</figcaption>" if m.group(1) else "")
-        + "</figure>",
-        text,
+    # Parse source tokens once: generated HTML, code, TeX and URL attributes must
+    # never be reinterpreted as emphasis. Recursion applies only to visible prose.
+    pattern = re.compile(
+        r"(?P<escape>\\[\\`*$=])"
+        r"|(?P<code>`[^`]+`)"
+        r"|(?P<display>\$\$.+?\$\$)"
+        r"|(?P<math>\$[^$\n]+?\$)"
+        r'|(?P<image>!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\))'
+        r"|(?P<link>\[([^\]]+)\]\(([^)\s]+)\))"
+        r"|(?P<strong>\*\*[^*\n]+\*\*)"
+        r"|(?P<mark>==[^=\n]+==)"
+        r"|(?P<em>(?<!\*)\*[^*\n]+\*(?!\*))",
+        re.DOTALL,
     )
-    text = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", r'<a href="\2">\1</a>', text)
-    text = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", text)
-    text = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"<em>\1</em>", text)
-    return text
+    parts = []
+    last = 0
+    for match in pattern.finditer(text):
+        parts.append(_escape(text[last:match.start()]))
+        token = match.group()
+        kind = match.lastgroup
+        if kind == "escape":
+            parts.append(_escape(token[1:]))
+        elif kind == "code":
+            parts.append(f"<code>{_escape(token[1:-1])}</code>")
+        elif kind in {"display", "math"}:
+            width = 2 if kind == "display" else 1
+            parts.append(_math_span(token[width:-width], display=width == 2))
+        elif kind == "image":
+            image = re.fullmatch(r'!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)', token)
+            alt, src = image.group(1, 2)
+            parts.append(f'<figure><img src="{html.escape(image_src(src), quote=True)}" '
+                         f'alt="{html.escape(alt, quote=True)}">'
+                         + (f"<figcaption>{_escape(alt)}</figcaption>" if alt else "") + "</figure>")
+        elif kind == "link":
+            link = re.fullmatch(r"\[([^\]]+)\]\(([^)\s]+)\)", token)
+            label, href = link.group(1, 2)
+            parts.append(f'<a href="{html.escape(href, quote=True)}">{_inline(label, image_src)}</a>')
+        else:
+            tag = {"strong": "strong", "mark": "mark", "em": "em"}[kind]
+            width = 1 if kind == "em" else 2
+            parts.append(f"<{tag}>{_inline(token[width:-width], image_src)}</{tag}>")
+        last = match.end()
+    parts.append(_escape(text[last:]))
+    return "".join(parts)
 
 
-def _table_rows(block: list[str]) -> str:
+def _table_rows(block: list[str], image_src) -> str:
     cells = [ [cell.strip() for cell in line.strip().strip("|").split("|")] for line in block if line.strip().startswith("|") ]
     rows = [row for index, row in enumerate(cells) if index != 1]
     body = []
     for index, row in enumerate(rows):
         tag = "th" if index == 0 else "td"
-        body.append("<tr>" + "".join(f"<{tag}>{cell}</{tag}>" for cell in row) + "</tr>")
+        body.append("<tr>" + "".join(f"<{tag}>{_inline(cell, image_src)}</{tag}>" for cell in row) + "</tr>")
     return "<table>" + "".join(body) + "</table>"
 
 
@@ -366,7 +395,7 @@ def _markdown_to_html(markdown: str, image_src) -> str:
             while index < len(lines) and lines[index].strip().startswith("|"):
                 table.append(lines[index])
                 index += 1
-            blocks.append(_table_rows(table))
+            blocks.append(_table_rows(table, image_src))
             continue
         if stripped.startswith(">"):
             quoted: list[str] = []
@@ -408,18 +437,33 @@ span.math-display { display:block; padding:.9rem; margin:1.3rem 0; overflow:auto
 .katex-display { display:block; margin:1.3rem 0; text-align:center; overflow:auto; }
 .katex { font-size:1.05em; }
 * { box-sizing: border-box; }
-body { margin:0; background:var(--paper); color:var(--ink); font:17px/1.78 system-ui,-apple-system,"Segoe UI","Noto Sans SC",sans-serif; }
-header { border-bottom:1px solid var(--line); padding:20px 0 0; background:var(--paper); position:sticky; top:0; }
-.wrap { width:min(920px, calc(100% - 36px)); margin:0 auto; }
+body { margin:0; background:var(--paper); color:var(--ink); font:17px/1.9 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; }
+header { border-bottom:1px solid var(--line); padding:20px 0 0; background:var(--paper); position:sticky; top:0; z-index:2; }
+.wrap { width:min(780px, calc(100% - 40px)); margin:0 auto; }
 .tabs { display:flex; gap:4px; }
 .tab { appearance:none; border:1px solid var(--line); border-bottom:none; background:var(--code); color:var(--muted);
        padding:10px 18px; border-radius:8px 8px 0 0; cursor:pointer; font-size:15px; }
 .tab[aria-selected="true"] { background:var(--paper); color:var(--ink); font-weight:600; }
 .panel { display:none; padding:8px 0 64px; }
 .panel[data-active="true"] { display:block; }
-h1,h2,h3,h4 { line-height:1.35; margin:1.7em 0 .6em; }
-h1 { font-size:2rem; border-bottom:2px solid var(--line); padding-bottom:.4em; }
-h2 { font-size:1.5rem; border-bottom:1px solid var(--line); padding-bottom:.3em; }
+h1,h2,h3,h4,h5,h6 { line-height:1.4; font-weight:700; text-wrap:balance; overflow-wrap:anywhere; }
+h1 { font-size:2rem; letter-spacing:-.025em; margin:1.2em 0 1em; }
+h2 { font-size:1.45rem; margin:2.4em 0 .9em; padding:.1em 0 .1em .7em; border-left:4px solid var(--accent); }
+h3 { font-size:1.18rem; margin:1.8em 0 .7em; color:var(--accent); }
+h4,h5,h6 { font-size:1.05rem; margin:1.5em 0 .6em; }
+p { margin:0 0 1.15em; overflow-wrap:anywhere; }
+li { margin:.45em 0; overflow-wrap:anywhere; }
+ul,ol { padding-left:1.6em; }
+strong { font-weight:700; color:#172c46; }
+mark { color:inherit; background:#fff0b3; padding:.08em .18em; border-radius:3px; box-decoration-break:clone; -webkit-box-decoration-break:clone; }
+@media (max-width:540px) {
+  body { font-size:16px; }
+  .wrap { width:calc(100% - 32px); }
+  h1 { font-size:1.65rem; }
+  h2 { font-size:1.3rem; }
+  h3 { font-size:1.12rem; }
+  .tab { padding:10px 12px; }
+}
 a { color:var(--accent); }
 img { display:block; max-width:100%; height:auto; margin:1.4rem auto; border-radius:8px; }
 figure { margin:1.6rem 0; }
