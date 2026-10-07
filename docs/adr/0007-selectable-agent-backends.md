@@ -4,6 +4,8 @@ status: accepted
 
 # Select Agent backends without changing Focus Core authority
 
+2026-10-06 revision: [ADR 0020](0020-portable-workspaces-with-first-run-selection.md) adds first-run Backend selection, and [ADR 0021](0021-simple-backend-setup-and-apply.md) replaces the initial installation of both Backends and save-then-manual-refresh rules below with selected-Backend preparation on demand and idle Save and Apply. Those earlier rules remain historical context; shared business authority, explicit authentication and one effective Backend continue to apply.
+
 The browser uses ReaderHost.selectBackend; HostService owns session switching and
 adapters translate runtime events. Codex uses the App Server and DeepSeek uses
 the Harness SDK.
