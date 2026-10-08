@@ -42,17 +42,22 @@ class HtmlRuntime(DUAL.ArchitectureRuntime):
         applicable: bool = True,
         warnings=None,
         math: bool = False,
+        emphasis: bool = False,
         value_body: str = DUAL.VALUE_ANALYSIS,
     ):
         super().__init__(applicable=applicable, value_body=value_body)
         self.warnings = list(warnings or [])
         self.math = math
+        self.emphasis = emphasis
 
     def write_artifact(self, *, artifact, bundle, candidate, method_dir, network):
         result = super().write_artifact(
             artifact=artifact, bundle=bundle, candidate=candidate, method_dir=method_dir, network=network
         )
         files = dict(result["files"])
+        if self.emphasis:
+            name = "blog.md" if artifact == "reading_blog" else "value-analysis.md"
+            files[name] += "\n\n**专业术语**：==有证据支持的关键结论==。\n"
         warnings = list(result.get("warnings", [])) + self.warnings
         if artifact == "reading_blog" and self.math:
             files["blog.md"] = files["blog.md"].replace(
@@ -163,6 +168,19 @@ class BlogHtmlTests(unittest.TestCase):
         self.assertEqual([], checked["errors"])
         self.assertEqual(2, checked["metrics"]["html_panels"])
         self.assertEqual(1, checked["metrics"]["html_embedded_images"])
+
+    def test_both_published_articles_render_reading_emphasis(self):
+        result = self._app(HtmlRuntime(math=True, emphasis=True)).generate(
+            "Fixture-paper", request_id="emphasis", authorized_by="manual_trigger")
+        self.assertEqual("completed", result["html"]["status"])
+        blog = self.source_root / "blog"
+        html = (blog / "index.html").read_text(encoding="utf-8")
+        self.assertEqual(2, html.count('<strong>专业术语</strong>'))
+        self.assertEqual(2, html.count('<mark>有证据支持的关键结论</mark>'))
+        for name in ("blog.md", "value-analysis.md"):
+            self.assertIn("==有证据支持的关键结论==", (blog / name).read_text(encoding="utf-8"))
+        checked = validate_blog_candidate(blog, bundle=self.bundle, require_html=True, require_value_analysis=True)
+        self.assertEqual([], checked["errors"])
 
     # ---------------------------------------------------------------- T04 (HTML part)
 

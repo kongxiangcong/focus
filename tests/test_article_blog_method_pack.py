@@ -90,6 +90,29 @@ EVIDENCE_BODY = "\n".join(
 
 
 class ArticleBlogMethodPackTests(unittest.TestCase):
+    def test_reading_emphasis_preserves_literal_regions(self):
+        render = lambda text: ARTICLE2BLOG._markdown_to_html(text, lambda src: src)
+        output = render('# 主标题\n\n## 机制\n\n### 输入\n\n**术语**：==带条件的结论==。\n\n'
+                        '- **模块**：==减少搬运==\n\n'
+                        '| 对象 | 作用 |\n|---|---|\n| **缓存** | ==减少访问== |\n\n'
+                        '> ==保留边界==')
+        for fragment in ('<h1>主标题</h1>', '<h2>机制</h2>', '<h3>输入</h3>',
+                         '<strong>术语</strong>', '<mark>带条件的结论</mark>',
+                         '<td><strong>缓存</strong></td>', '<td><mark>减少访问</mark></td>',
+                         '<blockquote><p><mark>保留边界</mark></p></blockquote>'):
+            self.assertIn(fragment, output)
+        protected = render('`==code== **literal**` $x==y$\n\n'
+                           '```text\n==fenced== **literal**\n```\n\n'
+                           '[**链接**](https://example.org/==path==)\n\n'
+                           '![==图注==](assets/==figure==.png)\n\n'
+                           r'\==escaped== <script>alert(1)</script>')
+        self.assertNotIn('<mark>', protected)
+        self.assertIn('<code>==code== **literal**</code>', protected)
+        self.assertIn('data-tex="x==y"', protected)
+        self.assertIn('href="https://example.org/==path=="><strong>链接</strong>', protected)
+        self.assertIn('src="assets/==figure==.png"', protected)
+        self.assertIn('&lt;script&gt;', protected)
+
     def setUp(self):
         runs = ROOT / "tmp" / "test-runs"
         runs.mkdir(parents=True, exist_ok=True)

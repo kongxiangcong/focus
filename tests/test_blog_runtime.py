@@ -51,6 +51,11 @@ class BlogRuntimeTests(unittest.TestCase):
             self.assertIn("image-001.png", runtime.calls[0][0])
             self.assertIn("# 共享证据", runtime.calls[1][0])
             self.assertIn("仅论文阅读", runtime.calls[1][0])
+            for prompt, _, _ in runtime.calls:
+                self.assertIn("**专业术语**", prompt)
+                self.assertIn("==关键结论或因果关系==", prompt)
+                self.assertIn("不跳级", prompt)
+                self.assertIn("保留条件、否定和不确定性", prompt)
 
 
 if __name__ == "__main__":

@@ -163,6 +163,7 @@ class AgentBlogRuntime:
             "缺失信息写明待核实。不要尝试读取或修改本地文件。\n\n"
             "可用图片文件名：" + ", ".join(assets) + "\n\n"
             "# 写作方法\n" + self._method_doc(method_dir, "reading-blog-method.md") + "\n\n"
+            "# 阅读排版\n" + self._method_doc(method_dir, "reading-format.md") + "\n\n"
             "# 论文正文\n" + content
         )
 
@@ -177,6 +178,7 @@ class AgentBlogRuntime:
             "原文锚点、证据缺口、审计证据和生成核查记录属于内部笔记，不复制到 value_analysis。\n"
             "不要尝试读取或修改本地文件。\n\n"
             "# 写作方法\n" + self._method_doc(method_dir, "value-analysis-method.md") + "\n\n"
+            "# 阅读排版\n" + self._method_doc(method_dir, "reading-format.md") + "\n\n"
             "# 共享证据笔记\n" + (evidence_map.read_text(encoding="utf-8") if evidence_map.is_file() else "未获得") + "\n\n"
             "# 实现核查笔记\n" + (candidate / "evidence" / "implementation-notes.md").read_text(encoding="utf-8") + "\n\n"
             "# 论文正文\n" + content
