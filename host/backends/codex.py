@@ -55,7 +55,7 @@ class CodexBackend(Backend):
         if self.purpose in ('connectivity', 'candidate', 'discussion', 'business'):
             command += ['-c', 'mcp_servers={}',
                         '-c', 'features.shell_tool=false', '-c', 'features.apply_patch_freeform=false',
-                        '-c', 'web_search="disabled"']
+                        '-c', 'web_search="live"' if self.purpose == 'discussion' else 'web_search="disabled"']
         self.rpc = AppServer(command, self.workspace, env=env)
         self.rpc.initialize()
         self.rpc.send({'method': 'initialized', 'params': {}})

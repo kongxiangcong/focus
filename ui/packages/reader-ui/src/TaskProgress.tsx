@@ -3,7 +3,7 @@ import type { ReaderAgentState } from "@focus/reader-contracts";
 import "./task-progress.css";
 
 const terminal = { completed: "已完成", failed: "处理失败", interrupted: "已停止" };
-const activityNames: Record<string, string> = { commandExecution: "执行操作", fileChange: "保存文件", dynamicToolCall: "调用工具", mcpToolCall: "调用工具", reasoning: "思考中", webSearch: "检索资料" };
+const activityNames: Record<string, string> = { commandExecution: "执行操作", fileChange: "保存文件", dynamicToolCall: "调用工具", mcpToolCall: "调用工具", reasoning: "思考中", webSearch: "联网搜索", webFetch: "读取网页" };
 function duration(ms: number) {
   const seconds = Math.max(0, Math.floor(ms / 1000));
   return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;

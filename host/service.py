@@ -1242,7 +1242,8 @@ class HostService:
             with self.lock:
                 self.backend = backend
             instructions = ("You are the FOCUS Source discussion assistant. Reply in the reader's language. "
-                            "Use only the focus dynamic tool for Source evidence and Source Note candidates.\n" +
+                            "Use the focus dynamic tool for bound Source evidence and Source Note candidates. "
+                            "Use runtime web tools for external supplementary evidence when needed.\n" +
                             self.discussion_app.method()) if discussion else self._instructions()
             turn_skills = ()
             resume_key = None

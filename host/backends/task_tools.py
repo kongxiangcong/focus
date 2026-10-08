@@ -15,7 +15,7 @@ def discussion_tools():
                     'required': ['label', 'description'], 'additionalProperties': False}}},
                 'required': ['id', 'header', 'question', 'options'], 'additionalProperties': False}}},
             'required': ['questions'], 'additionalProperties': False}}, {
-        'name': 'focus_confirm', 'description': 'Request reader confirmation for a proposed discussion action. Confirmation never authorizes tools outside this Source or bypasses Core guards.',
+        'name': 'focus_confirm', 'description': 'Request reader confirmation for a proposed discussion action. Confirmation never authorizes access to other local Sources or bypasses Core guards.',
         'inputSchema': {'type': 'object', 'properties': {'title': {'type': 'string'}, 'detail': {'type': 'string'}},
                         'required': ['title', 'detail'], 'additionalProperties': False}}]
 

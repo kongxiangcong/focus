@@ -4,10 +4,33 @@ import uuid
 import tempfile
 from pathlib import Path
 
-from .base import Backend, BackendError, MESSAGE_COMPLETED, SESSION_OPENED, TURN_COMPLETED, TURN_STARTED, safe_backend_error
+from .base import ACTIVITY, Backend, BackendError, MESSAGE_COMPLETED, SESSION_OPENED, TURN_COMPLETED, TURN_STARTED, safe_backend_error
 from ..proxy import backend_environment
 from .tool_bridge import ToolBridge
 from .task_tools import discussion_tools, library_tools
+
+
+# sdk-minimal has no web tools. Compose only the public web capabilities for
+# discussion turns, using the same credential as chat (never a key in YAML).
+DISCUSSION_WEB_PATCH = """- insert:
+    - id: web
+      name: '@deepseek-ai/dsh-web'
+      config:
+        searchProvider: deepseek-official
+        fetchProvider: http
+    - id: web-search-deepseek
+      name: '@deepseek-ai/dsh-web-search-deepseek'
+      config:
+        apiKeyEnv: DEEPSEEK_API_KEY
+    - id: web-fetch-http
+      name: '@deepseek-ai/dsh-web-fetch-http'
+    - id: tool-web
+      name: '@deepseek-ai/dsh-tool-web'
+      config:
+        search: true
+        fetch: true
+        searchTimeoutMs: 60000
+"""
 
 
 class DeepSeekBackend(Backend):
@@ -25,6 +48,7 @@ class DeepSeekBackend(Backend):
         self.bridge = None
         self.temporary = None
         self.session = None
+        self._web_calls = {}
         self._close_done = threading.Event()
 
     def open_session(self, resume_key, *, instructions, skills=()):
@@ -48,6 +72,8 @@ class DeepSeekBackend(Backend):
         root = Path(self.temporary.name)
         patch = root / 'connectivity.patch.yml'
         patch_text = '- id: persistent-bash\n  disabled: true\n- id: persistent-pwsh\n  disabled: true\n'
+        if self.purpose == 'discussion':
+            patch_text += DISCUSSION_WEB_PATCH
         tool_definitions = self.tools
         if self.purpose == 'discussion' and tool_definitions is None:
             tool_definitions = discussion_tools()
@@ -88,7 +114,8 @@ class DeepSeekBackend(Backend):
         def run():
             try:
                 # Session.run never auto-starts a closed Harness. Harness.run does.
-                result = self.session.run(prompt)
+                result = (self.session.run(prompt, on_notification=self._notification)
+                          if self.purpose == 'discussion' else self.session.run(prompt))
                 if self.closed:
                     return
                 self.emit(MESSAGE_COMPLETED, {'itemId': self.session_id, 'text': result.final_response})
@@ -104,6 +131,29 @@ class DeepSeekBackend(Backend):
 
         self.thread = threading.Thread(target=run, daemon=True)
         self.thread.start()
+
+    def _notification(self, notification):
+        """Project native web activity without copying retrieved page bodies."""
+        if self.closed or notification.method != 'session.event':
+            return
+        payload = notification.payload
+        if payload.get('sessionId') != self.session_id:
+            return
+        event = payload.get('event') or {}
+        data = event.get('data') or {}
+        if event.get('type') == 'tool/call' and data.get('name') in ('web_search', 'web_fetch'):
+            call_id = data.get('callId')
+            if call_id:
+                title = 'webSearch' if data['name'] == 'web_search' else 'webFetch'
+                self._web_calls[call_id] = title
+                self.emit(ACTIVITY, {'id': call_id, 'title': title, 'status': 'inProgress', 'detail': ''})
+        elif event.get('type') == 'tool/result':
+            for block in (data.get('message') or {}).get('content', []):
+                call_id = block.get('toolCallId')
+                title = self._web_calls.pop(call_id, None)
+                if title:
+                    self.emit(ACTIVITY, {'id': call_id, 'title': title,
+                                        'status': 'failed' if block.get('isError') else 'completed', 'detail': ''})
 
     def send(self, message):
         if self.bridge:

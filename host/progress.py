@@ -27,4 +27,4 @@ def activity_label(activity):
         return '执行操作'
     return {'reasoning': '思考中', 'fileChange': '保存文件',
             'mcpToolCall': '调用工具', 'dynamicToolCall': '调用工具',
-            'webSearch': '检索资料'}.get(title, '处理任务')
+            'webSearch': '联网搜索', 'webFetch': '读取网页'}.get(title, '处理任务')
