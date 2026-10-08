@@ -3,6 +3,7 @@ import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type Bl
 import { FocusReader, AgentControls, TaskProgress, readingFontSizes } from "@focus/reader-ui";
 import { BackendSetupPanel } from "./BackendSetupPanel";
 import { WorkspaceSelection } from './WorkspaceSelection';
+import { UploadTopicPicker } from "./UploadTopicPicker";
 
 type Route = "/library" | "/reading" | "/settings";
 type FontSize = "small" | "standard" | "large" | "extra";
@@ -594,13 +595,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     </dialog>
     <dialog className="workspace-confirm workspace-upload" ref={uploadDialog} onCancel={() => setUploadOpen(false)}>
       <form onSubmit={e => { e.preventDefault(); void uploadAndStart(); }}>
-        <h2>解析并生成博客</h2>
-        <label>专题（可选）<input aria-label="专题" list="upload-topics" disabled={!!busy} maxLength={120} value={uploadTopic} onChange={e => setUploadTopic(e.target.value)} placeholder="不关联专题；也可选择或输入专题" /></label>
-        <small>留空即可入库，之后可在“管理来源”中编辑所属专题。</small>
-        <label><input type="checkbox" checked={generateOnUpload} onChange={e => setGenerateOnUpload(e.target.checked)} />解析后生成博客</label>
-        <datalist id="upload-topics">{topics.map(t => <option key={t.topicId} value={t.title} />)}</datalist>
+        <h2>上传材料</h2>
+        <UploadTopicPicker topics={topics} value={uploadTopic} onChange={setUploadTopic} disabled={!!busy} />
+        <label className="upload-parse-only"><input type="checkbox" disabled={!!busy} checked={!generateOnUpload} onChange={e => setGenerateOnUpload(!e.target.checked)} />仅解析入库</label>
         <label className="upload-file">{selectedFiles.map(f => f.name).join("、") || "PDF / HTML"}<input aria-label="上传材料" type="file" multiple disabled={!!busy} accept=".pdf,.html,application/pdf,text/html" onChange={e => setSelectedFiles(Array.from(e.target.files ?? []))} /></label>
-        <p>PDF 在服务器端优先使用本地 MinerU，可用能力缺失时使用已配置的远端 MinerU API；HTML 使用本地 HTML 解析器（不上传原件）。博客由当前生效的 {view?.agent?.backend === "deepseek" ? "DeepSeek" : "Codex"} 模型服务生成。点击开始即确认文件、专题和服务范围，不自动进入精读。</p>
         {error && <p role="alert">{error}</p>}
         <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length}>{busy ? "开始中…" : generateOnUpload ? "开始解析并生成博客" : "仅解析入库"}</button></div>
       </form>
