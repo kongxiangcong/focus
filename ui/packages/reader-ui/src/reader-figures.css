@@ -82,3 +82,39 @@
 .reader-split.focus-mist .reader-column-resizer { grid-row:1 / 4; }
 .reader-split.focus-mist .mist-sidebar { grid-row:1 / 4; }
 .reader-split.focus-mist .mist-history-rail { grid-row:1; }
+
+/* Mist: the source drawer originates at the left-hand function control, not
+   at the far-right edge. Overlaying the reading pane preserves its full width
+   when browsing is closed and leaves the action row/composer unobscured. */
+.focus-reader.reader-split.focus-mist,
+.focus-reader.reader-split.focus-mist[data-side-open=true] {
+  grid-template-columns:minmax(0,1fr);
+  grid-template-rows:minmax(0,1fr) auto auto;
+}
+.reader-split.focus-mist .focus-stream,
+.reader-split.focus-mist .mist-history-rail { grid-column:1; grid-row:1; }
+.reader-split.focus-mist .mist-reading-actions { grid-column:1; grid-row:2; }
+.reader-split.focus-mist .focus-bottom { grid-column:1; grid-row:3; }
+.reader-split.focus-mist .reader-left-drawer {
+  position:relative;
+  inset:auto;
+  grid-column:1;
+  grid-row:1;
+  z-index:8;
+  align-self:stretch;
+  justify-self:start;
+  width:min(420px,calc(100% - 24px));
+  height:calc(100% - 12px);
+  min-height:0;
+  margin:6px 0 6px 12px;
+  box-shadow:8px 6px 36px #0002;
+  animation:reader-drawer-from-left 160ms ease-out;
+}
+.reader-split.focus-mist .reader-column-resizer { display:none; }
+@keyframes reader-drawer-from-left {
+  from { opacity:.85; transform:translateX(-18px); }
+  to { opacity:1; transform:translateX(0); }
+}
+@media(prefers-reduced-motion:reduce) {
+  .reader-split.focus-mist .reader-left-drawer { animation:none; }
+}
