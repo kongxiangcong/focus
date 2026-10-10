@@ -354,3 +354,6 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
   .workspace-app[data-reading-fullscreen=true] .reader-split.focus-mist[data-side-open=true] { grid-template-columns:minmax(0,1fr); }
   .workspace-app[data-reading-fullscreen=true] .reader-split.focus-mist .reader-side-space { grid-column:1; }
 }
+
+.workspace-app .reading-fullscreen-exit { position:fixed; z-index:30; top:14px; right:18px; width:40px; height:40px; border:1px solid var(--reader-line); border-radius:999px; background:var(--reader-paper); font-size:25px; line-height:1; }
+.workspace-app .reading-fullscreen-exit:hover { background:#929db724; }
