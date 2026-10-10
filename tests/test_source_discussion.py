@@ -50,7 +50,13 @@ class CandidateRuntime:
 
 class DiscussionTests(unittest.TestCase):
     def test_qualified_explicit_note_request_and_negation(self):
-        for content, expected in [('请保存为一条简短笔记。', True), ('不要保存为一条简短笔记。', False), ('只解释这条笔记。', False)]:
+        for content, expected in [
+            ('请保存为一条简短笔记', True),
+            ('帮我记一下这个结论', True), ('记一下', True), ('帮我记录一下这个例子', True),
+            ('不要保存为一条简短笔记', False), ('不要记一下，只解释', False),
+            ('先不记一下', False), ('别把这个结论记一下', False),
+            ('只解释这条笔记', False), ('我记得这个结论', False),
+        ]:
             with self.subTest(content=content):
                 scope = self.host.discussion_app.bind(source_id='fixture-paper', request_id='note-intent-test', content=content)
                 self.assertEqual(expected, scope['saveIntent'])
@@ -102,6 +108,26 @@ class DiscussionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.host.start({'requestId': 'request-1234', 'sourceId': 'fixture-paper',
                              'sessionId': selected['sessionId'], 'receipt': None, 'content': '改成另一条，记下来'})
+
+    def test_host_runtime_note_intent_scope_and_denial(self):
+        selected = self.host.select_discussion_source('fixture-paper')
+        self.host.start({'requestId': 'note-scope-positive', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None,
+                         'content': '帮我记一下这个结论', 'saveIntent': False})
+        self.host.worker.join(3)
+        notes = self.host.snapshot()['sourceNotes']
+        self.assertEqual(1, len(notes))
+        self.assertEqual('An example and conclusion.', notes[0]['content'])
+        negative = self.host.discussion_app.bind(source_id='fixture-paper',
+            request_id='note-scope-negative', content='不要记一下，只解释')
+        self.assertFalse(negative['saveIntent'])
+        with self.assertRaises(WorkspaceError) as caught:
+            self.host.discussion_app.candidate(negative, 'source_note',
+                {'content': 'Should not save', 'kind': 'conclusion',
+                 'origin': 'dialogue', 'evidence_role': 'explanation', 'saveIntent': True})
+        self.assertEqual('note_intent_missing', caught.exception.error_id)
+        self.assertIn('Save authorization could not be confirmed', str(caught.exception))
+        self.assertEqual(1, len(self.host.snapshot()['sourceNotes']))
 
     def test_model_tool_call_without_user_intent_cannot_save(self):
         selected = self.host.select_discussion_source('fixture-paper')
