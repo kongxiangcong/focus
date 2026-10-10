@@ -697,6 +697,9 @@ it("hides top chrome in reading fullscreen and restores it from the exit control
   expect(app).toHaveAttribute("data-reading-fullscreen", "false");
   fireEvent.click(await screen.findByRole("button", { name: "全屏" }));
   expect(app).toHaveAttribute("data-reading-fullscreen", "true");
+  fireEvent.click(screen.getByRole("button", { name: "图片 / 笔记" }));
+  expect(screen.getByRole("region", { name: "阅读资料侧栏" })).toHaveAttribute("data-side-placement", "left");
+  expect(screen.getByRole("navigation", { name: "阅读功能控制区" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "关闭全屏模式" }));
   expect(app).toHaveAttribute("data-reading-fullscreen", "false");
   expect(screen.queryByRole("combobox", { name: "阅读专题" })).not.toBeInTheDocument();
