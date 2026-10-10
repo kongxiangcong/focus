@@ -18,6 +18,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const mist = appearance === "mist";
   const [collapsed, setCollapsed] = useState(false);
   const [view, setView] = useState<ReadingWindow | null>(null);
+  const paintedTimingRuns = useRef(new Set<string>());
   const [draft, setDraft] = useState("");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [reference, setReference] = useState<ReaderChunk | null>(null);
@@ -98,6 +99,21 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     setView(value);
     setConnection("");
   }
+  // Browser-only first-response paint evidence. Client/server clocks may differ.
+  useEffect(() => {
+    const run = view?.agent?.run;
+    const first = run?.phaseTiming?.firstOutput;
+    if (!run || first === undefined || paintedTimingRuns.current.has(run.runId)) return;
+    const frame = requestAnimationFrame(() => {
+      paintedTimingRuns.current.add(run.runId);
+      window.dispatchEvent(new CustomEvent('focus-discussion-timing', { detail: {
+        runId: run.runId, serverFirstOutputAt: first,
+        clientFirstPaintAt: Date.now(), clockSkewNotCalibrated: true,
+      } }));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [view?.agent?.run?.runId, view?.agent?.run?.phaseTiming?.firstOutput]);
+
   async function reconnect() {
     const result = await host.getReadingWindow();
     if (result.ok) accept(result.value);
