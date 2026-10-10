@@ -357,3 +357,25 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
 
 .workspace-app .reading-fullscreen-exit { position:fixed; z-index:30; top:14px; right:18px; width:40px; height:40px; border:1px solid var(--reader-line); border-radius:999px; background:var(--reader-paper); font-size:25px; line-height:1; }
 .workspace-app .reading-fullscreen-exit:hover { background:#929db724; }
+
+/* Standalone reading also uses the left drawer at desktop, mobile, and fullscreen.
+   Override the older right-hand split and small-screen row placement. */
+.workspace-reading .reader-split.focus-mist,
+.workspace-reading .reader-split.focus-mist[data-side-open=true],
+.workspace-app[data-reading-fullscreen=true] .reader-split.focus-mist,
+.workspace-app[data-reading-fullscreen=true] .reader-split.focus-mist[data-side-open=true] {
+  grid-template-columns:minmax(0,1fr);
+  grid-template-rows:minmax(0,1fr) auto auto;
+}
+.workspace-reading .reader-split.focus-mist .focus-stream,
+.workspace-reading .reader-split.focus-mist .mist-history-rail { grid-column:1; grid-row:1; }
+.workspace-reading .reader-split.focus-mist .mist-reading-actions { grid-column:1; grid-row:2; }
+.workspace-reading .reader-split.focus-mist .focus-bottom { grid-column:1; grid-row:3; }
+.workspace-reading .reader-split.focus-mist .reader-left-drawer {
+  grid-column:1;
+  grid-row:1;
+  position:relative;
+  inset:auto;
+  width:min(420px,calc(100% - 24px));
+  margin:6px 0 6px 12px;
+}
