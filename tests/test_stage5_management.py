@@ -35,6 +35,7 @@ class ManagementTests(unittest.TestCase):
         current = self.request('GET', '/library/sources')[0]
         self.assertEqual({'systems', 'other'}, set(current['topicIds']))
         self.assertEqual('Correct Original Title', current['title'])
+        self.assertEqual('Correct Original Title', current['displayTitle'])
         after = {str(p.relative_to(source)): p.read_bytes() for p in source.rglob('*') if p.is_file()}
         self.assertEqual({k: v for k, v in before.items() if k != 'source.yaml'}, {k: v for k, v in after.items() if k != 'source.yaml'})
         self.request('POST', '/library/topics/systems/detach', {'sourceId': sid})
@@ -43,7 +44,29 @@ class ManagementTests(unittest.TestCase):
         self.stop_host()
         self.start_host()
         self.assertEqual('Correct Original Title', self.request('GET', '/library/sources')[0]['title'])
+        self.assertEqual('Correct Original Title', self.request('GET', '/library/sources')[0]['displayTitle'])
         self.assertEqual('Architecture', self.request('GET', '/library/topics')[0]['title'])
+
+    def test_managed_display_title_idempotence_and_restart(self):
+        sid = self.source()
+        payload = {'requestId': 'display-title-edit-one',
+                   'title': 'Corrected Original Title',
+                   'displayTitle': '我的论文显示名', 'topicIds': ['systems']}
+        before = self.request('GET', '/library/sources')[0]
+        self.request('POST', '/library/sources/' + sid + '/manage', payload)
+        self.request('POST', '/library/sources/' + sid + '/manage', payload)
+        current = self.request('GET', '/library/sources')[0]
+        self.assertEqual(sid, current['sourceId'])
+        self.assertEqual('Corrected Original Title', current['title'])
+        self.assertEqual('我的论文显示名', current['displayTitle'])
+        self.assertEqual(before['shortName'], current['shortName'])
+        self.request('POST', '/library/sources/' + sid + '/manage',
+                     {**payload, 'displayTitle': 'Changed'}, expected_status=400)
+        self.stop_host()
+        self.start_host()
+        current = self.request('GET', '/library/sources')[0]
+        self.assertEqual('我的论文显示名', current['displayTitle'])
+        self.assertEqual(sid, current['sourceId'])
 
     def test_topic_delete_write_failure_preserves_relationship_and_current_topic(self):
         sid = self.source()

@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useId, useState } from 'react';
-import type { BackendSetupInput } from '@focus/reader-contracts';
+import { createReaderId, type BackendSetupInput } from '@focus/reader-contracts';
 
 export interface WorkspaceBindingStatus {
   bound: boolean;
@@ -47,8 +47,9 @@ export function WorkspaceSelection({ status: initial, onOpened, children, config
     {!editing && <button disabled={status.busy} onClick={() => setEditing(true)}>更换工作区</button>}
     {editing && <form onSubmit={async event => {
       event.preventDefault(); setBusy(true); setError('');
-      const requestId = crypto.randomUUID();
+      let requestId: string | undefined;
       try {
+        requestId = createReaderId();
         const next = await workspaceRequest('/reader/workspace', { mode, path, name, requestId, configuration, generation: status.generation });
         setStatus(next); setEditing(false);
         if (onOpened) onOpened(next);
@@ -57,7 +58,7 @@ export function WorkspaceSelection({ status: initial, onOpened, children, config
         // A lost response is resolved by reading the authoritative binding.
         try {
           const next = await workspaceRequest('/reader/workspace');
-          if (next.workspace && next.operationId === requestId) {
+          if (requestId && next.workspace && next.operationId === requestId) {
             setStatus(next); setEditing(false);
             if (onOpened) onOpened(next);
             else window.dispatchEvent(new CustomEvent('focus-workspace-opened', { detail: next }));

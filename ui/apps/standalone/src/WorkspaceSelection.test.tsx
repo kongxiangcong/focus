@@ -31,3 +31,24 @@ it('allows manual input after a picker failure', async () => {
   expect(screen.getByLabelText('工作区目录')).toBeEnabled();
   expect(screen.getByRole('button', { name: '进入工作台' })).toBeEnabled();
 });
+
+it.each(['import', 'create'] as const)('opens a %s workspace when crypto.randomUUID is unavailable on HTTP', async mode => {
+  const opened = vi.fn();
+  const withoutRandomUUID = { getRandomValues: (array: Uint8Array) => {
+    for (let i = 0; i < array.length; i++) array[i] = i + 1;
+    return array;
+  } };
+  vi.stubGlobal('crypto', withoutRandomUUID);
+  const next = { ...status, bound: true, workspace: { path: '/tmp/reader', workspaceId: 'ws', instanceId: 'instance' }, operationId: 'accepted' };
+  const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true, value: next }) });
+  vi.stubGlobal('fetch', fetcher);
+  render(<WorkspaceSelection status={status} onOpened={opened} />);
+  if (mode === 'create') fireEvent.click(screen.getByRole('radio', { name: '新建工作区' }));
+  fireEvent.change(screen.getByLabelText(mode === 'create' ? '父目录' : '工作区目录'), { target: { value: '/tmp/reader' } });
+  fireEvent.click(screen.getByRole('button', { name: '进入工作台' }));
+  await waitFor(() => expect(opened).toHaveBeenCalledWith(next));
+  const request = JSON.parse(fetcher.mock.calls[0][1].body);
+  expect(request).toEqual(expect.objectContaining({ mode, requestId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i) }));
+  expect(screen.queryByText('正在打开…')).not.toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});

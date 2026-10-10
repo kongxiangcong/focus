@@ -45,7 +45,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [fontSize, setFontSize] = useState<FontSize>(readFont);
   const [brightness, setBrightness] = useState(() => { try { return Math.max(85, Math.min(110, Number(localStorage.getItem("focus.brightness") ?? 100) || 100)); } catch { return 100; } });
   const savedAppearance = useRef({ fontSize, brightness });
-  const [readingTopic, setReadingTopic] = useState("");
+  const [readingFullscreen, setReadingFullscreen] = useState(false);
   const [managementTopics, setManagementTopics] = useState<readonly string[]>([]);
   const [generateOnUpload, setGenerateOnUpload] = useState(true);
   const [connectionLost, setConnectionLost] = useState(false);
@@ -65,6 +65,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [topic, setTopic] = useState("");
   const [management, setManagement] = useState<{ kind: "create" | "rename" | "delete" | "source"; id?: string } | null>(null);
   const [managementTitle, setManagementTitle] = useState("");
+  const [managementDisplayTitle, setManagementDisplayTitle] = useState("");
+  const [managementDisplayTitleEdited, setManagementDisplayTitleEdited] = useState(false);
   const managementDialog = useRef<HTMLDialogElement>(null);
   const [libraryView, setLibraryView] = useState<"cards" | "list">(() => {
     try { return localStorage.getItem("focus.libraryView") === "list" ? "list" : "cards"; } catch { return "cards"; }
@@ -319,10 +321,15 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   const selectedTopic = topics.find(t => t.topicId === topic);
   const managementBusy = !!busy || !!view?.configuration?.busy || active || batches.some(b => b.executing || ["confirmed", "running"].includes(b.status)) || Object.values(blogs).some(b => b.executing || b.runStatus === "running");
-  const filtered = sources.filter(s => (!topic || s.topicIds.includes(topic)) && (s.title + " " + (s.shortName ?? "")).toLowerCase().includes(query.toLowerCase()));
+  const filtered = sources.filter(s => (!topic || s.topicIds.includes(topic)) &&
+    [s.title, s.displayTitle, s.shortName].filter(Boolean).join(" ").toLowerCase().includes(query.toLowerCase()));
   if (selectedTopic) filtered.sort((a, b) => selectedTopic.sourceIds.indexOf(a.sourceId) - selectedTopic.sourceIds.indexOf(b.sourceId));
   function openManagement(kind: "create" | "rename" | "delete" | "source", id?: string, title = "") {
-    setManagement({ kind, id }); setManagementTitle(title); setManagementTopics(sources.find(s => s.sourceId === id)?.topicIds ?? []); setError("");
+    const source = sources.find(s => s.sourceId === id);
+    setManagement({ kind, id }); setManagementTitle(title);
+    setManagementDisplayTitle(source?.displayTitle || source?.title || "");
+    setManagementDisplayTitleEdited(Boolean(source?.displayTitle));
+    setManagementTopics(source?.topicIds ?? []); setError("");
   }
   async function manage(operation: () => Promise<ReaderHostResult<unknown>>, close = true) {
     if (locked.current) return;
@@ -341,7 +348,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     if (kind === "create" && host.createTopic) void manage(() => host.createTopic!(managementTitle));
     if (kind === "rename" && id && host.manageTopic) void manage(() => host.manageTopic!(id, "rename", { title: managementTitle }));
     if (kind === "delete" && id && host.manageTopic) void manage(() => host.manageTopic!(id, "delete", {}));
-    if (kind === "source" && id && host.saveSourceDetails) { const requestId = createReaderId(); void manage(() => host.saveSourceDetails!(id, managementTitle, managementTopics, requestId)); }
+    if (kind === "source" && id && host.saveSourceDetails) { const requestId = createReaderId(); void manage(() => host.saveSourceDetails!(id, managementTitle, managementTopics, requestId, managementDisplayTitle)); }
   }
   function moveSource(sourceId: string, offset: number) {
     if (!selectedTopic || !host.manageTopic) return;
@@ -437,7 +444,14 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       else if (host.cancelIngestion) await ingest("取消解析", () => host.cancelIngestion!(item.targetId));
     }
   }
-  return <div className="workspace-app" style={{ "--reader-brightness": brightness / 100 } as CSSProperties}>
+  useEffect(() => {
+    if (!readingFullscreen) return;
+    const exit = (event: KeyboardEvent) => { if (event.key === "Escape") setReadingFullscreen(false); };
+    document.addEventListener("keydown", exit);
+    return () => document.removeEventListener("keydown", exit);
+  }, [readingFullscreen]);
+  useEffect(() => { if (route !== "/reading") setReadingFullscreen(false); }, [route]);
+  return <div className="workspace-app" data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-brightness": brightness / 100 } as CSSProperties}>
     <header className="workspace-nav">
       <a className="workspace-logo" href="/library" onClick={e => { e.preventDefault(); navigate("/library"); }}>focus<span>.</span></a>
       <nav aria-label="应用导航">{([["/library", "知识库", "▤"], ["/reading", "阅读", "☷"], ["/settings", "设置", "☼"]] as const).map(([path, title, icon]) =>
@@ -445,10 +459,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     </header>
     <header className="workspace-header">
       <div className="workspace-toolbar">
-        {route === "/reading" ? <div className="reading-library-picker">
-          <label><span className="workspace-sr-only">专题</span><select aria-label="阅读专题" value={readingTopic} onChange={e => setReadingTopic(e.target.value)}><option value="">全部专题</option>{topics.map(t => <option key={t.topicId} value={t.topicId}>{t.title}</option>)}</select></label>
-          <label><span className="workspace-sr-only">材料</span><select aria-label="选择阅读材料" title={view?.source.title} value={view?.source.sourceId || ""} disabled={!!busy || active} onChange={e => { if (e.target.value) void enterReading(e.target.value); }}><option value="">选择材料</option>{sources.filter(s => s.sourceId === view?.source.sourceId || !readingTopic || s.topicIds.includes(readingTopic)).map(s => <option key={s.sourceId} value={s.sourceId}>{s.shortName || s.title}</option>)}</select></label>
-        </div> : <h1>{route === "/library" ? "知识库" : "设置"}</h1>}
+        {route === "/reading" ? <div className="reading-library-picker"><span className="workspace-sr-only">阅读工作区</span></div> : <h1>{route === "/library" ? "知识库" : "设置"}</h1>}
         <div className="workspace-header-actions">
           <section className="workspace-status" aria-label="当前工作">
             <span className="workspace-sr-only" role="status">{connectionLost ? "连接中断，正在恢复" : !view ? "正在连接" : primaryWork ? `${primaryWork.label} · ${runningWork.length} 项进行中` : "当前无工作"}{attention.length > 0 ? ` · ${attention.length} 项需查看` : ""}</span>
@@ -520,8 +531,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       {!uploadOpen && error && <div className="workspace-error" role="alert">{error}<button onClick={() => { setError(""); if (retryAction) retryAction(); else void refresh(); }}>{retryAction ? "重试此操作" : "刷新状态"}</button></div>}
       {!error && (notice || readyNotice) && <div className="workspace-notice" role="status">{readyNotice || notice}<button onClick={() => { setNotice(""); setReadyNotice(""); }}>关闭</button></div>}
     </header>
+    {route === "/reading" && readingFullscreen && <button type="button" className="reading-fullscreen-exit"
+      aria-label="关闭全屏模式" title="退出全屏" onClick={() => setReadingFullscreen(false)}>×</button>}
     <div className="workspace-reading" hidden={route !== "/reading"}>
-      <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} /></div>
+      <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
     {route === "/library" && <main className="library-page" data-dragging={dragging}
       onDragOver={e => { e.preventDefault(); if (!uploadDisabled) setDragging(true); }}
       onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }}
@@ -533,7 +546,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         </div>}<div className="library-toolbar"><h2>{topics.find(t => t.topicId === topic)?.title ?? "全部材料"}<small>{filtered.length}</small></h2><div className="library-view-switch" role="group" aria-label="显示方式">{([["cards", "卡片显示"], ["list", "列表显示"]] as const).map(([mode, label]) => <button key={mode} aria-pressed={libraryView === mode} onClick={() => { setLibraryView(mode); try { localStorage.setItem("focus.libraryView", mode); } catch { /* The current view remains usable without storage. */ } }}>{label}</button>)}</div><input type="search" aria-label="搜索材料" placeholder="搜索标题" value={query} onChange={e => setQuery(e.target.value)} /></div>
           {loading ? <p role="status" className="library-empty">读取中…</p> : filtered.length === 0 ? <div className="library-empty"><span aria-hidden="true">▤</span><p>{query || topic ? "暂无匹配材料" : "放入第一份材料"}</p><button className="workspace-primary" disabled={uploadDisabled} onClick={() => { if (query || topic) { setQuery(""); setTopic(""); } else chooseUpload(); }}>{query || topic ? "重置" : "上传"}</button></div> : <div className="library-cards" data-view={libraryView}>{filtered.map(s => <article className="library-card" data-reading-status={readingStatus(s)} data-status={s.parseStatus !== "ready" ? "failed" : readingStatus(s) === "completed" ? "completed" : s.progress.completed > 0 ? "reading" : "unread"} key={s.sourceId}>
             <div className="library-overview">
-              <h3 title={s.title}>{s.shortName || s.title}</h3>
+              <h3 title={s.title}>{s.displayTitle || s.title}</h3>
               <p className="library-summary">{s.parseStatus !== "ready" ? "解析失败" : readingStatus(s) === "completed" ? "阅读完成" : s.progress.completed > 0 ? "阅读中" : "未阅读"}</p>
               <div className="library-progress"><progress aria-label={`${s.title} 阅读进度`} value={s.progress.completed} max={s.progress.total || 1} /><span>{s.progress.completed} / {s.progress.total}</span></div>
             </div>
@@ -585,12 +598,17 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     <dialog className="workspace-confirm" ref={managementDialog} onCancel={() => setManagement(null)}>
       <form onSubmit={e => { e.preventDefault(); saveManagement(); }}>
         <h2>{management?.kind === "source" ? "管理来源" : management?.kind === "delete" ? "删除专题" : management?.kind === "rename" ? "重命名专题" : "新建专题"}</h2>
-        {management?.kind === "delete" ? <p>删除“{managementTitle}”专题。全部来源、博客、笔记和阅读进度会保留。</p> : <label>{management?.kind === "source" ? "来源原题" : "专题名称"}<input aria-label={management?.kind === "source" ? "来源原题" : "专题名称"} required maxLength={management?.kind === "source" ? 1000 : 120} value={managementTitle} onChange={e => setManagementTitle(e.target.value)} /></label>}
+        {management?.kind === "delete" ? <p>删除“{managementTitle}”专题。全部来源、博客、笔记和阅读进度会保留。</p> : <>
+          {management?.kind === "source" && <label>知识库显示标题<input aria-label="知识库显示标题" required maxLength={240}
+            value={managementDisplayTitle} onChange={e => { setManagementDisplayTitle(e.target.value); setManagementDisplayTitleEdited(true); }} /></label>}
+          <label>{management?.kind === "source" ? "来源原题" : "专题名称"}<input aria-label={management?.kind === "source" ? "来源原题" : "专题名称"} required maxLength={management?.kind === "source" ? 1000 : 120} value={managementTitle}
+            onChange={e => { setManagementTitle(e.target.value); if (management?.kind === "source" && !managementDisplayTitleEdited) setManagementDisplayTitle(e.target.value); }} /></label>
+          </>}
         {management?.kind === "source" && <fieldset><legend>所属专题</legend>{topics.map(t => <label key={t.topicId}><input type="checkbox" checked={managementTopics.includes(t.topicId)} disabled={managementBusy || !host.saveSourceDetails} onChange={e => { const checked = e.target.checked; setManagementTopics(old => checked ? [...old, t.topicId] : old.filter(id => id !== t.topicId)); }} />{t.title}</label>)}</fieldset>}
         {management?.kind === 'source' && <button type="button" disabled={managementBusy || !managementTopics.length} onClick={() => setManagementTopics([])}>不关联专题</button>}
         {error && <p role="alert">{error}</p>}
         <button type="button" disabled={!!busy} onClick={() => setManagement(null)}>取消</button>
-        <button type="submit" disabled={managementBusy || (management?.kind !== "delete" && !managementTitle.trim())}>{management?.kind === "delete" ? "确认删除专题" : "保存"}</button>
+        <button type="submit" disabled={managementBusy || (management?.kind !== "delete" && (!managementTitle.trim() || (management?.kind === "source" && !managementDisplayTitle.trim())))}>{management?.kind === "delete" ? "确认删除专题" : "保存"}</button>
       </form>
     </dialog>
     <dialog className="workspace-confirm workspace-upload" ref={uploadDialog} onCancel={() => setUploadOpen(false)}>
@@ -604,7 +622,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       </form>
     </dialog>
     {blogViewer && host.blogUrl && <dialog className="workspace-blog-viewer" ref={blogDialog} aria-labelledby="blog-viewer-title" onCancel={e => { e.preventDefault(); closeBlogViewer(); }}>
-      <div className="blog-viewer-head"><h2 id="blog-viewer-title">博客：{sources.find(s => s.sourceId === blogViewer)?.shortName || sources.find(s => s.sourceId === blogViewer)?.title}</h2>
+      <div className="blog-viewer-head"><h2 id="blog-viewer-title">博客：{sources.find(s => s.sourceId === blogViewer)?.displayTitle || sources.find(s => s.sourceId === blogViewer)?.title}</h2>
         <div><a href={host.blogUrl(blogViewer)} target="_blank" rel="noreferrer">新窗口打开</a><button onClick={closeBlogViewer}>关闭</button></div></div>
       <iframe title="博客" src={host.blogUrl(blogViewer)} />
     </dialog>}
