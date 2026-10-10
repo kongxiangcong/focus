@@ -204,7 +204,12 @@ export interface ReaderAgentState {
     runId: string;
     status: "running" | "approval" | "stopping" | "completed" | "failed" | "interrupted";
     error: string | null;
-    progress?: { label: string; startedAt: number; updatedAt: number; finishedAt?: number };
+    progress?: { label: string; startedAt: number; stageStartedAt?: number; updatedAt: number; finishedAt?: number };
+    /** Numeric phase timestamps only; no source text, model reasoning, or credentials. */
+    phaseTiming?: { sentAt?: number; sessionStart?: number; sessionReady?: number;
+      summaryStart?: number; summaryEnd?: number; answerSubmitted?: number;
+      turnStarted?: number; firstOutput?: number; completed?: number;
+      summaryBatches?: number; summaryInputChars?: number };
     approvals: readonly ReaderApproval[];
     activity: readonly { id: string; title: string; status: string; detail: string }[];
   };
