@@ -350,6 +350,8 @@ export interface IngestionItem {
 }
 
 export interface LibrarySource {
+  /** Library card heading; does not change immutable Source ID or short name. */
+  displayTitle?: string | null;
   shortName?: string;
   format?: "PDF" | "HTML" | "Markdown";
   publishedAt?: string | null;
@@ -397,7 +399,7 @@ export interface ReaderHost {
   sourceOriginalUrl?(sourceId: string): string;
   sourceContentUrl?(sourceId: string): string;
   deleteSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
-  saveSourceDetails?(sourceId: string, title: string, topicIds: readonly string[], requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  saveSourceDetails?(sourceId: string, title: string, topicIds: readonly string[], requestId: string, displayTitle?: string): Promise<ReaderHostResult<ReadingWindow>>;
   clearSource?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   replanSource?(sourceId: string, requestId?: string): Promise<ReaderHostResult<ReadingWindow>>;
   rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
