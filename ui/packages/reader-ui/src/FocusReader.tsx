@@ -387,7 +387,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const outline = view?.outline ?? Array.from({ length: current?.total ?? chunks.at(-1)?.total ?? 0 }, (_, i) => ({ chunkId: `chunk-${String(i + 1).padStart(3, "0")}`, index: i + 1, sectionPath: [] as string[] }));
   const progressEntries = view?.readingProgress ?? [];
   return <div ref={layout} onKeyDown={event => { if (event.key === "Escape" && sideMode && !(event.target as HTMLElement).closest("dialog")) {
-    preserveReading(() => setSideMode(null)); event.currentTarget.querySelector<HTMLButtonElement>(".reader-figures-toggle")?.focus({ preventScroll: true });
+    preserveReading(() => setSideMode(null)); event.currentTarget.querySelector<HTMLButtonElement>(mist ? ".reader-side-toggle" : ".reader-figures-toggle")?.focus({ preventScroll: true });
   } }} data-materials-open={mist && materialsOpen} data-side-open={!!sideMode} className={`focus-reader reader-split${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}
     style={{ "--reader-reading-size": `${readingFontSizes[fontSize]}px`, "--reader-text-share": `${textShare}fr`, "--reader-side-share": `${100 - textShare}fr` } as CSSProperties}>
     {mist && <aside className="mist-sidebar" aria-label="阅读进度与操作">
@@ -412,15 +412,15 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
           <button className="reader-figures-toggle" aria-controls="reader-side-space" aria-expanded={sideMode === "figures"} onClick={() => preserveReading(() => setSideMode(sideMode === "figures" ? null : "figures"))}>{sideMode === "figures" ? "隐藏图片区" : "展开图片区"}</button>
           <button className="reader-materials-toggle" aria-controls="reader-side-space" aria-expanded={materialsOpen} onClick={() => preserveReading(() => setSideMode(materialsOpen ? null : "materials"))}>{materialsOpen ? "隐藏资料栏" : "笔记与记录"}</button>
         </nav>}
-        {sideMode && <div className="reader-column-resizer" role="separator" aria-label="调整文字与侧栏宽度" aria-orientation="vertical" tabIndex={0} aria-valuemin={35} aria-valuemax={75} aria-valuenow={Math.round(textShare)} onKeyDown={event => {
+        {sideMode && !mist && <div className="reader-column-resizer" role="separator" aria-label="调整文字与侧栏宽度" aria-orientation="vertical" tabIndex={0} aria-valuemin={35} aria-valuemax={75} aria-valuenow={Math.round(textShare)} onKeyDown={event => {
           if (["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) { event.preventDefault(); resizeColumns(event.key === "Home" ? 60 : textShare + (event.key === "ArrowRight" ? 2 : -2)); }
         }} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault(); }} onPointerMove={event => {
           if (!event.currentTarget.hasPointerCapture(event.pointerId) || !event.buttons || !layout.current) return;
           const box = layout.current.getBoundingClientRect(); const left = stream.current?.offsetLeft ?? 0;
           resizeColumns((event.clientX - box.left - left) / (box.width - left - 8) * 100);
         }} />}
-        <section id="reader-side-space" className="reader-side-space" aria-label="阅读资料侧栏" hidden={!sideMode}>
-        <header className="reader-side-heading"><button aria-pressed={sideMode === "figures"} onClick={() => preserveReading(() => setSideMode("figures"))}>图片</button><button aria-pressed={materialsOpen} onClick={() => preserveReading(() => setSideMode("materials"))}>笔记 / 记录</button>{materialsOpen && <button aria-label="关闭阅读侧栏" onClick={() => preserveReading(() => setSideMode(null))}>×</button>}</header>
+        <section id="reader-side-space" className={`reader-side-space${mist ? " reader-left-drawer" : ""}`} data-side-placement={mist ? "left" : "right"} aria-label="阅读资料侧栏" hidden={!sideMode}>
+        <header className="reader-side-heading"><button aria-pressed={sideMode === "figures"} onClick={() => preserveReading(() => setSideMode("figures"))}>图片</button><button aria-pressed={materialsOpen} onClick={() => preserveReading(() => setSideMode("materials"))}>笔记 / 记录</button>{sideMode && <button aria-label="关闭阅读侧栏" onClick={() => preserveReading(() => setSideMode(null))}>×</button>}</header>
         {sideMode === "figures" && <FigurePanel key={sourceId} figures={sourceFigures} selected={selectedFigure} selectionVersion={figureSelectionVersion} onSelect={figure => preserveReading(() => { setSelectedFigure(figure.id); setFigureSelectionVersion(old => old + 1); })} />}
         <aside id="reader-materials" role={mist ? "complementary" : "group"} className="reader-materials" hidden={!materialsOpen} aria-label="笔记与阅读记录">
         {view?.discussions && <details><summary>历史讨论 · {view.discussions.length}</summary>{view.discussions.map((d, i) => <button key={d.discussionId} disabled={blocked} onClick={() => host.selectDiscussionSource && void perform("打开历史讨论", () => host.selectDiscussionSource!(d.sourceId, d.discussionId))}>讨论 {i + 1}</button>)}</details>}
@@ -508,7 +508,6 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       <div className="focus-composer-wrap">
         {recoverDraft && <details><summary>恢复草稿</summary>{Object.entries(drafts.current).filter(([, d]) => d.text || d.note || d.progress).map(([key, d]) => <div key={key}><p>{d.reference?.sourceId ?? key.split(":")[0]}：{d.text || d.note || d.progress}</p><button disabled={key.split(":")[0] !== view?.source.sourceId} onClick={() => { setDraft(d.text); setReference(d.reference); setEditingNoteId(d.noteId); setEditDraft(d.note); setEditBaseRevision(d.noteRevision); setEditingProgressId(d.progressId); setProgressDraft(d.progress); setProgressBaseRevision(d.progressRevision); setRecoverDraft(false); }}>恢复草稿</button></div>)}</details>}
 
-        {mist && <button className="mist-composer-toggle" aria-expanded={!collapsed} onClick={() => setCollapsed(!collapsed)}>{collapsed ? "展开" : "收起"}</button>}
         {connection && <div className="focus-error" role="alert">{connection}<button onClick={() => void reconnect()}>重新连接</button></div>}
         {failure && <div className="focus-error" role="alert">{failure.message}<button disabled={!!operation} onClick={failure.retry}>{failure.label}</button><button aria-label="关闭错误" onClick={() => setFailure(null)}>×</button></div>}
         {operation && !active && <p className="focus-operation" role="status">{operation === "下一段" ? "正在打开下一段…" : `${operation}中…`}</p>}
@@ -522,7 +521,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
           {u.state === "failed" && <button title={u.error} onClick={() => void upload(u.file, u.id)}>重试上传</button>}
           <button aria-label={`移除 ${u.file.name}`} onClick={() => setUploads(old => old.filter(v => v.id !== u.id))}>移除</button>
         </li>)}</ul>}
-        <form hidden={mist && collapsed} className="focus-composer" onSubmit={e => { e.preventDefault(); send(); }}>
+        <div className="focus-composer-row"><form hidden={mist && collapsed} className="focus-composer" onSubmit={e => { e.preventDefault(); send(); }}>
           <label className="focus-sr-only" htmlFor="focus-question">输入问题或阅读需求</label>
           <textarea id="focus-question" ref={composer} rows={mist ? 1 : 2} disabled={blocked} value={draft} placeholder="问问这段原文…"
             onChange={e => { if (!draft && e.target.value && !reference) setReference(displayed); setDraft(e.target.value); }} onKeyDown={e => {
@@ -537,6 +536,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
             <button type="submit" className="focus-primary" disabled={!view || blocked || uploading || !draft.trim()}>{operation === "发送" ? "发送中…" : "发送 ↑"}</button>
           </div>
         </form>
+        {mist && <button type="button" className="mist-composer-toggle" aria-expanded={!collapsed} aria-controls="focus-question" onClick={() => setCollapsed(!collapsed)}>{collapsed ? "展开" : "收起"}</button>}</div>
         {!mist && current && !reviewChunk && <div className="focus-next"><button disabled={blocked} onClick={current.index === current.total ? finish : next}>{current.index === current.total ? "完成本篇" : operation === "下一段" ? "正在打开…" : "下一段 →"}</button></div>}
       </div>
     </div>
