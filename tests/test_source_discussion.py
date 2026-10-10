@@ -228,5 +228,114 @@ class DiscussionTests(unittest.TestCase):
         self.assertEqual(4, restored['sourceNotes'][0]['revision'])
 
 
+    def _seed_summary_history(self, *, count=16, length=3500):
+        selected = self.host.select_discussion_source('fixture-paper')
+        with self.host.lock:
+            discussion_id = self.host.state['latestDiscussion']['fixture-paper']
+            self.host.state['conversation'].extend({
+                'messageId': f'summary-old-{i:03}', 'discussionId': discussion_id,
+                'sourceId': 'fixture-paper', 'role': 'assistant' if i % 2 else 'user',
+                'chunkId': '', 'content': f'history-{i:03} ' + ('x' * length),
+            } for i in range(count))
+            self.host.changed()
+        return selected, discussion_id
+
+    def test_slow_summary_exposes_stage_until_main_turn_submit(self):
+        started, release = threading.Event(), threading.Event()
+        selected, discussion_id = self._seed_summary_history()
+        def slow(prompt, **kwargs):
+            started.set()
+            release.wait(3)
+            return {'summary': 'Compact history of four older messages.'}
+        self.host.discussion_summaries.run = slow
+        self.host.start({'requestId': 'slow-summary-gate', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '解释设计'})
+        self.assertTrue(started.wait(3))
+        running = self.host.snapshot()['agent']['run']
+        self.assertEqual('整理历史对话', running['progress']['label'])
+        self.assertIn('summaryStart', running['phaseTiming'])
+        self.assertNotIn('answerSubmitted', running['phaseTiming'])
+        release.set()
+        self.host.worker.join(6)
+        finished = self.host.snapshot()['agent']['run']
+        self.assertEqual('completed', finished['status'])
+        timing = finished['phaseTiming']
+        self.assertLessEqual(timing['summaryStart'], timing['summaryEnd'])
+        self.assertLessEqual(timing['summaryEnd'], timing['answerSubmitted'])
+        self.assertGreater(timing['summaryInputChars'], 0)
+        self.assertGreater(timing['summaryBatches'], 0)
+        self.assertIsNotNone(self.host.state['discussions'][discussion_id]['summaryThrough'])
+
+    def test_background_summary_does_not_block_new_question_or_restore_stale_prefix(self):
+        started, release = threading.Event(), threading.Event()
+        selected, discussion_id = self._seed_summary_history(length=300)
+        def slow(prompt, **kwargs):
+            started.set()
+            release.wait(3)
+            return {'summary': 'Old speculative answer that should never commit.'}
+        self.host.early_discussion_summaries.run = slow
+        self.host.start({'requestId': 'background-one', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '解释原文'})
+        self.host.worker.join(3)
+        self.assertFalse(self.host.worker.is_alive())
+        self.assertTrue(started.wait(3))
+        before = self.host.state['discussions'][discussion_id]['summaryThrough']
+        selected = self.host.select_discussion_source('fixture-paper')
+        self.host.start({'requestId': 'background-two', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '进一步解释'})
+        self.host.worker.join(3)
+        self.assertFalse(self.host.worker.is_alive())
+        release.set()
+        if self.host._summary_worker:
+            self.host._summary_worker.join(5)
+        self.assertEqual(before, self.host.state['discussions'][discussion_id]['summaryThrough'])
+
+    def test_compaction_timeout_does_not_advance_coverage(self):
+        selected, discussion_id = self._seed_summary_history()
+        def fail(*args, **kwargs):
+            raise TimeoutError('controlled summary timeout')
+        self.host.discussion_summaries.run = fail
+        self.host.start({'requestId': 'failed-summary', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '解释'})
+        self.host.worker.join(5)
+        self.assertEqual('failed', self.host.snapshot()['agent']['run']['status'])
+        self.assertIsNone(self.host.state['discussions'][discussion_id]['summaryThrough'])
+
+    def test_stop_during_summary_never_commits_late_result(self):
+        started, release = threading.Event(), threading.Event()
+        selected, discussion_id = self._seed_summary_history()
+        def slow(prompt, **kwargs):
+            started.set()
+            release.wait(3)
+            return {'summary': 'Late summary after stop'}
+        self.host.discussion_summaries.run = slow
+        self.host.start({'requestId': 'stop-summary', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '解释'})
+        self.assertTrue(started.wait(3))
+        self.host.stop(project=False)
+        release.set()
+        self.host.worker.join(5)
+        self.assertIsNone(self.host.state['discussions'][discussion_id]['summaryThrough'])
+        self.assertEqual('interrupted', self.host.snapshot()['agent']['run']['status'])
+
+    def test_clear_source_during_prefetch_fences_writeback(self):
+        started, release = threading.Event(), threading.Event()
+        selected, discussion_id = self._seed_summary_history(length=300)
+        def slow(prompt, **kwargs):
+            started.set()
+            release.wait(3)
+            return {'summary': 'Cleared history must not be restored'}
+        self.host.early_discussion_summaries.run = slow
+        self.host.start({'requestId': 'prefetch-clear', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '解释'})
+        self.host.worker.join(5)
+        self.assertTrue(started.wait(3))
+        self.host.clear_source('fixture-paper', {'requestId': 'clear-prefetch', 'confirmed': True})
+        release.set()
+        if self.host._summary_worker:
+            self.host._summary_worker.join(5)
+        self.assertNotIn(discussion_id, self.host.state['discussions'])
+
+
 if __name__ == '__main__':
     unittest.main()
