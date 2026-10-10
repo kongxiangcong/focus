@@ -521,7 +521,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
           {u.state === "failed" && <button title={u.error} onClick={() => void upload(u.file, u.id)}>重试上传</button>}
           <button aria-label={`移除 ${u.file.name}`} onClick={() => setUploads(old => old.filter(v => v.id !== u.id))}>移除</button>
         </li>)}</ul>}
-        <div className="focus-composer-row"><form hidden={mist && collapsed} className="focus-composer" onSubmit={e => { e.preventDefault(); send(); }}>
+        <div className="focus-composer-row"><form id="focus-composer-form" hidden={mist && collapsed} className="focus-composer" onSubmit={e => { e.preventDefault(); send(); }}>
           <label className="focus-sr-only" htmlFor="focus-question">输入问题或阅读需求</label>
           <textarea id="focus-question" ref={composer} rows={mist ? 1 : 2} disabled={blocked} value={draft} placeholder="问问这段原文…"
             onChange={e => { if (!draft && e.target.value && !reference) setReference(displayed); setDraft(e.target.value); }} onKeyDown={e => {
@@ -536,12 +536,12 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
             <button type="submit" className="focus-primary" disabled={!view || blocked || uploading || !draft.trim()}>{operation === "发送" ? "发送中…" : "发送 ↑"}</button>
           </div>
         </form>
-        {mist && <button type="button" className="mist-composer-toggle" aria-expanded={!collapsed} aria-controls="focus-question" onClick={() => setCollapsed(!collapsed)}>{collapsed ? "展开" : "收起"}</button>}</div>
+        {mist && <button type="button" className="mist-composer-toggle" aria-expanded={!collapsed} aria-controls="focus-composer-form" onClick={() => setCollapsed(!collapsed)}>{collapsed ? "展开" : "收起"}</button>}</div>
         {!mist && current && !reviewChunk && <div className="focus-next"><button disabled={blocked} onClick={current.index === current.total ? finish : next}>{current.index === current.total ? "完成本篇" : operation === "下一段" ? "正在打开…" : "下一段 →"}</button></div>}
       </div>
     </div>
     {mist && <nav className="mist-reading-actions" aria-label="阅读功能控制区">
-      <button className="reader-side-toggle" aria-controls="reader-side-space" aria-expanded={!!sideMode} onClick={() => preserveReading(() => setSideMode(sideMode ? null : currentFigures.length ? "figures" : "materials"))}>{sideMode ? "收起侧栏" : "图片 / 笔记"}</button>
+      <button className="reader-side-toggle" aria-controls="reader-side-space" aria-expanded={!!sideMode} onClick={() => preserveReading(() => setSideMode(sideMode ? null : sourceFigures.length ? "figures" : "materials"))}>{sideMode ? "收起侧栏" : "图片 / 笔记"}</button>
       <button className="reader-fullscreen-toggle" aria-label={fullscreen ? "退出全屏" : "全屏"} aria-pressed={fullscreen} onClick={() => onFullscreenChange?.(!fullscreen)}>{fullscreen ? "退出全屏 ×" : "全屏"}</button>
       <button disabled={!host.newSession || !view || blocked} onClick={reset}>新会话</button>
       <button className="focus-reader__continue" disabled={blocked || (!frontier && !reviewChunk) || (view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total))}
