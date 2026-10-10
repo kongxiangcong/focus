@@ -20,11 +20,13 @@ class CandidateRuntime:
         self.closed = False
         self.replies = []
         self.paused = paused
+        self.prompt = ""
 
     def open_session(self, resume_key, *, instructions, skills=()):
         return "discussion-thread"
 
     def start_turn(self, *, prompt, skills=()):
+        self.prompt = prompt
         if not self.paused:
             self.release()
 
@@ -118,6 +120,14 @@ class DiscussionTests(unittest.TestCase):
         notes = self.host.snapshot()['sourceNotes']
         self.assertEqual(1, len(notes))
         self.assertEqual('An example and conclusion.', notes[0]['content'])
+        expected_scope = self.host.discussion_app.bind(source_id='fixture-paper',
+            request_id='note-scope-positive', content='帮我记一下这个结论')
+        self.assertTrue(expected_scope['saveIntent'])
+        self.assertIn('[Bound Source discussion scope]', self.runtime.prompt)
+        for key, expected in [('sourceId', expected_scope['sourceId']),
+                              ('bundle', expected_scope['bundle']),
+                              ('requestId', 'note-scope-positive'), ('saveIntent', True)]:
+            self.assertIn(json.dumps(key) + ': ' + json.dumps(expected), self.runtime.prompt)
         negative = self.host.discussion_app.bind(source_id='fixture-paper',
             request_id='note-scope-negative', content='不要记一下，只解释')
         self.assertFalse(negative['saveIntent'])
@@ -128,7 +138,15 @@ class DiscussionTests(unittest.TestCase):
         self.assertEqual('note_intent_missing', caught.exception.error_id)
         self.assertIn('Save authorization could not be confirmed', str(caught.exception))
         self.assertEqual(1, len(self.host.snapshot()['sourceNotes']))
-
+        selected = self.host.select_discussion_source('fixture-b-paper')
+        self.host.start({'requestId': 'note-negative-host', 'sourceId': 'fixture-b-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None,
+                         'content': '不要记一下，只解释', 'saveIntent': True})
+        self.host.worker.join(3)
+        self.assertFalse(self.runtime.replies[0]['result']['success'])
+        self.assertEqual([], self.host.snapshot()['sourceNotes'])
+        self.assertIn('"saveIntent": false', self.runtime.prompt)
+ 
     def test_model_tool_call_without_user_intent_cannot_save(self):
         selected = self.host.select_discussion_source('fixture-paper')
         self.host.start({'requestId': 'request-4321', 'sourceId': 'fixture-paper',
