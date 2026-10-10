@@ -1308,10 +1308,6 @@ class HostService:
                     (self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']) != discussion['sourceId']):
                 return False
             # The prefetch input prefix must still exist in identical order.
-            planned = [m['messageId'] for m in original['pending'] + original['recent']]
-            actual = discussions.plan(self.state, discussion_id)['pending']
-            if original['summaryThrough'] == current.get('summaryThrough') and not planned:
-                return False
             current.update(update)
             self.changed()
             return True
@@ -1404,6 +1400,8 @@ class HostService:
                 budget = max(0, 48000 - len(text) - 1200)
                 history = discussions.inline_context(snapshot, budget=budget)
                 if history is None:
+                    if not snapshot['pending']:
+                        raise ValueError('近期消息已经超过输入预算；未丢弃历史，请开启新会话或缩短内容。')
                     self._phase('整理历史对话', 'summaryStart')
                     def summarize(previous, messages):
                         if self.stop_requested:
@@ -1854,6 +1852,8 @@ class HostService:
                    *self.ingestion_workers.values(), *self.blog_workers.values(), *self.batch_workers.values()]
         if self.worker:
             workers.append(self.worker)
+        if self._summary_worker:
+            workers.append(self._summary_worker)
         if any(worker.is_alive() for worker in workers):
             raise WorkspaceError('workspace_stop_incomplete', '仍有业务写者未退出；工作区保持锁定，请等待后重试退出。')
         self.store.close()
