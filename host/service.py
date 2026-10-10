@@ -1413,6 +1413,7 @@ class HostService:
                             timing = self.state['run']['phaseTiming']
                             timing['summaryBatches'] += 1
                             timing['summaryInputChars'] += chars
+                            self._progress('整理历史对话')
                             self.changed()
                     result = discussions.compact_snapshot(snapshot, summarize, batch_callback=count)
                     if not self._commit_summary(discussion, snapshot, result):
