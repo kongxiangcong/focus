@@ -45,7 +45,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [fontSize, setFontSize] = useState<FontSize>(readFont);
   const [brightness, setBrightness] = useState(() => { try { return Math.max(85, Math.min(110, Number(localStorage.getItem("focus.brightness") ?? 100) || 100)); } catch { return 100; } });
   const savedAppearance = useRef({ fontSize, brightness });
-  const [readingTopic, setReadingTopic] = useState("");
+  const [readingFullscreen, setReadingFullscreen] = useState(false);
   const [managementTopics, setManagementTopics] = useState<readonly string[]>([]);
   const [generateOnUpload, setGenerateOnUpload] = useState(true);
   const [connectionLost, setConnectionLost] = useState(false);
@@ -437,7 +437,14 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       else if (host.cancelIngestion) await ingest("取消解析", () => host.cancelIngestion!(item.targetId));
     }
   }
-  return <div className="workspace-app" style={{ "--reader-brightness": brightness / 100 } as CSSProperties}>
+  useEffect(() => {
+    if (!readingFullscreen) return;
+    const exit = (event: KeyboardEvent) => { if (event.key === "Escape") setReadingFullscreen(false); };
+    document.addEventListener("keydown", exit);
+    return () => document.removeEventListener("keydown", exit);
+  }, [readingFullscreen]);
+  useEffect(() => { if (route !== "/reading") setReadingFullscreen(false); }, [route]);
+  return <div className="workspace-app" data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-brightness": brightness / 100 } as CSSProperties}>
     <header className="workspace-nav">
       <a className="workspace-logo" href="/library" onClick={e => { e.preventDefault(); navigate("/library"); }}>focus<span>.</span></a>
       <nav aria-label="应用导航">{([["/library", "知识库", "▤"], ["/reading", "阅读", "☷"], ["/settings", "设置", "☼"]] as const).map(([path, title, icon]) =>
@@ -445,10 +452,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     </header>
     <header className="workspace-header">
       <div className="workspace-toolbar">
-        {route === "/reading" ? <div className="reading-library-picker">
-          <label><span className="workspace-sr-only">专题</span><select aria-label="阅读专题" value={readingTopic} onChange={e => setReadingTopic(e.target.value)}><option value="">全部专题</option>{topics.map(t => <option key={t.topicId} value={t.topicId}>{t.title}</option>)}</select></label>
-          <label><span className="workspace-sr-only">材料</span><select aria-label="选择阅读材料" title={view?.source.title} value={view?.source.sourceId || ""} disabled={!!busy || active} onChange={e => { if (e.target.value) void enterReading(e.target.value); }}><option value="">选择材料</option>{sources.filter(s => s.sourceId === view?.source.sourceId || !readingTopic || s.topicIds.includes(readingTopic)).map(s => <option key={s.sourceId} value={s.sourceId}>{s.shortName || s.title}</option>)}</select></label>
-        </div> : <h1>{route === "/library" ? "知识库" : "设置"}</h1>}
+        {route === "/reading" ? <div className="reading-library-picker"><span className="workspace-sr-only">阅读工作区</span></div> : <h1>{route === "/library" ? "知识库" : "设置"}</h1>}
         <div className="workspace-header-actions">
           <section className="workspace-status" aria-label="当前工作">
             <span className="workspace-sr-only" role="status">{connectionLost ? "连接中断，正在恢复" : !view ? "正在连接" : primaryWork ? `${primaryWork.label} · ${runningWork.length} 项进行中` : "当前无工作"}{attention.length > 0 ? ` · ${attention.length} 项需查看` : ""}</span>
@@ -521,7 +525,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       {!error && (notice || readyNotice) && <div className="workspace-notice" role="status">{readyNotice || notice}<button onClick={() => { setNotice(""); setReadyNotice(""); }}>关闭</button></div>}
     </header>
     <div className="workspace-reading" hidden={route !== "/reading"}>
-      <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} /></div>
+      <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
     {route === "/library" && <main className="library-page" data-dragging={dragging}
       onDragOver={e => { e.preventDefault(); if (!uploadDisabled) setDragging(true); }}
       onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }}
