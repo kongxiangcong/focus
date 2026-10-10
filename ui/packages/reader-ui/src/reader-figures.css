@@ -72,3 +72,13 @@
  .workspace-reading .reader-split .focus-content { padding:10px 16px 28px 10px; }
 }
 @media(max-height:600px) and (max-width:1050px) { .reader-split .reader-side-space { bottom:100px; } }
+
+/* In Mist mode the functional controls share the existing action row. */
+.reader-split.focus-mist { grid-template-rows:minmax(0,1fr) auto auto; }
+.reader-split.focus-mist .focus-stream { grid-row:1; }
+.reader-split.focus-mist .mist-reading-actions { grid-row:2; }
+.reader-split.focus-mist .focus-bottom { grid-row:3; }
+.reader-split.focus-mist .reader-side-space { grid-row:1 / 4; }
+.reader-split.focus-mist .reader-column-resizer { grid-row:1 / 4; }
+.reader-split.focus-mist .mist-sidebar { grid-row:1 / 4; }
+.reader-split.focus-mist .mist-history-rail { grid-row:1; }
