@@ -12,9 +12,9 @@ import { chunkFigures, extractFigures, figureNumber, imageIdentity, mergeFigures
 
 type Upload = { id: string; file: File; state: "uploading" | "ready" | "failed"; attachment?: ReaderAttachment; error?: string };
 type Failure = { message: string; label: string; retry: () => void };
-export interface FocusReaderProps { host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean }
+export interface FocusReaderProps { host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
 
-export function FocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true }: FocusReaderProps) {
+export function FocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange }: FocusReaderProps) {
   const mist = appearance === "mist";
   const [collapsed, setCollapsed] = useState(false);
   const [view, setView] = useState<ReadingWindow | null>(null);
@@ -408,10 +408,10 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         <button className="focus-new" disabled={!host.newSession || !view || blocked} onClick={reset}>新建会话</button>
       </nav>
     </header>}
-        <nav className="reader-side-toolbar" aria-label="阅读侧栏">
-          <button className="reader-figures-toggle" aria-controls="reader-side-space" aria-expanded={sideMode === "figures"} onClick={() => preserveReading(() => { setSideMode(sideMode === "figures" ? null : "figures"); })}>{sideMode === "figures" ? "隐藏图片区" : "展开图片区"}</button>
+        {!mist && <nav className="reader-side-toolbar" aria-label="阅读侧栏">
+          <button className="reader-figures-toggle" aria-controls="reader-side-space" aria-expanded={sideMode === "figures"} onClick={() => preserveReading(() => setSideMode(sideMode === "figures" ? null : "figures"))}>{sideMode === "figures" ? "隐藏图片区" : "展开图片区"}</button>
           <button className="reader-materials-toggle" aria-controls="reader-side-space" aria-expanded={materialsOpen} onClick={() => preserveReading(() => setSideMode(materialsOpen ? null : "materials"))}>{materialsOpen ? "隐藏资料栏" : "笔记与记录"}</button>
-        </nav>
+        </nav>}
         {sideMode && <div className="reader-column-resizer" role="separator" aria-label="调整文字与侧栏宽度" aria-orientation="vertical" tabIndex={0} aria-valuemin={35} aria-valuemax={75} aria-valuenow={Math.round(textShare)} onKeyDown={event => {
           if (["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) { event.preventDefault(); resizeColumns(event.key === "Home" ? 60 : textShare + (event.key === "ArrowRight" ? 2 : -2)); }
         }} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault(); }} onPointerMove={event => {
@@ -502,7 +502,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     <div className="focus-bottom" role={mist ? "complementary" : undefined} aria-label={mist ? "阅读助手" : undefined}>
 
 
-      {newContent && <button className="focus-new-content" onClick={() => {
+      {newContent && !mist && <button className="focus-new-content" onClick={() => {
         follow.current = true; setNewContent(false); settle();
       }}>{mist ? "查看新内容" : "有新内容 · 回到底部 ↓"}</button>}
       <div className="focus-composer-wrap">
@@ -540,7 +540,10 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         {!mist && current && !reviewChunk && <div className="focus-next"><button disabled={blocked} onClick={current.index === current.total ? finish : next}>{current.index === current.total ? "完成本篇" : operation === "下一段" ? "正在打开…" : "下一段 →"}</button></div>}
       </div>
     </div>
-    {mist && <footer className="mist-reading-actions"><button disabled={!host.newSession || !view || blocked} onClick={reset}>新会话</button>
+    {mist && <footer className="mist-reading-actions" aria-label="阅读功能控制区">
+      <button className="reader-side-toggle" aria-controls="reader-side-space" aria-expanded={!!sideMode} onClick={() => preserveReading(() => setSideMode(sideMode ? null : currentFigures.length ? "figures" : "materials"))}>{sideMode ? "收起侧栏" : "图片 / 笔记"}</button>
+      <button className="reader-fullscreen-toggle" aria-label={fullscreen ? "退出全屏" : "全屏"} aria-pressed={fullscreen} onClick={() => onFullscreenChange?.(!fullscreen)}>{fullscreen ? "退出全屏 ×" : "全屏"}</button>
+      <button disabled={!host.newSession || !view || blocked} onClick={reset}>新会话</button>
       <button className="focus-reader__continue" disabled={blocked || (!frontier && !reviewChunk) || (view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total))}
         onClick={() => { follow.current = true; view?.sessionFresh ? (view.readingStarted && frontier?.index === frontier?.total ? finishFresh() : freshContinue()) : displayed?.index === displayed?.total && !reviewChunk ? finish() : next(); }}>
         {view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total) ? "已读完" : (view?.sessionFresh && view.readingStarted && frontier?.index === frontier?.total) || (!view?.sessionFresh && displayed?.index === displayed?.total && !reviewChunk) ? "完成本篇" : operation === "下一段" ? "打开中…" : "继续"}</button>
