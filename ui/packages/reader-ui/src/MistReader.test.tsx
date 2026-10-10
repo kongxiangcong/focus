@@ -189,7 +189,7 @@ it("T3/T6 appends chunks chronologically and sends a pre-navigation draft with i
   await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ chunkId: "chunk-001", planId: current.planId }) })));
 });
 
-it("T4 respects manual scrolling while streaming and resumes only through the latest-content action", async () => {
+it("T4 respects manual scrolling while streaming without an extra latest-content badge", async () => {
   let emit!: Parameters<NonNullable<ReaderHost["subscribe"]>>[0];
   const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(first)), continueReading: vi.fn(), sendMessage: vi.fn(),
     subscribe: callback => { emit = callback; return () => {}; } };
@@ -201,9 +201,8 @@ it("T4 respects manual scrolling while streaming and resumes only through the la
   scroll.mockClear();
   act(() => emit(readerSuccess({ ...first, revision: 2, conversation: [{ messageId: "stream", chunkId: current.chunkId, role: "assistant", content: "partial" }] })));
   expect(scroll).not.toHaveBeenCalled();
-  expect(await screen.findByRole("button", { name: "查看新内容" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "查看新内容" }));
   expect(screen.queryByRole("button", { name: "查看新内容" })).not.toBeInTheDocument();
+  expect(screen.getByText("partial")).toBeInTheDocument();
 });
 
 it("T7/T8 a fresh session is blank and uses the persisted frontier for Continue", async () => {
@@ -215,4 +214,20 @@ it("T7/T8 a fresh session is blank and uses the persisted frontier for Continue"
   expect(document.querySelectorAll(".focus-output")).toHaveLength(0);
   fireEvent.click(screen.getByRole("button", { name: "继续" }));
   await waitFor(() => expect(host.continueReading).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ chunkId: current.chunkId, readingRevision: 8 }) })));
+});
+
+it("places image/notes toggle and fullscreen in the Mist function row", async () => {
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(first)),
+    continueReading: vi.fn(), sendMessage: vi.fn() };
+  const toggle = vi.fn();
+  render(<FocusReader host={host} appearance="mist" fullscreen={false} onFullscreenChange={toggle} />);
+  await screen.findByRole("heading", { name: "Method" });
+  const actions = screen.getByRole("navigation", { name: "阅读功能控制区" });
+  expect(actions).toHaveTextContent("新会话");
+  expect(actions).toHaveTextContent("继续");
+  expect(actions).toHaveTextContent("图片 / 笔记");
+  fireEvent.click(screen.getByRole("button", { name: "图片 / 笔记" }));
+  expect(screen.getByRole("button", { name: "收起侧栏" })).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(screen.getByRole("button", { name: "全屏" }));
+  expect(toggle).toHaveBeenCalledWith(true);
 });
