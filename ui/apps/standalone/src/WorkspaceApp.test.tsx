@@ -129,7 +129,7 @@ it("edits original metadata and Topic membership through Host actions", async ()
   fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
   fireEvent.change(screen.getByRole("textbox", { name: "来源原题" }), { target: { value: "Correct title" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
-  await waitFor(() => expect(host.saveSourceDetails).toHaveBeenCalledWith("a-paper", "Correct title", ["topic"], expect.any(String)));
+  await waitFor(() => expect(host.saveSourceDetails).toHaveBeenCalledWith("a-paper", "Correct title", ["topic"], expect.any(String), "Correct title"));
   await waitFor(() => expect(screen.queryByRole("textbox", { name: "来源原题" })).not.toBeInTheDocument());
   if (screen.getByRole("button", { name: "详细" }).getAttribute("aria-expanded") === "false") fireEvent.click(screen.getByRole("button", { name: "详细" }));
   fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
@@ -143,8 +143,34 @@ it("edits original metadata and Topic membership through Host actions", async ()
   fireEvent.click(screen.getByRole('button', { name: '不关联专题' }));
   expect(screen.getByRole('checkbox', { name: '编译' })).not.toBeChecked();
   fireEvent.click(screen.getByRole('button', { name: '保存' }));
-  await waitFor(() => expect(host.saveSourceDetails).toHaveBeenNthCalledWith(2, 'a-paper', 'A Paper', [], expect.any(String)));
+  await waitFor(() => expect(host.saveSourceDetails).toHaveBeenNthCalledWith(2, 'a-paper', 'A Paper', [], expect.any(String), 'A Paper'));
 });
+it("edits library heading independently from the original while preserving Source identity", async () => {
+  const { host } = setup();
+  let title = "A Paper";
+  let displayTitle: string | null = null;
+  const initial = await host.listSources!();
+  if (!initial.ok) throw Error("Missing test sources");
+  vi.mocked(host.listSources!).mockImplementation(async () => readerSuccess(
+    initial.value.map(source => ({ ...source, title, displayTitle }))
+  ));
+  vi.mocked(host.saveSourceDetails!).mockImplementation(async (_id, nextTitle, _topics, _requestId, nextDisplay) => {
+    title = nextTitle; displayTitle = nextDisplay ?? nextTitle;
+    return readerSuccess(empty);
+  });
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "知识库显示标题" }), { target: { value: "我的 GPU 论文" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "来源原题" }), { target: { value: "Original GPU Architecture Paper" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  expect(await screen.findByRole("heading", { name: "我的 GPU 论文" })).toBeInTheDocument();
+  expect(host.saveSourceDetails).toHaveBeenCalledWith("a-paper", "Original GPU Architecture Paper", ["topic"], expect.any(String), "我的 GPU 论文");
+  fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
+  expect(screen.getByRole("textbox", { name: "知识库显示标题" })).toHaveValue("我的 GPU 论文");
+  expect(screen.getByRole("textbox", { name: "来源原题" })).toHaveValue("Original GPU Architecture Paper");
+});
+
 it("freezes a mixed selection into one Topic batch and exposes each result", async () => {
   const { host } = setup();
   vi.mocked(host.stageIngestion!).mockImplementation(async file => readerSuccess({
