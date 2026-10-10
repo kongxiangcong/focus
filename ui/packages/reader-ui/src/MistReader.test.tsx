@@ -225,9 +225,13 @@ it("places image/notes toggle and fullscreen in the Mist function row", async ()
   const actions = screen.getByRole("navigation", { name: "阅读功能控制区" });
   expect(actions).toHaveTextContent("新会话");
   expect(actions).toHaveTextContent("继续");
+  // A chunk containing figures opens the panel automatically; close and reopen it manually.
+  if (within(actions).queryByRole("button", { name: "收起侧栏" })) {
+    fireEvent.click(within(actions).getByRole("button", { name: "收起侧栏" }));
+  }
   expect(actions).toHaveTextContent("图片 / 笔记");
-  fireEvent.click(screen.getByRole("button", { name: "图片 / 笔记" }));
-  expect(screen.getByRole("button", { name: "收起侧栏" })).toHaveAttribute("aria-expanded", "true");
+  fireEvent.click(within(actions).getByRole("button", { name: "图片 / 笔记" }));
+  expect(within(actions).getByRole("button", { name: "收起侧栏" })).toHaveAttribute("aria-expanded", "true");
   fireEvent.click(screen.getByRole("button", { name: "全屏" }));
   expect(toggle).toHaveBeenCalledWith(true);
 });
@@ -257,6 +261,9 @@ it("closes the left-side drawer with Escape and keeps the function entry in plac
   render(<FocusReader host={host} appearance="mist" />);
   await screen.findByRole("heading", { name: "Method" });
   const controls = screen.getByRole("navigation", { name: "阅读功能控制区" });
+  if (within(controls).queryByRole("button", { name: "收起侧栏" })) {
+    fireEvent.click(within(controls).getByRole("button", { name: "收起侧栏" }));
+  }
   fireEvent.click(within(controls).getByRole("button", { name: "图片 / 笔记" }));
   expect(screen.getByRole("region", { name: "阅读资料侧栏" })).toHaveAttribute("data-side-placement", "left");
   fireEvent.keyDown(document.querySelector(".focus-reader")!, { key: "Escape" });
