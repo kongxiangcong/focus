@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { readerSuccess, type BackendSetupResult, type ReaderHostResult, type ReaderHost } from "@focus/reader-contracts";
 import { BackendSetupPanel } from "./BackendSetupPanel";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 it('invalidates a successful proof after an authoritative backend change or failed recheck', async () => {
   let failed = false;
   const backendSetup = vi.fn(async (action: string, input: { backend: string }) => readerSuccess({
@@ -185,4 +185,21 @@ it('retries a catalog independently of inference and retains default entry', asy
   await screen.findByRole('option', { name: 'real' });
   expect(backendSetup.mock.calls.map(call => call[0])).toEqual(['prepare', 'check', 'models']);
   expect(screen.getByRole('combobox')).toHaveValue('');
+});
+
+it('saves and applies backend settings with getRandomValues-only crypto over HTTP', async () => {
+  vi.stubGlobal('crypto', { getRandomValues: (bytes: Uint8Array) => {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = 0x42 + i;
+    return bytes;
+  } });
+  const onSaved = vi.fn();
+  const saveBackendConfiguration = vi.fn(async () => readerSuccess(empty));
+  render(<BackendSetupPanel host={{ saveBackendConfiguration } as unknown as ReaderHost} onSaved={onSaved} />);
+  fireEvent.click(screen.getByRole('button', { name: '保存并应用' }));
+  await waitFor(() => expect(saveBackendConfiguration).toHaveBeenCalledOnce());
+  expect(saveBackendConfiguration).toHaveBeenCalledWith(expect.objectContaining({
+    requestId: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
+  }));
+  await waitFor(() => expect(onSaved).toHaveBeenCalledWith(empty));
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
