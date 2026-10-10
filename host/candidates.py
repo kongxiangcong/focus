@@ -25,10 +25,14 @@ class CandidateTurns:
                 if cancelled and cancelled():
                     raise BackendError('任务已取消。')
                 backend.open_session(None, instructions=instructions)
+                if cancelled and cancelled():
+                    raise InterruptedError('摘要已取消。')
                 backend.start_turn(prompt=prompt)
                 messages = {}
                 deadline = time.monotonic() + timeout
                 while not backend.closed and time.monotonic() < deadline:
+                    if cancelled and cancelled():
+                        raise InterruptedError('摘要已取消。')
                     try:
                         event = backend.events.get(timeout=min(1, max(.01, deadline-time.monotonic())))
                     except queue.Empty:
