@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { BackendConfigurationState, BackendSetupInput, BackendSetupResult, ReaderHost, ReadingWindow } from "@focus/reader-contracts";
+import { createReaderId, type BackendConfigurationState, type BackendSetupInput, type BackendSetupResult, type ReaderHost, type ReadingWindow } from "@focus/reader-contracts";
 
 type Backend = 'codex' | 'deepseek';
 
@@ -100,7 +100,7 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
     const version = ++revision.current;
     setChecking(true); setError(""); setFeedback("");
     try {
-      const requestId = crypto.randomUUID();
+      const requestId = createReaderId();
       let result = await host.saveBackendConfiguration({ ...input, preferences: drafts.current, requestId });
       if (!alive.current || version !== revision.current) return;
       if (!result.ok && result.error.retryable && host.getReadingWindow) {
