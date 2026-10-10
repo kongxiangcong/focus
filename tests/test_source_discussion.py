@@ -285,6 +285,8 @@ class DiscussionTests(unittest.TestCase):
                          'sessionId': selected['sessionId'], 'receipt': None, 'content': '进一步解释'})
         self.host.worker.join(3)
         self.assertFalse(self.host.worker.is_alive())
+        # Switching Source invalidates any new speculative attempt as well.
+        self.host.select_discussion_source('fixture-b-paper')
         release.set()
         if self.host._summary_worker:
             self.host._summary_worker.join(5)
@@ -335,6 +337,27 @@ class DiscussionTests(unittest.TestCase):
         if self.host._summary_worker:
             self.host._summary_worker.join(5)
         self.assertNotIn(discussion_id, self.host.state['discussions'])
+
+
+    def test_reuses_completed_summary_without_repeat_foreground_compaction(self):
+        selected, discussion_id = self._seed_summary_history()
+        calls = []
+        def summarize(prompt, **kwargs):
+            calls.append(prompt)
+            return {'summary': 'All old discussion decisions were covered.'}
+        self.host.discussion_summaries.run = summarize
+        self.host.start({'requestId': 'summary-reuse-first', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '解释'})
+        self.host.worker.join(5)
+        self.assertEqual('completed', self.host.snapshot()['agent']['run']['status'])
+        self.assertEqual(1, len(calls))
+        self.assertIsNotNone(self.host.state['discussions'][discussion_id]['summaryThrough'])
+        selected = self.host.select_discussion_source('fixture-paper')
+        self.host.start({'requestId': 'summary-reuse-second', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '再解释'})
+        self.host.worker.join(5)
+        self.assertEqual('completed', self.host.snapshot()['agent']['run']['status'])
+        self.assertEqual(1, len(calls))
 
 
 if __name__ == '__main__':
