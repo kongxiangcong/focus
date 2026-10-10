@@ -231,3 +231,35 @@ it("places image/notes toggle and fullscreen in the Mist function row", async ()
   fireEvent.click(screen.getByRole("button", { name: "全屏" }));
   expect(toggle).toHaveBeenCalledWith(true);
 });
+
+it("keeps the composer and collapse toggle on one row, preserving draft on collapse", async () => {
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(first)),
+    continueReading: vi.fn(), sendMessage: vi.fn() };
+  render(<FocusReader host={host} appearance="mist" />);
+  const textbox = await screen.findByRole("textbox", { name: "输入问题或阅读需求" });
+  const row = textbox.closest(".focus-composer-row");
+  expect(row).not.toBeNull();
+  const collapse = screen.getByRole("button", { name: "收起" });
+  expect(collapse.closest(".focus-composer-row")).toBe(row);
+  fireEvent.change(textbox, { target: { value: "暂存的问题" } });
+  fireEvent.click(collapse);
+  expect(row?.querySelector("form")).toHaveAttribute("hidden");
+  const expand = screen.getByRole("button", { name: "展开" });
+  expect(expand.closest(".focus-composer-row")).toBe(row);
+  fireEvent.click(expand);
+  expect(textbox).toHaveValue("暂存的问题");
+  expect(row?.querySelector("form")).not.toHaveAttribute("hidden");
+});
+
+it("closes the left-side drawer with Escape and keeps the function entry in place", async () => {
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(first)),
+    continueReading: vi.fn(), sendMessage: vi.fn() };
+  render(<FocusReader host={host} appearance="mist" />);
+  await screen.findByRole("heading", { name: "Method" });
+  const controls = screen.getByRole("navigation", { name: "阅读功能控制区" });
+  fireEvent.click(within(controls).getByRole("button", { name: "图片 / 笔记" }));
+  expect(screen.getByRole("region", { name: "阅读资料侧栏" })).toHaveAttribute("data-side-placement", "left");
+  fireEvent.keyDown(document.querySelector(".focus-reader")!, { key: "Escape" });
+  expect(screen.queryByRole("region", { name: "阅读资料侧栏" })).not.toBeInTheDocument();
+  expect(within(controls).getByRole("button", { name: "图片 / 笔记" })).toBeInTheDocument();
+});
