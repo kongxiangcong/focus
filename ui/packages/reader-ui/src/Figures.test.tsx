@@ -65,8 +65,10 @@ it('opens unread figures without navigation or rebinding the question, and share
   expect(pane.querySelector('img[src*="equation"]')).toBeTruthy();
   expect(pane.querySelectorAll('img')).toHaveLength(2);
   fireEvent.change(screen.getByRole('textbox'),{target:{value:'original draft'}});
-  const toolbar = screen.getByRole('navigation',{name:'阅读侧栏'});
-  expect(within(toolbar).getAllByRole('button')).toHaveLength(2);
+  const controls = screen.getByRole('navigation',{name:'阅读功能控制区'});
+  expect(within(controls).getByRole('button',{name:'收起侧栏'})).toBeInTheDocument();
+  expect(screen.getByRole('region',{name:'阅读资料侧栏'})).toHaveAttribute('data-side-placement','left');
+  expect(document.querySelector('.reader-column-resizer')).toBeNull();
   expect(screen.queryByText(/本段图片/)).not.toBeInTheDocument();
   expect(screen.queryByRole('button',{name:'全文图片'})).not.toBeInTheDocument();
   const navigation = screen.getByRole('navigation',{name:'图片目录'});
@@ -82,6 +84,7 @@ it('opens unread figures without navigation or rebinding the question, and share
   expect(host.continueReading).not.toHaveBeenCalled();
   expect(screen.getByRole('textbox')).toHaveValue('original draft');
   fireEvent.click(screen.getByRole('button',{name:'笔记 / 记录'}));
+  expect(screen.getByRole('region',{name:'阅读资料侧栏'})).toHaveAttribute('data-side-placement','left');
   expect(screen.queryByRole('img',{name:future.caption})).not.toBeInTheDocument();
   expect(screen.getByRole('complementary',{name:'笔记与阅读记录'})).toBeVisible();
   fireEvent.click(screen.getByRole('button',{name:'发送 ↑'}));
