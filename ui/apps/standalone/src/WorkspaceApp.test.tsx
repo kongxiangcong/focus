@@ -689,3 +689,16 @@ it("restores a preparation card and reports persistence failure if dismiss could
   expect(await screen.findByText("关闭提示未保存", { selector: ".workspace-error" })).toBeVisible();
   expect(screen.getByText("准备超时", { exact: true })).toBeVisible();
 });
+
+it("hides top chrome in reading fullscreen and restores it from the exit control", async () => {
+  history.replaceState(null, "", "/reading");
+  setup();
+  const app = document.querySelector(".workspace-app");
+  expect(app).toHaveAttribute("data-reading-fullscreen", "false");
+  fireEvent.click(await screen.findByRole("button", { name: "全屏" }));
+  expect(app).toHaveAttribute("data-reading-fullscreen", "true");
+  fireEvent.click(screen.getByRole("button", { name: "退出全屏" }));
+  expect(app).toHaveAttribute("data-reading-fullscreen", "false");
+  expect(screen.queryByRole("combobox", { name: "阅读专题" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("combobox", { name: "选择阅读材料" })).not.toBeInTheDocument();
+});
