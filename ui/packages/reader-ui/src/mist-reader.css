@@ -83,3 +83,16 @@
 
 @media(max-width:540px){.mist-history-rail{right:0;width:24px}.mist-history-rail button{width:24px}.focus-mist .focus-content{padding-right:28px}}
 .focus-review-banner { display:flex; align-items:center; gap:12px; padding:10px 14px; border-radius:10px; background:var(--reader-paper); color:var(--reader-muted); font-size:13px; }
+
+/* Keep the collapse affordance beside, not above, the conversation composer. */
+.focus-mist .focus-composer-row { display:flex; align-items:center; gap:8px; min-width:0; }
+.focus-mist .focus-composer-row .focus-composer { flex:1 1 auto; min-width:0; }
+.focus-mist .focus-composer-row .mist-composer-toggle {
+  flex:0 0 auto;
+  align-self:center;
+  margin:0;
+  padding:6px 10px;
+  min-height:36px;
+  white-space:nowrap;
+}
+.focus-mist[data-composer-collapsed=true] .focus-composer-row { justify-content:flex-end; }

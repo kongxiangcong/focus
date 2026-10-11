@@ -335,3 +335,47 @@ button,input,textarea { font:inherit; } button { cursor:pointer; }
   .focus-entry .backend-setup { gap: 6px; }
 }
 .workspace-location { overflow-wrap: anywhere; }
+
+/* Reading-only immersive mode: never hide the composer or action controls. */
+.workspace-app[data-reading-fullscreen=true] { grid-template-columns:minmax(0,1fr); }
+.workspace-app[data-reading-fullscreen=true] > .workspace-nav,
+.workspace-app[data-reading-fullscreen=true] > .workspace-header { display:none; }
+.workspace-app[data-reading-fullscreen=true] > .workspace-reading { grid-column:1; grid-row:1; padding-top:0; }
+.workspace-app[data-reading-fullscreen=true] .mist-sidebar,
+.workspace-app[data-reading-fullscreen=true] .mist-history-rail { display:none; }
+.workspace-app[data-reading-fullscreen=true] .reader-split.focus-mist { grid-template-columns:minmax(0,1fr); }
+.workspace-app[data-reading-fullscreen=true] .reader-split.focus-mist[data-side-open=true] { grid-template-columns:minmax(340px,var(--reader-text-share,60fr)) 8px minmax(280px,var(--reader-side-share,40fr)); }
+.workspace-app[data-reading-fullscreen=true] .reader-split.focus-mist .focus-stream,
+.workspace-app[data-reading-fullscreen=true] .reader-split.focus-mist .focus-bottom,
+.workspace-app[data-reading-fullscreen=true] .reader-split.focus-mist .mist-reading-actions { grid-column:1; }
+.workspace-app[data-reading-fullscreen=true] .reader-split.focus-mist .reader-side-space { grid-column:3; }
+.workspace-app[data-reading-fullscreen=true] .reader-split.focus-mist .reader-column-resizer { grid-column:2; }
+@media(max-width:1050px) {
+  .workspace-app[data-reading-fullscreen=true] .reader-split.focus-mist[data-side-open=true] { grid-template-columns:minmax(0,1fr); }
+  .workspace-app[data-reading-fullscreen=true] .reader-split.focus-mist .reader-side-space { grid-column:1; }
+}
+
+.workspace-app .reading-fullscreen-exit { position:fixed; z-index:30; top:14px; right:18px; width:40px; height:40px; border:1px solid var(--reader-line); border-radius:999px; background:var(--reader-paper); font-size:25px; line-height:1; }
+.workspace-app .reading-fullscreen-exit:hover { background:#929db724; }
+
+/* Standalone reading also uses the left drawer at desktop, mobile, and fullscreen.
+   Override the older right-hand split and small-screen row placement. */
+.workspace-reading .reader-split.focus-mist,
+.workspace-reading .reader-split.focus-mist[data-side-open=true],
+.workspace-app[data-reading-fullscreen=true] .reader-split.focus-mist,
+.workspace-app[data-reading-fullscreen=true] .reader-split.focus-mist[data-side-open=true] {
+  grid-template-columns:minmax(0,1fr);
+  grid-template-rows:minmax(0,1fr) auto auto;
+}
+.workspace-reading .reader-split.focus-mist .focus-stream,
+.workspace-reading .reader-split.focus-mist .mist-history-rail { grid-column:1; grid-row:1; }
+.workspace-reading .reader-split.focus-mist .mist-reading-actions { grid-column:1; grid-row:2; }
+.workspace-reading .reader-split.focus-mist .focus-bottom { grid-column:1; grid-row:3; }
+.workspace-reading .reader-split.focus-mist .reader-left-drawer {
+  grid-column:1;
+  grid-row:1;
+  position:relative;
+  inset:auto;
+  width:min(420px,calc(100% - 24px));
+  margin:6px 0 6px 12px;
+}

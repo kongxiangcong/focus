@@ -24,10 +24,11 @@ export function TaskProgress({ run }: { run: ReaderAgentState["run"] }) {
     run.status in terminal ? terminal[run.status as keyof typeof terminal] :
     run.progress?.label ?? (latest ? activityNames[latest.title] ?? "处理任务" : "等待助手响应");
   const elapsed = run.progress ? duration((run.progress.finishedAt ?? now) - run.progress.startedAt) : null;
+  const stageElapsed = active && run.progress ? duration(now - (run.progress.stageStartedAt ?? run.progress.startedAt)) : null;
   const quiet = run.status === "running" && run.progress && now - run.progress.updatedAt >= 15000;
   return <div className="task-progress" data-active={active} data-status={run.status}>
-    <div className="task-progress__line"><span role="status" aria-live="polite">{label}</span>{elapsed && <span className="task-progress__elapsed" aria-label="已用时间">{elapsed}</span>}</div>
+    <div className="task-progress__line"><span role="status" aria-live="polite">{label}</span>{stageElapsed && <span className="task-progress__stage" aria-label="当前阶段耗时">阶段 {stageElapsed}</span>}{elapsed && <span className="task-progress__elapsed" aria-label="已用时间">总计 {elapsed}</span>}</div>
     {active && <progress aria-label="任务进行中" />}
-    {quiet && <small>暂未收到新进展 · {duration(now - run.progress!.updatedAt)}</small>}
+    {quiet && <small>{label}持续中 · {duration(now - (run.progress!.stageStartedAt ?? run.progress!.startedAt))}，暂未收到新进展；若处于历史整理阶段，主回答尚未提交。</small>}
   </div>;
 }

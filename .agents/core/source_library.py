@@ -125,7 +125,7 @@ class SourceLibrary:
     @staticmethod
     def _validate_source(source: dict[str, Any], expected_source_id: str) -> None:
         required = {"source_id", "source_kind", "title", "short_name", "identity"}
-        optional = {"published_at", "source_url", "uploader", "venue"}
+        optional = {"published_at", "source_url", "uploader", "venue", "display_title"}
         if (
             not required.issubset(source)
             or not set(source).issubset(required | optional)
@@ -141,6 +141,12 @@ class SourceLibrary:
         for key in ("venue", "uploader"):
             if key in source and (not isinstance(source[key], str) or not source[key].strip() or len(source[key]) > 200):
                 raise WorkspaceError("source_invalid", f"Invalid {key}")
+        if "display_title" in source and (
+            not isinstance(source["display_title"], str) or
+            not source["display_title"].strip() or
+            len(source["display_title"].strip()) > 1000
+        ):
+            raise WorkspaceError("source_invalid", f"Invalid display_title: {expected_source_id}")
         if "source_url" in source:
             canonical_article_url(source["source_url"])
 
@@ -365,12 +371,17 @@ class SourceLibrary:
         topic['title'] = title
         _write_document(path, topic)
 
-    def rename_source(self, source_id: str, title: str) -> None:
+    def rename_source(self, source_id: str, title: str, *, display_title: str | None = None) -> None:
         root = self._safe_root(source_id)
         if not isinstance(title, str) or not title.strip() or len(title.strip()) > 1000:
             raise WorkspaceError('source_title_invalid', '来源原题无效。')
+        # Legacy callers that change the original title also update the visible heading.
+        display_title = title.strip() if display_title is None else display_title.strip()
+        if not display_title or len(display_title) > 1000:
+            raise WorkspaceError('source_display_title_invalid', '知识库显示标题无效。')
         source = self.get(source_id)
         source['title'] = title.strip()
+        source['display_title'] = display_title
         _write_document(root / 'source.yaml', source)
 
     def reorder_topic(self, topic_id: str, source_ids: list[str]) -> None:
@@ -455,6 +466,7 @@ class SourceLibrary:
             notes = sum(len(_read_reading_record(p, p.stem)['notes'])
                         for p in (root / 'reading/plans').glob('*/records/*.json'))
             result.append({'sourceId': sid, 'title': source['title'],
+                           'displayTitle': source.get('display_title'),
                            'kind': 'paper' if source['source_kind'] == 'paper_pdf' else 'article',
                            'format': {'paper_pdf': 'PDF', 'article_html': 'HTML', 'article_markdown': 'Markdown'}[source['source_kind']],
                            'shortName': source['short_name'], 'publishedAt': source.get('published_at'),

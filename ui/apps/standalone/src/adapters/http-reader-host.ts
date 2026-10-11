@@ -251,6 +251,7 @@ export class HttpReaderHost implements ReaderHost {
     return this.libraryList<LibrarySource>("/library/sources", item => {
       const progress = item.progress as LibrarySource["progress"] | undefined;
       return typeof item.sourceId === "string" && typeof item.title === "string" &&
+        (item.displayTitle === undefined || item.displayTitle === null || typeof item.displayTitle === "string") &&
         ["paper", "article"].includes(String(item.kind)) && ["ready", "invalid"].includes(String(item.parseStatus)) &&
         (item.error === null || typeof item.error === "string") && typeof item.noteCount === "number" &&
         isStringArray(item.topicIds) && !!progress && typeof progress.completed === "number" && typeof progress.total === "number" &&
@@ -482,8 +483,8 @@ export class HttpReaderHost implements ReaderHost {
       body: JSON.stringify({ backend, sessionId }) });
   }
 
-  saveSourceDetails(sourceId: string, title: string, topicIds: readonly string[], requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
-    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/manage`, { method: "POST", body: JSON.stringify({ title, topicIds, requestId }) });
+  saveSourceDetails(sourceId: string, title: string, topicIds: readonly string[], requestId: string, displayTitle?: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/manage`, { method: "POST", body: JSON.stringify({ title, topicIds, requestId, displayTitle }) });
   }
   clearSource(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/clear`, {

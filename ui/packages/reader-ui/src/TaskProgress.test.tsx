@@ -32,3 +32,19 @@ it("prioritizes approval and failure over stale stages and hides raw tool detail
   app.rerender(<TaskProgress run={{ ...value, status: "failed" }} />);
   expect(screen.getByRole("status")).toHaveTextContent("处理失败");
 });
+
+it("shows pre-answer summarization and stage-specific elapsed time", () => {
+  vi.useFakeTimers(); vi.setSystemTime(200000);
+  const value = { ...run(), progress: { label: "整理历史对话", startedAt: 190000,
+    stageStartedAt: 195000, updatedAt: 195000 },
+    phaseTiming: { sentAt: 190000, summaryStart: 195000, summaryBatches: 1, summaryInputChars: 9400 } };
+  const app = render(<TaskProgress run={value} />);
+  expect(screen.getByRole("status")).toHaveTextContent("整理历史对话");
+  expect(screen.getByLabelText("当前阶段耗时")).toHaveTextContent("5 秒");
+  act(() => vi.advanceTimersByTime(17000));
+  expect(screen.getByText(/主回答尚未提交/)).toBeInTheDocument();
+  app.rerender(<TaskProgress run={{ ...value, progress: { ...value.progress,
+    label: "等待回复", stageStartedAt: 218000, updatedAt: 218000 } }} />);
+  expect(screen.getByRole("status")).toHaveTextContent("等待回复");
+  expect(screen.queryByText(/主回答尚未提交/)).not.toBeInTheDocument();
+});

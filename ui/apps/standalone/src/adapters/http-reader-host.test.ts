@@ -203,3 +203,16 @@ it("dismisses only the referenced preparation attempt through its dedicated endp
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ attempt: "attempt-1" }),
   });
 });
+
+it("posts independent library display title through Source management", async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(
+    new Response(JSON.stringify({ ok: true, value: completedWindow }), { status: 200 })
+  );
+  const host = new HttpReaderHost({ baseUrl: "http://127.0.0.1:4317", fetch });
+  expect((await host.saveSourceDetails("fixture-paper", "Official Title", ["topic"], "edit-12345", "My Display")).ok).toBe(true);
+  expect(fetch).toHaveBeenCalledWith("http://127.0.0.1:4317/library/sources/fixture-paper/manage", expect.objectContaining({
+    method: "POST", body: JSON.stringify({
+      title: "Official Title", topicIds: ["topic"], requestId: "edit-12345", displayTitle: "My Display",
+    }),
+  }));
+});

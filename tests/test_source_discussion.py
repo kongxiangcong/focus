@@ -20,11 +20,13 @@ class CandidateRuntime:
         self.closed = False
         self.replies = []
         self.paused = paused
+        self.prompt = ""
 
     def open_session(self, resume_key, *, instructions, skills=()):
         return "discussion-thread"
 
     def start_turn(self, *, prompt, skills=()):
+        self.prompt = prompt
         if not self.paused:
             self.release()
 
@@ -50,7 +52,13 @@ class CandidateRuntime:
 
 class DiscussionTests(unittest.TestCase):
     def test_qualified_explicit_note_request_and_negation(self):
-        for content, expected in [('请保存为一条简短笔记。', True), ('不要保存为一条简短笔记。', False), ('只解释这条笔记。', False)]:
+        for content, expected in [
+            ('请保存为一条简短笔记', True),
+            ('帮我记一下这个结论', True), ('记一下', True), ('帮我记录一下这个例子', True),
+            ('不要保存为一条简短笔记', False), ('不要记一下，只解释', False),
+            ('先不记一下', False), ('别把这个结论记一下', False),
+            ('只解释这条笔记', False), ('我记得这个结论', False),
+        ]:
             with self.subTest(content=content):
                 scope = self.host.discussion_app.bind(source_id='fixture-paper', request_id='note-intent-test', content=content)
                 self.assertEqual(expected, scope['saveIntent'])
@@ -103,6 +111,42 @@ class DiscussionTests(unittest.TestCase):
             self.host.start({'requestId': 'request-1234', 'sourceId': 'fixture-paper',
                              'sessionId': selected['sessionId'], 'receipt': None, 'content': '改成另一条，记下来'})
 
+    def test_host_runtime_note_intent_scope_and_denial(self):
+        selected = self.host.select_discussion_source('fixture-paper')
+        self.host.start({'requestId': 'note-scope-positive', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None,
+                         'content': '帮我记一下这个结论', 'saveIntent': False})
+        self.host.worker.join(3)
+        notes = self.host.snapshot()['sourceNotes']
+        self.assertEqual(1, len(notes))
+        self.assertEqual('An example and conclusion.', notes[0]['content'])
+        expected_scope = self.host.discussion_app.bind(source_id='fixture-paper',
+            request_id='note-scope-positive', content='帮我记一下这个结论')
+        self.assertTrue(expected_scope['saveIntent'])
+        self.assertIn('[Bound Source discussion scope]', self.runtime.prompt)
+        for key, expected in [('sourceId', expected_scope['sourceId']),
+                              ('bundle', expected_scope['bundle']),
+                              ('requestId', 'note-scope-positive'), ('saveIntent', True)]:
+            self.assertIn(json.dumps(key) + ': ' + json.dumps(expected), self.runtime.prompt)
+        negative = self.host.discussion_app.bind(source_id='fixture-paper',
+            request_id='note-scope-negative', content='不要记一下，只解释')
+        self.assertFalse(negative['saveIntent'])
+        with self.assertRaises(WorkspaceError) as caught:
+            self.host.discussion_app.candidate(negative, 'source_note',
+                {'content': 'Should not save', 'kind': 'conclusion',
+                 'origin': 'dialogue', 'evidence_role': 'explanation', 'saveIntent': True})
+        self.assertEqual('note_intent_missing', caught.exception.error_id)
+        self.assertIn('Save authorization could not be confirmed', str(caught.exception))
+        self.assertEqual(1, len(self.host.snapshot()['sourceNotes']))
+        selected = self.host.select_discussion_source('fixture-b-paper')
+        self.host.start({'requestId': 'note-negative-host', 'sourceId': 'fixture-b-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None,
+                         'content': '不要记一下，只解释', 'saveIntent': True})
+        self.host.worker.join(3)
+        self.assertFalse(self.runtime.replies[0]['result']['success'])
+        self.assertEqual([], self.host.snapshot()['sourceNotes'])
+        self.assertIn('"saveIntent": false', self.runtime.prompt)
+ 
     def test_model_tool_call_without_user_intent_cannot_save(self):
         selected = self.host.select_discussion_source('fixture-paper')
         self.host.start({'requestId': 'request-4321', 'sourceId': 'fixture-paper',
@@ -182,6 +226,138 @@ class DiscussionTests(unittest.TestCase):
             {'requestId': 'undo-host1', 'expectedRevision': 3}, 'undo')
         self.assertEqual('My correction', restored['sourceNotes'][0]['content'])
         self.assertEqual(4, restored['sourceNotes'][0]['revision'])
+
+
+    def _seed_summary_history(self, *, count=16, length=3500):
+        selected = self.host.select_discussion_source('fixture-paper')
+        with self.host.lock:
+            discussion_id = self.host.state['latestDiscussion']['fixture-paper']
+            self.host.state['conversation'].extend({
+                'messageId': f'summary-old-{i:03}', 'discussionId': discussion_id,
+                'sourceId': 'fixture-paper', 'role': 'assistant' if i % 2 else 'user',
+                'chunkId': '', 'content': f'history-{i:03} ' + ('x' * length),
+            } for i in range(count))
+            self.host.changed()
+        return selected, discussion_id
+
+    def test_slow_summary_exposes_stage_until_main_turn_submit(self):
+        started, release = threading.Event(), threading.Event()
+        selected, discussion_id = self._seed_summary_history()
+        def slow(prompt, **kwargs):
+            started.set()
+            release.wait(3)
+            return {'summary': 'Compact history of four older messages.'}
+        self.host.discussion_summaries.run = slow
+        self.host.start({'requestId': 'slow-summary-gate', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '解释设计'})
+        self.assertTrue(started.wait(3))
+        running = self.host.snapshot()['agent']['run']
+        self.assertEqual('整理历史对话', running['progress']['label'])
+        self.assertIn('summaryStart', running['phaseTiming'])
+        self.assertNotIn('answerSubmitted', running['phaseTiming'])
+        release.set()
+        self.host.worker.join(6)
+        finished = self.host.snapshot()['agent']['run']
+        self.assertEqual('completed', finished['status'])
+        timing = finished['phaseTiming']
+        self.assertLessEqual(timing['summaryStart'], timing['summaryEnd'])
+        self.assertLessEqual(timing['summaryEnd'], timing['answerSubmitted'])
+        self.assertGreater(timing['summaryInputChars'], 0)
+        self.assertGreater(timing['summaryBatches'], 0)
+        self.assertIsNotNone(self.host.state['discussions'][discussion_id]['summaryThrough'])
+
+    def test_background_summary_does_not_block_new_question_or_restore_stale_prefix(self):
+        started, release = threading.Event(), threading.Event()
+        selected, discussion_id = self._seed_summary_history(length=300)
+        def slow(prompt, **kwargs):
+            started.set()
+            release.wait(3)
+            return {'summary': 'Old speculative answer that should never commit.'}
+        self.host.early_discussion_summaries.run = slow
+        self.host.start({'requestId': 'background-one', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '解释原文'})
+        self.host.worker.join(3)
+        self.assertFalse(self.host.worker.is_alive())
+        self.assertTrue(started.wait(3))
+        before = self.host.state['discussions'][discussion_id]['summaryThrough']
+        selected = self.host.select_discussion_source('fixture-paper')
+        self.host.start({'requestId': 'background-two', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '进一步解释'})
+        self.host.worker.join(3)
+        self.assertFalse(self.host.worker.is_alive())
+        # Switching Source invalidates any new speculative attempt as well.
+        self.host.select_discussion_source('fixture-b-paper')
+        release.set()
+        if self.host._summary_worker:
+            self.host._summary_worker.join(5)
+        self.assertEqual(before, self.host.state['discussions'][discussion_id]['summaryThrough'])
+
+    def test_compaction_timeout_does_not_advance_coverage(self):
+        selected, discussion_id = self._seed_summary_history()
+        def fail(*args, **kwargs):
+            raise TimeoutError('controlled summary timeout')
+        self.host.discussion_summaries.run = fail
+        self.host.start({'requestId': 'failed-summary', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '解释'})
+        self.host.worker.join(5)
+        self.assertEqual('failed', self.host.snapshot()['agent']['run']['status'])
+        self.assertIsNone(self.host.state['discussions'][discussion_id]['summaryThrough'])
+
+    def test_stop_during_summary_never_commits_late_result(self):
+        started, release = threading.Event(), threading.Event()
+        selected, discussion_id = self._seed_summary_history()
+        def slow(prompt, **kwargs):
+            started.set()
+            release.wait(3)
+            return {'summary': 'Late summary after stop'}
+        self.host.discussion_summaries.run = slow
+        self.host.start({'requestId': 'stop-summary', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '解释'})
+        self.assertTrue(started.wait(3))
+        self.host.stop(project=False)
+        release.set()
+        self.host.worker.join(5)
+        self.assertIsNone(self.host.state['discussions'][discussion_id]['summaryThrough'])
+        self.assertEqual('interrupted', self.host.snapshot()['agent']['run']['status'])
+
+    def test_clear_source_during_prefetch_fences_writeback(self):
+        started, release = threading.Event(), threading.Event()
+        selected, discussion_id = self._seed_summary_history(length=300)
+        def slow(prompt, **kwargs):
+            started.set()
+            release.wait(3)
+            return {'summary': 'Cleared history must not be restored'}
+        self.host.early_discussion_summaries.run = slow
+        self.host.start({'requestId': 'prefetch-clear', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '解释'})
+        self.host.worker.join(5)
+        self.assertTrue(started.wait(3))
+        self.host.clear_source('fixture-paper', {'requestId': 'clear-prefetch', 'confirmed': True})
+        release.set()
+        if self.host._summary_worker:
+            self.host._summary_worker.join(5)
+        self.assertNotIn(discussion_id, self.host.state['discussions'])
+
+
+    def test_reuses_completed_summary_without_repeat_foreground_compaction(self):
+        selected, discussion_id = self._seed_summary_history()
+        calls = []
+        def summarize(prompt, **kwargs):
+            calls.append(prompt)
+            return {'summary': 'All old discussion decisions were covered.'}
+        self.host.discussion_summaries.run = summarize
+        self.host.start({'requestId': 'summary-reuse-first', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '解释'})
+        self.host.worker.join(5)
+        self.assertEqual('completed', self.host.snapshot()['agent']['run']['status'])
+        self.assertEqual(1, len(calls))
+        self.assertIsNotNone(self.host.state['discussions'][discussion_id]['summaryThrough'])
+        selected = self.host.select_discussion_source('fixture-paper')
+        self.host.start({'requestId': 'summary-reuse-second', 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '再解释'})
+        self.host.worker.join(5)
+        self.assertEqual('completed', self.host.snapshot()['agent']['run']['status'])
+        self.assertEqual(1, len(calls))
 
 
 if __name__ == '__main__':

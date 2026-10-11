@@ -204,7 +204,12 @@ export interface ReaderAgentState {
     runId: string;
     status: "running" | "approval" | "stopping" | "completed" | "failed" | "interrupted";
     error: string | null;
-    progress?: { label: string; startedAt: number; updatedAt: number; finishedAt?: number };
+    progress?: { label: string; startedAt: number; stageStartedAt?: number; updatedAt: number; finishedAt?: number };
+    /** Numeric phase timestamps only; no source text, model reasoning, or credentials. */
+    phaseTiming?: { sentAt?: number; sessionStart?: number; sessionReady?: number;
+      summaryStart?: number; summaryEnd?: number; answerSubmitted?: number;
+      turnStarted?: number; firstOutput?: number; completed?: number;
+      summaryBatches?: number; summaryInputChars?: number };
     approvals: readonly ReaderApproval[];
     activity: readonly { id: string; title: string; status: string; detail: string }[];
   };
@@ -350,6 +355,8 @@ export interface IngestionItem {
 }
 
 export interface LibrarySource {
+  /** Library card heading; does not change immutable Source ID or short name. */
+  displayTitle?: string | null;
   shortName?: string;
   format?: "PDF" | "HTML" | "Markdown";
   publishedAt?: string | null;
@@ -397,7 +404,7 @@ export interface ReaderHost {
   sourceOriginalUrl?(sourceId: string): string;
   sourceContentUrl?(sourceId: string): string;
   deleteSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
-  saveSourceDetails?(sourceId: string, title: string, topicIds: readonly string[], requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  saveSourceDetails?(sourceId: string, title: string, topicIds: readonly string[], requestId: string, displayTitle?: string): Promise<ReaderHostResult<ReadingWindow>>;
   clearSource?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   replanSource?(sourceId: string, requestId?: string): Promise<ReaderHostResult<ReadingWindow>>;
   rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
