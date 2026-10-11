@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
 import "./standalone.css";
+import "./reading-fonts.css";
 
 const root = document.getElementById("root");
 if (root === null) {
