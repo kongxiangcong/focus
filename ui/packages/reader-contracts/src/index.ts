@@ -129,7 +129,17 @@ export interface SourceNoteOperation {
 }
 export type SourceNoteRequestResult = SourceNoteOperation | { status: "saved"; note: SourceNote } | { status: "cancelled" };
 
+export interface ReadingStructureNode {
+  id: string;
+  parentId: string | null;
+  title: string;
+  description: string;
+  sourceLines: readonly [number, number];
+}
+
 export interface ReadingWindow {
+  structure?: readonly ReadingStructureNode[];
+  structureIntro?: boolean;
   workspace?: { workspaceId: string; instanceId: string; path: string };
   workItems?: readonly { kind: "chat" | "preparation" | "blog" | "ingestion" | "progress"; targetId: string; status: string; label: string; error?: string | null; dismissed?: boolean }[];
   configuration?: BackendConfigurationState;
@@ -141,7 +151,7 @@ export interface ReadingWindow {
   readingOperation?: { operation: string; source_id: string; run_id?: string; status?: string;
     plan_id?: string; previous_chunk_id?: string | null; chunk_id?: string | null; reading_revision?: number } | null;
   preparations?: Readonly<Record<string, ReadingPreparation>>;
-  outline?: readonly { chunkId: string; index: number; sectionPath: readonly string[] }[];
+  outline?: readonly { chunkId: string; index: number; sectionPath: readonly string[]; nodeId?: string }[];
   revision?: number;
   sessionId?: string;
   discussionId?: string;
@@ -238,6 +248,8 @@ export interface ReaderNoteDraft {
 }
 
 export interface ContinueReadingInput {
+  /** Enter the first body chunk; does not advance or log reading progress. */
+  beginBody?: boolean;
   sessionId?: string;
   receipt: CursorReceipt;
   requestId?: string;

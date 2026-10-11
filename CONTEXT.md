@@ -89,8 +89,16 @@ _Avoid_: paper2blog, per-source-type blog method
 _Avoid_: Curriculum, mastery plan, knowledge map
 
 **Plan Glossary**:
+
 属于一个 Reading Plan 的原文术语到中文译法表。
 _Avoid_: Knowledge graph, global terminology authority
+
+**Article Structure（文章骨架）**:
+Reading Plan 中以原文章节和顺序为基础的层级结构，以简短标题和逻辑作用说明呈现全文，每个 Reading Chunk 归属于一个结构节点。它帮助读者定位当前内容与全文的关系，不是正文 Chunk，也不是另一份文章摘要。
+
+**Structure Introduction（结构导读）**:
+首次打开已准备的 Reading Plan 时呈现的文章骨架。读者明确进入正文后才开始第一段阅读；查看骨架不推进阅读位置，也不生成阅读进度记录。
+_Avoid_: Reading Chunk, Reading Progress Entry
 
 **Reading Chunk**:
 Reading Plan 中一个稳定、连续、可整体展示的原文单元。

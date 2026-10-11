@@ -63,10 +63,31 @@ class WaitingRuntime(ReadingRuntimeDouble):
         return super().translate(**kwargs)
 
 
+def with_structure(draft):
+    from core.reading_structure import legacy_structure
+    import copy
+    draft = copy.deepcopy(draft)
+    if 'structure' not in draft:
+        tree = legacy_structure(draft['chunks'])
+        for node in tree['nodes']:
+            node['description'] = '介绍本部分的内容及其作用。'
+        draft['structure'] = tree
+    return draft
+
+
+def enter_body(host):
+    view = host.snapshot()
+    current = view['navigationCurrent']
+    return host.continue_cached({'beginBody': True, 'receipt': {
+        'sourceId': current['sourceId'], 'planId': current['planId'],
+        'chunkId': current['chunkId'], 'readingRevision': view['readingRevision']},
+        'requestId': uuid.uuid4().hex})
+
+
 class PlanningRuntime(ReadingRuntimeDouble):
     def __init__(self, draft):
         super().__init__()
-        self.draft = draft
+        self.draft = with_structure(draft)
 
     def plan(self, **kwargs):
         self.calls.append("plan")
@@ -127,13 +148,14 @@ class Stage4PreparationTests(unittest.TestCase):
         self.assertEqual(3, self.runtime.calls.count("translate"))
         open_id = uuid.uuid4().hex
         opened = self.host.open_prepared_reading("fixture-paper", request_id=open_id)
-        self.assertEqual("chunk-001", self.host.snapshot()["current"]["chunkId"])
+        self.assertIsNone(opened["current"])
+        self.assertTrue(opened["structureIntro"])
         self.assertEqual(3, self.runtime.calls.count("translate"))
-        self.assertTrue(json.loads((self.workspace / "state.json").read_text(encoding="utf-8"))["sources"]["fixture-paper"]["reading_started"])
+        self.assertFalse(json.loads((self.workspace / "state.json").read_text(encoding="utf-8"))["sources"]["fixture-paper"]["reading_started"])
         replayed = self.host.open_prepared_reading("fixture-paper", request_id=open_id)
         self.assertEqual(opened["readingOperation"], replayed["readingOperation"])
         self.assertEqual(opened["readingOperation"]["reading_revision"],
-                         json.loads((self.workspace / "state.json").read_text())["reading_revision"])
+                         json.loads((self.workspace / "state.json").read_text()).get("reading_revision", 0))
 
     def test_cancel_fences_late_translation_and_manual_resume_reuses_context(self):
         self.host.close()
@@ -172,8 +194,9 @@ class Stage4PreparationTests(unittest.TestCase):
         self.assertIsNone(json.loads(state_path.read_text(encoding="utf-8"))["sources"]["fixture-paper"]["current_plan_id"])
         self.host.open_prepared_reading("fixture-paper", request_id=uuid.uuid4().hex)
         opened = self.host.snapshot()
-        self.assertEqual("plan-002", opened["current"]["planId"])
-        self.assertEqual("chunk-001", opened["current"]["chunkId"])
+        self.assertTrue(opened["structureIntro"])
+        self.assertEqual("plan-002", opened["navigationCurrent"]["planId"])
+        self.assertEqual("chunk-001", enter_body(self.host)["current"]["chunkId"])
 
     def test_invalid_plan_feedback_is_bounded_and_preserves_selected_assets(self):
         self.host.close()
@@ -296,7 +319,11 @@ class Stage4PreparationTests(unittest.TestCase):
             connection.request("POST", path, body=json.dumps({"requestId": uuid.uuid4().hex}),
                                headers={"Content-Type": "application/json"})
             opened = json.load(connection.getresponse())["value"]
-            self.assertEqual("chunk-001", opened["current"]["chunkId"])
+            self.assertTrue(opened["structureIntro"])
+            self.assertIsNone(opened["current"])
+            receipt = {**{k: opened["navigationCurrent"][k] for k in ("sourceId", "planId", "chunkId")}, "readingRevision": opened["readingRevision"]}
+            connection.request("POST", "/reader/continue", body=json.dumps({"receipt": receipt, "beginBody": True, "requestId": uuid.uuid4().hex}), headers={"Content-Type": "application/json"})
+            self.assertEqual("chunk-001", json.load(connection.getresponse())["value"]["current"]["chunkId"])
         finally:
             connection.close()
             server.shutdown()
@@ -483,6 +510,7 @@ class Stage4NavigationTests(unittest.TestCase):
         self.host.prepare_reading("fixture-paper", request_id=uuid.uuid4().hex)
         self.host.reading_workers["fixture-paper"].join(3)
         self.host.open_prepared_reading("fixture-paper", request_id=uuid.uuid4().hex)
+        enter_body(self.host)
 
     def tearDown(self):
         self.host.close()
@@ -526,8 +554,8 @@ class Stage4NavigationTests(unittest.TestCase):
         request_id = uuid.uuid4().hex
         activated = self.host.activate_reading_candidate("fixture-paper", {"planId": "plan-002",
             "readingRevision": revision, "requestId": request_id})
-        self.assertEqual("chunk-001", activated["current"]["chunkId"])
-        self.assertEqual("plan-002", activated["current"]["planId"])
+        self.assertEqual("chunk-001", activated["navigationCurrent"]["chunkId"])
+        self.assertEqual("plan-002", activated["navigationCurrent"]["planId"])
         again = self.host.activate_reading_candidate("fixture-paper", {"planId": "plan-002",
             "readingRevision": revision, "requestId": request_id})
         self.assertEqual(activated["readingOperation"], again["readingOperation"])
@@ -655,7 +683,9 @@ class Stage4NavigationTests(unittest.TestCase):
         self.assertEqual("completed", self.host.snapshot()["status"])
         rereread = self.host.reread_reading({"receipt": {"sourceId": "fixture-paper", "planId": "plan-001",
             "chunkId": None, "readingRevision": self.host.snapshot()["readingRevision"]}, "requestId": uuid.uuid4().hex})
-        self.assertEqual("chunk-001", rereread["current"]["chunkId"])
+        self.assertTrue(rereread["structureIntro"])
+        self.assertIsNone(rereread["current"])
+        self.assertEqual("chunk-001", rereread["navigationCurrent"]["chunkId"])
         with self.assertRaises(WorkspaceError):
             self.host.continue_cached({"receipt": {**last, "chunkId": "chunk-001"}, "requestId": uuid.uuid4().hex})
         self.assertEqual(3, self.runtime.calls.count("translate"))
@@ -721,6 +751,7 @@ class Stage4DiscussionIntegrationTests(unittest.TestCase):
         self.host.prepare_reading("fixture-paper", request_id=uuid.uuid4().hex)
         self.host.reading_workers["fixture-paper"].join(3)
         self.host.open_prepared_reading("fixture-paper", request_id=uuid.uuid4().hex)
+        enter_body(self.host)
 
     def tearDown(self):
         self.host.close()
@@ -752,7 +783,8 @@ class Stage4DiscussionIntegrationTests(unittest.TestCase):
         self.assertEqual("fixture-paper", note["sourceId"])
         self.assertEqual("chunk-002", self.host.snapshot()["current"]["chunkId"])
         reread = self.host.reread_reading({"receipt": self.receipt(), "requestId": uuid.uuid4().hex})
-        self.assertEqual("chunk-001", reread["current"]["chunkId"])
+        self.assertTrue(reread["structureIntro"])
+        self.assertEqual("chunk-001", reread["navigationCurrent"]["chunkId"])
         self.assertEqual(note["noteId"], reread["sourceNotes"][0]["noteId"])
         changed = self.host.source_note_change("fixture-paper", note["noteId"],
             {"expectedRevision": note["revision"], "requestId": uuid.uuid4().hex,

@@ -23,6 +23,7 @@ from .reading_workspace import (
 )
 from .source_library import SourceLibrary
 from .reading_progress import enqueue
+from .reading_structure import validate_structure
 
 METHOD_VERSION = "focus-reading-v0.2"
 _LOCK = threading.RLock()
@@ -101,6 +102,9 @@ class ReadingCore:
             root = self._root(source_id) / "reading" / "plans" / run["plan_id"]
             if _digest(_read_chunk_records(root / "chunks.jsonl")) != run["plan_revision"]:
                 raise WorkspaceError("reading_plan_changed", "Candidate Reading Plan changed")
+            if run.get('structure_revision') and (not (root / 'structure.json').is_file()
+                    or _digest(_read_document(root / 'structure.json')) != run['structure_revision']):
+                raise WorkspaceError('reading_plan_changed', 'Candidate Article Structure changed')
             if run.get("glossary_revision") and _digest(_read_glossary(root / "glossary.tsv")) != run["glossary_revision"]:
                 raise WorkspaceError("reading_glossary_changed", "Plan Glossary changed")
         return run
@@ -207,7 +211,7 @@ class ReadingCore:
                 plan_id = ready["plan_id"]
             else:
                 raise WorkspaceError("reading_not_ready", "Reading Plan is not ready")
-            changed = state.get("current_source_id") != source_id or not selected.get("reading_started", False)
+            changed = state.get("current_source_id") != source_id
             if selected_plan is None:
                 chunks = _read_chunk_records(self._root(source_id) / "reading" / "plans" / plan_id / "chunks.jsonl")
                 selected.update(current_plan_id=plan_id, current_chunk_id=chunks[0]["chunk_id"])
@@ -215,7 +219,7 @@ class ReadingCore:
                 selected['reading_pass'] = 1
             elif selected.get('reading_pass') is None:
                 selected['reading_pass'] = 1
-            selected["reading_started"] = True
+            selected.setdefault("reading_started", False)
             state["current_source_id"] = source_id
             if changed:
                 state["reading_revision"] = int(state.get("reading_revision", 0)) + 1
@@ -252,7 +256,7 @@ class ReadingCore:
                 raise WorkspaceError("reading_candidate_not_ready", "Candidate Plan is not ready")
             chunks = _read_chunk_records(self._root(source_id) / "reading" / "plans" / plan_id / "chunks.jsonl")
             state["sources"][source_id].update(current_plan_id=plan_id,
-                current_chunk_id=chunks[0]["chunk_id"], reading_started=True, reading_pass=1)
+                current_chunk_id=chunks[0]["chunk_id"], reading_started=False, reading_pass=1)
             state["current_source_id"] = source_id
             state["reading_revision"] = reading_revision + 1
             result = {"operation": "activate", "source_id": source_id, "plan_id": plan_id,
@@ -342,6 +346,11 @@ class ReadingCore:
         except WorkspaceError:
             return False
 
+    def start_body(self, *, source_id: str, plan_id: str, chunk_id: str,
+                   reading_revision: int, request_id: str) -> dict:
+        return self._navigation('start', source_id=source_id, plan_id=plan_id,
+            chunk_id=chunk_id, reading_revision=reading_revision, request_id=request_id)
+
     def _navigation(self, operation: str, *, source_id: str, plan_id: str, chunk_id: str | None,
                     reading_revision: int, request_id: str) -> dict:
         if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9-]{8,80}", request_id):
@@ -366,8 +375,20 @@ class ReadingCore:
                 or selected.get("current_plan_id") != plan_id
                 or int(state.get("reading_revision", 0)) != reading_revision):
                 raise WorkspaceError("cursor_changed", "阅读位置已改变，请刷新后重试。")
-            if not selected.get("reading_started") or not self._plan_ready(source_id, plan_id):
+            if not self._plan_ready(source_id, plan_id):
                 raise WorkspaceError("reading_not_ready", "Reading Plan is not ready")
+            if operation == 'start':
+                if selected.get('reading_started') or selected.get('current_chunk_id') != chunk_id or chunk_id is None:
+                    raise WorkspaceError('cursor_changed', '阅读位置已改变，请刷新后重试。')
+                selected['reading_started'] = True
+                state['reading_revision'] = reading_revision + 1
+                result = {'operation': 'start', 'source_id': source_id, 'plan_id': plan_id,
+                          'chunk_id': chunk_id, 'reading_revision': reading_revision + 1}
+                state.setdefault('reading_requests', {})[request_id] = {'input': payload, 'result': result}
+                _write_document(state_path, state)
+                return result
+            if not selected.get('reading_started'):
+                raise WorkspaceError('reading_not_started', '请先进入正文。')
             chunks = _read_chunk_records(self._root(source_id) / "reading" / "plans" / plan_id / "chunks.jsonl")
             ids = [chunk["chunk_id"] for chunk in chunks]
             frontier = selected.get("current_chunk_id")
@@ -397,6 +418,7 @@ class ReadingCore:
             reading_pass = int(selected.get('reading_pass', 1))
             if operation == 'reread':
                 selected['reading_pass'] = reading_pass + 1
+                selected['reading_started'] = False
             else:
                 enqueue(state, request_id=request_id, operation=operation,
                         source_id=source_id, bundle=self._bundle_version(source_id),
@@ -452,8 +474,11 @@ class ReadingCore:
         root = self._root(source_id) / "reading" / "plans" / run["plan_id"]
         chunks = _read_chunk_records(root / "chunks.jsonl")
         records = [self._record_revision(root, c["chunk_id"]) for c in chunks]
-        return _digest([run["bundle"], run["plan_id"], run["context_revision"],
-                        run["glossary_revision"], chunks, records])
+        content = [run["bundle"], run["plan_id"], run["context_revision"],
+                   run["glossary_revision"], chunks, records]
+        if (root / 'structure.json').is_file():
+            content.append(validate_structure(_read_document(root / 'structure.json'), chunks))
+        return _digest(content)
 
     @staticmethod
     def _record_revision(root: Path, chunk_id: str) -> dict:
@@ -601,6 +626,7 @@ class ReadingCore:
                 claimed.update(range(start, end + 1))
             if claimed != set(range(1, len(lines) + 1)):
                 raise WorkspaceError("reading_plan_invalid", "Reading Plan omits source lines")
+            structure = validate_structure(draft.get('structure'), records)
             plans = source_root / "reading" / "plans"
             numbers = [int(m.group(1)) for p in plans.glob("plan-*") if p.is_dir()
                        if (m := re.fullmatch(r"plan-(\d+)", p.name))]
@@ -614,6 +640,7 @@ class ReadingCore:
                 (root / "chunks.jsonl").write_text("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in records),
                                                    encoding="utf-8")
                 (root / "glossary.tsv").write_text("".join(f"{a}\t{b}\n" for a, b in glossary), encoding="utf-8")
+                _write_document(root / 'structure.json', structure)
                 for c in records:
                     _write_document(root / "records" / f"{c['chunk_id']}.json",
                                     {"chunk_id": c["chunk_id"], "translation": None, "notes": []})
@@ -622,6 +649,7 @@ class ReadingCore:
                                  "context_revision": run["context_revision"], "runtime": run["runtime"],
                                  "excluded_ranges": excluded})
                 run.update(plan_id=plan_id, plan_revision=_digest(_read_chunk_records(root / "chunks.jsonl")),
+                           structure_revision=_digest(structure),
                            glossary_revision=_digest(_read_glossary(root / "glossary.tsv")), step="translate")
                 self._write(source_id, run)
             except Exception:

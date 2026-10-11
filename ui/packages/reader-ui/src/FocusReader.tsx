@@ -8,6 +8,8 @@ import "./reader-shell.css";
 import "./mist-reader.css";
 import "./reader-figures.css";
 import { FigurePanel } from "./FigurePanel";
+import { ArticleStructure } from "./ArticleStructure";
+import "./article-structure.css";
 import { chunkFigures, extractFigures, figureNumber, imageIdentity, mergeFigures, type Figure } from "./figures";
 
 type Upload = { id: string; file: File; state: "uploading" | "ready" | "failed"; attachment?: ReaderAttachment; error?: string };
@@ -17,6 +19,8 @@ export interface FocusReaderProps { host: ReaderHost; appearance?: "mist" | "con
 export function FocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange }: FocusReaderProps) {
   const mist = appearance === "mist";
   const [collapsed, setCollapsed] = useState(false);
+  const [structureOpen, setStructureOpen] = useState(false);
+  const [viewportChunk, setViewportChunk] = useState<ReaderChunk | null>(null);
   const [view, setView] = useState<ReadingWindow | null>(null);
   const paintedTimingRuns = useRef(new Set<string>());
   const [draft, setDraft] = useState("");
@@ -171,6 +175,22 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const blocked = active || !!operation;
   const chunks = view ? [...view.history, ...(current ? [current] : view.readingStarted && frontier ? [frontier] : [])] : [];
   const displayed = reviewChunk ?? current;
+  const showStructure = !!view?.structure?.length && (!!view.structureIntro || structureOpen);
+  const bodyScroll = useRef(0);
+  useLayoutEffect(() => {
+    if (!stream.current) return;
+    if (showStructure) { bodyScroll.current = stream.current.scrollTop; stream.current.scrollTop = 0; }
+    else stream.current.scrollTop = bodyScroll.current;
+  }, [showStructure]);
+  useEffect(() => { setStructureOpen(false); }, [view?.source.sourceId, frontier?.planId, view?.resetVersion]);
+  useEffect(() => { setViewportChunk(null); }, [view?.source.sourceId, view?.readingRevision, reviewChunk, view?.sessionId]);
+  const latestReading = [...(view?.timeline ?? [])].reverse().find(e => e.kind === "reading");
+  const locatedChunk = viewportChunk ?? reviewChunk ?? (latestReading?.kind === "reading" ? latestReading.chunk : displayed ?? frontier);
+  const structurePlanId = frontier?.planId ?? view?.history.at(-1)?.planId;
+  const structureChunkId = locatedChunk?.planId === structurePlanId ? locatedChunk?.chunkId : undefined;
+  const structureNode = view?.structure?.find(n => n.id === view.outline?.find(c => c.chunkId === structureChunkId)?.nodeId);
+  const structureParent = view?.structure?.find(n => n.id === structureNode?.parentId);
+  const structureTitle = structureNode ? [structureParent?.title, structureNode.title].filter(Boolean).join(" › ") : locatedChunk?.sectionPath.slice(-2).join(" › ");
   const sourceId = view?.source.sourceId ?? "";
   const currentFigures = displayed ? chunkFigures(displayed, figureLanguages[chunkKey(displayed)] ?? false).map(f =>
     mergeFigures(sourceId, [f], (view?.figures ?? []).filter(i => imageIdentity(i.src, sourceId) === f.id))[0]) : [];
@@ -220,6 +240,17 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     try { localStorage.setItem("focus.readerTextShare", String(bounded)); } catch { /* UI still resizes */ }
   }
   const visibleChunks = entries.flatMap(e => e.kind === "reading" ? [e.chunk] : []);
+  function locateVisibleChunk() {
+    if (showStructure || !stream.current) return;
+    const bounds = stream.current.getBoundingClientRect();
+    const cards = Array.from(stream.current.querySelectorAll<HTMLElement>("[data-chunk-key]"))
+      .map(el => ({ el, box: el.getBoundingClientRect() }))
+      .filter(({ box }) => box.height > 0 && box.bottom > bounds.top + 50 && box.top < bounds.bottom)
+      .sort((a, b) => Math.abs(a.box.top - bounds.top - 60) - Math.abs(b.box.top - bounds.top - 60));
+    const key = cards[0]?.el.dataset.chunkKey;
+    const chunk = visibleChunks.find(c => chunkKey(c) === key);
+    if (chunk) setViewportChunk(old => old && chunkKey(old) === key ? old : chunk);
+  }
   const focusedIndex = view?.timeline ? entries.length - 1 : displayed && !active && discussionFocus !== chunkKey(displayed) ? 0 : entries.length - 1;
   const displayEmpty = entries.length === 0;
   const contentVersion = `${view?.sessionId}:${displayed?.chunkId}:${entries.length}:${view?.conversation.map(m => m.content).join('\n')}:${displayed?.translation?.length}`;
@@ -309,7 +340,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   }
   function freshContinue() {
     if (!view || !frontier || blocked) return;
-    const input = { receipt: cursorReceipt(view)!, sessionId: view.sessionId, requestId: createReaderId() };
+    const input = { receipt: cursorReceipt(view)!, sessionId: view.sessionId, requestId: createReaderId(), beginBody: !!view.structureIntro };
     follow.current = true;
     void perform("下一段", () => host.continueReading(input));
   }
@@ -402,16 +433,16 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
 
   const outline = view?.outline ?? Array.from({ length: current?.total ?? chunks.at(-1)?.total ?? 0 }, (_, i) => ({ chunkId: `chunk-${String(i + 1).padStart(3, "0")}`, index: i + 1, sectionPath: [] as string[] }));
   const progressEntries = view?.readingProgress ?? [];
-  return <div ref={layout} onKeyDown={event => { if (event.key === "Escape" && sideMode && !(event.target as HTMLElement).closest("dialog")) {
+  return <div ref={layout} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && sideMode && !(event.target as HTMLElement).closest("dialog")) {
     preserveReading(() => setSideMode(null)); event.currentTarget.querySelector<HTMLButtonElement>(mist ? ".reader-side-toggle" : ".reader-figures-toggle")?.focus({ preventScroll: true });
-  } }} data-materials-open={mist && materialsOpen} data-side-open={!!sideMode} className={`focus-reader reader-split${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}
+  } }} data-materials-open={mist && materialsOpen && !showStructure} data-side-open={!!sideMode && !showStructure} className={`focus-reader reader-split${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}
     style={{ "--reader-reading-size": `${readingFontSizes[fontSize]}px`, "--reader-text-share": `${textShare}fr`, "--reader-side-share": `${100 - textShare}fr` } as CSSProperties}>
     {mist && <aside className="mist-sidebar" aria-label="阅读进度与操作">
-      <div className="mist-progress-label"><span>阅读进度</span><span>{view?.status === "completed" ? "已读完" : `${current?.index ?? 0} / ${current?.total ?? 0}`}</span></div>
+      <div className="mist-progress-label"><span>阅读进度</span><span>{view?.status === "completed" ? "已读完" : `${view?.structureIntro ? 0 : frontier?.index ?? 0} / ${frontier?.total ?? outline.length}`}</span></div>
       <nav className="mist-outline" aria-label="段落目录">{outline.map(item => {
         const loaded = chunks.find(c => c.chunkId === item.chunkId);
         return <button key={item.chunkId} disabled={!loaded} data-frontier={frontier?.chunkId === item.chunkId} aria-current={displayed?.chunkId === item.chunkId ? "step" : undefined}
-          onClick={() => loaded && review(loaded)}><span>{String(item.index).padStart(2, "0")}</span><span className="focus-sr-only">{loaded?.sectionPath.at(-1) ?? item.sectionPath.at(-1) ?? "未读段落"}</span></button>;
+          onClick={() => { if (loaded) { setStructureOpen(false); review(loaded); } }}><span>{String(item.index).padStart(2, "0")}</span><span className="focus-sr-only">{loaded?.sectionPath.at(-1) ?? item.sectionPath.at(-1) ?? "未读段落"}</span></button>;
       })}</nav>
     </aside>}
     {!mist && <header className="focus-header">
@@ -428,14 +459,14 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
           <button className="reader-figures-toggle" aria-controls="reader-side-space" aria-expanded={sideMode === "figures"} onClick={() => preserveReading(() => setSideMode(sideMode === "figures" ? null : "figures"))}>{sideMode === "figures" ? "隐藏图片区" : "展开图片区"}</button>
           <button className="reader-materials-toggle" aria-controls="reader-side-space" aria-expanded={materialsOpen} onClick={() => preserveReading(() => setSideMode(materialsOpen ? null : "materials"))}>{materialsOpen ? "隐藏资料栏" : "笔记与记录"}</button>
         </nav>}
-        {sideMode && !mist && <div className="reader-column-resizer" role="separator" aria-label="调整文字与侧栏宽度" aria-orientation="vertical" tabIndex={0} aria-valuemin={35} aria-valuemax={75} aria-valuenow={Math.round(textShare)} onKeyDown={event => {
+        {sideMode && !showStructure && !mist && <div className="reader-column-resizer" role="separator" aria-label="调整文字与侧栏宽度" aria-orientation="vertical" tabIndex={0} aria-valuemin={35} aria-valuemax={75} aria-valuenow={Math.round(textShare)} onKeyDown={event => {
           if (["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) { event.preventDefault(); resizeColumns(event.key === "Home" ? 60 : textShare + (event.key === "ArrowRight" ? 2 : -2)); }
         }} onPointerDown={event => { event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault(); }} onPointerMove={event => {
           if (!event.currentTarget.hasPointerCapture(event.pointerId) || !event.buttons || !layout.current) return;
           const box = layout.current.getBoundingClientRect(); const left = stream.current?.offsetLeft ?? 0;
           resizeColumns((event.clientX - box.left - left) / (box.width - left - 8) * 100);
         }} />}
-        <section id="reader-side-space" className={`reader-side-space${mist ? " reader-left-drawer" : ""}`} data-side-placement={mist ? "left" : "right"} aria-label="阅读资料侧栏" hidden={!sideMode}>
+        <section id="reader-side-space" className={`reader-side-space${mist ? " reader-left-drawer" : ""}`} data-side-placement={mist ? "left" : "right"} aria-label="阅读资料侧栏" hidden={!sideMode || showStructure}>
         <header className="reader-side-heading"><button aria-pressed={sideMode === "figures"} onClick={() => preserveReading(() => setSideMode("figures"))}>图片</button><button aria-pressed={materialsOpen} onClick={() => preserveReading(() => setSideMode("materials"))}>笔记 / 记录</button>{sideMode && <button aria-label="关闭阅读侧栏" onClick={() => preserveReading(() => setSideMode(null))}>×</button>}</header>
         {sideMode === "figures" && <FigurePanel key={sourceId} figures={sourceFigures} selected={selectedFigure} selectionVersion={figureSelectionVersion} onSelect={figure => preserveReading(() => { setSelectedFigure(figure.id); setFigureSelectionVersion(old => old + 1); })} />}
         <aside id="reader-materials" role={mist ? "complementary" : "group"} className="reader-materials" hidden={!materialsOpen} aria-label="笔记与阅读记录">
@@ -485,12 +516,22 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         </aside>
         </section>
     <main className="focus-stream" ref={stream} aria-label="阅读与对话" tabIndex={0} onWheel={() => { if (mist) pauseFollow(); }} onTouchStart={() => { if (mist) pauseFollow(); }} onKeyDown={e => { if (mist && ["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown"].includes(e.key)) pauseFollow(); }} onScroll={() => {
+      locateVisibleChunk();
       if (mist) return;
       const el = stream.current!;
       follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
       if (follow.current) setNewContent(false);
     }}>
+      {!!view?.structure?.length && <div className="reader-structure-status" aria-label="当前阅读位置">
+        <span>{showStructure ? "文章结构" : structureTitle || (view.status === "completed" ? "已完成本篇" : "准备阅读")}</span>
+        <small>{view.structureIntro ? 0 : locatedChunk?.index ?? frontier?.index ?? view.outline?.length ?? 0} / {view.outline?.length ?? 0}</small>
+        {!view.structureIntro && <button aria-expanded={showStructure} onClick={() => setStructureOpen(!structureOpen)}>{showStructure ? "返回阅读" : "文章结构"}</button>}
+      </div>}
       <div className="focus-content">
+        {showStructure && view && <ArticleStructure view={view} currentChunkId={view.structureIntro ? undefined : structureChunkId} blocked={blocked}
+          onReview={id => { const chunk = chunks.find(c => c.chunkId === id); if (chunk) { setStructureOpen(false); review(chunk); } }}
+          onBody={() => { if (view.structureIntro) freshContinue(); else setStructureOpen(false); }} />}
+        <div hidden={showStructure}>
         {!view && <p role="status">{connection ? "暂时无法连接" : "正在打开…"}</p>}
         {reviewChunk && <p className="focus-review-banner">正在回看第 {reviewChunk.index} 段 · 正式位置未改变 <button onClick={() => { if (frontier) review(frontier); }}>返回当前阅读</button></p>}
         {view && displayEmpty && <section className="focus-start">
@@ -508,6 +549,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
             style={mist ? { "--depth-opacity": Math.max(.38, 1 - Math.abs(focusedIndex - index) * .18) } as CSSProperties : undefined}>{content}</div>;
         })}
         {view?.status === "completed" && !reviewChunk && <div className="focus-finished">已完成本篇 <button disabled={!host.clearSource || blocked} onClick={() => { if (view && window.confirm("将清除本篇讨论、笔记和阅读记录，并从第一段重新开始。原文、译文和博客保留。")) { const requestId = createReaderId(); void perform("重新阅读", () => host.clearSource!(view.source.sourceId, requestId)); } }}>重新阅读</button><button onClick={() => setPanel("contents")}>查看已读段落</button></div>}
+        </div>
       </div>
     </main>
     {mist && <nav className="mist-history-rail" aria-label="历史提问">{view?.conversation.filter(m => m.role === "user").map(m => <button key={m.messageId} aria-label={m.content} onClick={() => {
@@ -515,7 +557,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       const target = Array.from(stream.current?.querySelectorAll<HTMLElement>("[data-message-id]") ?? []).find(el => el.dataset.messageId === m.messageId);
       target?.scrollIntoView({ block: "center", behavior: "instant" });
     }}><span className="mist-history-line" /><span className="mist-history-label">{m.content}</span></button>)}</nav>}
-    <div className="focus-bottom" role={mist ? "complementary" : undefined} aria-label={mist ? "阅读助手" : undefined}>
+    <div className="focus-bottom" hidden={showStructure} role={mist ? "complementary" : undefined} aria-label={mist ? "阅读助手" : undefined}>
 
 
       {newContent && !mist && <button className="focus-new-content" onClick={() => {
@@ -560,7 +602,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       <button className="reader-side-toggle" aria-controls="reader-side-space" aria-expanded={!!sideMode} onClick={() => preserveReading(() => setSideMode(sideMode ? null : sourceFigures.length ? "figures" : "materials"))}>{sideMode ? "收起侧栏" : "图片 / 笔记"}</button>
       <button className="reader-fullscreen-toggle" aria-label={fullscreen ? "退出全屏" : "全屏"} aria-pressed={fullscreen} onClick={() => onFullscreenChange?.(!fullscreen)}>{fullscreen ? "退出全屏 ×" : "全屏"}</button>
       <button disabled={!host.newSession || !view || blocked} onClick={reset}>新会话</button>
-      <button className="focus-reader__continue" disabled={blocked || (!frontier && !reviewChunk) || (view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total))}
+      <button className="focus-reader__continue" disabled={showStructure || blocked || (!frontier && !reviewChunk) || (view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total))}
         onClick={() => { follow.current = true; view?.sessionFresh ? (view.readingStarted && frontier?.index === frontier?.total ? finishFresh() : freshContinue()) : displayed?.index === displayed?.total && !reviewChunk ? finish() : next(); }}>
         {view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total) ? "已读完" : (view?.sessionFresh && view.readingStarted && frontier?.index === frontier?.total) || (!view?.sessionFresh && displayed?.index === displayed?.total && !reviewChunk) ? "完成本篇" : operation === "下一段" ? "打开中…" : "继续"}</button>
       {blocked && <span>{active ? "请等待回答完成，或停止此问答" : `${operation}中`}</span>}

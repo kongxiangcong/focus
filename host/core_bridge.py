@@ -12,6 +12,7 @@ from core.reading_workspace import (WorkspaceCore, WorkspaceError, validate_sour
 from core.source_library import SourceLibrary
 from core.source_notes import SourceNotes
 from core.discussion_application import DiscussionApplication
+from core.reading_structure import read_structure
 from .figure_catalog import source_figures
 
 ACTIONS = {
@@ -123,9 +124,13 @@ class CoreBridge:
                     'current': None, 'history': [], 'conversation': []}
         state = result['state']
         plan_root = self.workspace / 'sources' / result['source']['source_id'] / 'reading/plans' / state['plan_id']
-        outline = [{'chunkId': c['chunk_id'], 'index': c['index'], 'sectionPath': c['section_path']}
-                   for c in _read_chunk_records(plan_root / 'chunks.jsonl')]
-        return {'outline': outline, 'status': 'reading' if result['current'] else 'completed',
+        chunks = _read_chunk_records(plan_root / 'chunks.jsonl')
+        structure = read_structure(plan_root, chunks)
+        outline = [{'chunkId': c['chunk_id'], 'index': c['index'], 'sectionPath': c['section_path'], 'nodeId': node}
+                   for c, node in zip(chunks, structure['chunk_nodes'])]
+        nodes = [{'id': n['id'], 'parentId': n['parent_id'], 'title': n['title'],
+                  'description': n['description'], 'sourceLines': n['source_lines']} for n in structure['nodes']]
+        return {'structure': nodes, 'outline': outline, 'status': 'reading' if result['current'] else 'completed',
                 'readingRevision': int(json.loads((self.workspace / 'state.json').read_text(encoding='utf-8')).get('reading_revision', 0)),
                 'source': {'sourceId': result['source']['source_id'], 'title': result['source']['title'],
                            'topicId': result['state']['topic_id']},

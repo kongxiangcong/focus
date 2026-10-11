@@ -42,6 +42,8 @@ class ReadingProgressTests(unittest.TestCase):
         self.host.prepare_reading('fixture-paper', request_id=uuid.uuid4().hex)
         self.host.reading_workers['fixture-paper'].join(3)
         self.host.open_prepared_reading('fixture-paper', request_id=uuid.uuid4().hex)
+        from test_stage4_reading import enter_body
+        enter_body(self.host)
 
     def tearDown(self):
         self.host.close()
@@ -111,6 +113,8 @@ class ReadingProgressTests(unittest.TestCase):
         self.host.reread_reading({'receipt': {'sourceId': 'fixture-paper', 'planId': 'plan-001',
             'chunkId': None, 'readingRevision': self.host.snapshot()['readingRevision']},
             'requestId': uuid.uuid4().hex})
+        from test_stage4_reading import enter_body
+        enter_body(self.host)
         second = uuid.uuid4().hex
         self.host.continue_cached({'receipt': self.receipt(), 'requestId': second})
         self.host.progress_workers[second].join(3)
@@ -150,6 +154,8 @@ class ReadingProgressTests(unittest.TestCase):
         self.host.reread_reading({'receipt': {'sourceId': 'fixture-paper', 'planId': 'plan-001',
             'chunkId': None, 'readingRevision': self.host.snapshot()['readingRevision']},
             'requestId': uuid.uuid4().hex})
+        from test_stage4_reading import enter_body
+        enter_body(self.host)
         second = uuid.uuid4().hex
         self.host.continue_cached({'receipt': self.receipt(), 'requestId': second})
         self.host.progress_workers[second].join(3)
@@ -203,6 +209,8 @@ class ReadingProgressTests(unittest.TestCase):
         self.assertNotEqual('plan-001', candidate)
         self.host.activate_reading_candidate('fixture-paper', {'planId': candidate,
             'readingRevision': self.host.snapshot()['readingRevision'], 'requestId': uuid.uuid4().hex})
+        from test_stage4_reading import enter_body
+        enter_body(self.host)
         second_id = uuid.uuid4().hex
         self.host.continue_cached({'receipt': self.receipt(), 'requestId': second_id})
         self.host.progress_workers[second_id].join(3)
