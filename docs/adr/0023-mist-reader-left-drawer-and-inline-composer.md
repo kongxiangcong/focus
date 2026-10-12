@@ -25,3 +25,19 @@ composer collapse/expand button sits immediately beside the composer, keeps
 any draft intact, and stays accessible when the composer is collapsed. The
 new session/continue controls and the left image/notes entry remain in the
 functional controls row.
+
+## 2026-10-12 compact reading controls
+
+The reader's latest request supersedes the collapsed composer placement above.
+The expanded composer keeps its inline right-hand Collapse control. Collapsing
+hides the entire composer row, including the draft-reference row, and moves
+Expand Conversation into the functional controls after New Session. Draft text
+and its Source/Chunk reference remain intact. Active task controls, errors and
+draft recovery remain accessible independently of the collapsed composer.
+
+Mist's Article Structure entry and current reading location now also live in
+the functional controls, before Continue, rather than in a sticky row above
+the body. The location shows the ordinal/total followed by the structure path
+in a light gray bordered box with bold text. Narrow screens wrap controls and
+the location without horizontal overflow. The structure introduction, review
+semantics and non-Mist reader placement remain unchanged.

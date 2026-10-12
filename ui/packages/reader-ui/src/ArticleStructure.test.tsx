@@ -39,7 +39,15 @@ it("shows the structure before body text and explicitly starts without advancing
   await screen.findByText("First body paragraph.");
   expect(host.continueReading).toHaveBeenCalledWith(expect.objectContaining({ beginBody: true,
     receipt: expect.objectContaining({ chunkId: "chunk-001", readingRevision: 0 }) }));
-  expect(screen.getByLabelText("当前阅读位置")).toHaveTextContent("全文 › 方法");
+  const location = screen.getByLabelText("当前阅读位置");
+  expect(location).toHaveTextContent("1 / 2全文 › 方法");
+  const controls = screen.getByRole("navigation", { name: "阅读功能控制区" });
+  expect(controls).toContainElement(location);
+  expect(within(screen.getByRole("main", { name: "阅读与对话" })).queryByLabelText("当前阅读位置")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "收起" }));
+  expect([...controls.children].map(el => el.textContent)).toEqual([
+    "图片 / 笔记", "全屏", "新会话", "展开对话框", "文章结构", "1 / 2全文 › 方法", "继续",
+  ]);
 });
 
 it("returns to structure and reviews read sections without changing the frontier or draft", async () => {

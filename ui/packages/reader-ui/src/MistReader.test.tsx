@@ -47,7 +47,7 @@ it("renders bundle images and preserves the draft when collapsing the composer",
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "草稿" } });
   fireEvent.click(screen.getByRole("button", { name: "收起" }));
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "展开" }));
+  fireEvent.click(screen.getByRole("button", { name: "展开对话框" }));
   expect(screen.getByRole("textbox")).toHaveValue("草稿");
 });
 it("keeps upload and attachment actions out of the Mist reading workspace", async () => {
@@ -164,7 +164,7 @@ it("shows immediate feedback and locks task-changing actions through startup and
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("正在停止"));
   expect(host.stop).toHaveBeenCalledOnce();
   act(() => emit(readerSuccess({ ...running, agent: { ...running.agent!, run: { ...running.agent!.run!, status: "interrupted" } } })));
-  fireEvent.click(screen.getByRole("button", { name: "展开" }));
+  fireEvent.click(screen.getByRole("button", { name: "展开对话框" }));
   expect(screen.getByRole("textbox")).toBeEnabled();
   expect(screen.getByRole("textbox")).toHaveValue("保留草稿");
   expect(host.sendMessage).not.toHaveBeenCalled();
@@ -236,7 +236,7 @@ it("places image/notes toggle and fullscreen in the Mist function row", async ()
   expect(toggle).toHaveBeenCalledWith(true);
 });
 
-it("keeps the composer and collapse toggle on one row, preserving draft on collapse", async () => {
+it("moves expand into the function row and releases the composer row, preserving draft", async () => {
   const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(first)),
     continueReading: vi.fn(), sendMessage: vi.fn() };
   render(<FocusReader host={host} appearance="mist" />);
@@ -248,8 +248,11 @@ it("keeps the composer and collapse toggle on one row, preserving draft on colla
   fireEvent.change(textbox, { target: { value: "暂存的问题" } });
   fireEvent.click(collapse);
   expect(row?.querySelector("form")).toHaveAttribute("hidden");
-  const expand = screen.getByRole("button", { name: "展开" });
-  expect(expand.closest(".focus-composer-row")).toBe(row);
+  const expand = screen.getByRole("button", { name: "展开对话框" });
+  expect(expand.closest(".mist-reading-actions")).toBe(screen.getByRole("navigation", { name: "阅读功能控制区" }));
+  expect(row).not.toBeVisible();
+  expect(document.querySelector(".focus-bottom")).not.toBeVisible();
+  expect(screen.queryByRole("button", { name: "收起" })).not.toBeInTheDocument();
   fireEvent.click(expand);
   expect(textbox).toHaveValue("暂存的问题");
   expect(row?.querySelector("form")).not.toHaveAttribute("hidden");

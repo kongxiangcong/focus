@@ -97,4 +97,21 @@
   min-height:36px;
   white-space:nowrap;
 }
-.focus-mist[data-composer-collapsed=true] .focus-composer-row { justify-content:flex-end; }
+.focus-reader .focus-composer-row[hidden],
+.focus-reader .focus-reference[hidden] { display:none; }
+
+/* A collapsed composer releases its entire row; feedback remains available. */
+.reader-split.focus-mist .mist-reading-actions { flex-wrap:wrap; }
+.mist-reading-actions>button { flex-shrink:0; white-space:nowrap; }
+.focus-mist .mist-reading-actions .mist-composer-toggle { margin:0; font:inherit; }
+.mist-reading-actions .reader-location-badge {
+  display:flex; align-items:center; gap:10px; flex:1 1 160px; min-width:0;
+  padding:8px 12px; border:1px solid #d6d9dd; border-radius:8px;
+  background:#f0f1f3; color:var(--reader-ink); font-size:12px; font-weight:700;
+}
+.reader-location-badge small { flex-shrink:0; font:inherit; white-space:nowrap; }
+.reader-location-badge span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+@media(max-width:600px) {
+  .mist-reading-actions .reader-location-badge { flex-basis:100%; }
+  .reader-location-badge span { white-space:normal; overflow-wrap:anywhere; }
+}
