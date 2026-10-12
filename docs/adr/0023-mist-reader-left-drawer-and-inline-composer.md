@@ -26,6 +26,14 @@ any draft intact, and stays accessible when the composer is collapsed. The
 new session/continue controls and the left image/notes entry remain in the
 functional controls row.
 
+Fullscreen hides the surrounding workspace chrome and replaces its two-row
+grid with one full-height row. Its floating exit control stays below the
+materials drawer so it cannot cover the drawer close button on narrow screens. It uses the same
+single-column reader grid and first-row materials overlay as normal reading;
+it must not reintroduce side-space columns or span the drawer across the action
+and composer rows. The drawer leaves the reading stream's width and scroll
+position intact in both modes.
+
 ## 2026-10-12 compact reading controls
 
 The reader's latest request supersedes the collapsed composer placement above.
