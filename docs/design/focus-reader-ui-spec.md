@@ -32,6 +32,15 @@ locally. Source-relative image URLs resolve via the existing authenticated asset
 route; inline images are not automatically repeated as figures. No custom Markdown
 parser or secondary document model is introduced.
 
+Math accepts `$...$` / `$$...$$`, TeX `\(...\)` / `\[...\]`, and
+plain `[ ... ]` containing TeX commands. A standalone symbolic TeX line such as
+`M0_i \rightarrow S_i \rightarrow M1_i` is also displayed as a formula.
+Notation is normalized only for rendering, before the existing Markdown/KaTeX
+pipeline; source assets remain unchanged. Code, links, ordinary brackets and
+existing dollar formulas retain their original content. For expressions embedded
+in prose, use explicit math delimiters. Raw parser table cells use the same math
+notation; malformed formulas remain visible without breaking subsequent text.
+
 ## Session and chronology
 
 The Host stores a session ID, thread ID, conversation and an ordered timeline of

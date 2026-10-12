@@ -7,6 +7,7 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import "katex/dist/katex.min.css";
 import { scanFigures, type Figure, type FigureNode } from "./figures";
+import { normalizeMathMarkdown } from "./math-markdown";
 
 const components: Components = {
   table: ({ children }) => <div className="focus-table" tabIndex={0}><table>{children}</table></div>,
@@ -56,17 +57,18 @@ const rehypePlugins: NonNullable<ComponentProps<typeof Markdown>["rehypePlugins"
 ];
 // MinerU emits HTML tables; Markdown does not parse math inside raw HTML cells.
 function CellContent({ children }: { children: ReactNode }) {
-  return Children.map(children, child => typeof child === "string" && child.includes("$")
-    ? <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins}>{child}</Markdown>
+  return Children.map(children, child => typeof child === "string" && /[$\\]/.test(child)
+    ? <Markdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins}>{normalizeMathMarkdown(child)}</Markdown>
     : child);
 }
 export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, figures, onFigure, inlineFigures = false }: {
   text: string; sourceId?: string; figures?: readonly Figure[]; onFigure?: (figure: Figure) => void; inlineFigures?: boolean;
 }) {
+  const markdown = normalizeMathMarkdown(text);
   function markFigures() {
     return (tree: FigureNode) => {
       if (!sourceId || !figures || !onFigure) return;
-      for (const { node, id } of scanFigures(tree, sourceId, inlineFigures, text).nodes) {
+      for (const { node, id } of scanFigures(tree, sourceId, inlineFigures, markdown).nodes) {
         const figure = figures.find(f => f.id === id);
         if (figure) node.data = { ...node.data, readerFigure: figure };
       }
@@ -81,5 +83,5 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
         return `/reader/assets/${encodeURIComponent(sourceId)}/${url}`;
       }
       return defaultUrlTransform(url);
-    }}>{text}</Markdown></div>;
+    }}>{markdown}</Markdown></div>;
 });

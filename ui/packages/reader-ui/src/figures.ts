@@ -5,6 +5,7 @@ import remarkMath from "remark-math";
 import remarkRehype from "remark-rehype";
 import rehypeRaw from "rehype-raw";
 import type { ReaderChunk, ReaderImage } from "@focus/reader-contracts";
+import { normalizeMathMarkdown } from "./math-markdown";
 
 export type Figure = ReaderImage & { id: string; sourceId: string; label: string; bodyCaption?: boolean };
 export type FigureNode = { type: string; value?: string; tagName?: string; properties?: Record<string, unknown>; children?: FigureNode[]; data?: { readerFigure?: Figure };
@@ -77,7 +78,8 @@ export function extractFigures(markdown: string, sourceId: string) {
   const key = `${sourceId}\0${markdown}`;
   let result = cache.get(key);
   if (!result) {
-    result = scanFigures(parser.runSync(parser.parse(markdown)) as FigureNode, sourceId, false, markdown);
+    const normalized = normalizeMathMarkdown(markdown);
+    result = scanFigures(parser.runSync(parser.parse(normalized)) as FigureNode, sourceId, false, normalized);
     if (cache.size >= 160) cache.delete(cache.keys().next().value!);
     cache.set(key, result);
   }
