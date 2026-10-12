@@ -207,7 +207,7 @@ it("lands in Library and persists the chosen font across remounts", async () => 
   expect(location.pathname).toBe("/library");
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
-  expect(screen.getByText("阅读字号预览 · 特大")).toHaveStyle({ fontSize: "26px" });
+  expect(screen.getByLabelText("阅读字体预览")).toHaveStyle({ fontSize: "26px" });
   expect(screen.getByRole("radio", { name: "DeepSeek" })).toBeEnabled();
   fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
   app.unmount(); setup();
@@ -562,10 +562,40 @@ it("T2 appearance previews can be cancelled without touching saved settings", as
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   fireEvent.change(screen.getByRole("slider", { name: "亮度" }), { target: { value: "90" } });
   fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "正文字体" }), { target: { value: "source-han-sans" } });
   expect(localStorage.getItem("focus.fontSize")).toBeNull();
+  expect(localStorage.getItem("focus.readingFont")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "取消修改" }));
   expect(screen.getByRole("slider", { name: "字号" })).toHaveValue("1");
   expect(screen.getByRole("slider", { name: "亮度" })).toHaveValue("100");
+  expect(screen.getByRole("combobox", { name: "正文字体" })).toHaveValue("default");
+});
+
+it("saves the reading font and restores it after reopening the app", async () => {
+  const { host, container } = setup();
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("link", { name: "设置" }));
+  const select = screen.getByRole("combobox", { name: "正文字体" });
+  expect(within(select).getAllByRole("option").map(option => option.textContent)).toEqual(["默认字体", "思源宋体", "思源黑体", "新致宋屏幕阅读版"]);
+  fireEvent.change(select, { target: { value: "neo-zhisong-screen" } });
+  expect(screen.getByLabelText("阅读字体预览")).toHaveTextContent("Reading brings ideas into focus.");
+  expect(container.querySelector<HTMLElement>(".workspace-app")!.style.getPropertyValue("--reader-body-font")).toContain("FOCUS Neo ZhiSong Screen");
+  expect(localStorage.getItem("focus.readingFont")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
+  expect(localStorage.getItem("focus.readingFont")).toBe("neo-zhisong-screen");
+  cleanup();
+  render(<WorkspaceApp host={host} />);
+  expect(screen.getByRole("combobox", { name: "正文字体" })).toHaveValue("neo-zhisong-screen");
+  fireEvent.change(screen.getByRole("combobox", { name: "正文字体" }), { target: { value: "source-han-serif" } });
+  fireEvent.click(screen.getByRole("button", { name: "取消修改" }));
+  expect(screen.getByRole("combobox", { name: "正文字体" })).toHaveValue("neo-zhisong-screen");
+});
+
+it("falls back to the default reading font for an unknown saved value", async () => {
+  localStorage.setItem("focus.readingFont", "removed-font");
+  history.replaceState(null, "", "/settings");
+  setup();
+  expect(screen.getByRole("combobox", { name: "正文字体" })).toHaveValue("default");
 });
 
 it("T17/T18 routes expose all work and Stop targets only the selected preparation", async () => {

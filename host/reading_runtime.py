@@ -44,7 +44,16 @@ class AgentReadingRuntime:
         numbered = [{**part, 'source_text': '\n'.join(
             f'{number}: {line}' for number, line in enumerate(
                 part['source_text'].split('\n'), part['source_lines'][0]))} for part in ranges]
-        return self._candidate('Return {chunks, glossary, excluded_ranges}. Each chunk has ONLY section_path, source_lines, images, '
+        return self._candidate('Return {chunks, glossary, excluded_ranges, structure}. '
+            'structure is {nodes, chunk_nodes}. nodes is a source-ordered tree flattened parent-before-child; '
+            'each node has ONLY id, parent_id (null for roots), title (short Chinese, preferably 2-12 characters, at most 32), '
+            'description (one concise Chinese sentence explaining its logical role, at most 160 characters), '
+            'source_lines (inclusive original line range). Use original section hierarchy and order, not a generic template. '
+            'For untitled passages infer concise headings from the actual text. Sibling ranges must not overlap; '
+            'children must fit within parent ranges. chunk_nodes is an array of node ids in chunk order, one per chunk; '
+            'the assigned node must fully contain the chunk range. Every node must contain assigned chunks or descendants. '
+            'Prefer splitting at section boundaries while keeping protected content intact. '
+            'Each chunk has ONLY section_path, source_lines, images, '
             'language (zh/en/mixed) for every chunk of a mixed-language Source. Cover prose, figures, footnotes and appendices in order. '
             'Classify prose language: Chinese prose with English technical terms, names, formulas or code is zh, '
             'not mixed. Use mixed only when substantive prose in both languages needs translation. '

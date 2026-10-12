@@ -4,6 +4,17 @@ status: accepted
 
 # Prepare all reading chunks before opening
 
+The 2026-10-11 Article Structure decision separates opening from starting the body.
+An explicit open or replacement-Plan activation selects the prepared Plan but leaves
+`reading_started=false`; its initial page is the source-anchored structure tree.
+Entering the body is a versioned, idempotent action that opens the first Chunk without
+creating a progress entry. Resetting reading restores this introduction; reopening
+started reading or creating a new discussion does not reset it. Structure review
+never moves the cursor, and unread structure nodes do not unlock unread text.
+New planning candidates include short Chinese node titles, logical-role descriptions,
+source ranges and one node binding per Chunk. Verbatim section paths remain intact.
+Legacy Plans derive a read-only tree without fabricated descriptions or retranslation.
+
 The 2026-09-18 user request supersedes the planning-only and destructive reread
 behavior in ADR 0008/0009 and the per-current-chunk translation path in ADR 0006.
 All sources still receive a source-anchored Reading Plan. Preparation then fills

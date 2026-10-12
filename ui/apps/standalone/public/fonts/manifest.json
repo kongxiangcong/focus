@@ -1,0 +1,36 @@
+[
+  {
+    "file": "source-han-serif-regular.woff2",
+    "version": "Version 2.003;hotconv 1.1.1;makeotfexe 2.6.0",
+    "characters": 30930,
+    "source_sha256": "3754ea669c530e2473354f8f6d9f79680a44d7e26ec7d00eeabee4a7e0753c5d",
+    "sha256": "6f340d7becfe9eb59eb60a4e09bcd382ba0e46d484f0677f6d29abeb1a05f242"
+  },
+  {
+    "file": "source-han-serif-bold.woff2",
+    "version": "Version 2.003;hotconv 1.1.1;makeotfexe 2.6.0",
+    "characters": 30930,
+    "source_sha256": "4ee555ae58b3d22f6a95c2c494f2c36b7cccfc1d2224635f6461a03756f0e3c1",
+    "sha256": "9fc9418907a97d4aef151bd10800db72504981e0b3fa1e315fafb88fa2ee9aaa"
+  },
+  {
+    "file": "source-han-sans-regular.woff2",
+    "version": "Version 2.005;addfeatures 5.0.0b21",
+    "characters": 44853,
+    "source_sha256": "f1d8611151880c6c336aabeac4640ef434fa13cbfbf1ffe82d0a71b2a5637256",
+    "sha256": "e5cfdb98ffa90d2630f6e1300725519944565c173a06732e59595e2ad4e71ace"
+  },
+  {
+    "file": "source-han-sans-bold.woff2",
+    "version": "Version 2.005;addfeatures 5.0.0b21",
+    "characters": 30926,
+    "source_sha256": "62383707c086a32f3afd5e293f34c7eff64c7fea31f579fdc6cbe34d920519a6",
+    "sha256": "d42a0724edb2d7e96fd27be55088b4967c81afac2c4a87cc72a9a569fd44e1e9"
+  },
+  {
+    "file": "neo-zhisong-screen.ttf",
+    "version": "Version 1.067;August 20, 2026",
+    "characters": 27770,
+    "sha256": "4e071b63ee221e72309ec720259f264024336991d1ee0bce42e80d1fb3855a1c"
+  }
+]

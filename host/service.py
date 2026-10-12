@@ -193,7 +193,7 @@ class HostService:
             if discussion_source and discussion_source != window['source']['sourceId']:
                 source = SourceLibrary(self.workspace).get(discussion_source)
                 window.update(status='empty', source={'sourceId': discussion_source, 'title': source['title'],
-                    'topicId': None}, current=None, history=[], outline=[])
+                    'topicId': None}, current=None, history=[], outline=[], structure=[])
             note_source = discussion_source or window['source']['sourceId']
             try:
                 window['figures'] = self.core.figure_catalog(note_source) if note_source else []
@@ -208,6 +208,7 @@ class HostService:
             window['navigationCurrent'] = window['current']
             selected_state = json.loads((self.workspace / 'state.json').read_text()) if (self.workspace / 'state.json').is_file() else {}
             window['readingStarted'] = bool(selected_state.get('sources', {}).get(note_source, {}).get('reading_started'))
+            window['structureIntro'] = bool(window.get('structure') and window['navigationCurrent'] and not window['readingStarted'])
             window['resetVersion'] = sum(1 for source in selected_state.get('source_resets', {}).values() if source == note_source)
             if not self.state['displayReading'] or (window['navigationCurrent'] and not window['readingStarted']):
                 window['sessionFresh'] = True
@@ -847,11 +848,14 @@ class HostService:
             receipt = payload.get('receipt') or {}
             newly_committed = self.reading_request_result(payload.get('requestId')) is None
             selected = json.loads((self.workspace / 'state.json').read_text())['sources'].get(receipt.get('sourceId'), {})
-            if not selected.get('reading_started'):
+            previous_operation = self.reading_request_result(payload.get('requestId'))
+            if payload.get('beginBody') or not selected.get('reading_started') or (previous_operation and previous_operation.get('operation') == 'start'):
                 state = json.loads((self.workspace / 'state.json').read_text())
                 if newly_committed and (state.get('current_source_id') != receipt.get('sourceId') or selected.get('current_plan_id') != receipt.get('planId') or selected.get('current_chunk_id') != receipt.get('chunkId') or state.get('reading_revision', 0) != receipt.get('readingRevision')):
                     raise WorkspaceError('cursor_changed', '阅读位置已改变，请刷新后重试。')
-                result = self.reading_app.core.open_ready(receipt.get('sourceId'), request_id=payload.get('requestId'))
+                result = self.reading_app.core.start_body(source_id=receipt.get('sourceId'),
+                    plan_id=receipt.get('planId'), chunk_id=receipt.get('chunkId'),
+                    reading_revision=receipt.get('readingRevision'), request_id=payload.get('requestId'))
             else:
                 result = self.reading_app.continue_reading(
                 source_id=receipt.get('sourceId'), plan_id=receipt.get('planId'),

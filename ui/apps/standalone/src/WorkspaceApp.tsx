@@ -4,6 +4,7 @@ import { FocusReader, AgentControls, TaskProgress, readingFontSizes } from "@foc
 import { BackendSetupPanel } from "./BackendSetupPanel";
 import { WorkspaceSelection } from './WorkspaceSelection';
 import { UploadTopicPicker } from "./UploadTopicPicker";
+import { readingFonts, readReadingFont, readingFontFamily, type ReadingFont } from "./reading-fonts";
 
 type Route = "/library" | "/reading" | "/settings";
 type FontSize = "small" | "standard" | "large" | "extra";
@@ -43,8 +44,9 @@ const blogRetryLabel: Record<BlogArtifactName, string> = {
 export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [route, setRoute] = useState<Route>(routeFromLocation);
   const [fontSize, setFontSize] = useState<FontSize>(readFont);
+  const [readingFont, setReadingFont] = useState<ReadingFont>(readReadingFont);
   const [brightness, setBrightness] = useState(() => { try { return Math.max(85, Math.min(110, Number(localStorage.getItem("focus.brightness") ?? 100) || 100)); } catch { return 100; } });
-  const savedAppearance = useRef({ fontSize, brightness });
+  const savedAppearance = useRef({ fontSize, brightness, readingFont });
   const [readingFullscreen, setReadingFullscreen] = useState(false);
   const [managementTopics, setManagementTopics] = useState<readonly string[]>([]);
   const [generateOnUpload, setGenerateOnUpload] = useState(true);
@@ -109,10 +111,11 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   function saveAppearance() {
     try {
-      const old = { fontSize: localStorage.getItem("focus.fontSize"), brightness: localStorage.getItem("focus.brightness") };
-      try { localStorage.setItem("focus.fontSize", fontSize); localStorage.setItem("focus.brightness", String(brightness)); }
-      catch (e) { if (old.fontSize !== null) localStorage.setItem("focus.fontSize", old.fontSize); else localStorage.removeItem("focus.fontSize"); if (old.brightness !== null) localStorage.setItem("focus.brightness", old.brightness); else localStorage.removeItem("focus.brightness"); throw e; }
-      savedAppearance.current = { fontSize, brightness }; return true;
+      const changes = { "focus.fontSize": fontSize, "focus.brightness": String(brightness), "focus.readingFont": readingFont };
+      const old = Object.keys(changes).map(key => [key, localStorage.getItem(key)] as const);
+      try { for (const [key, value] of Object.entries(changes)) localStorage.setItem(key, value); }
+      catch (e) { for (const [key, value] of old) { if (value !== null) localStorage.setItem(key, value); else localStorage.removeItem(key); } throw e; }
+      savedAppearance.current = { fontSize, brightness, readingFont }; return true;
     } catch { return false; }
   }
   function navigate(next: Route) { history.pushState(null, "", next); setRoute(next); setError(""); setRetryAction(null); }
@@ -451,7 +454,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     return () => document.removeEventListener("keydown", exit);
   }, [readingFullscreen]);
   useEffect(() => { if (route !== "/reading") setReadingFullscreen(false); }, [route]);
-  return <div className="workspace-app" data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-brightness": brightness / 100 } as CSSProperties}>
+  return <div className="workspace-app" data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-brightness": brightness / 100, "--reader-body-font": readingFontFamily(readingFont) } as CSSProperties}>
     <header className="workspace-nav">
       <a className="workspace-logo" href="/library" onClick={e => { e.preventDefault(); navigate("/library"); }}>focus<span>.</span></a>
       <nav aria-label="应用导航">{([["/library", "知识库", "▤"], ["/reading", "阅读", "☷"], ["/settings", "设置", "☼"]] as const).map(([path, title, icon]) =>
@@ -588,11 +591,22 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     {route === "/settings" && <main className="settings-page">
       <WorkspaceSelection />
       <BackendSetupPanel host={host} configuration={view?.configuration}
-        onSaved={acceptView} onSaveAppearance={saveAppearance} onCancelAppearance={() => { setFontSize(savedAppearance.current.fontSize); setBrightness(savedAppearance.current.brightness); }} />
+        onSaved={acceptView} onSaveAppearance={saveAppearance} onCancelAppearance={() => { setFontSize(savedAppearance.current.fontSize); setBrightness(savedAppearance.current.brightness); setReadingFont(savedAppearance.current.readingFont); }} />
       <section className="focus-reader__appearance-panel">
       <div className="settings-row"><label htmlFor="brightness">亮度</label><input id="brightness" type="range" min="85" max="110" value={brightness} onChange={e => { setBrightness(Number(e.target.value)); }} /></div>
       <div className="settings-row"><label htmlFor="font-size">字号</label><input id="font-size" type="range" min="0" max="3" step="1" value={fontOptions.findIndex(([key]) => key === fontSize)} aria-valuetext={fontOptions.find(([key]) => key === fontSize)?.[1]} onChange={e => { const value = fontOptions[Number(e.target.value)][0]; setFontSize(value); }} /></div>
-      <p className="settings-font-preview" style={{ fontSize: `${readingFontSizes[fontSize]}px` }}>阅读字号预览 · {fontOptions.find(([key]) => key === fontSize)?.[1]}</p>
+      <div className="settings-row"><label htmlFor="reading-font">正文字体</label><select id="reading-font" value={readingFont} onChange={e => setReadingFont(e.target.value as ReadingFont)}>
+        {readingFonts.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}
+      </select></div>
+      <div className="settings-font-preview" aria-label="阅读字体预览" style={{ fontSize: `${readingFontSizes[fontSize]}px` }}>
+        <p>阅读让我们看见问题的来处，也理解方法成立的原因。保留疑问，沿着证据继续探索。</p>
+        <p lang="en">Reading brings ideas into focus. Follow the evidence, ask clear questions, and keep exploring.</p>
+        <p><strong>重要结论</strong> · Focus 2026 · 0123456789</p>
+      </div>
+      <details className="settings-font-licenses"><summary>字体许可</summary>
+        <p><a href="/fonts/SourceHanSerif-LICENSE.txt" target="_blank" rel="noreferrer">思源宋体</a> · <a href="/fonts/SourceHanSans-LICENSE.txt" target="_blank" rel="noreferrer">思源黑体</a> · <a href="/fonts/NeoZhiSong-IPA-LICENSE.txt" target="_blank" rel="noreferrer">新致宋屏幕阅读版</a></p>
+        <p>新致宋可恢复为 IPA 原始字体：从 <a href="https://moji.or.jp/ipafont/ipafontdownload/" target="_blank" rel="noreferrer">IPA 官方下载页</a>下载并安装 IPAex 明朝，重启浏览器后选择“新致宋屏幕阅读版”，将优先使用本机 IPAexMincho（或 IPAmjMincho）。卸载原始字体后恢复使用内置屏幕阅读版。</p>
+      </details>
 </section>
     </main>}
     <dialog className="workspace-confirm" ref={managementDialog} onCancel={() => setManagement(null)}>
