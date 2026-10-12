@@ -433,6 +433,20 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
 
   const outline = view?.outline ?? Array.from({ length: current?.total ?? chunks.at(-1)?.total ?? 0 }, (_, i) => ({ chunkId: `chunk-${String(i + 1).padStart(3, "0")}`, index: i + 1, sectionPath: [] as string[] }));
   const progressEntries = view?.readingProgress ?? [];
+  const locationProgress = <small>{view?.structureIntro ? 0 : locatedChunk?.index ?? frontier?.index ?? view?.outline?.length ?? 0} / {view?.outline?.length ?? 0}</small>;
+  const locationPath = <span>{showStructure ? "文章结构" : structureTitle || (view?.status === "completed" ? "已完成本篇" : "准备阅读")}</span>;
+  const readingLocation = !!view?.structure?.length && <div className={mist ? "reader-location-badge" : "reader-structure-status"} aria-label="当前阅读位置" title={structureTitle}>
+    {mist ? <>{locationProgress}{locationPath}</> : <>{locationPath}{locationProgress}</>}
+    {!mist && !view.structureIntro && <button aria-expanded={showStructure} onClick={() => setStructureOpen(!structureOpen)}>{showStructure ? "返回阅读" : "文章结构"}</button>}
+  </div>;
+  const composerFeedback = recoverDraft || connection || failure || (operation && !active) || (agent && active) || uploads.length > 0;
+  function toggleComposer(nextCollapsed: boolean) {
+    setCollapsed(nextCollapsed);
+    requestAnimationFrame(() => {
+      if (nextCollapsed) layout.current?.querySelector<HTMLButtonElement>(".mist-reading-actions .mist-composer-toggle")?.focus({ preventScroll: true });
+      else composer.current?.focus({ preventScroll: true });
+    });
+  }
   return <div ref={layout} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && sideMode && !(event.target as HTMLElement).closest("dialog")) {
     preserveReading(() => setSideMode(null)); event.currentTarget.querySelector<HTMLButtonElement>(mist ? ".reader-side-toggle" : ".reader-figures-toggle")?.focus({ preventScroll: true });
   } }} data-materials-open={mist && materialsOpen && !showStructure} data-side-open={!!sideMode && !showStructure} className={`focus-reader reader-split${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}
@@ -522,11 +536,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
       if (follow.current) setNewContent(false);
     }}>
-      {!!view?.structure?.length && <div className="reader-structure-status" aria-label="当前阅读位置">
-        <span>{showStructure ? "文章结构" : structureTitle || (view.status === "completed" ? "已完成本篇" : "准备阅读")}</span>
-        <small>{view.structureIntro ? 0 : locatedChunk?.index ?? frontier?.index ?? view.outline?.length ?? 0} / {view.outline?.length ?? 0}</small>
-        {!view.structureIntro && <button aria-expanded={showStructure} onClick={() => setStructureOpen(!structureOpen)}>{showStructure ? "返回阅读" : "文章结构"}</button>}
-      </div>}
+      {!mist && readingLocation}
       <div className="focus-content">
         {showStructure && view && <ArticleStructure view={view} currentChunkId={view.structureIntro ? undefined : structureChunkId} blocked={blocked}
           onReview={id => { const chunk = chunks.find(c => c.chunkId === id); if (chunk) { setStructureOpen(false); review(chunk); } }}
@@ -557,7 +567,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       const target = Array.from(stream.current?.querySelectorAll<HTMLElement>("[data-message-id]") ?? []).find(el => el.dataset.messageId === m.messageId);
       target?.scrollIntoView({ block: "center", behavior: "instant" });
     }}><span className="mist-history-line" /><span className="mist-history-label">{m.content}</span></button>)}</nav>}
-    <div className="focus-bottom" hidden={showStructure} role={mist ? "complementary" : undefined} aria-label={mist ? "阅读助手" : undefined}>
+    <div className="focus-bottom" hidden={showStructure || (mist && collapsed && !composerFeedback)} role={mist ? "complementary" : undefined} aria-label={mist ? "阅读助手" : undefined}>
 
 
       {newContent && !mist && <button className="focus-new-content" onClick={() => {
@@ -573,13 +583,13 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
           const result = await host.approve?.(input);
           if (result?.ok) { accept(result.value); return true; } return false;
         }} />}
-        {reference && <div className="focus-reference"><span>引用第 {reference.index} 段 · {reference.sectionPath.at(-1)}</span><button onClick={() => setReference(displayed)}>改为当前段落</button></div>}
+        {reference && <div className="focus-reference" hidden={mist && collapsed}><span>引用第 {reference.index} 段 · {reference.sectionPath.at(-1)}</span><button onClick={() => setReference(displayed)}>改为当前段落</button></div>}
         {uploads.length > 0 && <ul className="focus-attachments">{uploads.map(u => <li key={u.id}>
           <span title={u.file.name}>{u.file.name}</span><small>{u.state === "uploading" ? "上传中" : u.state === "failed" ? "上传失败" : "已上传"}</small>
           {u.state === "failed" && <button title={u.error} onClick={() => void upload(u.file, u.id)}>重试上传</button>}
           <button aria-label={`移除 ${u.file.name}`} onClick={() => setUploads(old => old.filter(v => v.id !== u.id))}>移除</button>
         </li>)}</ul>}
-        <div className="focus-composer-row"><form id="focus-composer-form" hidden={mist && collapsed} className="focus-composer" onSubmit={e => { e.preventDefault(); send(); }}>
+        <div className="focus-composer-row" hidden={mist && collapsed}><form id="focus-composer-form" hidden={mist && collapsed} className="focus-composer" onSubmit={e => { e.preventDefault(); send(); }}>
           <label className="focus-sr-only" htmlFor="focus-question">输入问题或阅读需求</label>
           <textarea id="focus-question" ref={composer} rows={mist ? 1 : 2} disabled={blocked} value={draft} placeholder="问问这段原文…"
             onChange={e => { if (!draft && e.target.value && !reference) setReference(displayed); setDraft(e.target.value); }} onKeyDown={e => {
@@ -594,7 +604,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
             <button type="submit" className="focus-primary" disabled={!view || blocked || uploading || !draft.trim()}>{operation === "发送" ? "发送中…" : "发送 ↑"}</button>
           </div>
         </form>
-        {mist && <button type="button" className="mist-composer-toggle" aria-expanded={!collapsed} aria-controls="focus-composer-form" onClick={() => setCollapsed(!collapsed)}>{collapsed ? "展开" : "收起"}</button>}</div>
+        {mist && !collapsed && <button type="button" className="mist-composer-toggle" aria-expanded="true" aria-controls="focus-composer-form" onClick={() => toggleComposer(true)}>收起</button>}</div>
         {!mist && current && !reviewChunk && <div className="focus-next"><button disabled={blocked} onClick={current.index === current.total ? finish : next}>{current.index === current.total ? "完成本篇" : operation === "下一段" ? "正在打开…" : "下一段 →"}</button></div>}
       </div>
     </div>
@@ -602,6 +612,9 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       <button className="reader-side-toggle" aria-controls="reader-side-space" aria-expanded={!!sideMode} onClick={() => preserveReading(() => setSideMode(sideMode ? null : sourceFigures.length ? "figures" : "materials"))}>{sideMode ? "收起侧栏" : "图片 / 笔记"}</button>
       <button className="reader-fullscreen-toggle" aria-label={fullscreen ? "退出全屏" : "全屏"} aria-pressed={fullscreen} onClick={() => onFullscreenChange?.(!fullscreen)}>{fullscreen ? "退出全屏 ×" : "全屏"}</button>
       <button disabled={!host.newSession || !view || blocked} onClick={reset}>新会话</button>
+      {collapsed && <button type="button" className="mist-composer-toggle" aria-expanded="false" aria-controls="focus-composer-form" onClick={() => toggleComposer(false)}>展开对话框</button>}
+      {!!view?.structure?.length && !view.structureIntro && <button aria-expanded={showStructure} onClick={() => setStructureOpen(!structureOpen)}>{showStructure ? "返回阅读" : "文章结构"}</button>}
+      {readingLocation}
       <button className="focus-reader__continue" disabled={showStructure || blocked || (!frontier && !reviewChunk) || (view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total))}
         onClick={() => { follow.current = true; view?.sessionFresh ? (view.readingStarted && frontier?.index === frontier?.total ? finishFresh() : freshContinue()) : displayed?.index === displayed?.total && !reviewChunk ? finish() : next(); }}>
         {view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total) ? "已读完" : (view?.sessionFresh && view.readingStarted && frontier?.index === frontier?.total) || (!view?.sessionFresh && displayed?.index === displayed?.total && !reviewChunk) ? "完成本篇" : operation === "下一段" ? "打开中…" : "继续"}</button>

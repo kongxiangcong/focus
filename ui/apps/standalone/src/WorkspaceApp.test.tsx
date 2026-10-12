@@ -761,3 +761,27 @@ it("hides top chrome in reading fullscreen and restores it from the exit control
   expect(screen.queryByRole("combobox", { name: "阅读专题" })).not.toBeInTheDocument();
   expect(screen.queryByRole("combobox", { name: "选择阅读材料" })).not.toBeInTheDocument();
 });
+
+it.each([false, true])("keeps reading text, draft and controls intact when browsing materials (fullscreen=%s)", async fullscreen => {
+  history.replaceState(null, "", "/reading");
+  const initialWindow: ReadingWindow = { ...empty, status: "reading", current: {
+    sourceId: "a-paper", planId: "p1", chunkId: "c1", index: 1, total: 2,
+    sectionPath: ["Method"], sourceLines: [1, 2], sourceMarkdown: "正文始终保留",
+    translation: null, images: [], relevantGlossary: [], presentationStatus: "source-ready",
+  } };
+  const { host } = setup([], initialWindow);
+  const text = await screen.findByText("正文始终保留");
+  const input = screen.getByRole("textbox", { name: "输入问题或阅读需求" });
+  fireEvent.change(input, { target: { value: "保留的草稿" } });
+  if (fullscreen) fireEvent.click(screen.getByRole("button", { name: "全屏" }));
+  fireEvent.click(screen.getByRole("button", { name: "图片 / 笔记" }));
+  expect(screen.getByRole("region", { name: "阅读资料侧栏" })).toHaveAttribute("data-side-placement", "left");
+  expect(text).toBeVisible();
+  expect(input).toHaveValue("保留的草稿");
+  expect(screen.getByRole("button", { name: "继续" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "关闭阅读侧栏" }));
+  expect(text).toBeVisible();
+  expect(input).toHaveValue("保留的草稿");
+  expect(host.continueReading).not.toHaveBeenCalled();
+  expect(host.sendMessage).not.toHaveBeenCalled();
+});
