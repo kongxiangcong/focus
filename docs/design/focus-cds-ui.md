@@ -55,6 +55,18 @@ files actually adopted (theme CSS, motion presets, v2 chapters 3–4) and did no
 decisions above. Reference claims about official internals or performance remain upstream claims.
 No reference code, font or asset is imported at runtime; no `external/` path appears in the build.
 
+## Screenshots
+
+Fixed synthetic workspaces served by the isolated Host, 1440×1000, Edge/Chromium.
+
+| Reading (light, compact) | Reading (dark, comfortable) |
+| --- | --- |
+| ![Reading light](assets/focus-cds-reading-desktop.png) | ![Reading dark](assets/focus-cds-reading-dark.png) |
+
+| Library | Settings |
+| --- | --- |
+| ![Library](assets/focus-cds-library-desktop.png) | ![Settings](assets/focus-cds-settings.png) |
+
 ## Verification
 
 | Check | Result | Evidence |
