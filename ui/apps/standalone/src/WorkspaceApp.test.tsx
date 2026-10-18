@@ -126,12 +126,14 @@ it("edits original metadata and Topic membership through Host actions", async ()
   const { host } = setup();
   await screen.findByRole("heading", { name: "A Paper" });
   if (screen.getByRole("button", { name: "详细" }).getAttribute("aria-expanded") === "false") fireEvent.click(screen.getByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "更多" }));
   fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
   fireEvent.change(screen.getByRole("textbox", { name: "来源原题" }), { target: { value: "Correct title" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() => expect(host.saveSourceDetails).toHaveBeenCalledWith("a-paper", "Correct title", ["topic"], expect.any(String), "Correct title"));
   await waitFor(() => expect(screen.queryByRole("textbox", { name: "来源原题" })).not.toBeInTheDocument());
   if (screen.getByRole("button", { name: "详细" }).getAttribute("aria-expanded") === "false") fireEvent.click(screen.getByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "更多" }));
   fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "编译" }));
   expect(host.manageTopic).not.toHaveBeenCalled();
@@ -139,6 +141,7 @@ it("edits original metadata and Topic membership through Host actions", async ()
   fireEvent.click(screen.getByRole("button", { name: "取消" }));
   expect(host.saveSourceDetails).toHaveBeenCalledTimes(1);
   expect(host.deleteSource).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '更多' }));
   fireEvent.click(screen.getByRole('button', { name: '管理来源' }));
   fireEvent.click(screen.getByRole('button', { name: '不关联专题' }));
   expect(screen.getByRole('checkbox', { name: '编译' })).not.toBeChecked();
@@ -160,12 +163,14 @@ it("edits library heading independently from the original while preserving Sourc
   });
   await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "更多" }));
   fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
   fireEvent.change(screen.getByRole("textbox", { name: "知识库显示标题" }), { target: { value: "我的 GPU 论文" } });
   fireEvent.change(screen.getByRole("textbox", { name: "来源原题" }), { target: { value: "Original GPU Architecture Paper" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
   expect(await screen.findByRole("heading", { name: "我的 GPU 论文" })).toBeInTheDocument();
   expect(host.saveSourceDetails).toHaveBeenCalledWith("a-paper", "Original GPU Architecture Paper", ["topic"], expect.any(String), "我的 GPU 论文");
+  fireEvent.click(screen.getByRole("button", { name: "更多" }));
   fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
   expect(screen.getByRole("textbox", { name: "知识库显示标题" })).toHaveValue("我的 GPU 论文");
   expect(screen.getByRole("textbox", { name: "来源原题" })).toHaveValue("Original GPU Architecture Paper");
@@ -209,11 +214,11 @@ it("lands in Library and persists the chosen font across remounts", async () => 
   fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
   expect(screen.getByLabelText("阅读字体预览")).toHaveStyle({ fontSize: "26px" });
   expect(screen.getByRole("radio", { name: "DeepSeek" })).toBeEnabled();
-  fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存外观" }));
   app.unmount(); setup();
   expect(await screen.findByRole("slider", { name: "字号" })).toHaveValue("3");
   fireEvent.click(screen.getByRole("link", { name: "阅读" }));
-  expect(screen.getByRole("complementary", { name: "阅读进度与操作" })).toBeVisible();
+  expect(screen.getByRole("navigation", { name: "阅读功能控制区" })).toBeVisible();
   expect(document.querySelector(".focus-mist")).toHaveAttribute("data-font-size", "extra");
   expect(document.querySelector(".focus-mist")).toHaveStyle({ "--reader-reading-size": "26px" });
 });
@@ -230,6 +235,7 @@ it("starts parsing and blog with one explicit confirmation", async () => {
   expect(host.confirmIngestion).not.toHaveBeenCalled();
   expect(host.processIngestion).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "更多" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "删除" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "删除" }));
   expect(host.deleteSource).not.toHaveBeenCalled();
@@ -275,7 +281,7 @@ it("persists brightness and omits the unused network control", async () => {
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   fireEvent.change(screen.getByRole("slider", { name: "亮度" }), { target: { value: "90" } });
   expect(localStorage.getItem("focus.brightness")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存外观" }));
   expect(localStorage.getItem("focus.brightness")).toBe("90");
   expect(screen.queryByRole("switch", { name: "网络" })).not.toBeInTheDocument();
 });
@@ -408,10 +414,12 @@ it("offers querying the original task first when a remote reference exists", asy
 it("clears source discussion only after irreversible confirmation and supports cancellation", async () => {
   const { host } = setup();
   fireEvent.click(await screen.findByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "更多" }));
   fireEvent.click(screen.getByRole("button", { name: "重新阅读" }));
   expect(screen.getByText(/将清除本篇讨论、笔记和阅读记录/)).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "取消" }));
   expect(host.clearSource).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "更多" }));
   fireEvent.click(screen.getByRole("button", { name: "重新阅读" }));
   fireEvent.click(screen.getByRole("button", { name: "确认重新阅读" }));
   await waitFor(() => expect(host.clearSource).toHaveBeenCalledWith("a-paper", expect.any(String)));
@@ -422,17 +430,18 @@ it("keeps cards compact, expands details, and persists list display", async () =
   const app = setup();
   const title = await screen.findByRole("heading", { name: "A Paper" });
   const card = title.closest("article")!;
-  expect(within(card).getAllByRole("button").map(button => button.textContent)).toEqual(["打开博客", "继续阅读", "详细"]);
+  expect(within(card).getAllByRole("button").map(button => button.textContent)).toEqual(["打开博客", "继续阅读", "详细", "更多"]);
   expect(screen.queryByRole("button", { name: "管理来源" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "打开博客" })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: "详细" }));
   expect(screen.getByRole("button", { name: "详细" })).toHaveAttribute("aria-expanded", "true");
   expect(screen.getByText("解析：已完成")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "更多" }));
   expect(screen.getByRole("button", { name: "管理来源" })).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "列表显示" }));
   expect(card.parentElement).toHaveAttribute("data-view", "list");
   fireEvent.click(screen.getByRole("button", { name: "详细" }));
-  expect(within(card).getAllByRole("button")).toHaveLength(3);
+  expect(within(card).getAllByRole("button")).toHaveLength(4);
   fireEvent.click(screen.getByRole("button", { name: "继续阅读" }));
   await waitFor(() => expect(app.host.openSource).toHaveBeenCalledWith("a-paper", expect.any(String)));
   app.unmount(); setup();
@@ -565,7 +574,7 @@ it("T2 appearance previews can be cancelled without touching saved settings", as
   fireEvent.change(screen.getByRole("combobox", { name: "正文字体" }), { target: { value: "source-han-sans" } });
   expect(localStorage.getItem("focus.fontSize")).toBeNull();
   expect(localStorage.getItem("focus.readingFont")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "取消修改" }));
+  fireEvent.click(screen.getByRole("button", { name: "还原外观" }));
   expect(screen.getByRole("slider", { name: "字号" })).toHaveValue("1");
   expect(screen.getByRole("slider", { name: "亮度" })).toHaveValue("100");
   expect(screen.getByRole("combobox", { name: "正文字体" })).toHaveValue("default");
@@ -581,13 +590,13 @@ it("saves the reading font and restores it after reopening the app", async () =>
   expect(screen.getByLabelText("阅读字体预览")).toHaveTextContent("Reading brings ideas into focus.");
   expect(container.querySelector<HTMLElement>(".workspace-app")!.style.getPropertyValue("--reader-body-font")).toContain("FOCUS Neo ZhiSong Screen");
   expect(localStorage.getItem("focus.readingFont")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
+  fireEvent.click(screen.getByRole("button", { name: "保存外观" }));
   expect(localStorage.getItem("focus.readingFont")).toBe("neo-zhisong-screen");
   cleanup();
   render(<WorkspaceApp host={host} />);
   expect(screen.getByRole("combobox", { name: "正文字体" })).toHaveValue("neo-zhisong-screen");
   fireEvent.change(screen.getByRole("combobox", { name: "正文字体" }), { target: { value: "source-han-serif" } });
-  fireEvent.click(screen.getByRole("button", { name: "取消修改" }));
+  fireEvent.click(screen.getByRole("button", { name: "还原外观" }));
   expect(screen.getByRole("combobox", { name: "正文字体" })).toHaveValue("neo-zhisong-screen");
 });
 
@@ -753,7 +762,7 @@ it("hides top chrome in reading fullscreen and restores it from the exit control
   expect(app).toHaveAttribute("data-reading-fullscreen", "false");
   fireEvent.click(await screen.findByRole("button", { name: "全屏" }));
   expect(app).toHaveAttribute("data-reading-fullscreen", "true");
-  fireEvent.click(screen.getByRole("button", { name: "图片 / 笔记" }));
+  fireEvent.click(screen.getByRole("button", { name: "资料" }));
   expect(screen.getByRole("region", { name: "阅读资料侧栏" })).toHaveAttribute("data-side-placement", "left");
   expect(screen.getByRole("navigation", { name: "阅读功能控制区" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "关闭全屏模式" }));
@@ -774,7 +783,7 @@ it.each([false, true])("keeps reading text, draft and controls intact when brows
   const input = screen.getByRole("textbox", { name: "输入问题或阅读需求" });
   fireEvent.change(input, { target: { value: "保留的草稿" } });
   if (fullscreen) fireEvent.click(screen.getByRole("button", { name: "全屏" }));
-  fireEvent.click(screen.getByRole("button", { name: "图片 / 笔记" }));
+  fireEvent.click(screen.getByRole("button", { name: "资料" }));
   expect(screen.getByRole("region", { name: "阅读资料侧栏" })).toHaveAttribute("data-side-placement", "left");
   expect(text).toBeVisible();
   expect(input).toHaveValue("保留的草稿");

@@ -27,13 +27,13 @@ function Approval({ approval, onAnswer }: { approval: ReaderApproval; onAnswer: 
     {error && <p role="alert">提交失败，请重试。</p>}
   </section>;
 }
-export function AgentControls({ agent, onStop, onAnswer }: { agent: ReaderAgentState; onStop: () => void; onAnswer: (input: ReaderApprovalResponse) => Promise<boolean> }) {
+export function AgentControls({ agent, onStop, onAnswer, showStop = true }: { agent: ReaderAgentState; onStop: () => void; onAnswer: (input: ReaderApprovalResponse) => Promise<boolean>; showStop?: boolean }) {
   const run = agent.run;
   if (!run) return null;
   const active = ["running", "approval", "stopping"].includes(run.status);
   return <div className="focus-agent" aria-label="后台任务">
     <div className="focus-agent__status"><TaskProgress run={run} />
-      {active && <button onClick={onStop} disabled={run.status === "stopping"}>停止</button>}</div>
+      {active && showStop && <button onClick={onStop} disabled={run.status === "stopping"}>停止</button>}</div>
     {run.error && <p role="alert">{run.error}</p>}
     {run.approvals.map(a => <Approval key={a.id} approval={a} onAnswer={onAnswer} />)}
   </div>;
