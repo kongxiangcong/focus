@@ -30,3 +30,6 @@
   .article-structure li { padding-left:8px; }
   .article-structure small { display:block; margin-left:0; }
 }
+
+.reader-structure-overview { width:100%; text-align:left; margin-bottom:12px; color:var(--reader-accent-ink); }
+.article-structure h1:focus { outline:none; }

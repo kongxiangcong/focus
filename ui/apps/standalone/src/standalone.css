@@ -27,16 +27,16 @@ button { cursor:pointer; }
   font-size:13px; text-decoration:none; transition:background var(--reader-duration-snap) var(--reader-ease-out), color var(--reader-duration-snap); }
 .workspace-nav nav a > span[aria-hidden] { width:var(--reader-icon); text-align:center; font-size:13px; color:var(--reader-muted); }
 .workspace-nav nav a:hover { background:var(--reader-hover); color:var(--reader-ink); }
-.workspace-nav nav a[aria-current=page] { background:var(--reader-selected); color:var(--reader-ink); font-weight:500; }
+.workspace-nav nav a[aria-current=page] { background:var(--reader-accent-soft); color:var(--reader-accent-ink); font-weight:500; }
 .workspace-topics { display:flex; flex-direction:column; gap:2px; min-height:0; overflow-y:auto; }
 .workspace-topics h2 { margin:0 0 4px; padding:0 var(--reader-gap-sm); font-size:11px; font-weight:600;
-  letter-spacing:.08em; color:var(--reader-faint); }
+  letter-spacing:.08em; color:var(--reader-secondary); }
 .workspace-app .workspace-topics button { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%;
   min-height:28px; padding:0 var(--reader-gap-sm); border:1px solid transparent; border-radius:var(--reader-radius);
   background:transparent; color:var(--reader-secondary); font-size:13px; text-align:left; overflow-wrap:anywhere; }
 .workspace-app .workspace-topics button:hover { background:var(--reader-hover); color:var(--reader-ink); }
-.workspace-app .workspace-topics button[aria-pressed=true] { background:var(--reader-selected); color:var(--reader-ink); }
-.workspace-app .workspace-topics button > span { color:var(--reader-faint); font-size:11px; font-variant-numeric:tabular-nums; }
+.workspace-app .workspace-topics button[aria-pressed=true] { background:var(--reader-accent-soft); color:var(--reader-accent-ink); }
+.workspace-app .workspace-topics button > span { color:var(--reader-secondary); font-size:11px; font-variant-numeric:tabular-nums; }
 .workspace-app .workspace-topics button.workspace-topics__new { color:var(--reader-muted); border-color:var(--reader-line); border-style:dashed; margin-bottom:4px; justify-content:flex-start; }
 .workspace-app[data-nav-collapsed=true] .workspace-nav-label,
 .workspace-app[data-nav-collapsed=true] .workspace-topics,
@@ -53,7 +53,7 @@ button { cursor:pointer; }
 .workspace-header-actions { display:flex; align-items:center; gap:var(--reader-gap-sm); flex-shrink:0; }
 .workspace-status { display:flex; align-items:center; }
 .workspace-status-dot { width:6px; height:6px; border-radius:50%; background:var(--reader-faint); flex-shrink:0; }
-.workspace-status-dot[data-active=true] { background:var(--reader-accent); animation:focus-pulse 2s var(--reader-ease-out) infinite; }
+.workspace-status-dot[data-active=true] { background:var(--reader-accent); }
 .workspace-status-dot[data-attention=true] { background:var(--reader-warning); }
 .workspace-task-toggle { display:flex; align-items:center; gap:6px; border:1px solid transparent; background:transparent;
   min-height:28px; padding:0 8px; border-radius:var(--reader-radius); color:var(--reader-secondary); font-size:12px; }
@@ -80,7 +80,7 @@ button { cursor:pointer; }
 .workspace-app button:hover:not(:disabled), .focus-entry button:hover:not(:disabled), .focus-login button:hover:not(:disabled) { background:var(--reader-hover); }
 .workspace-app button:active:not(:disabled), .focus-entry button:active:not(:disabled) { transform:scale(.98); }
 .workspace-app button:disabled, .focus-entry button:disabled { opacity:.45; cursor:default; }
-.workspace-app button[aria-pressed=true] { background:var(--reader-selected); border-color:var(--reader-line-strong); }
+.workspace-app button[aria-pressed=true] { background:var(--reader-accent-soft); border-color:var(--reader-accent-line); }
 .workspace-app .workspace-primary, .focus-entry .workspace-primary { background:var(--reader-action); color:var(--reader-on-action); border-color:var(--reader-action); font-weight:500; }
 .workspace-app .workspace-primary:hover:not(:disabled), .focus-entry .workspace-primary:hover:not(:disabled) { background:var(--reader-action); color:var(--reader-on-action); filter:brightness(1.12); }
 .workspace-app :focus-visible, .focus-entry :focus-visible, .focus-login :focus-visible { outline:2px solid var(--reader-focus); outline-offset:2px; }
@@ -89,7 +89,7 @@ button { cursor:pointer; }
   min-height:var(--reader-control-h); padding:0 var(--reader-gap-sm); border:1px solid var(--reader-line);
   border-radius:var(--reader-radius); background:var(--reader-surface-2); color:var(--reader-ink); font:inherit; min-width:0; }
 .workspace-app textarea { padding:8px var(--reader-gap-sm); line-height:1.6; }
-.workspace-app :is(input, select, textarea):focus-visible { outline:2px solid var(--reader-focus); outline-offset:1px; border-color:var(--reader-line-strong); }
+.workspace-app :is(input, select, textarea):focus-visible { outline:2px solid var(--reader-focus); outline-offset:1px; border-color:var(--reader-accent-line); }
 .workspace-app input[type=range] { appearance:none; -webkit-appearance:none; width:min(100%,280px); height:20px;
   padding:0; border:0; background:transparent; }
 .workspace-app input[type=range]::-webkit-slider-runnable-track { height:2px; border-radius:2px; background:var(--reader-line-strong); }
@@ -99,6 +99,18 @@ button { cursor:pointer; }
 .workspace-app input[type=range]::-moz-range-thumb { width:14px; height:14px; border:0; border-radius:50%; background:var(--reader-accent); }
 .workspace-app input[type=checkbox], .workspace-app input[type=radio] { accent-color:var(--reader-accent); }
 .workspace-sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+
+/* Reading palette integration (redesign step 1). Keep reader geometry and motion;
+   replace legacy literal focus colour and separate interaction from quotations. */
+.workspace-app .focus-mist .focus-composer:focus-within {
+  border-color:var(--reader-accent-line);
+  box-shadow:0 4px 24px rgba(0,0,0,.08),0 0 0 3px var(--reader-accent-soft); }
+.workspace-app .focus-mist .focus-composer textarea::placeholder,
+.workspace-app .composer-key-hint { color:var(--reader-secondary); }
+.workspace-app .focus-reader .focus-markdown mark { background:var(--reader-mark); color:var(--reader-ink); }
+.workspace-app .focus-reader .focus-markdown blockquote { border-left-color:var(--reader-mark-strong); }
+.workspace-app .focus-reference { border-left-color:var(--reader-mark-strong); background:var(--reader-mark-soft); color:var(--reader-mark-ink); }
+.workspace-app .focus-reader .focus-review-banner { background:var(--reader-accent-soft); color:var(--reader-accent-ink); }
 
 /* ---------- library ---------- */
 .library-page, .settings-page { grid-column:2; grid-row:2; min-width:0; min-height:0; overflow:auto;
@@ -307,16 +319,18 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
 .reading-library-picker label { display:flex; min-width:0; }
 .workspace-reading-title { min-width:0; max-width:min(560px,60vw); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   font:500 15px/1.4 var(--reader-ui); color:var(--reader-secondary); }
-.workspace-app .reading-fullscreen-exit { position:fixed; z-index:9; top:12px; right:16px; width:34px; height:34px;
+.workspace-app .reading-fullscreen-exit { position:fixed; z-index:7; top:12px; right:16px; width:34px; height:34px;
   padding:0; border:1px solid var(--reader-line); border-radius:999px; background:var(--reader-popover);
   color:var(--reader-ink); font-size:18px; box-shadow:var(--reader-shadow-popover); }
 .workspace-app[data-reading-fullscreen=true] { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1fr); }
 .workspace-app[data-reading-fullscreen=true] > .workspace-nav,
 .workspace-app[data-reading-fullscreen=true] > .workspace-header { display:none; }
 .workspace-app[data-reading-fullscreen=true] > .workspace-reading { grid-column:1; grid-row:1; }
+/* Brightness creates a stacking context: lift the drawer owner above the floating exit. */
+.workspace-app[data-reading-fullscreen=true] > .workspace-reading:has(.reader-left-drawer[data-open=true]) { z-index:8; }
 
 /* ---------- motion / responsiveness ---------- */
-@keyframes focus-pulse { 0%,100% { opacity:1; } 50% { opacity:.55; } }
+
 @media(max-width:1180px) {
   .workspace-app { --nav-width:var(--reader-nav-collapsed); }
   .workspace-topics, .workspace-nav-label, .workspace-logo { display:none; }

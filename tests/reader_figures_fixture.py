@@ -11,7 +11,7 @@ def configure(workspace, source, plan):
             *[f'Paragraph {i}: independent text scrolling keeps the architecture image visible.' for i in range(1, 46)]],
         2: ['![Figure](images/image-002.png)', 'Figure 2. First image in this chunk.', '',
             '![Figure](images/image-003.png)', 'Figure 3. Second tall image in this chunk.', '',
-            *[f'Paragraph {i}: the two figures have an independent gallery scroll.' for i in range(1, 30)]],
+            *[f'Paragraph {i}: the two figures have an independent gallery scroll.' for i in range(1, 55)]],
         3: ['No images in this chunk.', '', *['Plain reading text remains centered.'] * 12],
         4: ['![Figure](images/image-004.png)', 'Figure 4. An unread chunk figure.', '',
             '<figure><img src="images/image-005.png"><figcaption>Figure 5. Full HTML image caption.</figcaption></figure>', '',

@@ -50,7 +50,7 @@ it("renders bundle images and preserves the draft when collapsing the composer",
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "草稿" } });
   fireEvent.click(screen.getByRole("button", { name: "收起" }));
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "展开对话框" }));
+  fireEvent.click(screen.getByRole("button", { name: "提问" }));
   expect(screen.getByRole("textbox")).toHaveValue("草稿");
 });
 it("keeps upload and attachment actions out of the Mist reading workspace", async () => {
@@ -77,9 +77,9 @@ it("renders rich Markdown and the referenced source figure in the assistant outp
   expect(within(output).getByRole("heading", { name: "2.1 硬件建模" })).toBeVisible();
   expect(within(output).getByText("内存控制器：").tagName).toBe("STRONG");
   expect(within(output).getByText("逐周期检查").tagName).toBe("MARK");
-  expect(within(output).queryByRole("img")).not.toBeInTheDocument();
-  fireEvent.click(within(output).getByRole("button", { name: "查看图 1" }));
-  expect(screen.getByRole("region", { name: "阅读资料侧栏" }).querySelector('.reader-figure-scroll img')).toHaveAttribute("src", figure.src);
+  expect(within(output).getByRole("img")).toHaveAttribute("src", figure.src);
+  fireEvent.click(within(output).getByRole("button", { name: "放大图 1" }));
+  expect(screen.getByRole("dialog", { name: "图片放大" }).querySelector("img")).toHaveAttribute("src", figure.src);
 });
 it("renders an explicit Markdown image in an answer without duplicating the figure", async () => {
   const illustrated = { ...current, images: [{ src: "/reader/assets/demo-paper/images/image-001.png", caption: "图 1 架构" }] };
@@ -88,7 +88,7 @@ it("renders an explicit Markdown image in an answer without duplicating the figu
   const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess({ ...first, current: illustrated, conversation: [answer] })), continueReading: vi.fn(), sendMessage: vi.fn() };
   render(<FocusReader host={host} appearance="mist" />);
   const output = (await screen.findByText("图 1：")).closest("article")!;
-  expect(within(output).queryByRole("img")).not.toBeInTheDocument();
+  expect(within(output).getAllByRole("img")).toHaveLength(1);
   expect(within(output).getAllByRole("button", { name: "查看图 1" })).toHaveLength(1);
 });
 it("only resolves figure references to bound images from the same source", async () => {
@@ -119,7 +119,8 @@ it("streams one assistant card into the central timeline and keeps only prompts 
   fireEvent.change(screen.getByRole("textbox"), { target: { value: prompt.content } });
   fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
   const companion = screen.getByRole("complementary", { name: "阅读助手" });
-  await within(screen.getByRole("navigation", { name: "历史提问" })).findByRole("button", { name: prompt.content });
+  await within(screen.getByRole("main", { name: "阅读与对话" })).findByText(prompt.content);
+  expect(screen.queryByRole("navigation", { name: "历史提问" })).not.toBeInTheDocument();
   // Partial timeline deliberately omits the streaming message reference.
   act(() => emit(readerSuccess({ ...pending, revision: 3, conversation: [prompt, answer] })));
   const stream = screen.getByRole("main", { name: "阅读与对话" });
@@ -167,7 +168,7 @@ it("shows immediate feedback and locks task-changing actions through startup and
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("正在停止"));
   expect(host.stop).toHaveBeenCalledOnce();
   act(() => emit(readerSuccess({ ...running, agent: { ...running.agent!, run: { ...running.agent!.run!, status: "interrupted" } } })));
-  fireEvent.click(screen.getByRole("button", { name: "展开对话框" }));
+  fireEvent.click(screen.getByRole("button", { name: "提问" }));
   expect(screen.getByRole("textbox")).toBeEnabled();
   expect(screen.getByRole("textbox")).toHaveValue("保留草稿");
   expect(host.sendMessage).not.toHaveBeenCalled();
@@ -228,10 +229,7 @@ it("places image/notes toggle and fullscreen in the Mist function row", async ()
   const actions = screen.getByRole("navigation", { name: "阅读功能控制区" });
   expect(actions).toHaveTextContent("新会话");
   expect(actions).toHaveTextContent("继续");
-  // A chunk containing figures opens the panel automatically; close and reopen it manually.
-  if (within(actions).queryByRole("button", { name: "收起资料" })) {
-    fireEvent.click(within(actions).getByRole("button", { name: "收起资料" }));
-  }
+  expect(within(actions).queryByRole("button", { name: "收起资料" })).not.toBeInTheDocument();
   expect(actions).toHaveTextContent("资料");
   fireEvent.click(within(actions).getByRole("button", { name: "资料" }));
   expect(within(actions).getByRole("button", { name: "收起资料" })).toHaveAttribute("aria-expanded", "true");
@@ -250,15 +248,18 @@ it("moves expand into the function row and releases the composer row, preserving
   expect(collapse.closest(".focus-composer-row")).toBe(row);
   fireEvent.change(textbox, { target: { value: "暂存的问题" } });
   fireEvent.click(collapse);
-  expect(row?.querySelector("form")).toHaveAttribute("hidden");
-  const expand = screen.getByRole("button", { name: "展开对话框" });
+  expect(row?.parentElement).toHaveAttribute("data-collapsed", "true");
+  expect(row?.parentElement).toHaveAttribute("inert");
+  expect(row?.parentElement).toHaveAttribute("aria-hidden", "true");
+  const expand = screen.getByRole("button", { name: "提问" });
   expect(expand.closest(".mist-reading-actions")).toBe(screen.getByRole("navigation", { name: "阅读功能控制区" }));
-  expect(row).not.toBeVisible();
-  expect(document.querySelector(".focus-bottom")).not.toBeVisible();
+  // jsdom does not run grid transitions; actual zero height is checked in Playwright.
+  expect(document.querySelector(".focus-bottom")).toHaveAttribute("data-empty", "true");
   expect(screen.queryByRole("button", { name: "收起" })).not.toBeInTheDocument();
   fireEvent.click(expand);
   expect(textbox).toHaveValue("暂存的问题");
-  expect(row?.querySelector("form")).not.toHaveAttribute("hidden");
+  expect(row?.parentElement).toHaveAttribute("data-collapsed", "false");
+  expect(row?.parentElement).not.toHaveAttribute("inert");
 });
 
 it("closes the left-side drawer with Escape and keeps the function entry in place", async () => {
@@ -275,4 +276,26 @@ it("closes the left-side drawer with Escape and keeps the function entry in plac
   fireEvent.keyDown(document.querySelector(".focus-reader")!, { key: "Escape" });
   expect(screen.queryByRole("region", { name: "阅读资料侧栏" })).not.toBeInTheDocument();
   expect(within(controls).getByRole("button", { name: "资料" })).toBeInTheDocument();
+});
+
+it("keeps quote jumps and answer review local, and saves through the existing message request", async () => {
+  const receipt = { sourceId: current.sourceId, planId: current.planId, chunkId: current.chunkId };
+  const withAnswer: ReadingWindow = { ...first, conversation: [
+    { messageId: "question", role: "user", chunkId: current.chunkId, reference: receipt, content: "这句是什么意思？" },
+    { messageId: "answer", role: "assistant", chunkId: current.chunkId, reference: receipt, content: "这是原文的解释。" },
+  ] };
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(withAnswer)), continueReading: vi.fn(),
+    reviewChunk: vi.fn(), sendMessage: vi.fn(async () => readerSuccess(withAnswer)) };
+  render(<FocusReader host={host} appearance="mist" />);
+  await screen.findByText("这是原文的解释。");
+  fireEvent.click(document.querySelector<HTMLButtonElement>(".reader-quote-bar")!);
+  fireEvent.click(screen.getByRole("button", { name: "回看第 1 段" }));
+  expect(host.reviewChunk).not.toHaveBeenCalled();
+  expect(host.continueReading).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "保留的草稿" } });
+  fireEvent.click(screen.getByRole("button", { name: "存为笔记" }));
+  await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith({ sessionId: "s1", receipt,
+    content: "请把下面的回答记下来：\n\n这是原文的解释。", attachmentIds: [], sourceId: current.sourceId, requestId: expect.any(String) }));
+  expect(screen.getByRole("textbox")).toHaveValue("保留的草稿");
+  expect(document.querySelector(".mist-history-rail")).toBeNull();
 });

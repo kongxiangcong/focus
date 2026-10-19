@@ -40,3 +40,7 @@ owning stylesheets.
 
 See [the implementation and evidence record](../design/focus-cds-ui.md); tracker in
 `.scratch/focus-ui-refactor/`.
+
+## Partial supersession (2026-10-20)
+
+[ADR 0026](0026-reading-lens-on-demand-figures.md) supersedes automatic figure opening/selection, defines making room as translation without changing text width (overlay when space is insufficient), and updates Reading Lens, local attachment preferences, colour and motion. The original decision above is retained for history; other business semantics remain binding.

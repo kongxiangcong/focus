@@ -1,0 +1,13 @@
+ISOLATED SERVER READY
+PASS {
+  on: { error: 0, width: 720 },
+  off: { error: 0, width: 720 },
+  onAgain: { error: 0, width: 720 },
+  sticky: 14,
+  messageSticky: 14,
+  tallReply: { group: 997, source: 416, discussion: 997, alignment: 0 },
+  withMessagesOff: -0.453125,
+  withMessagesOn: 0.453125,
+  reduced: { animation: 'none', lensTransition: '0s' },
+  longDiscussion: { group: 1909, source: 1909, discussion: 997 }
+}

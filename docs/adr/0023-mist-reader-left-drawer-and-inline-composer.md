@@ -49,3 +49,7 @@ the body. The location shows the ordinal/total followed by the structure path
 in a light gray bordered box with bold text. Narrow screens wrap controls and
 the location without horizontal overflow. The structure introduction, review
 semantics and non-Mist reader placement remain unchanged.
+
+## Partial supersession (2026-10-20)
+
+[ADR 0026](0026-reading-lens-on-demand-figures.md) supersedes automatic figure opening/selection, defines making room as translation without changing text width (overlay when space is insufficient), and updates Reading Lens, local attachment preferences, colour and motion. The original decision above is retained for history; other business semantics remain binding.

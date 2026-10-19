@@ -73,12 +73,12 @@ it("renders original and translated Reading Chunks while preserving figure links
   const { container } = render(<ReadingChunk chunk={chunk} onReference={vi.fn()} onFigure={vi.fn()} />);
   expect(container.querySelector("annotation")).toHaveTextContent(formula);
   expect(chunkFigures(chunk)).toHaveLength(1);
-  expect(screen.getByRole("button", { name: "查看图 1" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "在资料栏固定" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "查看原文" }));
   expect(container.querySelectorAll(".katex")).toHaveLength(1);
   expect(container.querySelector("annotation")).toHaveTextContent(formula);
   expect(container.querySelector(".katex-display")).not.toBeNull();
-  expect(screen.getByRole("button", { name: "查看图 1" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "在资料栏固定" })).toBeInTheDocument();
 });
 
 it("preserves adjacent dollar formulas and their surrounding prose", () => {

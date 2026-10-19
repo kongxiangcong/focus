@@ -107,3 +107,8 @@ export function chunkFigures(chunk: ReaderChunk, original = false): Figure[] {
   }), active.found,
     chunk.images.filter(i => !source.protectedIds.has(imageIdentity(i.src, chunk.sourceId)) && !active.protectedIds.has(imageIdentity(i.src, chunk.sourceId))));
 }
+
+/** Locate a loaded paragraph without navigating or changing the Reading Cursor. */
+export function figureChunk(figure: Figure, chunks: readonly ReaderChunk[]) {
+  return chunks.find(chunk => chunk.sourceId === figure.sourceId && chunkFigures(chunk).some(f => f.id === figure.id));
+}
