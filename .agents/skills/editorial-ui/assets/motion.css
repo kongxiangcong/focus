@@ -1,0 +1,11 @@
+/* GENERATED from motion-presets.json. */
+:root {
+  --eu-motion-press: 90ms;
+  --eu-motion-feedback: 160ms;
+  --eu-motion-reveal: 220ms;
+  --eu-motion-panel: 260ms;
+  --eu-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --eu-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --eu-distance-reveal: 6px;
+  --eu-press-scale: 0.985;
+}

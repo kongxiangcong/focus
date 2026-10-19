@@ -1,0 +1,29 @@
+{
+  "status": "PASS",
+  "errors": [],
+  "contrast_pairs": {
+    "light:text/canvas": 13.829,
+    "light:muted/canvas": 5.385,
+    "light:muted/surface": 5.726,
+    "light:text/raised": 15.087,
+    "light:on-action/action": 5.822,
+    "light:on-action/action-hover": 7.522,
+    "light:action/surface": 5.674,
+    "light:success/surface": 7.059,
+    "light:danger/surface": 6.684,
+    "light:focus/canvas": 5.336,
+    "light:control-border/surface": 3.732,
+    "dark:text/canvas": 14.734,
+    "dark:muted/canvas": 8.537,
+    "dark:muted/surface": 7.814,
+    "dark:text/raised": 11.219,
+    "dark:on-action/action": 9.031,
+    "dark:on-action/action-hover": 11.051,
+    "dark:action/surface": 8.487,
+    "dark:success/surface": 8.271,
+    "dark:danger/surface": 8.321,
+    "dark:focus/canvas": 9.273,
+    "dark:control-border/surface": 4.89
+  },
+  "scope": "bundle-profile and specified opaque token pairs; not official conformance or full accessibility audit"
+}

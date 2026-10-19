@@ -1,0 +1,33 @@
+{
+  "immediate": {
+    "open": false,
+    "disabled": false,
+    "events": [
+      {
+        "kind": "cancel",
+        "at": 685.5,
+        "open": true,
+        "stopDisabled": false
+      }
+    ]
+  },
+  "settled": {
+    "open": false,
+    "disabled": true,
+    "events": [
+      {
+        "kind": "cancel",
+        "at": 685.5,
+        "open": true,
+        "stopDisabled": false
+      },
+      {
+        "kind": "close",
+        "at": 693.6999999999534,
+        "open": false,
+        "stopDisabled": true
+      }
+    ]
+  },
+  "assertion": "Wait for observable native close cleanup, rather than asserting synchronously after keypress."
+}

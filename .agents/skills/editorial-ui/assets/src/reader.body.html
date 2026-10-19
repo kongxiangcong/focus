@@ -1,0 +1,51 @@
+<main id="main" class="shell reading-page" tabindex="-1">
+ <div class="reading-intro">
+  <div class="eyebrow">01 / Reading, uninterrupted</div>
+  <h1 class="reading-title">让内容成为界面的中心</h1>
+  <p class="muted">一个连续阅读的交互样例。问题可以随时提出，阅读的节奏仍由你决定。</p>
+  <span class="badge">离线示例 · 不连接 AI 服务</span>
+ </div>
+ <div class="toolbar reader-toolbar">
+  <span class="small muted" id="progress">已展开 1 / 3 段</span>
+  <div class="actions"><button type="button" class="btn ghost" id="explain">解释当前概念</button><button type="button" class="btn" id="continue">继续阅读 <span aria-hidden="true">↓</span></button></div>
+ </div>
+ <article class="article" aria-label="内容优先的界面设计">
+  <section class="reading-section" data-section="1">
+   <div class="section-label">01 — 信息层级</div>
+   <h2>先确定用户正在做什么</h2>
+   <p>当一页内容同时出现正文、工具栏、状态卡片和对话框时，界面首先要回答的不是“使用什么颜色”，而是“这一刻，哪个对象最重要”。</p>
+   <p>以阅读为例，正文应该保持稳定的宽度和连续的位置。解释、笔记与设置是围绕正文展开的辅助能力，不必永久占据屏幕两侧，也不应该在打开时清空正在阅读的内容。</p>
+   <aside class="note"><p><strong>一个判断标准：</strong>用户关闭辅助层后，能否自然回到刚才那句话，而不用重新寻找阅读位置？</p></aside>
+   <details><summary>查看这一页的交互约定</summary><p>“继续阅读”只追加下一段，不替换前文；“解释当前概念”打开辅助弹窗，不改变阅读进度。输入中的 Enter 与中文候选确认分别处理。</p></details>
+  </section>
+  <section class="reading-section" data-section="2" hidden>
+   <div class="section-label">02 — 用户控制</div><h2>新内容到来，不等于必须打断阅读</h2>
+   <p>流式回答带来持续变化，但变化不应该抢夺视口。用户向上翻阅时，系统应保留当前位置；只有主动返回最新内容后，才恢复自动跟随。</p>
+   <p>这需要一个明确的行为状态，而不只是某个滚动动画。下面的状态关系是一种设计示意，并非后台服务的实现承诺。</p>
+   <pre tabindex="0" aria-label="滚动状态设计示例"><code>FOLLOWING → 用户向上阅读 → READING_HISTORY
+READING_HISTORY → 点击“回到最新” → FOLLOWING</code></pre>
+  </section>
+  <section class="reading-section" data-section="3" hidden>
+   <div class="section-label">03 — 有目的的动效</div><h2>动效解释变化，不替代变化</h2>
+   <p>展开时的一次轻微位移能够维持位置关系，按钮的短暂反馈能够确认操作。但如果减少动效后，用户就不知道任务是否完成，那么缺失的是状态表达，不是更多动画。</p>
+   <p>这一页保留可见的状态文字，并在系统启用“减少动态效果”时取消非必要位移。模板的回答是本地演示，页面不会发出网络请求。</p>
+  </section>
+ </article>
+ <div class="reading-bottom"><div class="status" id="reading-status" role="status" aria-live="polite">正文与解释互相独立，阅读进度只由“继续阅读”推进。</div></div>
+ <footer class="page-footer"><span>EDITORIAL UI / 阅读模板</span><span>内容优先 · 键盘可达 · 可离线打开</span></footer>
+</main>
+<dialog class="dialog" id="explanation" aria-labelledby="explanation-title">
+ <div class="dialog-head"><div><div class="eyebrow">Companion layer</div><h2 id="explanation-title">就地理解，不离开正文</h2></div><button type="button" class="btn ghost close-btn" data-close aria-label="关闭解释">关闭</button></div>
+ <div class="dialog-body">
+  <p class="muted small">这是本地模拟回答，用于体验输入、停止、重试与滚动保护；没有调用模型。</p>
+  <form id="question-form">
+   <label for="question">你的问题</label><textarea id="question" placeholder="例如：为什么弹窗关闭后需要恢复焦点？" aria-describedby="input-help"></textarea>
+   <p class="small muted" id="input-help">Enter 发送 · Shift + Enter 换行</p>
+   <div class="actions"><button class="btn primary" id="send" type="submit">生成示例回答</button><button class="btn" id="stop" type="button" disabled>停止</button><button class="btn ghost" id="retry" type="button" hidden>重试</button></div>
+   <label class="checkline"><input id="simulate-error" type="checkbox">本次模拟失败，检查草稿是否保留</label>
+  </form>
+  <div class="status" id="answer-status" role="status" aria-live="polite">尚未开始。关闭此弹窗不会推进阅读。</div>
+  <div class="stream" id="stream" tabindex="0" role="region" aria-label="示例回答，可上下滚动"><p id="stream-content">回答会出现在这里。可以在生成途中向上阅读，观察视口是否保持稳定。</p></div>
+  <button class="btn ghost" id="jump-latest" type="button" hidden>回到最新内容 ↓</button>
+ </div>
+</dialog>

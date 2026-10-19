@@ -1,0 +1,27 @@
+<main id="main" class="shell" tabindex="-1">
+ <div class="page-intro"><div class="eyebrow">02 / Explore the structure</div><h1>让一条执行路径变得可读</h1><p>选择阶段，查看输入、输出与约束。流程概览与局部细节保持关联，而不是重复堆叠在多张卡片中。</p><span class="badge">架构示意 · 非真实编译器或仿真器</span></div>
+ <section id="explorer" class="explorer" aria-label="架构评估流程探索">
+  <div class="graph-pane" id="graph-pane">
+   <div class="graph-caption"><h2>评估路径</h2><span class="badge">4 个阶段</span></div>
+   <ol class="stages" aria-label="按顺序排列的四个示意阶段">
+    <li><button type="button" class="stage" data-stage="0" aria-pressed="true" aria-controls="inspector"><span class="stage-index">01</span><span><strong>候选架构</strong><small>DSE / design space</small></span><span class="stage-arrow" aria-hidden="true">↗</span></button></li>
+    <li><button type="button" class="stage" data-stage="1" aria-pressed="false" aria-controls="inspector"><span class="stage-index">02</span><span><strong>映射与执行计划</strong><small>Mapping / execution plan</small></span><span class="stage-arrow" aria-hidden="true">↗</span></button></li>
+    <li><button type="button" class="stage" data-stage="2" aria-pressed="false" aria-controls="inspector"><span class="stage-index">03</span><span><strong>执行与资源竞争</strong><small>Execution / contention</small></span><span class="stage-arrow" aria-hidden="true">↗</span></button></li>
+    <li><button type="button" class="stage" data-stage="3" aria-pressed="false" aria-controls="inspector"><span class="stage-index">04</span><span><strong>存储请求与反馈</strong><small>Memory / feedback</small></span><span class="stage-arrow" aria-hidden="true">↗</span></button></li>
+   </ol>
+  </div>
+  <div id="splitter" class="splitter" role="separator" tabindex="0" aria-label="调整流程概览宽度" aria-orientation="vertical" aria-valuemin="25" aria-valuemax="75" aria-valuenow="54" aria-controls="graph-pane" aria-describedby="splitter-help"></div>
+  <section class="inspector" id="inspector" aria-labelledby="stage-title">
+   <span class="badge accent" id="stage-label">当前阶段 / 01</span><h2 id="stage-title">候选架构</h2><p id="stage-summary" class="muted">在明确约束下提出待评估的硬件资源组合，不在这一层替代整个编译过程。</p>
+   <dl><dt>输入</dt><dd id="stage-input">工作负载、资源范围、搜索约束。</dd><dt>输出</dt><dd id="stage-output">带有稳定标识的架构候选。</dd><dt>关键约束</dt><dd id="stage-constraint">候选必须满足预先定义的合法性检查。</dd></dl>
+   <aside class="note"><p class="small" id="stage-note">这是界面行为示例，不代表任何特定架构工具的已实现能力。</p></aside>
+  </section>
+ </section>
+ <div class="toolbar explorer-controls"><div><div class="status" id="selection-status" role="status" aria-live="polite">已选择：候选架构。</div><p class="small muted split-only" id="splitter-help">拖动中线调整；方向键微调，Home / End 到边界，Escape 撤销本次拖动。</p></div><div class="actions"><button type="button" class="btn split-only" id="equalize">均分视图</button><button type="button" class="btn ghost" id="reset-explorer">重置选择</button></div></div>
+ <footer class="page-footer"><span>EDITORIAL UI / 流程探索模板</span><span>桌面双栏 · 窄屏顺序堆叠</span></footer>
+</main>
+<dialog class="dialog" id="reset-dialog" aria-labelledby="reset-title">
+ <div class="dialog-head"><h2 id="reset-title">恢复初始视图？</h2><button type="button" class="btn ghost close-btn" data-close aria-label="关闭重置确认">关闭</button></div>
+ <div class="dialog-body"><p>将重新选择第一个阶段，并恢复初始分栏比例。没有文件或数据会被删除。</p></div>
+ <div class="dialog-actions"><button type="button" class="btn" data-close id="cancel-reset">保留当前视图</button><button type="button" class="btn primary" id="confirm-reset">恢复初始视图</button></div>
+</dialog>

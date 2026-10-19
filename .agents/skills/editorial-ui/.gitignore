@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+validation-local/
+.DS_Store
+node_modules/

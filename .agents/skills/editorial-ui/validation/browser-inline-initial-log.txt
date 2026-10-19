@@ -1,0 +1,101 @@
+PASS: reader 1440: primary heading
+PASS: reader 1440: no page overflow
+PASS: reader 1440: visible main
+PASS: reader 1440: theme switch
+PASS: reader 1024: primary heading
+PASS: reader 1024: no page overflow
+PASS: reader 1024: visible main
+PASS: reader 1024: theme switch
+PASS: reader 390: primary heading
+PASS: reader 390: no page overflow
+PASS: reader 390: visible main
+PASS: reader 390: theme switch
+PASS: reader 320: primary heading
+PASS: reader 320: no page overflow
+PASS: reader 320: visible main
+PASS: reader 320: theme switch
+PASS: reader: reduced-motion CSS
+PASS: reader: reduced-motion JS
+PASS: flow-explorer 1440: primary heading
+PASS: flow-explorer 1440: no page overflow
+PASS: flow-explorer 1440: visible main
+PASS: flow-explorer 1440: theme switch
+PASS: flow-explorer 1024: primary heading
+PASS: flow-explorer 1024: no page overflow
+PASS: flow-explorer 1024: visible main
+PASS: flow-explorer 1024: theme switch
+PASS: flow-explorer 390: primary heading
+PASS: flow-explorer 390: no page overflow
+PASS: flow-explorer 390: visible main
+PASS: flow-explorer 390: theme switch
+PASS: flow-explorer 320: primary heading
+PASS: flow-explorer 320: no page overflow
+PASS: flow-explorer 320: visible main
+PASS: flow-explorer 320: theme switch
+PASS: flow-explorer: reduced-motion CSS
+PASS: flow-explorer: reduced-motion JS
+PASS: report 1440: primary heading
+PASS: report 1440: no page overflow
+PASS: report 1440: visible main
+PASS: report 1440: theme switch
+PASS: report 1024: primary heading
+PASS: report 1024: no page overflow
+PASS: report 1024: visible main
+PASS: report 1024: theme switch
+PASS: report 390: primary heading
+PASS: report 390: no page overflow
+PASS: report 390: visible main
+PASS: report 390: theme switch
+PASS: report 320: primary heading
+PASS: report 320: no page overflow
+PASS: report 320: visible main
+PASS: report 320: theme switch
+PASS: report: reduced-motion CSS
+PASS: report: reduced-motion JS
+PASS: reader: dialog opens with question focus
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: close restores opener focus
+PASS: reader: explanation does not advance progress
+PASS: reader: continue appends not replaces
+PASS: reader: synthetic composing Enter does not submit
+PASS: reader: legacy 229 guard
+PASS: reader: Shift Enter newline
+PASS: reader: empty question validation
+PASS: reader: stream has real overflow
+PASS: reader: appended text does not steal history scroll
+PASS: reader: jump control appears
+PASS: reader: explicit jump resumes following
+PASS: reader: stop halts stream
+PASS: reader: cancelled draft preserved
+PASS: reader: failure preserves draft
+PASS: reader: success clears consumed draft
+PASS: reader: newer draft survives completion
+FAIL: reader: closing running dialog cancels work
+{"passed": 86, "failed": 2}
+[
+  {
+    "name": "reader: closing running dialog cancels work",
+    "status": "FAIL",
+    "detail": ""
+  },
+  {
+    "name": "suite execution",
+    "status": "FAIL",
+    "detail": "AssertionError: reader: closing running dialog cancels work: "
+  }
+]
+Evidence: /mnt/data/work/editorial-ui-1.1.0/editorial-ui/validation/browser-inline

@@ -1,0 +1,32 @@
+{
+  "generated_at": "2026-10-17T15:34:40.233556+00:00",
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+  "python": "3.13.5",
+  "browser": {
+    "engine": "Chromium",
+    "version": "144.0.7559.96"
+  },
+  "mode": "fresh contexts; file transport; offline=True; HTTP(S) blocked; no dependency installation",
+  "summary": {
+    "passed": 0,
+    "failed": 1
+  },
+  "checks": [
+    {
+      "name": "suite execution",
+      "status": "FAIL",
+      "detail": "Error: Page.goto: net::ERR_BLOCKED_BY_ADMINISTRATOR at file:///mnt/data/work/editorial-ui-1.1.0/editorial-ui/assets/starters/reader.html\nCall log:\n  - navigating to \"file:///mnt/data/work/editorial-ui-1.1.0/editorial-ui/assets/starters/reader.html\", waiting until \"load\"\n"
+    }
+  ],
+  "attempted_external_requests": [],
+  "uncaught_page_errors": [],
+  "screenshots": [],
+  "not_run": [
+    "Codex/Claude Code/Cursor skill loading and generation evals",
+    "Safari and Firefox",
+    "native OS IME",
+    "screen reader audit",
+    "real mobile touch/iframe interactions",
+    "200% browser zoom"
+  ]
+}

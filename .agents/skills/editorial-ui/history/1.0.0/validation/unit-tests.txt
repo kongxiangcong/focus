@@ -1,0 +1,49 @@
+test_bundle_profile (test_bundle.BundleTests.test_bundle_profile) ... ok
+test_contrast_reference_black_white (test_bundle.BundleTests.test_contrast_reference_black_white) ... ok
+test_contrast_same_color (test_bundle.BundleTests.test_contrast_same_color) ... ok
+test_each_starter_is_offline_preflight_clean (test_bundle.BundleTests.test_each_starter_is_offline_preflight_clean) ... ok
+test_generated_assets_match (test_bundle.BundleTests.test_generated_assets_match) ... ok
+test_generation_is_deterministic (test_bundle.BundleTests.test_generation_is_deterministic) ... ok
+test_invalid_contrast_color (test_bundle.BundleTests.test_invalid_contrast_color) ... ok
+test_attribute_src (test_bundle.OfflineTests.test_attribute_src) ... ok
+test_base_url (test_bundle.OfflineTests.test_base_url) ... ok
+test_cdn_script (test_bundle.OfflineTests.test_cdn_script) ... ok
+test_css_inline_url (test_bundle.OfflineTests.test_css_inline_url) ... ok
+test_css_quoted_import (test_bundle.OfflineTests.test_css_quoted_import) ... ok
+test_css_url (test_bundle.OfflineTests.test_css_url) ... ok
+test_css_url_import (test_bundle.OfflineTests.test_css_url_import) ... ok
+test_dynamic_import (test_bundle.OfflineTests.test_dynamic_import) ... ok
+test_dynamic_src (test_bundle.OfflineTests.test_dynamic_src) ... ok
+test_eval_review (test_bundle.OfflineTests.test_eval_review) ... ok
+test_external_svg_reference (test_bundle.OfflineTests.test_external_svg_reference) ... ok
+test_fetch_computed (test_bundle.OfflineTests.test_fetch_computed) ... ok
+test_font_binary (test_bundle.OfflineTests.test_font_binary) ... ok
+test_form_action (test_bundle.OfflineTests.test_form_action) ... ok
+test_form_no_action (test_bundle.OfflineTests.test_form_no_action) ... ok
+test_inline_handler (test_bundle.OfflineTests.test_inline_handler) ... ok
+test_inline_image (test_bundle.OfflineTests.test_inline_image) ... ok
+test_inline_plain (test_bundle.OfflineTests.test_inline_plain) ... ok
+test_inline_style (test_bundle.OfflineTests.test_inline_style) ... ok
+test_inline_svg_reference (test_bundle.OfflineTests.test_inline_svg_reference) ... ok
+test_javascript_link (test_bundle.OfflineTests.test_javascript_link) ... ok
+test_json_not_code (test_bundle.OfflineTests.test_json_not_code) ... ok
+test_local_image (test_bundle.OfflineTests.test_local_image) ... ok
+test_ping_link (test_bundle.OfflineTests.test_ping_link) ... ok
+test_preconnect (test_bundle.OfflineTests.test_preconnect) ... ok
+test_protocol_relative (test_bundle.OfflineTests.test_protocol_relative) ... ok
+test_refresh (test_bundle.OfflineTests.test_refresh) ... ok
+test_relative_script (test_bundle.OfflineTests.test_relative_script) ... ok
+test_sendbeacon (test_bundle.OfflineTests.test_sendbeacon) ... ok
+test_serviceworker (test_bundle.OfflineTests.test_serviceworker) ... ok
+test_srcdoc_recursion (test_bundle.OfflineTests.test_srcdoc_recursion) ... ok
+test_srcset_review (test_bundle.OfflineTests.test_srcset_review) ... ok
+test_static_import (test_bundle.OfflineTests.test_static_import) ... ok
+test_stylesheet_link (test_bundle.OfflineTests.test_stylesheet_link) ... ok
+test_user_link (test_bundle.OfflineTests.test_user_link) ... ok
+test_websocket (test_bundle.OfflineTests.test_websocket) ... ok
+test_worker (test_bundle.OfflineTests.test_worker) ... ok
+
+----------------------------------------------------------------------
+Ran 44 tests in 0.054s
+
+OK
