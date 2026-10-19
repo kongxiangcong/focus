@@ -35,7 +35,15 @@ class Reading(ReadingRuntimeDouble):
 class Streaming(QuestionRuntime):
  def interrupt(self): self.closed=True;self.events.put({"method":"turn/completed","params":{"status":"interrupted"}})
  def start_turn(self, **kwargs):
-  if '记下来' in kwargs['prompt']:return super().start_turn(**kwargs)
+  if '记下来' in kwargs['prompt']:
+   # This fixture replaces the Stage 4 source; bind note evidence to its actual Bundle.
+   scope=json.loads(kwargs['prompt'].split('[Bound Source discussion scope]: ',1)[1])
+   body=(workspace/'sources'/scope['sourceId']/'parser-bundle/content.md').read_text(encoding='utf-8').splitlines()
+   line=next(i for i,text in enumerate(body,1) if text.strip() and not text.startswith('#'))
+   self.events.put({'id':42,'method':'tool/call','params':{'tool':'focus','arguments':{
+    'action':'source_note','arguments':json.dumps({'content':'浏览器验收笔记。','kind':'conclusion','origin':'dialogue','evidence_role':'explanation',
+     'anchor':{'sourceId':scope['sourceId'],'bundle':scope['bundle'],'sourceLines':[line,line],'quote':body[line-1]}})}}})
+   return
   item=uuid.uuid4().hex
   def emit():
    if figure_translations and '图片讨论验收' in kwargs['prompt']:

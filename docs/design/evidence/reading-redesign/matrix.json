@@ -1,0 +1,330 @@
+[
+  {
+    "name": "768-light-normal-window",
+    "overflow": false,
+    "bodyWidth": 657,
+    "theme": "light",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "768-light-normal-window.png",
+    "video": "768-light-normal-window.webm"
+  },
+  {
+    "name": "768-light-normal-fullscreen",
+    "overflow": false,
+    "bodyWidth": 713,
+    "theme": "light",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "768-light-normal-fullscreen.png",
+    "video": "768-light-normal-fullscreen.webm"
+  },
+  {
+    "name": "768-light-reduced-window",
+    "overflow": false,
+    "bodyWidth": 657,
+    "theme": "light",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "768-light-reduced-window.png",
+    "video": "768-light-reduced-window.webm"
+  },
+  {
+    "name": "768-light-reduced-fullscreen",
+    "overflow": false,
+    "bodyWidth": 713,
+    "theme": "light",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "768-light-reduced-fullscreen.png",
+    "video": "768-light-reduced-fullscreen.webm"
+  },
+  {
+    "name": "768-dark-normal-window",
+    "overflow": false,
+    "bodyWidth": 657,
+    "theme": "dark",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "768-dark-normal-window.png",
+    "video": "768-dark-normal-window.webm"
+  },
+  {
+    "name": "768-dark-normal-fullscreen",
+    "overflow": false,
+    "bodyWidth": 713,
+    "theme": "dark",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "768-dark-normal-fullscreen.png",
+    "video": "768-dark-normal-fullscreen.webm"
+  },
+  {
+    "name": "768-dark-reduced-window",
+    "overflow": false,
+    "bodyWidth": 657,
+    "theme": "dark",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "768-dark-reduced-window.png",
+    "video": "768-dark-reduced-window.webm"
+  },
+  {
+    "name": "768-dark-reduced-fullscreen",
+    "overflow": false,
+    "bodyWidth": 713,
+    "theme": "dark",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "768-dark-reduced-fullscreen.png",
+    "video": "768-dark-reduced-fullscreen.webm"
+  },
+  {
+    "name": "1024-light-normal-window",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "light",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "1024-light-normal-window.png",
+    "video": "1024-light-normal-window.webm"
+  },
+  {
+    "name": "1024-light-normal-fullscreen",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "light",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "1024-light-normal-fullscreen.png",
+    "video": "1024-light-normal-fullscreen.webm"
+  },
+  {
+    "name": "1024-light-reduced-window",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "light",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "1024-light-reduced-window.png",
+    "video": "1024-light-reduced-window.webm"
+  },
+  {
+    "name": "1024-light-reduced-fullscreen",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "light",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "1024-light-reduced-fullscreen.png",
+    "video": "1024-light-reduced-fullscreen.webm"
+  },
+  {
+    "name": "1024-dark-normal-window",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "dark",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "1024-dark-normal-window.png",
+    "video": "1024-dark-normal-window.webm"
+  },
+  {
+    "name": "1024-dark-normal-fullscreen",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "dark",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "1024-dark-normal-fullscreen.png",
+    "video": "1024-dark-normal-fullscreen.webm"
+  },
+  {
+    "name": "1024-dark-reduced-window",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "dark",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "1024-dark-reduced-window.png",
+    "video": "1024-dark-reduced-window.webm"
+  },
+  {
+    "name": "1024-dark-reduced-fullscreen",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "dark",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "1024-dark-reduced-fullscreen.png",
+    "video": "1024-dark-reduced-fullscreen.webm"
+  },
+  {
+    "name": "1440-light-normal-window",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "light",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "1440-light-normal-window.png",
+    "video": "1440-light-normal-window.webm"
+  },
+  {
+    "name": "1440-light-normal-fullscreen",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "light",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "1440-light-normal-fullscreen.png",
+    "video": "1440-light-normal-fullscreen.webm"
+  },
+  {
+    "name": "1440-light-reduced-window",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "light",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "1440-light-reduced-window.png",
+    "video": "1440-light-reduced-window.webm"
+  },
+  {
+    "name": "1440-light-reduced-fullscreen",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "light",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "1440-light-reduced-fullscreen.png",
+    "video": "1440-light-reduced-fullscreen.webm"
+  },
+  {
+    "name": "1440-dark-normal-window",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "dark",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "1440-dark-normal-window.png",
+    "video": "1440-dark-normal-window.webm"
+  },
+  {
+    "name": "1440-dark-normal-fullscreen",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "dark",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "1440-dark-normal-fullscreen.png",
+    "video": "1440-dark-normal-fullscreen.webm"
+  },
+  {
+    "name": "1440-dark-reduced-window",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "dark",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "1440-dark-reduced-window.png",
+    "video": "1440-dark-reduced-window.webm"
+  },
+  {
+    "name": "1440-dark-reduced-fullscreen",
+    "overflow": false,
+    "bodyWidth": 720,
+    "theme": "dark",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "1440-dark-reduced-fullscreen.png",
+    "video": "1440-dark-reduced-fullscreen.webm"
+  },
+  {
+    "name": "390-light-normal-window",
+    "overflow": false,
+    "controlsMin": 40,
+    "bodyWidth": 343,
+    "theme": "light",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "390-light-normal-window.png",
+    "video": "390-light-normal-window.webm"
+  },
+  {
+    "name": "390-light-normal-fullscreen",
+    "overflow": false,
+    "controlsMin": 40,
+    "bodyWidth": 343,
+    "theme": "light",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "390-light-normal-fullscreen.png",
+    "video": "390-light-normal-fullscreen.webm"
+  },
+  {
+    "name": "390-light-reduced-window",
+    "overflow": false,
+    "controlsMin": 40,
+    "bodyWidth": 343,
+    "theme": "light",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "390-light-reduced-window.png",
+    "video": "390-light-reduced-window.webm"
+  },
+  {
+    "name": "390-light-reduced-fullscreen",
+    "overflow": false,
+    "controlsMin": 40,
+    "bodyWidth": 343,
+    "theme": "light",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "390-light-reduced-fullscreen.png",
+    "video": "390-light-reduced-fullscreen.webm"
+  },
+  {
+    "name": "390-dark-normal-window",
+    "overflow": false,
+    "controlsMin": 40,
+    "bodyWidth": 343,
+    "theme": "dark",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "390-dark-normal-window.png",
+    "video": "390-dark-normal-window.webm"
+  },
+  {
+    "name": "390-dark-normal-fullscreen",
+    "overflow": false,
+    "controlsMin": 40,
+    "bodyWidth": 343,
+    "theme": "dark",
+    "reduced": "false",
+    "fullscreen": "workspace-app",
+    "screenshot": "390-dark-normal-fullscreen.png",
+    "video": "390-dark-normal-fullscreen.webm"
+  },
+  {
+    "name": "390-dark-reduced-window",
+    "overflow": false,
+    "controlsMin": 40,
+    "bodyWidth": 343,
+    "theme": "dark",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "390-dark-reduced-window.png",
+    "video": "390-dark-reduced-window.webm"
+  },
+  {
+    "name": "390-dark-reduced-fullscreen",
+    "overflow": false,
+    "controlsMin": 40,
+    "bodyWidth": 343,
+    "theme": "dark",
+    "reduced": "true",
+    "fullscreen": "workspace-app",
+    "screenshot": "390-dark-reduced-fullscreen.png",
+    "video": "390-dark-reduced-fullscreen.webm"
+  }
+]

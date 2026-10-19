@@ -48,18 +48,19 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [readingFont, setReadingFont] = useState<ReadingFont>(readReadingFont);
   const [brightness, setBrightness] = useState(() => { try { return Math.max(85, Math.min(110, Number(localStorage.getItem("focus.brightness") ?? 100) || 100)); } catch { return 100; } });
   const [theme, setTheme] = useState<Theme>(() => readPreference("focus.theme", ["light", "dark", "system"], "system"));
+  const [reducedMotion, setReducedMotion] = useState(() => readPreference("focus.reducedMotion", ["true", "false"], "false") === "true");
   const [density, setDensity] = useState<Density>(() => readPreference("focus.density", ["compact", "comfortable"], "compact"));
   const [navCollapsed, setNavCollapsed] = useState(() => readPreference("focus.navigation", ["expanded", "collapsed"], "expanded") === "collapsed");
   const [appearanceFeedback, setAppearanceFeedback] = useState("");
   const [moreSource, setMoreSource] = useState<string | null>(null);
-  const savedAppearance = useRef({ fontSize, brightness, readingFont, theme, density });
+  const savedAppearance = useRef({ fontSize, brightness, readingFont, theme, density, reducedMotion });
   useEffect(() => {
-    applyAppearance(theme, density);
+    applyAppearance(theme, density, reducedMotion);
     const media = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
-    const update = () => applyAppearance(theme, density);
+    const update = () => applyAppearance(theme, density, reducedMotion);
     media?.addEventListener?.("change", update);
     return () => media?.removeEventListener?.("change", update);
-  }, [theme, density]);
+  }, [theme, density, reducedMotion]);
   const [readingFullscreen, setReadingFullscreen] = useState(false);
   const [managementTopics, setManagementTopics] = useState<readonly string[]>([]);
   const [generateOnUpload, setGenerateOnUpload] = useState(true);
@@ -125,11 +126,11 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   function saveAppearance() {
     try {
-      const changes = { "focus.fontSize": fontSize, "focus.brightness": String(brightness), "focus.readingFont": readingFont, "focus.theme": theme, "focus.density": density };
+      const changes = { "focus.fontSize": fontSize, "focus.brightness": String(brightness), "focus.readingFont": readingFont, "focus.theme": theme, "focus.density": density, "focus.reducedMotion": String(reducedMotion) };
       const old = Object.keys(changes).map(key => [key, localStorage.getItem(key)] as const);
       try { for (const [key, value] of Object.entries(changes)) localStorage.setItem(key, value); }
       catch (e) { for (const [key, value] of old) { if (value !== null) localStorage.setItem(key, value); else localStorage.removeItem(key); } throw e; }
-      savedAppearance.current = { fontSize, brightness, readingFont, theme, density }; return true;
+      savedAppearance.current = { fontSize, brightness, readingFont, theme, density, reducedMotion }; return true;
     } catch { return false; }
   }
   useEffect(() => {
@@ -145,7 +146,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   function cancelAppearance() {
     setFontSize(savedAppearance.current.fontSize); setBrightness(savedAppearance.current.brightness);
     setReadingFont(savedAppearance.current.readingFont); setTheme(savedAppearance.current.theme);
-    setDensity(savedAppearance.current.density);
+    setDensity(savedAppearance.current.density); setReducedMotion(savedAppearance.current.reducedMotion);
   }
   function navigate(next: Route) { history.pushState(null, "", next); setRoute(next); setError(""); setRetryAction(null); }
   async function refresh() {
@@ -641,6 +642,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <h2>外观与阅读</h2>
       <p className="appearance-hint">即时预览；保存后保留，取消恢复已保存的外观。连接检查与后端保存是另一组动作。</p>
       <div className="settings-row"><label htmlFor="focus-theme">主题</label><select id="focus-theme" value={theme} onChange={e => setTheme(e.target.value as Theme)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div>
+      <div className="settings-row"><label htmlFor="focus-reduced-motion">低动态</label><input id="focus-reduced-motion" type="checkbox" checked={reducedMotion} onChange={e => setReducedMotion(e.target.checked)} /></div>
       <div className="settings-row"><label htmlFor="focus-density">界面密度</label><select id="focus-density" value={density} onChange={e => setDensity(e.target.value as Density)}><option value="compact">紧凑</option><option value="comfortable">舒适</option></select></div>
       <div className="settings-row"><label htmlFor="brightness">亮度</label><input id="brightness" type="range" min="85" max="110" value={brightness} onChange={e => { setBrightness(Number(e.target.value)); }} /></div>
       <div className="settings-row"><label htmlFor="font-size">字号</label><input id="font-size" type="range" min="0" max="3" step="1" value={fontOptions.findIndex(([key]) => key === fontSize)} aria-valuetext={fontOptions.find(([key]) => key === fontSize)?.[1]} onChange={e => { const value = fontOptions[Number(e.target.value)][0]; setFontSize(value); }} /></div>

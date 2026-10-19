@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {createRequire} from 'node:module';
+const {chromium}=createRequire(import.meta.url)(process.env.FOCUS_PLAYWRIGHT_MODULE);
+const browser=await chromium.launch({headless:true,executablePath:process.env.FOCUS_CHROMIUM_EXECUTABLE});
+const page=await browser.newPage({viewport:{width:1440,height:1000}}), metrics={};
+try {
+ await page.goto(`http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT}/reading`);
+ await page.getByRole('button',{name:'进入正文',exact:true}).click();
+ await page.locator('.reader-thumbnail img').first().waitFor();
+ assert.equal(await page.locator('.reader-left-drawer').isVisible(),false);
+ await page.getByRole('button',{name:'全屏',exact:true}).click();
+ await page.waitForTimeout(800);
+ const body=page.locator('.focus-reading .focus-markdown').first();
+ await page.getByRole('button',{name:'在资料栏固定',exact:true}).first().scrollIntoViewIfNeeded();await page.waitForTimeout(400);
+ const before=await body.boundingBox();
+ await page.getByRole('button',{name:'在资料栏固定',exact:true}).first().click();await page.waitForTimeout(600);
+ const after=await body.boundingBox();metrics.shift={widthBefore:before.width,widthAfter:after.width,x:after.x-before.x,anchorError:after.y-before.y};
+ assert.equal(before.width,after.width);assert.ok(after.x>before.x);assert.ok(Math.abs(after.y-before.y)<=2,JSON.stringify(metrics));
+ assert.match(await page.locator('.reader-figure-scroll figure').innerText(),/图 1/);
+ await page.getByRole('button',{name:'关闭阅读侧栏',exact:true}).click();await page.waitForTimeout(400);
+ // Interrupt from the currently displayed frame, before the 300ms opening finishes.
+ await page.locator('.reader-thumbnail > button').first().click();await page.waitForTimeout(90);
+ await page.keyboard.press('Escape');
+ metrics.reverse=await page.locator('.reader-image-viewport img').evaluate(el=>el.getAnimations().map(a=>({rate:a.playbackRate,time:a.currentTime})));
+ assert.ok(metrics.reverse.some(a=>a.rate<0));
+ await page.waitForTimeout(500);assert.equal(await page.locator('.reader-image-dialog').count(),0);
+ await page.locator('.reader-thumbnail > button').first().click();await page.waitForTimeout(400);
+ await page.locator('.focus-stream').evaluate(el=>{el.scrollTop=0;});
+ await page.keyboard.press('Escape');
+ metrics.invisibleClose=await page.locator('.reader-image-viewport img').evaluate(el=>el.getAnimations()[0]?.effect.getKeyframes());
+ assert.ok(metrics.invisibleClose.every(frame=>!frame.transform));await page.waitForTimeout(400);assert.equal(await page.locator('.reader-image-dialog').count(),0);
+ await page.emulateMedia({reducedMotion:'reduce'});await page.locator('.reader-thumbnail > button').first().click();
+ metrics.reduced=await page.locator('.reader-image-viewport img').evaluate(el=>el.getAnimations()[0]?.effect.getKeyframes());assert.ok(metrics.reduced.every(frame=>!frame.transform));await page.keyboard.press('Escape');await page.waitForTimeout(200);await page.emulateMedia({reducedMotion:'no-preference'});
+ await page.getByRole('button',{name:'继续',exact:true}).click();await page.waitForSelector('[data-lens-index="2"]');assert.equal(await page.locator('.reader-left-drawer').isVisible(),false);
+ await page.setViewportSize({width:768,height:1000});await page.waitForTimeout(500);
+ await page.getByRole('button',{name:'在资料栏固定',exact:true}).first().scrollIntoViewIfNeeded();await page.waitForTimeout(400);
+ const narrowBefore=await body.boundingBox();await page.getByRole('button',{name:'在资料栏固定',exact:true}).first().click();await page.waitForTimeout(400);const narrowAfter=await body.boundingBox();
+ assert.equal(narrowBefore.width,narrowAfter.width);assert.equal(narrowBefore.x,narrowAfter.x);
+ fs.writeFileSync(`${process.env.FOCUS_BROWSER_OUTPUT}/figures-motion.json`,JSON.stringify(metrics,null,2));console.log('PASS',metrics);
+} finally {await browser.close();}

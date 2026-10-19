@@ -8,11 +8,11 @@ const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
 page.on('response',async r=>{if(r.status()<400)return;let body='';try{body=(await r.text()).slice(0,240)}catch{}console.log('HTTP',r.status(),r.url(),body.replace(/\n/g,' '))});
 const results=[];
-const api=async()=> (await (await page.request.get('http://127.0.0.1:8765/reader/window')).json()).value;
+const api=async()=> (await (await page.request.get(`http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT || '8765'}/reader/window`)).json()).value;
 const latest=async(index)=> {await page.waitForFunction(i=>document.querySelector('.focus-output[data-current-output="true"]')?.textContent.includes(`Section ${i}`),index)};
 const next=async(index)=> {await page.getByRole('button',{name:'继续',exact:true}).click();await latest(index)};
 const enterBody=async()=> {const enter=page.getByRole('button',{name:'进入正文',exact:true});if(await enter.count())await enter.click();};
-await page.goto('http://127.0.0.1:8765/reading');
+await page.goto(`http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT || '8765'}/reading`);
 // A fresh plan opens on the structure overview; entering the body starts chunk 1.
 await page.waitForSelector('.workspace-app');
 await page.waitForTimeout(400);
@@ -74,7 +74,7 @@ assert.equal(view.sourceNotes[0].content,'Browser note after editing');
 assert.equal(view.sourceNotes[0].deleted,false);
 assert.equal(view.readingProgress.filter(e=>e.deleted).length,1);
 results.push('T16 note edit/delete/undo and progress edit/delete preserve cursor');
-await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-desktop.png`});
+if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-desktop.png`});
 await page.getByRole('link',{name:'设置',exact:true}).click();await page.getByRole('slider',{name:'字号',exact:true}).fill('3');
 // Save appearance only is observed even if external backend config is not verified.
 await page.getByRole('button',{name:'保存外观',exact:true}).click();
@@ -92,21 +92,21 @@ if (await page.getByRole('button',{name:'关闭阅读侧栏',exact:true}).count(
 await page.getByRole('button',{name:'资料',exact:true}).click();await page.waitForTimeout(250);
 await page.keyboard.press('Escape');
 assert.equal(await page.getByRole('button',{name:'资料',exact:true}).count(),1);
-await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-narrow.png`});results.push('T16/T21 sidebar toggle and narrow viewport / extra font');
+if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-narrow.png`});results.push('T16/T21 sidebar toggle and narrow viewport / extra font');
 // Finish then review last remains terminal.
 await page.getByRole('button',{name:'完成本篇',exact:true}).click();await page.getByRole('button',{name:'已读完',exact:true}).waitFor();
 await page.getByRole('button',{name:'当前阅读位置'}).click();await page.getByRole('navigation',{name:'已读段落'}).getByRole('button',{name:/第 9 段/}).click();await latest(9);
 assert.equal(await page.getByRole('button',{name:'已读完',exact:true}).isDisabled(),true);results.push('T9 complete terminal state');
 // Reset via Library is confirmed and first Continue opens first, not second.
-await page.getByRole('link',{name:'知识库',exact:true}).click();await page.getByRole('button',{name:'详细',exact:true}).click();
+await page.getByRole('link',{name:'知识库',exact:true}).click();await page.locator('button[aria-controls="source-details-fixture-paper"]').click();
 assert.equal(await page.getByRole('button',{name:'讨论',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'从头阅读',exact:true}).count(),0);
-try { await page.getByRole('button',{name:'更多',exact:true}).click(); } catch (error) {
-  await page.screenshot({path:process.env.FOCUS_BROWSER_OUTPUT + '/confirmed-failure.png'});
+try { await page.locator('button[aria-controls="source-more-fixture-paper"]').click(); } catch (error) {
+  if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:process.env.FOCUS_BROWSER_OUTPUT + '/confirmed-failure.png'});
   throw error;
 }
 await page.getByRole('button',{name:'重新阅读',exact:true}).click();await page.getByRole('button',{name:'确认重新阅读',exact:true}).click();
 await page.waitForFunction(()=>!document.querySelector('.workspace-confirm[open]'));
-await page.getByRole('link',{name:'阅读',exact:true}).click();await page.waitForTimeout(400);await enterBody();await latest(1);
+await page.getByRole('link',{name:'阅读',exact:true}).click();await page.getByRole('button',{name:'进入正文',exact:true}).waitFor();await enterBody();await latest(1);
 view=await api();assert.equal(view.readingProgress.length,0);assert.equal(view.sourceNotes.length,0);assert.equal(view.conversation.length,0);results.push('T8/U6 confirmed reset clears progress and next opens first');
 // Historical browsing reaches the frontier, then advances exactly once.
 await next(2);await next(3);
@@ -133,8 +133,8 @@ await page.route('**/library/batches', route=>route.fulfill({json:{ok:true,value
  {batchId:'visual-done',topicId:'未分类',status:'completed',error:null,items:[]}
 ]}}));
 await page.setViewportSize({width:1440,height:1000});
-await page.goto('http://127.0.0.1:8765/library');
-await page.getByRole('button',{name:'详细',exact:true}).waitFor();
+await page.goto(`http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT || '8765'}/library`);
+await page.locator('button[aria-controls="source-details-fixture-paper"]').waitFor();
 const toggle=page.getByRole('button',{name:'任务详情',exact:true});
 assert.equal(await toggle.getAttribute('aria-expanded'),'false');
 assert.equal(await page.locator('.library-inbox').count(),0);
@@ -145,11 +145,11 @@ assert.equal(await page.locator('.library-inbox details[open]').count(),0);
 await page.locator('.library-inbox summary').first().click();
 await page.getByText('visual.pdf',{exact:true}).waitFor();
 await toggle.click();assert.equal(await page.locator('.library-inbox').count(),0);
-await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-library.png`});
+if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-library.png`});
 results.push('UI task history hidden by default, single disclosure, heading alignment');
 // A modal uses the browser top layer: the close target must win hit testing.
-await page.getByRole('button',{name:'详细',exact:true}).click();
-const openBlog=page.getByRole('button',{name:'打开博客',exact:true});
+await page.locator('button[aria-controls="source-details-fixture-paper"]').click();
+const openBlog=page.locator('.library-card').filter({has:page.locator('button[aria-controls="source-details-fixture-paper"]')}).getByRole('button',{name:'打开博客',exact:true});
 await page.waitForFunction(()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='打开博客')?.disabled===false);
 for (const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
  await page.setViewportSize(viewport);await openBlog.click();
@@ -158,7 +158,7 @@ for (const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
  const close=viewer.getByRole('button',{name:'关闭',exact:true});
  assert.equal(await close.evaluate(el=>{const r=el.getBoundingClientRect();return el.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2))}),true);
  assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
- await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-blog-${viewport.width}.png`});
+ if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-blog-${viewport.width}.png`});
  await close.click();assert.equal(await viewer.count(),0);
  assert.equal(await openBlog.evaluate(el=>el===document.activeElement),true);
  await openBlog.click();await page.keyboard.press('Escape');assert.equal(await viewer.count(),0);

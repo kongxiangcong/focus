@@ -1,0 +1,19 @@
+{
+  "selection": "Paragraph 1:",
+  "notes": {
+    "before": 1,
+    "after": 2
+  },
+  "noteRequest": {
+    "sessionId": "bbf4b0476b01429d9f1365ba24f7f0b3",
+    "receipt": {
+      "sourceId": "fixture-paper",
+      "planId": "plan-001",
+      "chunkId": "chunk-001"
+    },
+    "content": "请把下面的回答记下来：\n\n回复第1句。\n\n回复第2句。\n\n回复第3句。\n\n回复第4句。\n\n回复第5句。\n\n回复第6句。\n\n回复第7句。\n\n回复第8句。\n\n回复第9句。\n\n回复第10句。\n\n回复第11句。\n\n回复第12句。\n\n回复第13句。\n\n回复第14句。\n\n回复第15句。\n\n回复第16句。\n\n回复第17句。\n\n回复第18句。\n\n回复第19句。\n\n回复第20句。",
+    "attachmentIds": [],
+    "sourceId": "fixture-paper",
+    "requestId": "f573f592-6f05-4ea4-b46d-cc03b7db391b"
+  }
+}

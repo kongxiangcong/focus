@@ -27,11 +27,13 @@ try {
   await page.waitForSelector('.workspace-app'); await page.waitForTimeout(400);
   { const enter = page.getByRole('button', { name: '进入正文', exact: true }); if (await enter.count()) await enter.click(); }
   await chunk(1);
+  assert.equal(await drawer.isVisible(), false);
+  await stream.getByRole('button', {name:'在资料栏固定',exact:true}).first().click();
   await page.waitForFunction(() => document.querySelector('.reader-figure-scroll img')?.naturalWidth > 0);
   // A chunk with figures opens the left drawer directly on the image tab.
   assert.ok(await drawer.isVisible());
-  assert.equal(await gallery.locator('figure').count(), 5);
-  assert.equal(await stream.locator('img').count(), 0);
+  assert.equal(await gallery.locator('.reader-figure-grid button').count(), 5);
+  assert.equal(await stream.locator('img:not(.reader-thumbnail img)').count(), 0);
   assert.equal(await tab('图片').getAttribute('aria-pressed'), 'true');
 
   // The drawer is an overlay: it never reflows the reading column.
@@ -44,7 +46,7 @@ try {
   await page.getByRole('button', { name: '资料', exact: true }).click();
   await page.waitForTimeout(250);
   assert.ok(await drawer.isVisible());
-  results.push('figure chunk opens the left drawer; overlay does not reflow the text column');
+  results.push('figure chunk stays closed until pinned; overlay does not reflow the text column');
 
   // Four material types share the drawer.
   await tab('笔记').click();
@@ -61,24 +63,28 @@ try {
   let position = await top();
   await nav.getByRole('button', { name: /图 5/ }).click();
   await page.waitForTimeout(200);
-  assert.ok(await gallery.evaluate(el => el.scrollTop) > 0);
+  assert.match(await gallery.locator('figure[data-selected=true]').innerText(), /图 5/);
   await stable(position);
   const before = JSON.stringify({ source: (await api()).source, position: (await api()).navigationCurrent?.chunkId });
   const beforePosts = posts.length;
 
   // Zoom keeps top-layer, natural size and focus restoration.
   await nav.getByRole('button', { name: '图 1', exact: true }).click();
-  const zoom = page.getByRole('button', { name: '放大图 1', exact: true });
+  const zoom = gallery.getByRole('button', { name: '放大图 1', exact: true });
   await zoom.click();
   const modal = page.getByRole('dialog', { name: '图片放大' });
   assert.equal(await modal.evaluate(el => el.matches(':modal')), true);
+  await page.keyboard.press('ArrowRight');assert.equal(await modal.locator('header strong').innerText(),'图 2');
+  await page.keyboard.press('ArrowLeft');assert.equal(await modal.locator('header strong').innerText(),'图 1');
   await modal.getByRole('button', { name: '原尺寸查看', exact: true }).click();
   assert.ok(await page.locator('.reader-image-viewport').evaluate(el => el.scrollWidth > el.clientWidth));
   await page.keyboard.press('Escape');
+  await modal.waitFor({state:'hidden'});
   assert.equal(await modal.isVisible(), false);
   assert.equal(await zoom.evaluate(el => el === document.activeElement), true);
   await zoom.click();
   await modal.getByRole('button', { name: '关闭放大', exact: true }).click();
+  await modal.waitFor({state:'hidden'});
   assert.equal(await zoom.evaluate(el => el === document.activeElement), true);
   assert.equal(JSON.stringify({ source: (await api()).source, position: (await api()).navigationCurrent?.chunkId }), before);
   assert.equal(posts.length, beforePosts);
@@ -87,18 +93,19 @@ try {
   // Language switch updates captions without a second gallery or a translation request.
   await stream.getByRole('button', { name: '查看原文', exact: true }).click();
   assert.ok((await gallery.innerText()).includes('Figure 1. Full architecture caption'));
-  assert.equal(await gallery.locator('figure').count(), 5);
+  assert.equal(await gallery.locator('.reader-figure-grid button').count(), 5);
   await stream.getByRole('button', { name: '查看译文', exact: true }).click();
   assert.ok((await gallery.innerText()).includes('图 1：完整架构图注'));
   assert.equal(posts.length, beforePosts);
   results.push('language captions come from the same gallery without another request');
 
   await next(2);
-  assert.equal(await gallery.locator('figure').count(), 5);
+  assert.equal(await gallery.locator('.reader-figure-grid button').count(), 5);
   assert.equal(await reader.getAttribute('data-side-open'), 'true');
   await next(3);
-  assert.equal(await reader.getAttribute('data-side-open'), 'false');
-  results.push('chunks with their own figures keep the catalogue; a chunk without figures closes the drawer');
+  assert.equal(await reader.getAttribute('data-side-open'), 'true');
+  await page.getByRole('button',{name:'关闭阅读侧栏',exact:true}).click();
+  results.push('chunks with their own figures keep the catalogue; a chunk without figures preserves the drawer');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForTimeout(200);
@@ -109,17 +116,17 @@ try {
   const directory = page.getByRole('navigation', { name: '图片目录' });
   assert.equal(await directory.getByRole('button').count(), 5);
   const ys = await directory.getByRole('button').evaluateAll(els => els.map(el => el.getBoundingClientRect().y));
-  assert.ok(ys.every(y => Math.abs(y - ys[0]) < 1));
-  await page.screenshot({ path: `${output}/focus-figures-narrow.png` });
+  assert.ok(Math.abs(ys[0]-ys[2]) < 1 && ys[3] > ys[0]);
+  if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({ path: `${output}/focus-figures-narrow.png` });
   await page.keyboard.press('Escape');
   assert.equal(await reader.getAttribute('data-side-open'), 'false');
   assert.ok((await page.getByRole('button', { name: '继续', exact: true }).boundingBox()).y < 844);
-  results.push('390px drawer, horizontal figure navigation, no page overflow, Escape and Continue reachable');
+  results.push('390px drawer, three-column figure navigation, no page overflow, Escape and Continue reachable');
 
   assert.deepEqual(errors, []);
   fs.writeFileSync(`${output}/focus-figures-browser-results.json`, JSON.stringify({ results, errors }, null, 2));
   console.log(JSON.stringify({ results, errors }));
 } catch (error) {
-  await page.screenshot({ path: `${output}/focus-figures-failure.png` });
+  if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({ path: `${output}/focus-figures-failure.png` });
   console.error(error); throw error;
 } finally { await browser.close(); }

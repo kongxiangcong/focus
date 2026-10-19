@@ -109,10 +109,15 @@ describe("Agent Reader", () => {
     const { update } = setup(); await screen.findByText("打开一份材料"); update(running);
     const pane = screen.getByRole("main");
     Object.defineProperties(pane, { scrollHeight: { value: 2000 }, clientHeight: { value: 500 } });
+    const answer = pane.querySelector<HTMLElement>('[data-streaming="true"]')!;
+    Object.defineProperties(answer, { offsetTop: { value: 1000 }, offsetHeight: { value: 800 } });
+    fireEvent.wheel(pane, { deltaY: -100 });
     pane.scrollTop = 150; fireEvent.scroll(pane);
     update({ ...running, revision: 4, conversation: [{ ...running.conversation[0], content: "新增内容" }] });
     expect(pane.scrollTop).toBe(150);
-    fireEvent.click(screen.getByRole("button", { name: "有新内容 · 回到底部 ↓" }));
-    expect(pane.scrollTop).toBe(2000);
+    document.documentElement.dataset.reducedMotion = 'true';
+    fireEvent.click(screen.getByRole("button", { name: /回到最新/ }));
+    expect(pane.scrollTop).toBe(1324);
+    delete document.documentElement.dataset.reducedMotion;
   });
 });

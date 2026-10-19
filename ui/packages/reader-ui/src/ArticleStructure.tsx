@@ -38,7 +38,7 @@ export function ArticleStructure({ view, currentChunkId, blocked, onReview, onBo
     })}</ul>;
   }
   return <section className="article-structure" aria-label="文章结构">
-    <h1>{view.source.title}</h1>
+    <h1 tabIndex={-1}>{view.source.title}</h1>
     <p className="article-structure-kicker">文章结构</p>
     {branch(null)}
     {view.structureIntro && <button className="focus-primary" disabled={blocked} onClick={onBody}>进入正文</button>}
