@@ -66,7 +66,7 @@ it('opens unread figures without navigation or rebinding the question, and share
   expect(pane.querySelectorAll('img')).toHaveLength(2);
   fireEvent.change(screen.getByRole('textbox'),{target:{value:'original draft'}});
   const controls = screen.getByRole('navigation',{name:'阅读功能控制区'});
-  expect(within(controls).getByRole('button',{name:'收起侧栏'})).toBeInTheDocument();
+  expect(within(controls).getByRole('button',{name:'收起资料'})).toBeInTheDocument();
   expect(screen.getByRole('region',{name:'阅读资料侧栏'})).toHaveAttribute('data-side-placement','left');
   expect(document.querySelector('.reader-column-resizer')).toBeNull();
   expect(screen.queryByText(/本段图片/)).not.toBeInTheDocument();
@@ -77,16 +77,16 @@ it('opens unread figures without navigation or rebinding the question, and share
   const disclosure = navigation.closest('details')!;
   expect(disclosure.open).toBe(true);
   act(() => { disclosure.open = false; });
-  expect(screen.getByRole('button',{name:'收起侧栏'})).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:'收起资料'})).toBeInTheDocument();
   act(() => { disclosure.open = true; });
   fireEvent.click(within(screen.getByRole('navigation',{name:'图片目录'})).getByRole('button',{name:/图 9/}));
   expect(screen.getByRole('navigation',{name:'图片目录'}).querySelector('[aria-current=true]')).toHaveTextContent('图 9');
   expect(host.continueReading).not.toHaveBeenCalled();
   expect(screen.getByRole('textbox')).toHaveValue('original draft');
-  fireEvent.click(screen.getByRole('button',{name:'笔记 / 记录'}));
+  fireEvent.click(screen.getByRole('button',{name:'笔记'}));
   expect(screen.getByRole('region',{name:'阅读资料侧栏'})).toHaveAttribute('data-side-placement','left');
   expect(screen.queryByRole('img',{name:future.caption})).not.toBeInTheDocument();
-  expect(screen.getByRole('complementary',{name:'笔记与阅读记录'})).toBeVisible();
+  expect(screen.getByRole('complementary',{name:'阅读资料'})).toBeVisible();
   fireEvent.click(screen.getByRole('button',{name:'发送 ↑'}));
   expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({receipt:expect.objectContaining({chunkId:chunk.chunkId})}));
   act(()=>emit(readerSuccess({...window, revision:2, source:{...window.source, sourceId:'another-paper'},current:{...chunk,sourceId:'another-paper',sourceMarkdown:'no figure',translation:null,images:[]},figures:[]})));
@@ -97,15 +97,16 @@ it('selects the viewed chunk in the full gallery and exposes it from no-image ch
   const noImages = {...chunk,chunkId:'chunk-002',index:2,sourceMarkdown:'no images',translation:null,images:[]};
   const host: ReaderHost={getReadingWindow:vi.fn(async()=>readerSuccess(window)),continueReading:vi.fn(),sendMessage:vi.fn(),subscribe:callback=>{emit=callback;return()=>{};}};
   render(<FocusReader host={host} appearance="mist" />);
-  await screen.findByRole('button',{name:'收起侧栏'});
+  await screen.findByRole('button',{name:'收起资料'});
   act(()=>emit(readerSuccess({...window,revision:2,current:noImages,history:[chunk]})));
   expect(screen.queryByRole('region',{name:'阅读资料侧栏'})).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button',{name:'图片 / 笔记'}));
+  fireEvent.click(screen.getByRole('button',{name:'资料'}));
   expect(within(screen.getByRole('navigation',{name:'图片目录'})).getByRole('button',{name:'图 9'})).toBeVisible();
-  fireEvent.click(screen.getByRole('button',{name:'收起侧栏'}));
+  fireEvent.click(screen.getByRole('button',{name:'收起资料'}));
   expect(screen.queryByRole('navigation',{name:'图片目录'})).not.toBeInTheDocument();
-  fireEvent.click(within(screen.getByRole('navigation',{name:'段落目录'})).getByRole('button',{name:/01/}));
-  expect(screen.getByRole('button',{name:'收起侧栏'})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'当前阅读位置'}));
+  fireEvent.click(within(screen.getByRole('navigation',{name:'已读段落'})).getByRole('button',{name:/第 1 段/}));
+  expect(screen.getByRole('button',{name:'收起资料'})).toBeInTheDocument();
 });
 
 it('lists all ten source figures in numeric order and preserves selection when toggling the panel', async () => {
@@ -114,13 +115,13 @@ it('lists all ten source figures in numeric order and preserves selection when t
   const host: ReaderHost = {getReadingWindow:vi.fn(async()=>readerSuccess({...window,current,figures})),continueReading:vi.fn(),sendMessage:vi.fn()};
   render(<FocusReader host={host} appearance="mist" />);
   await screen.findByRole('heading',{name:'Method'});
-  fireEvent.click(screen.getByRole('button',{name:'图片 / 笔记'}));
+  fireEvent.click(screen.getByRole('button',{name:'资料'}));
   const directory = screen.getByRole('navigation',{name:'图片目录'});
   expect(within(directory).getAllByRole('button').map(b=>b.textContent)).toEqual(Array.from({length:10},(_,i)=>`图 ${i+1}`));
   fireEvent.click(within(directory).getByRole('button',{name:'图 10'}));
   expect(screen.getByLabelText('图片浏览').querySelector('figure[data-selected=true] img')).toHaveAttribute('src','/reader/assets/demo-paper/images/figure-10.png');
-  fireEvent.click(screen.getByRole('button',{name:'收起侧栏'}));
-  fireEvent.click(screen.getByRole('button',{name:'图片 / 笔记'}));
+  fireEvent.click(screen.getByRole('button',{name:'收起资料'}));
+  fireEvent.click(screen.getByRole('button',{name:'资料'}));
   expect(within(screen.getByRole('navigation',{name:'图片目录'})).getByRole('button',{name:'图 10'})).toHaveAttribute('aria-current','true');
   expect(host.continueReading).not.toHaveBeenCalled();
 });

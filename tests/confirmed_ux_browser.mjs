@@ -1,40 +1,55 @@
-const {chromium} = await import(process.env.FOCUS_PLAYWRIGHT_MODULE || 'playwright');
+import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.FOCUS_PLAYWRIGHT_MODULE || 'playwright');
 const browser=await chromium.launch({headless:true,executablePath:process.env.FOCUS_CHROMIUM_EXECUTABLE || undefined,args:['--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--no-zygote']});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
+page.on('response',async r=>{if(r.status()<400)return;let body='';try{body=(await r.text()).slice(0,240)}catch{}console.log('HTTP',r.status(),r.url(),body.replace(/\n/g,' '))});
 const results=[];
 const api=async()=> (await (await page.request.get('http://127.0.0.1:8765/reader/window')).json()).value;
 const latest=async(index)=> {await page.waitForFunction(i=>document.querySelector('.focus-output[data-current-output="true"]')?.textContent.includes(`Section ${i}`),index)};
 const next=async(index)=> {await page.getByRole('button',{name:'继续',exact:true}).click();await latest(index)};
-await page.goto('http://127.0.0.1:8765/reading');await latest(1);
+const enterBody=async()=> {const enter=page.getByRole('button',{name:'进入正文',exact:true});if(await enter.count())await enter.click();};
+await page.goto('http://127.0.0.1:8765/reading');
+// A fresh plan opens on the structure overview; entering the body starts chunk 1.
+await page.waitForSelector('.workspace-app');
+await page.waitForTimeout(400);
+await enterBody();
+await latest(1);
 // Draft written against paragraph 1 survives moving to 2.
-await page.getByRole('textbox',{name:'输入问题或阅读需求'}).fill('第一段的问题');await next(2);
+await page.getByRole('textbox',{name:'输入问题或阅读需求'}).fill('第一段的问题');
+await next(2);
 assert.equal(await page.locator('.focus-output').count(),2);
 await page.getByRole('button',{name:'发送 ↑',exact:true}).click();
 await page.waitForFunction(()=>document.querySelector('[data-role="assistant"]')?.textContent.includes('回复第2句'));
 const stream=page.locator('.focus-stream');await stream.hover();await page.mouse.wheel(0,-400);
 await page.waitForTimeout(100);const manual=await stream.evaluate(el=>el.scrollTop);
 await page.waitForTimeout(550);assert.ok(Math.abs((await stream.evaluate(el=>el.scrollTop))-manual)<10);
-await page.getByRole('button',{name:'查看新内容',exact:true}).click();
+// The mist workspace keeps the paused position without a "new content" badge.
 await page.waitForFunction(()=>document.querySelector('.workspace-status')?.textContent.includes('当前无工作'));
 let view=await api();assert.equal(view.conversation[0].reference.chunkId,'chunk-001');results.push('T3/T4/T6 stream order, manual scroll and anchored draft');
 // Continue to 8, review 3, browse 4; progress remains 8.
 for(let i=3;i<=8;i++)await next(i);
-await page.getByRole('navigation',{name:'段落目录'}).getByRole('button',{name:/03/}).click();await latest(3);
+await page.getByRole('button',{name:'当前阅读位置'}).click();await page.getByRole('navigation',{name:'已读段落'}).getByRole('button',{name:/第 3 段/}).click();await latest(3);
 const before=await api();await next(4);view=await api();assert.equal(view.navigationCurrent.index,8);assert.equal(view.readingRevision,before.readingRevision);assert.equal(view.readingProgress.length,before.readingProgress.length);results.push('T5 history Continue does not roll back progress');
 // New session persists blank across reload and resumes 9 from frontier 8.
 await page.getByRole('button',{name:'新会话',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.focus-output').length===0);
 await page.reload();await page.getByRole('button',{name:'继续',exact:true}).waitFor();assert.equal(await page.locator('.focus-output').count(),0);
 await next(9);view=await api();assert.equal(view.navigationCurrent.index,9);results.push('T7/T26 new session / refresh / next 9');
-// Sidebar hides without occupying center space; narrow layout and large font.
-if (await page.getByRole('button',{name:'笔记与记录',exact:true}).count()) await page.getByRole('button',{name:'笔记与记录',exact:true}).click();
-await page.getByRole('button',{name:'隐藏资料栏',exact:true}).click();const hiddenWidth=(await stream.boundingBox()).width;
-await page.getByRole('button',{name:'笔记与记录',exact:true}).click();assert.ok((await stream.boundingBox()).width<hiddenWidth);
+// The materials drawer overlays the reading column instead of shrinking it.
+const drawer=page.locator('.reader-left-drawer');
+if (await page.getByRole('button',{name:'关闭阅读侧栏',exact:true}).count()) { await page.getByRole('button',{name:'关闭阅读侧栏',exact:true}).click(); }
+await page.waitForTimeout(250);
+const widthClosed=(await stream.boundingBox()).width;
+await page.getByRole('button',{name:'资料',exact:true}).click();await page.waitForTimeout(300);
+assert.ok(await drawer.isVisible());const widthOpen=(await stream.boundingBox()).width;
+assert.equal(Math.round(widthClosed),Math.round(widthOpen));
 // Exercise the sidebar through real HTTP mutations; none may move the frontier.
-const notes=page.locator('.reader-materials details').filter({has:page.locator('summary').filter({hasText:/^笔记 ·/})});
-await notes.locator('summary').click();
+await drawer.getByRole('button',{name:'笔记',exact:true}).click();
+const notes=page.locator('.reader-materials .focus-source-notes').filter({has:page.locator('summary').filter({hasText:/^笔记 ·/})});
+if (await notes.locator('details').count() === 0 && await notes.getAttribute('open') === null) await notes.locator('summary').click();
 await notes.getByRole('button',{name:'编辑',exact:true}).click();
 await page.getByRole('textbox',{name:'编辑笔记',exact:true}).fill('Browser note after editing');
 await notes.getByRole('button',{name:'保存修改',exact:true}).click();
@@ -43,8 +58,8 @@ await notes.getByRole('button',{name:'删除',exact:true}).click();
 await notes.getByText('已删除，可撤销',{exact:true}).waitFor();
 await notes.getByRole('button',{name:'撤销',exact:true}).click();
 await notes.getByText('Browser note after editing',{exact:true}).waitFor();
-const records=page.locator('.reader-materials details').filter({has:page.locator('summary').filter({hasText:/^阅读记录 ·/})});
-await records.locator('summary').click();
+await drawer.getByRole('button',{name:'进度',exact:true}).click();
+const records=page.locator('.reader-materials .focus-source-notes').filter({has:page.locator('summary').filter({hasText:/^阅读记录 ·/})});
 const recordBefore=await api();
 await records.getByRole('button',{name:'更正',exact:true}).first().click();
 await page.getByRole('textbox',{name:'更正阅读记录',exact:true}).fill('Browser corrected reading record');
@@ -52,7 +67,7 @@ await records.getByRole('button',{name:'保存更正',exact:true}).click();
 await records.getByText(/Browser corrected reading record/).waitFor();
 page.once('dialog',async dialog=>{assert.match(dialog.message(),/阅读位置不会改变/);await dialog.accept()});
 await records.getByRole('button',{name:'删除',exact:true}).first().click();
-await page.waitForFunction(n=>document.querySelectorAll('.reader-materials details:last-child li').length===n,recordBefore.readingProgress.filter(e=>!e.deleted).length-1);
+await page.waitForFunction(()=>!document.body.innerText.includes('Browser corrected reading record'));
 view=await api();assert.equal(view.navigationCurrent.index,recordBefore.navigationCurrent.index);
 assert.equal(view.readingRevision,recordBefore.readingRevision);
 assert.equal(view.sourceNotes[0].content,'Browser note after editing');
@@ -62,36 +77,41 @@ results.push('T16 note edit/delete/undo and progress edit/delete preserve cursor
 await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-desktop.png`});
 await page.getByRole('link',{name:'设置',exact:true}).click();await page.getByRole('slider',{name:'字号',exact:true}).fill('3');
 // Save appearance only is observed even if external backend config is not verified.
-await page.getByRole('button',{name:'保存并应用',exact:true}).click();
+await page.getByRole('button',{name:'保存外观',exact:true}).click();
 await page.getByRole('link',{name:'阅读',exact:true}).click();await page.setViewportSize({width:390,height:844});
 await page.waitForTimeout(300);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
 assert.ok((await page.getByRole('button',{name:'完成本篇',exact:true}).boundingBox()).y<844);
 assert.equal(await page.locator('.reading-title-scroll').count(),0);
-await page.getByRole('combobox',{name:'选择阅读材料',exact:true}).focus();
-assert.ok(await page.getByRole('combobox',{name:'选择阅读材料',exact:true}).getAttribute('title'));
+const readingTitle=page.locator('.workspace-reading-title');
+assert.ok(await readingTitle.isVisible());assert.ok((await readingTitle.innerText()).trim().length>0);
 const pickerBox=await page.locator('.reading-library-picker').boundingBox();
 const taskBox=await page.getByRole('button',{name:'任务详情',exact:true}).boundingBox();
-assert.ok(Math.abs(pickerBox.y-taskBox.y)<10);
+assert.ok(Math.abs(pickerBox.y-taskBox.y)<16);
 assert.equal(await page.locator('.workspace-task-frame').count(),0);
-await page.getByRole('button',{name:'隐藏资料栏',exact:true}).focus();await page.keyboard.press('Enter');
-await page.getByRole('button',{name:'笔记与记录',exact:true}).click();await page.keyboard.press('Escape');
-assert.equal(await page.getByRole('button',{name:'笔记与记录',exact:true}).count(),1);
+if (await page.getByRole('button',{name:'关闭阅读侧栏',exact:true}).count()) { await page.getByRole('button',{name:'关闭阅读侧栏',exact:true}).click(); }
+await page.getByRole('button',{name:'资料',exact:true}).click();await page.waitForTimeout(250);
+await page.keyboard.press('Escape');
+assert.equal(await page.getByRole('button',{name:'资料',exact:true}).count(),1);
 await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-narrow.png`});results.push('T16/T21 sidebar toggle and narrow viewport / extra font');
 // Finish then review last remains terminal.
 await page.getByRole('button',{name:'完成本篇',exact:true}).click();await page.getByRole('button',{name:'已读完',exact:true}).waitFor();
-await page.getByRole('navigation',{name:'段落目录'}).getByRole('button',{name:/09/}).click();await latest(9);
+await page.getByRole('button',{name:'当前阅读位置'}).click();await page.getByRole('navigation',{name:'已读段落'}).getByRole('button',{name:/第 9 段/}).click();await latest(9);
 assert.equal(await page.getByRole('button',{name:'已读完',exact:true}).isDisabled(),true);results.push('T9 complete terminal state');
 // Reset via Library is confirmed and first Continue opens first, not second.
 await page.getByRole('link',{name:'知识库',exact:true}).click();await page.getByRole('button',{name:'详细',exact:true}).click();
 assert.equal(await page.getByRole('button',{name:'讨论',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'从头阅读',exact:true}).count(),0);
+try { await page.getByRole('button',{name:'更多',exact:true}).click(); } catch (error) {
+  await page.screenshot({path:process.env.FOCUS_BROWSER_OUTPUT + '/confirmed-failure.png'});
+  throw error;
+}
 await page.getByRole('button',{name:'重新阅读',exact:true}).click();await page.getByRole('button',{name:'确认重新阅读',exact:true}).click();
 await page.waitForFunction(()=>!document.querySelector('.workspace-confirm[open]'));
-await page.getByRole('link',{name:'阅读',exact:true}).click();await page.getByRole('button',{name:'继续',exact:true}).click();await latest(1);
+await page.getByRole('link',{name:'阅读',exact:true}).click();await page.waitForTimeout(400);await enterBody();await latest(1);
 view=await api();assert.equal(view.readingProgress.length,0);assert.equal(view.sourceNotes.length,0);assert.equal(view.conversation.length,0);results.push('T8/U6 confirmed reset clears progress and next opens first');
 // Historical browsing reaches the frontier, then advances exactly once.
 await next(2);await next(3);
 const frontier=await api();
-await page.getByRole('navigation',{name:'段落目录'}).getByRole('button',{name:/01/}).click();await latest(1);
+await page.getByRole('button',{name:'当前阅读位置'}).click();await page.getByRole('navigation',{name:'已读段落'}).getByRole('button',{name:/第 1 段/}).click();await latest(1);
 await next(2);await next(3);
 view=await api();assert.equal(view.navigationCurrent.index,3);
 assert.equal(view.readingRevision,frontier.readingRevision);

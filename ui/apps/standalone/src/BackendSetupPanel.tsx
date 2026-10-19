@@ -151,13 +151,14 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
     <p>{checked && checked.backend === input.backend && (!input.model || checked.checkedModel === input.model) ? '当前模型已验证（仅本次最小请求）。' : '当前模型尚未验证。'}</p>
     {login?.authUrl && <p><a href={login.authUrl} target="_blank" rel="noopener noreferrer">打开浏览器授权</a>
       <button type="button" disabled={loginBusy} onClick={() => void loginOperation("login-cancel")}>取消登录</button></p>}
-    {!onDraft && <button type="button" disabled={checking || loginBusy || !!login || configuration?.busy }
-      onClick={() => void save()}>保存并应用</button>}
-    {!onDraft && <button type="button" disabled={checking || loginBusy || !!login} onClick={() => {
+    {!onDraft && <div className="backend-setup__actions">
+    <button type="button" className="workspace-primary" disabled={checking || loginBusy || !!login || configuration?.busy }
+      onClick={() => void save()}>保存并应用</button>
+    <button type="button" disabled={checking || loginBusy || !!login} onClick={() => {
       onCancelAppearance?.();
       const backend = saved?.backend ?? 'codex';
       change({ backend, model: configuration?.preferences?.[backend]?.model ?? undefined });
-    }}>取消修改</button>}
+    }}>取消修改</button></div>}
     <small>API 密钥等配置可在项目目录的 .env 文件中填写；Codex 使用已有登录。路径及 Backend／模型选项由应用自动保存。</small>
     {configuration?.busy && <p role="status">当前任务正在使用后端，请等待任务结束后保存；可先编辑设置。</p>}
     {feedback && <p role="status">{feedback}</p>}

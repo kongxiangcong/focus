@@ -5,6 +5,7 @@ import { BackendSetupPanel } from "./BackendSetupPanel";
 import { WorkspaceSelection } from './WorkspaceSelection';
 import { UploadTopicPicker } from "./UploadTopicPicker";
 import { readingFonts, readReadingFont, readingFontFamily, type ReadingFont } from "./reading-fonts";
+import { applyAppearance, readPreference, type Theme, type Density } from "./appearance";
 
 type Route = "/library" | "/reading" | "/settings";
 type FontSize = "small" | "standard" | "large" | "extra";
@@ -46,7 +47,19 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [fontSize, setFontSize] = useState<FontSize>(readFont);
   const [readingFont, setReadingFont] = useState<ReadingFont>(readReadingFont);
   const [brightness, setBrightness] = useState(() => { try { return Math.max(85, Math.min(110, Number(localStorage.getItem("focus.brightness") ?? 100) || 100)); } catch { return 100; } });
-  const savedAppearance = useRef({ fontSize, brightness, readingFont });
+  const [theme, setTheme] = useState<Theme>(() => readPreference("focus.theme", ["light", "dark", "system"], "system"));
+  const [density, setDensity] = useState<Density>(() => readPreference("focus.density", ["compact", "comfortable"], "compact"));
+  const [navCollapsed, setNavCollapsed] = useState(() => readPreference("focus.navigation", ["expanded", "collapsed"], "expanded") === "collapsed");
+  const [appearanceFeedback, setAppearanceFeedback] = useState("");
+  const [moreSource, setMoreSource] = useState<string | null>(null);
+  const savedAppearance = useRef({ fontSize, brightness, readingFont, theme, density });
+  useEffect(() => {
+    applyAppearance(theme, density);
+    const media = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
+    const update = () => applyAppearance(theme, density);
+    media?.addEventListener?.("change", update);
+    return () => media?.removeEventListener?.("change", update);
+  }, [theme, density]);
   const [readingFullscreen, setReadingFullscreen] = useState(false);
   const [managementTopics, setManagementTopics] = useState<readonly string[]>([]);
   const [generateOnUpload, setGenerateOnUpload] = useState(true);
@@ -75,6 +88,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   });
   const [expandedSources, setExpandedSources] = useState<ReadonlySet<string>>(new Set());
   function toggleDetails(id: string) {
+    setMoreSource(null);
     setExpandedSources(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
     if (!blogs[id]) void refreshBlog(id);
   }
@@ -111,12 +125,27 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   function saveAppearance() {
     try {
-      const changes = { "focus.fontSize": fontSize, "focus.brightness": String(brightness), "focus.readingFont": readingFont };
+      const changes = { "focus.fontSize": fontSize, "focus.brightness": String(brightness), "focus.readingFont": readingFont, "focus.theme": theme, "focus.density": density };
       const old = Object.keys(changes).map(key => [key, localStorage.getItem(key)] as const);
       try { for (const [key, value] of Object.entries(changes)) localStorage.setItem(key, value); }
       catch (e) { for (const [key, value] of old) { if (value !== null) localStorage.setItem(key, value); else localStorage.removeItem(key); } throw e; }
-      savedAppearance.current = { fontSize, brightness, readingFont }; return true;
+      savedAppearance.current = { fontSize, brightness, readingFont, theme, density }; return true;
     } catch { return false; }
+  }
+  useEffect(() => {
+    if (!moreSource) return;
+    const close = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(`[data-more-source="${moreSource}"]`)) return;
+      setMoreSource(null);
+    };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [moreSource]);
+  function cancelAppearance() {
+    setFontSize(savedAppearance.current.fontSize); setBrightness(savedAppearance.current.brightness);
+    setReadingFont(savedAppearance.current.readingFont); setTheme(savedAppearance.current.theme);
+    setDensity(savedAppearance.current.density);
   }
   function navigate(next: Route) { history.pushState(null, "", next); setRoute(next); setError(""); setRetryAction(null); }
   async function refresh() {
@@ -454,15 +483,24 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     return () => document.removeEventListener("keydown", exit);
   }, [readingFullscreen]);
   useEffect(() => { if (route !== "/reading") setReadingFullscreen(false); }, [route]);
-  return <div className="workspace-app" data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-brightness": brightness / 100, "--reader-body-font": readingFontFamily(readingFont) } as CSSProperties}>
-    <header className="workspace-nav">
-      <a className="workspace-logo" href="/library" onClick={e => { e.preventDefault(); navigate("/library"); }}>focus<span>.</span></a>
-      <nav aria-label="应用导航">{([["/library", "知识库", "▤"], ["/reading", "阅读", "☷"], ["/settings", "设置", "☼"]] as const).map(([path, title, icon]) =>
-        <a key={path} href={path} aria-current={route === path ? "page" : undefined} onClick={e => { e.preventDefault(); navigate(path); }}><span aria-hidden="true">{icon}</span>{title}</a>)}</nav>
-    </header>
+  return <div className="workspace-app" data-nav-collapsed={navCollapsed} data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-brightness": brightness / 100, "--reader-body-font": readingFontFamily(readingFont) } as CSSProperties}>
+    <aside className="workspace-nav" aria-label="工作台导航">
+      <div className="workspace-nav__head">
+        <a className="workspace-logo" href="/library" onClick={e => { e.preventDefault(); navigate("/library"); }}>focus<span>.</span></a>
+        <button type="button" className="workspace-nav-toggle" aria-label={navCollapsed ? "展开导航" : "收起导航"} aria-expanded={!navCollapsed} aria-controls="workspace-routes" onClick={() => { setNavCollapsed(!navCollapsed); try { localStorage.setItem("focus.navigation", navCollapsed ? "expanded" : "collapsed"); } catch { /* Navigation remains usable without persistence. */ } }}><span aria-hidden="true">☰</span></button>
+      </div>
+      <nav id="workspace-routes" aria-label="应用导航">{([["/library", "知识库", "▤"], ["/reading", "阅读", "☷"], ["/settings", "设置", "☼"]] as const).map(([path, title, icon]) =>
+        <a key={path} href={path} aria-label={title} title={navCollapsed ? title : undefined} aria-current={route === path ? "page" : undefined} onClick={e => { e.preventDefault(); navigate(path); }}><span aria-hidden="true">{icon}</span><span className="workspace-nav-label">{title}</span></a>)}</nav>
+      {route === "/library" && <div className="workspace-topics" role="group" aria-label="专题">
+        <h2>专题</h2>
+        <button type="button" className="workspace-topics__new" disabled={managementBusy || !host.createTopic} onClick={() => openManagement("create")}>＋ 新建专题</button>
+        <button type="button" aria-pressed={!topic} onClick={() => setTopic("")}>全部 <span>{sources.length}</span></button>
+        {topics.map(t => <button type="button" key={t.topicId} aria-pressed={topic === t.topicId} onClick={() => setTopic(t.topicId)}>{t.title}<span>{t.sourceIds.length}</span></button>)}
+      </div>}
+    </aside>
     <header className="workspace-header">
       <div className="workspace-toolbar">
-        {route === "/reading" ? <div className="reading-library-picker"><span className="workspace-sr-only">阅读工作区</span></div> : <h1>{route === "/library" ? "知识库" : "设置"}</h1>}
+        {route === "/reading" ? <div className="reading-library-picker"><span className="workspace-reading-title" title={view?.source.title}>{view?.source.title || "阅读"}</span></div> : <h1>{route === "/library" ? "知识库" : "设置"}</h1>}
         <div className="workspace-header-actions">
           <section className="workspace-status" aria-label="当前工作">
             <span className="workspace-sr-only" role="status">{connectionLost ? "连接中断，正在恢复" : !view ? "正在连接" : primaryWork ? `${primaryWork.label} · ${runningWork.length} 项进行中` : "当前无工作"}{attention.length > 0 ? ` · ${attention.length} 项需查看` : ""}</span>
@@ -542,7 +580,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       onDragOver={e => { e.preventDefault(); if (!uploadDisabled) setDragging(true); }}
       onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }}
       onDrop={e => { e.preventDefault(); setDragging(false); if (!uploadDisabled) chooseUpload(Array.from(e.dataTransfer.files)); }}>
-      <div className="library-layout"><aside className="library-topics" aria-label="专题"><h2>专题</h2><button disabled={managementBusy || !host.createTopic} onClick={() => openManagement("create")}>新建专题</button><button aria-pressed={!topic} onClick={() => setTopic("")}>全部 <span>{sources.length}</span></button>{topics.map(t => <button key={t.topicId} aria-pressed={topic === t.topicId} onClick={() => setTopic(t.topicId)}>{t.title}<span>{t.sourceIds.length}</span></button>)}</aside>
+      <div className="library-layout">
         <section className="library-sources" aria-label="材料列表">{selectedTopic && <div>
           <button disabled={managementBusy || !host.manageTopic} onClick={() => openManagement("rename", selectedTopic.topicId, selectedTopic.title)}>重命名专题</button>
           <button disabled={managementBusy || !host.manageTopic} onClick={() => openManagement("delete", selectedTopic.topicId, selectedTopic.title)}>删除专题</button>
@@ -558,17 +596,25 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
               <button title={active ? "请先完成或停止当前问答" : busy ? `${busy}中` : undefined} disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready" || (view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready)} onClick={() => void enterReading(s.sourceId)}>{view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready ? "阅读准备中…" : preparationFailed(s.sourceId) && !view?.preparations?.[s.sourceId]?.selected_ready ? preparationHidden(s.sourceId) ? "准备阅读" : "重试准备" : readingStatus(s) === "completed" ? "查看已读" : s.progress.completed > 0 ? "继续阅读" : view?.preparations?.[s.sourceId]?.selected_ready || view?.preparations?.[s.sourceId]?.ready ? "开始阅读" : "准备阅读"}</button>
               {preparationHidden(s.sourceId) && preparationFailed(s.sourceId) && view?.preparations?.[s.sourceId]?.selected_ready && <button disabled={!!busy || active || (!host.resumePreparation && !host.replanSource)} onClick={() => void retryPreparation(s.sourceId)}>准备阅读</button>}
               <button aria-expanded={expandedSources.has(s.sourceId)} aria-controls={`source-details-${s.sourceId}`} onClick={() => toggleDetails(s.sourceId)}>详细</button>
+              <button aria-expanded={moreSource === s.sourceId} aria-controls={`source-more-${s.sourceId}`} onClick={() => setMoreSource(moreSource === s.sourceId ? null : s.sourceId)}>更多</button>
             </div>
+            {moreSource === s.sourceId && <div className="library-more-menu" id={`source-more-${s.sourceId}`} data-more-source={s.sourceId} role="group" aria-label="更多操作"
+              onKeyDown={event => { if (event.key === "Escape") { setMoreSource(null); } }}
+              onClick={event => { if ((event.target as HTMLElement).closest("button")) setMoreSource(null); }}>
+              <button disabled={managementBusy || !host.saveSourceDetails} onClick={() => openManagement("source", s.sourceId, s.title)}>管理来源</button>
+              {selectedTopic && <button aria-label={`${s.title} 上移`} disabled={managementBusy || selectedTopic.sourceIds.indexOf(s.sourceId) === 0} onClick={() => moveSource(s.sourceId, -1)}>上移</button>}
+              {selectedTopic && <button aria-label={`${s.title} 下移`} disabled={managementBusy || selectedTopic.sourceIds.indexOf(s.sourceId) === selectedTopic.sourceIds.length - 1} onClick={() => moveSource(s.sourceId, 1)}>下移</button>}
+              <button disabled={!!busy || active || !host.replanSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "replan" })}>重新规划</button>
+              <button disabled={!!busy || !host.clearSource || view?.clearBusySources?.includes(s.sourceId)} onClick={() => setConfirm({ source: s, action: "clear", requestId: createReaderId() })}>重新阅读</button>
+              <button className="library-more-danger" disabled={managementBusy || !host.deleteSource || !host.deletionImpact} onClick={() => void confirmDelete(s)}>删除</button>
+            </div>}
 
             {expandedSources.has(s.sourceId) && <div className="library-details" id={`source-details-${s.sourceId}`}>
             {preparationNotice(s.sourceId)}
             <p className="library-parse-status">解析：{s.parseStatus === "ready" ? "已完成" : "失败"}{s.error ? ` · ${s.error}` : ""}</p>
-            <div><button disabled={managementBusy || !host.saveSourceDetails} onClick={() => openManagement("source", s.sourceId, s.title)}>管理来源</button>
-              {selectedTopic && <><button aria-label={`${s.title} 上移`} disabled={managementBusy || selectedTopic.sourceIds.indexOf(s.sourceId) === 0} onClick={() => moveSource(s.sourceId, -1)}>上移</button><button aria-label={`${s.title} 下移`} disabled={managementBusy || selectedTopic.sourceIds.indexOf(s.sourceId) === selectedTopic.sourceIds.length - 1} onClick={() => moveSource(s.sourceId, 1)}>下移</button></>}
-            </div>
             <div className="library-card-top"><span className="source-badge">{s.format ?? (s.kind === "paper" ? "PDF" : "HTML")}</span>{s.parseStatus !== "ready" && <span title={s.error ?? undefined}>需检查</span>}</div>
             <p className="library-metadata" title={s.title}>{[s.publishedAt, s.venue].filter(Boolean).join(" · ")}</p>
-            <div className="library-card-bottom"><small>{({ ready: "待阅读", reading: "阅读中", completed: "已读完", unplanned: "待规划" })[readingStatus(s)]}</small><div className="library-row-actions">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(s.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(s.sourceId)} target="_blank" rel="noreferrer">正文</a>}<button disabled={!!busy || active || !host.replanSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "replan" })}>重新规划</button><button disabled={!!busy || !host.clearSource || view?.clearBusySources?.includes(s.sourceId)} onClick={() => setConfirm({ source: s, action: "clear", requestId: createReaderId() })}>重新阅读</button><button disabled={managementBusy || !host.deleteSource || !host.deletionImpact} onClick={() => void confirmDelete(s)}>删除</button></div></div>
+            <div className="library-card-bottom"><small>{({ ready: "待阅读", reading: "阅读中", completed: "已读完", unplanned: "待规划" })[readingStatus(s)]}</small><div className="library-row-actions">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(s.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(s.sourceId)} target="_blank" rel="noreferrer">正文</a>}</div></div>
             {view?.preparations?.[s.sourceId]?.candidate && view.preparations[s.sourceId].ready && <button className="workspace-primary" disabled={!!busy || active || !host.activateReadingCandidate || view.readingRevision === undefined} onClick={() => void activateCandidate(s.sourceId)}>打开新计划</button>}
             <div className="library-tags" aria-label="专题标签"><span>属于专题：{s.topicIds.length === 0 ? "未分类" : ""}</span>{s.topicIds.map(id => <button key={id} onClick={() => setTopic(id)}>{topics.find(t => t.topicId === id)?.title ?? id}</button>)}</div>
             <section className="library-blog" aria-label={`${s.title} 博客`}>
@@ -590,9 +636,12 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     </main>}
     {route === "/settings" && <main className="settings-page">
       <WorkspaceSelection />
-      <BackendSetupPanel host={host} configuration={view?.configuration}
-        onSaved={acceptView} onSaveAppearance={saveAppearance} onCancelAppearance={() => { setFontSize(savedAppearance.current.fontSize); setBrightness(savedAppearance.current.brightness); setReadingFont(savedAppearance.current.readingFont); }} />
-      <section className="focus-reader__appearance-panel">
+      <BackendSetupPanel host={host} configuration={view?.configuration} onSaved={acceptView} />
+      <section className="focus-reader__appearance-panel" aria-label="外观与阅读">
+      <h2>外观与阅读</h2>
+      <p className="appearance-hint">即时预览；保存后保留，取消恢复已保存的外观。连接检查与后端保存是另一组动作。</p>
+      <div className="settings-row"><label htmlFor="focus-theme">主题</label><select id="focus-theme" value={theme} onChange={e => setTheme(e.target.value as Theme)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div>
+      <div className="settings-row"><label htmlFor="focus-density">界面密度</label><select id="focus-density" value={density} onChange={e => setDensity(e.target.value as Density)}><option value="compact">紧凑</option><option value="comfortable">舒适</option></select></div>
       <div className="settings-row"><label htmlFor="brightness">亮度</label><input id="brightness" type="range" min="85" max="110" value={brightness} onChange={e => { setBrightness(Number(e.target.value)); }} /></div>
       <div className="settings-row"><label htmlFor="font-size">字号</label><input id="font-size" type="range" min="0" max="3" step="1" value={fontOptions.findIndex(([key]) => key === fontSize)} aria-valuetext={fontOptions.find(([key]) => key === fontSize)?.[1]} onChange={e => { const value = fontOptions[Number(e.target.value)][0]; setFontSize(value); }} /></div>
       <div className="settings-row"><label htmlFor="reading-font">正文字体</label><select id="reading-font" value={readingFont} onChange={e => setReadingFont(e.target.value as ReadingFont)}>
@@ -603,6 +652,11 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <p lang="en">Reading brings ideas into focus. Follow the evidence, ask clear questions, and keep exploring.</p>
         <p><strong>重要结论</strong> · Focus 2026 · 0123456789</p>
       </div>
+      <div className="settings-actions">
+        <button type="button" className="workspace-primary" onClick={() => setAppearanceFeedback(saveAppearance() ? "外观已保存" : "外观保存失败，请重试")}>保存外观</button>
+        <button type="button" onClick={() => { cancelAppearance(); setAppearanceFeedback(""); }}>还原外观</button>
+      </div>
+      {appearanceFeedback && <p role="status">{appearanceFeedback}</p>}
       <details className="settings-font-licenses"><summary>字体许可</summary>
         <p><a href="/fonts/SourceHanSerif-LICENSE.txt" target="_blank" rel="noreferrer">思源宋体</a> · <a href="/fonts/SourceHanSans-LICENSE.txt" target="_blank" rel="noreferrer">思源黑体</a> · <a href="/fonts/NeoZhiSong-IPA-LICENSE.txt" target="_blank" rel="noreferrer">新致宋屏幕阅读版</a></p>
         <p>新致宋可恢复为 IPA 原始字体：从 <a href="https://moji.or.jp/ipafont/ipafontdownload/" target="_blank" rel="noreferrer">IPA 官方下载页</a>下载并安装 IPAex 明朝，重启浏览器后选择“新致宋屏幕阅读版”，将优先使用本机 IPAexMincho（或 IPAmjMincho）。卸载原始字体后恢复使用内置屏幕阅读版。</p>

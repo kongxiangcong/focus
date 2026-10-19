@@ -46,7 +46,7 @@ it("shows the structure before body text and explicitly starts without advancing
   expect(within(screen.getByRole("main", { name: "阅读与对话" })).queryByLabelText("当前阅读位置")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "收起" }));
   expect([...controls.children].map(el => el.textContent)).toEqual([
-    "图片 / 笔记", "全屏", "新会话", "展开对话框", "文章结构", "1 / 2全文 › 方法", "继续",
+    "资料", "结构", "1 / 2全文 › 方法", "新会话", "全屏", "展开对话框", "继续",
   ]);
 });
 
@@ -57,7 +57,7 @@ it("returns to structure and reviews read sections without changing the frontier
   render(<FocusReader host={host} appearance="mist" />);
   await screen.findByText("Second body paragraph.");
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "保留草稿" } });
-  fireEvent.click(screen.getByRole("button", { name: "文章结构" }));
+  fireEvent.click(screen.getByRole("button", { name: "结构" }));
   const tree = screen.getByRole("region", { name: "文章结构" });
   expect(within(tree).getByText("结果").closest("li")).toHaveAttribute("data-current", "true");
   fireEvent.click(within(tree).getByRole("button", { name: /方法/ }));
@@ -71,6 +71,6 @@ it("does not force an introduction in a fresh discussion after reading has begun
   const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess({ ...body, current: null, sessionFresh: true })),
     continueReading: vi.fn(), sendMessage: vi.fn() };
   render(<FocusReader host={host} appearance="mist" />);
-  await screen.findByRole("button", { name: "文章结构" });
+  await screen.findByRole("button", { name: "结构" });
   expect(screen.queryByRole("button", { name: "进入正文" })).not.toBeInTheDocument();
 });

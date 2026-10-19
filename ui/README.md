@@ -23,9 +23,9 @@ Focus Core
 
 `FocusReader({ host })` is the only public Reader UI Interface. `reader-ui` may import `reader-contracts`, React, and its own internal implementation. It must not import the Standalone app, HTTP, filesystem code, Python scripts, Workspace paths, or DSH packages.
 
-The formal default is **雾光 / Mist**: a wide floating reading card, complete host-projected history that progressively fades, a vertical dashed progress rail, and a desktop companion panel. Light intensity, optional particles, larger text, and focus mode affect presentation only. Continue advances one Chunk; questions preserve the Cursor. The companion becomes a toggleable panel on narrow screens.
+The formal presentation is **CDS 2.0, FOCUS adaptation**: a solid neutral canvas, one continuous reading column, a single collapsible sidebar, a left overlay materials drawer and a CDS composer (Editor + Notices + Chin). Light/dark/system themes and compact/comfortable density come from one product-owned token file, `focus-tokens.css`. Reading size, serif family, brightness and library view preferences keep their existing storage keys. Continue advances one Chunk; questions preserve the Cursor. The materials drawer never reflows the text column. See [the CDS design record](../docs/design/focus-cds-ui.md) and [ADR 0025](../docs/adr/0025-cds-focus-presentation.md).
 
-The five Lightfield prototypes remain under `apps/standalone/src/prototypes/lightfield/` as future skin references. They are available at `/prototypes/lightfield/?v=1` in the development server, but are not imported into the production build. There is no production theme switcher. Appearance changes in the formal UI preserve the current host projection and unsent input; the comparison picker's reset behavior is not used.
+The five Lightfield prototypes remain under `apps/standalone/src/prototypes/lightfield/` as future skin references. They are available at `/prototypes/lightfield/?v=1` in the development server, but are not imported into the production build. Production theming is limited to light/dark/system and compact/comfortable; there is no picker between prototype skins. Appearance changes in the formal UI preserve the current host projection and unsent input; the comparison picker's reset behavior is not used.
 
 ## Host Adapters
 
