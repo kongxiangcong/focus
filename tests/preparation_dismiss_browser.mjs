@@ -10,8 +10,9 @@ try {
   page.on('request',request=>{if(request.method()==='POST' && /\/preparation\//.test(request.url())) mutations.push(request.url())});
   const api = async () => (await (await page.request.get('http://127.0.0.1:8765/reader/window')).json()).value;
   await page.goto('http://127.0.0.1:8765/library');
-  const card = page.locator('.library-card').first();
-  await card.getByRole('button',{name:'详细',exact:true}).click();
+  const row = page.locator('.library-source-row').first();
+  const card = page.locator('.library-inspector');
+  await row.locator('.library-source-title').click();
   await card.getByText('准备超时',{exact:true}).waitFor();
   assert.equal(await card.getByRole('button',{name:'重试',exact:true}).isEnabled(),true);
   const before = await api();
@@ -30,7 +31,7 @@ try {
   assert.deepEqual(closed.navigationCurrent,before.navigationCurrent);
   assert.equal(closed.workItems.some(item=>item.kind==='preparation'),false);
   await page.reload();
-  await card.getByRole('button',{name:'详细',exact:true}).click();
+  await row.locator('.library-source-title').click();
   await page.getByRole('button',{name:'任务详情',exact:true}).click();
   assert.equal(await page.locator('.preparation-notice').count(),0);
   assert.equal(mutations.filter(url=>/\/(resume|cancel)$/.test(url)).length,0);
@@ -38,7 +39,7 @@ try {
   await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/preparation-dismissed.png`});
   // The fixture deliberately fails the next candidate plan, proving a new attempt reappears.
   await card.getByRole('button',{name:'准备阅读',exact:true}).click();
-  await page.waitForFunction(()=>document.querySelector('.library-card .preparation-notice')?.textContent.includes('准备失败'));
+  await page.waitForFunction(()=>document.querySelector('.library-inspector .preparation-notice')?.textContent.includes('准备失败'));
   const restarted = await api();
   assert.notEqual(restarted.preparations['fixture-paper'].attempt,before.preparations['fixture-paper'].attempt);
   assert.equal(restarted.preparations['fixture-paper'].dismissed,false);

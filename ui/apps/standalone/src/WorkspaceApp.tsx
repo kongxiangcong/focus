@@ -18,10 +18,6 @@ function readFont(): FontSize {
 }
 function routeFromLocation(): Route { return ["/library", "/reading", "/settings"].includes(location.pathname) ? location.pathname as Route : "/library"; }
 
-function readingStatus(source: LibrarySource) {
-  return source.readingStatus ?? (source.progress.planId && source.progress.chunkId === null ? "completed" : source.progress.completed ? "reading" : source.progress.planId ? "ready" : "unplanned");
-}
-
 const preparationSteps: Record<string, string> = {
   context: "正在分析全文", plan: "正在生成计划", translate: "正在翻译", check: "正在检查", repair: "正在修订译文", ready: "已完成",
 };
@@ -87,14 +83,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [managementDisplayTitleEdited, setManagementDisplayTitleEdited] = useState(false);
   const managementDialog = useRef<HTMLDialogElement>(null);
   const [libraryView, setLibraryView] = useState<"cards" | "list">(() => {
-    try { return localStorage.getItem("focus.libraryView") === "list" ? "list" : "cards"; } catch { return "cards"; }
+    try { return localStorage.getItem("focus.libraryView") === "cards" ? "cards" : "list"; } catch { return "list"; }
   });
-  const [expandedSources, setExpandedSources] = useState<ReadonlySet<string>>(new Set());
-  function toggleDetails(id: string) {
-    setMoreSource(null);
-    setExpandedSources(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-    if (!blogs[id]) void refreshBlog(id);
-  }
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -139,8 +129,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     if (!moreSource) return;
     const close = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.closest(`[data-more-source="${moreSource}"]`)) return;
+      if (target?.closest<HTMLElement>("[data-more-source]")?.dataset.moreSource === moreSource) return;
       setMoreSource(null);
+      document.getElementById(`source-more-trigger-${moreSource}`)?.focus();
     };
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
@@ -579,7 +570,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       aria-label="关闭全屏模式" title="退出全屏" onClick={() => setReadingFullscreen(false)}>×</button>}
     <div className="workspace-reading" hidden={route !== "/reading"}>
       <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
-    {route === "/library" && <LibraryPage {...{ dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, readingStatus, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, expandedSources, toggleDetails, moreSource, setMoreSource, moveSource, setConfirm, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} />}
+    {route === "/library" && <LibraryPage {...{ dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, setConfirm, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} />}
     {route === "/settings" && <main className="settings-page">
       <WorkspaceSelection />
       <BackendSetupPanel host={host} configuration={view?.configuration} onSaved={acceptView} />

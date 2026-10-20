@@ -112,8 +112,8 @@ it.each(["check", "open"])("retains the newest shared configuration when a late 
     await screen.findByText(/连接检查通过；已检模型/);
     fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
   } else {
-    fireEvent.click(await screen.findByRole("button", { name: "详细" }));
-    fireEvent.click(screen.getByRole("button", { name: "准备阅读" }));
+    fireEvent.click(await screen.findByRole("button", { name: "A Paper" }));
+    fireEvent.click(within(screen.getByRole("list", { name: "来源" })).getByRole("button", { name: "准备阅读" }));
   }
   if (action === "check") await waitFor(() => expect(host.saveBackendConfiguration).toHaveBeenCalled());
   await act(async () => publish(readerSuccess({ ...initial, revision: 3, agent: { ...empty.agent!, backend: "deepseek" }, configuration: { ...initial.configuration, saved: deepseek, effective: deepseek } })));
@@ -125,14 +125,14 @@ it.each(["check", "open"])("retains the newest shared configuration when a late 
 it("edits original metadata and Topic membership through Host actions", async () => {
   const { host } = setup();
   await screen.findByRole("heading", { name: "A Paper" });
-  if (screen.getByRole("button", { name: "详细" }).getAttribute("aria-expanded") === "false") fireEvent.click(screen.getByRole("button", { name: "详细" }));
+  if (screen.getByRole("button", { name: "A Paper" }).getAttribute("aria-expanded") === "false") fireEvent.click(screen.getByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "更多" }));
   fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
   fireEvent.change(screen.getByRole("textbox", { name: "来源原题" }), { target: { value: "Correct title" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() => expect(host.saveSourceDetails).toHaveBeenCalledWith("a-paper", "Correct title", ["topic"], expect.any(String), "Correct title"));
   await waitFor(() => expect(screen.queryByRole("textbox", { name: "来源原题" })).not.toBeInTheDocument());
-  if (screen.getByRole("button", { name: "详细" }).getAttribute("aria-expanded") === "false") fireEvent.click(screen.getByRole("button", { name: "详细" }));
+  if (screen.getByRole("button", { name: "A Paper" }).getAttribute("aria-expanded") === "false") fireEvent.click(screen.getByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "更多" }));
   fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "编译" }));
@@ -162,13 +162,13 @@ it("edits library heading independently from the original while preserving Sourc
     return readerSuccess(empty);
   });
   await screen.findByRole("heading", { name: "A Paper" });
-  fireEvent.click(screen.getByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "更多" }));
   fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
   fireEvent.change(screen.getByRole("textbox", { name: "知识库显示标题" }), { target: { value: "我的 GPU 论文" } });
   fireEvent.change(screen.getByRole("textbox", { name: "来源原题" }), { target: { value: "Original GPU Architecture Paper" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
-  expect(await screen.findByRole("heading", { name: "我的 GPU 论文" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "我的 GPU 论文", level: 3 })).toBeInTheDocument();
   expect(host.saveSourceDetails).toHaveBeenCalledWith("a-paper", "Original GPU Architecture Paper", ["topic"], expect.any(String), "我的 GPU 论文");
   fireEvent.click(screen.getByRole("button", { name: "更多" }));
   fireEvent.click(screen.getByRole("button", { name: "管理来源" }));
@@ -234,10 +234,10 @@ it("starts parsing and blog with one explicit confirmation", async () => {
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String), true));
   expect(host.confirmIngestion).not.toHaveBeenCalled();
   expect(host.processIngestion).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "更多" }));
-  await waitFor(() => expect(screen.getByRole("button", { name: "删除" })).toBeEnabled());
-  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "删除…" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "删除…" }));
   expect(host.deleteSource).not.toHaveBeenCalled();
   fireEvent.click(await screen.findByRole("button", { name: "永久删除" }));
   await waitFor(() => expect(host.deleteSource).toHaveBeenCalledWith("a-paper"));
@@ -246,7 +246,7 @@ it("starts parsing and blog with one explicit confirmation", async () => {
 });
 it("filters source cards, exposes source resources, and rejects unsupported ingestion formats", async () => {
   const { host } = setup(); await screen.findByRole("heading", { name: "A Paper" });
-  fireEvent.click(screen.getByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "A Paper" }));
   expect(document.querySelector(".source-badge")?.closest("article")).toBeInTheDocument();
   expect(screen.getByRole("progressbar", { name: "A Paper 阅读进度" })).toHaveAttribute("value", "1");
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "missing" } });
@@ -340,7 +340,7 @@ it("offers resubmission instead of a doomed continue for a cancelled acceptance-
 });
 it("generates a blog from the source card and shows the three sub-statuses", async () => {
   const { host } = setup();
-  fireEvent.click(await screen.findByRole("button", { name: "详细" }));
+  fireEvent.click(await screen.findByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "生成博客" }));
   await waitFor(() => expect(host.generateBlog).toHaveBeenCalledWith("a-paper", expect.any(String)));
   expect(await screen.findByText("价值分析")).toBeInTheDocument();
@@ -352,7 +352,7 @@ it("generates a blog from the source card and shows the three sub-statuses", asy
 it("names the retry button by the failed artifact only", async () => {
   const { host } = setup();
   host.generateBlog = vi.fn(async () => readerSuccess(blogStatus({}, { html: { status: "failed", updatedAt: null } })));
-  fireEvent.click(await screen.findByRole("button", { name: "详细" }));
+  fireEvent.click(await screen.findByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "生成博客" }));
   const retry = await screen.findByRole("button", { name: "重新生成 HTML" });
   expect(screen.queryByRole("button", { name: "重新生成价值分析" })).not.toBeInTheDocument();
@@ -362,7 +362,7 @@ it("names the retry button by the failed artifact only", async () => {
 });
 it("cancels a running blog through the shared host contract", async () => {
   const { host } = setup();
-  fireEvent.click(await screen.findByRole("button", { name: "详细" }));
+  fireEvent.click(await screen.findByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "生成博客" }));
   fireEvent.click(await screen.findByRole("button", { name: "取消生成" }));
   await waitFor(() => expect(host.cancelBlog).toHaveBeenCalledWith("a-paper"));
@@ -373,7 +373,7 @@ it("explains a skipped value analysis instead of showing it as pending", async (
     valueAnalysis: { applicable: false, direction: null, reason: "主贡献是数据集与训练技巧" },
     warnings: ["本次运行环境无网络，未检索论文内链接与官方仓库"],
   }, { value_analysis: { status: "not_applicable", updatedAt: null } })));
-  fireEvent.click(await screen.findByRole("button", { name: "详细" }));
+  fireEvent.click(await screen.findByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "生成博客" }));
   expect(await screen.findByText(/架构价值分析不适用：主贡献是数据集与训练技巧/)).toBeInTheDocument();
   expect(screen.queryByText(/降级与证据缺口：/)).not.toBeInTheDocument();
@@ -381,7 +381,7 @@ it("explains a skipped value analysis instead of showing it as pending", async (
 });
 it("opens the blog in the embedded viewer from the same host surface", async () => {
   const { host } = setup();
-  fireEvent.click(await screen.findByRole("button", { name: "详细" }));
+  fireEvent.click(await screen.findByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "生成博客" }));
   fireEvent.click(await screen.findByRole("button", { name: "打开博客" }));
   const frame = await screen.findByTitle("博客");
@@ -413,40 +413,45 @@ it("offers querying the original task first when a remote reference exists", asy
 
 it("clears source discussion only after irreversible confirmation and supports cancellation", async () => {
   const { host } = setup();
-  fireEvent.click(await screen.findByRole("button", { name: "详细" }));
+  fireEvent.click(await screen.findByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "更多" }));
-  fireEvent.click(screen.getByRole("button", { name: "重新阅读" }));
+  fireEvent.click(within(screen.getByRole("group", { name: "更多操作" })).getByRole("button", { name: "重新阅读" }));
   expect(screen.getByText(/将清除本篇讨论、笔记和阅读记录/)).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "取消" }));
   expect(host.clearSource).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "更多" }));
-  fireEvent.click(screen.getByRole("button", { name: "重新阅读" }));
+  fireEvent.click(within(screen.getByRole("group", { name: "更多操作" })).getByRole("button", { name: "重新阅读" }));
   fireEvent.click(screen.getByRole("button", { name: "确认重新阅读" }));
   await waitFor(() => expect(host.clearSource).toHaveBeenCalledWith("a-paper", expect.any(String)));
   expect(host.deleteSource).not.toHaveBeenCalled();
 });
 
-it("keeps cards compact, expands details, and persists list display", async () => {
+it("keeps rows compact, opens the inspector, and persists card display", async () => {
   const app = setup();
-  const title = await screen.findByRole("heading", { name: "A Paper" });
-  const card = title.closest("article")!;
-  expect(within(card).getAllByRole("button").map(button => button.textContent)).toEqual(["打开博客", "继续阅读", "详细", "更多"]);
+  const title = await screen.findByRole("button", { name: "A Paper" });
+  const row = title.closest("article")!;
+  expect(within(row).getAllByRole("button").map(button => button.getAttribute("aria-label") ?? button.textContent)).toEqual(["A Paper", "继续阅读", "更多"]);
   expect(screen.queryByRole("button", { name: "管理来源" })).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "打开博客" })).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "详细" }));
-  expect(screen.getByRole("button", { name: "详细" })).toHaveAttribute("aria-expanded", "true");
-  expect(screen.getByText("解析：已完成")).toBeVisible();
+  expect(screen.queryByRole("button", { name: "打开博客" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "列表显示" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(title);
+  expect(title).toHaveAttribute("aria-expanded", "true");
+  const inspector = screen.getByRole("complementary", { name: "来源详情" });
+  expect(within(inspector).getByRole("button", { name: "打开博客" })).toBeDisabled();
+  expect(within(inspector).getByText("解析：已完成")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "更多" }));
   expect(screen.getByRole("button", { name: "管理来源" })).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "列表显示" }));
-  expect(card.parentElement).toHaveAttribute("data-view", "list");
-  fireEvent.click(screen.getByRole("button", { name: "详细" }));
-  expect(within(card).getAllByRole("button")).toHaveLength(4);
-  fireEvent.click(screen.getByRole("button", { name: "继续阅读" }));
+  fireEvent.click(screen.getByRole("button", { name: "卡片显示" }));
+  const card = screen.getByRole("button", { name: "A Paper" }).closest("article")!;
+  expect(card.parentElement).toHaveAttribute("data-view", "cards");
+  fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));
+  expect(screen.queryByRole("complementary", { name: "来源详情" })).not.toBeInTheDocument();
+  expect(within(card).getAllByRole("button")).toHaveLength(3);
+  fireEvent.click(within(card).getByRole("button", { name: "继续阅读" }));
   await waitFor(() => expect(app.host.openSource).toHaveBeenCalledWith("a-paper", expect.any(String)));
   app.unmount(); setup();
   await screen.findByRole("heading", { name: "A Paper" });
-  expect(screen.getByRole("button", { name: "列表显示" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("button", { name: "卡片显示" })).toHaveAttribute("aria-pressed", "true");
 });
 it("keeps preparation details collapsed while its main action reflects progress", async () => {
   const { host } = setup();
@@ -456,11 +461,11 @@ it("keeps preparation details collapsed while its main action reflects progress"
   fireEvent.click(within(card).getByRole("button", { name: "继续阅读" }));
   await within(card).findByRole("button", { name: "阅读准备中…" });
   expect(within(card).queryByText("阅读准备中 · 正在分析全文")).not.toBeInTheDocument();
-  expect(within(card).getByRole("button", { name: "详细" })).toHaveAttribute("aria-expanded", "false");
+  expect(within(card).getByRole("button", { name: "A Paper" })).toHaveAttribute("aria-expanded", "false");
   expect(within(card).getByRole("button", { name: "阅读准备中…" })).toBeDisabled();
 
-  fireEvent.click(within(card).getByRole("button", { name: "详细" }));
-  expect(within(card).getByText("阅读准备中 · 正在分析全文")).toBeVisible();
+  fireEvent.click(within(card).getByRole("button", { name: "A Paper" }));
+  expect(within(screen.getByRole("complementary", { name: "来源详情" })).getByText("阅读准备中 · 正在分析全文")).toBeVisible();
   expect(host.openSource).toHaveBeenCalledTimes(1);
 });
 it.each([
@@ -474,10 +479,10 @@ it.each([
   const preparation: ReadingPreparation = { source_id: "a-paper", step, status, ready, completed, total, error, plan_id: ready ? "plan-001" : null };
   const { host } = setup([], { ...empty, preparations: { "a-paper": preparation } });
   const card = (await screen.findByRole("heading", { name: "A Paper" })).closest("article")!;
-  expect(within(card).getByRole("button", { name: "详细" })).toHaveAttribute("aria-expanded", "false");
+  expect(within(card).getByRole("button", { name: "A Paper" })).toHaveAttribute("aria-expanded", "false");
   expect(within(card).queryByText(message)).not.toBeInTheDocument();
-  fireEvent.click(within(card).getByRole("button", { name: "详细" }));
-  expect(within(card).getByText(message)).toBeVisible();
+  fireEvent.click(within(card).getByRole("button", { name: "A Paper" }));
+  expect(within(screen.getByRole("complementary", { name: "来源详情" })).getByText(message)).toBeVisible();
   if (ready) {
     fireEvent.click(within(card).getByRole("button", { name: "继续阅读" }));
     await waitFor(() => expect(host.openSource).toHaveBeenCalledWith("a-paper", expect.any(String)));
@@ -683,7 +688,7 @@ it("uses a modal blog viewer and restores the workspace on Escape", async () => 
   const { host } = setup();
   host.blogStatus = vi.fn(async () => readerSuccess(blogStatus()));
   await screen.findByRole("heading", { name: "A Paper" });
-  fireEvent.click(screen.getByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "A Paper" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "打开博客" })).toBeEnabled());
   const modal = vi.spyOn(HTMLDialogElement.prototype, "showModal");
   fireEvent.click(screen.getByRole("button", { name: "打开博客" }));
@@ -718,7 +723,7 @@ it("removes a timed-out preparation immediately, without confirmation, retry or 
   fireEvent.click(screen.getByRole("button", { name: "关闭准备阅读提示" }));
   expect(screen.queryByText("准备超时", { exact: true })).not.toBeInTheDocument();
   expect(screen.queryByLabelText("准备阅读状态")).not.toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "准备阅读" })).toBeEnabled();
+  expect(within(screen.getByRole("list", { name: "来源" })).getByRole("button", { name: "准备阅读" })).toBeEnabled();
   expect(host.dismissPreparation).toHaveBeenCalledWith("a-paper", "attempt-1");
   expect(host.cancelPreparation).not.toHaveBeenCalled();
   expect(host.resumePreparation).not.toHaveBeenCalled();
@@ -735,10 +740,10 @@ it("keeps dismissed preparation hidden after reload and exposes the next explici
   cleanup(); render(<WorkspaceApp host={host} />);
   await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
-  fireEvent.click(screen.getByRole("button", { name: "详细" }));
+  fireEvent.click(screen.getByRole("button", { name: "A Paper" }));
   expect(screen.queryByLabelText("准备阅读状态")).not.toBeInTheDocument();
   expect(host.resumePreparation).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "准备阅读" }));
+  fireEvent.click(within(screen.getByRole("list", { name: "来源" })).getByRole("button", { name: "准备阅读" }));
   await waitFor(() => expect(host.resumePreparation).toHaveBeenCalledWith("a-paper", expect.any(String)));
   expect(screen.getAllByLabelText("准备阅读状态")).toHaveLength(2);
   expect(screen.getAllByText("准备超时", { exact: true })).toHaveLength(2);
@@ -793,4 +798,75 @@ it.each([false, true])("keeps reading text, draft and controls intact when brows
   expect(input).toHaveValue("保留的草稿");
   expect(host.continueReading).not.toHaveBeenCalled();
   expect(host.sendMessage).not.toHaveBeenCalled();
+});
+
+it("moves through visible source titles and restores focus after closing details", async () => {
+  const { host } = setup();
+  const result = await host.listSources!();
+  if (!result.ok) throw Error("Missing test sources");
+  await screen.findByRole("button", { name: "A Paper" });
+  vi.mocked(host.listSources!).mockResolvedValue(readerSuccess([result.value[0], { ...result.value[0], sourceId: '材料 "B"-paper', title: "B Paper" }, { ...result.value[0], sourceId: "c-paper", title: "C Source" }]));
+  fireEvent.click(screen.getByRole("link", { name: "设置" })); fireEvent.click(screen.getByRole("link", { name: "知识库" }));
+  const first = await screen.findByRole("button", { name: "A Paper" }), second = await screen.findByRole("button", { name: "B Paper" });
+  fireEvent.click(first.closest("article")!); expect(first).toHaveFocus();
+  fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));
+  first.focus(); fireEvent.keyDown(first, { key: "ArrowDown" });
+  expect(second).toHaveFocus(); expect(second.closest("article")).toHaveAttribute("data-selected", "true");
+  expect(screen.queryByRole("complementary", { name: "来源详情" })).not.toBeInTheDocument();
+  fireEvent.click(second);
+  expect(within(screen.getByRole("complementary", { name: "来源详情" })).getByRole("heading", { name: "B Paper" })).toBeInTheDocument();
+  fireEvent.keyDown(second, { key: "ArrowUp" });
+  expect(first).toHaveFocus();
+  expect(within(screen.getByRole("complementary", { name: "来源详情" })).getByRole("heading", { name: "A Paper" })).toBeInTheDocument();
+  fireEvent.keyDown(first, { key: "ArrowDown" });
+  fireEvent.keyDown(screen.getByRole("complementary", { name: "来源详情" }), { key: "Escape" });
+  expect(second).toHaveFocus(); expect(second).toHaveAttribute("aria-expanded", "false");
+  expect(screen.queryByRole("complementary", { name: "来源详情" })).not.toBeInTheDocument();
+  fireEvent.click(second); fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));
+  expect(second).toHaveFocus();
+  fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Paper" } });
+  fireEvent.keyDown(second, { key: "ArrowDown" }); expect(second).toHaveFocus();
+  expect(host.openSource).not.toHaveBeenCalled();
+});
+
+it("closes the more menu before the inspector and includes its trigger in outside-click handling", async () => {
+  setup(); const title = await screen.findByRole("button", { name: "A Paper" }); fireEvent.click(title);
+  const more = screen.getByRole("button", { name: "更多" });
+  fireEvent.click(more); fireEvent.pointerDown(more);
+  expect(screen.getByRole("group", { name: "更多操作" })).toBeInTheDocument();
+  fireEvent.keyDown(screen.getByRole("button", { name: "管理来源" }), { key: "Escape" });
+  expect(more).toHaveFocus(); expect(screen.queryByRole("group", { name: "更多操作" })).not.toBeInTheDocument();
+  expect(screen.getByRole("complementary", { name: "来源详情" })).toBeInTheDocument();
+  fireEvent.click(more); fireEvent.keyDown(title, { key: "Escape" });
+  expect(more).toHaveFocus(); expect(screen.getByRole("complementary", { name: "来源详情" })).toBeInTheDocument();
+  fireEvent.click(more); fireEvent.pointerDown(screen.getByRole("searchbox"));
+  expect(more).toHaveFocus(); expect(screen.queryByRole("group", { name: "更多操作" })).not.toBeInTheDocument();
+  fireEvent.keyDown(title, { key: "Escape" }); expect(title).toHaveFocus();
+  expect(screen.queryByRole("complementary", { name: "来源详情" })).not.toBeInTheDocument();
+});
+
+it("loads missing blog state only when opening details and reuses loaded state", async () => {
+  const { host } = setup(); const title = await screen.findByRole("button", { name: "A Paper" });
+  expect(host.blogStatus).not.toHaveBeenCalled();
+  fireEvent.click(title); await waitFor(() => expect(host.blogStatus).toHaveBeenCalledTimes(1));
+  await screen.findByRole("button", { name: "生成博客" });
+  fireEvent.click(screen.getByRole("button", { name: "关闭详情" })); fireEvent.click(title);
+  expect(host.blogStatus).toHaveBeenCalledTimes(1);
+});
+
+it("opens parse problems without invoking reading and preserves double-click primary actions", async () => {
+  const { host } = setup();
+  const result = await host.listSources!(); if (!result.ok) throw Error("Missing test sources");
+  await screen.findByRole("button", { name: "A Paper" });
+  vi.mocked(host.listSources!).mockResolvedValue(readerSuccess([{ ...result.value[0], parseStatus: "invalid", error: "Missing content" }]));
+  fireEvent.click(screen.getByRole("link", { name: "设置" })); fireEvent.click(screen.getByRole("link", { name: "知识库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "查看问题" }));
+  expect(screen.getByRole("complementary", { name: "来源详情" })).toHaveTextContent("Missing content");
+  expect(host.openSource).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));
+  vi.mocked(host.listSources!).mockResolvedValue(result);
+  fireEvent.click(screen.getByRole("link", { name: "设置" })); fireEvent.click(screen.getByRole("link", { name: "知识库" }));
+  const action = await screen.findByRole("button", { name: "继续阅读" });
+  fireEvent.doubleClick(action.closest("article")!);
+  await waitFor(() => expect(host.openSource).toHaveBeenCalledTimes(1));
 });

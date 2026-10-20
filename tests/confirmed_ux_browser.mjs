@@ -100,11 +100,7 @@ assert.equal(await page.getByRole('button',{name:'已读完',exact:true}).isDisa
 // Reset via Library is confirmed and first Continue opens first, not second.
 await page.getByRole('link',{name:'知识库',exact:true}).click();await page.locator('button[aria-controls="source-details-fixture-paper"]').click();
 assert.equal(await page.getByRole('button',{name:'讨论',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'从头阅读',exact:true}).count(),0);
-try { await page.locator('button[aria-controls="source-more-fixture-paper"]').click(); } catch (error) {
-  if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:process.env.FOCUS_BROWSER_OUTPUT + '/confirmed-failure.png'});
-  throw error;
-}
-await page.getByRole('button',{name:'重新阅读',exact:true}).click();await page.getByRole('button',{name:'确认重新阅读',exact:true}).click();
+await page.locator('#source-details-fixture-paper').getByRole('button',{name:'重新阅读',exact:true}).click();await page.getByRole('button',{name:'确认重新阅读',exact:true}).click();
 await page.waitForFunction(()=>!document.querySelector('.workspace-confirm[open]'));
 await page.getByRole('link',{name:'阅读',exact:true}).click();await page.getByRole('button',{name:'进入正文',exact:true}).waitFor();await enterBody();await latest(1);
 view=await api();assert.equal(view.readingProgress.length,0);assert.equal(view.sourceNotes.length,0);assert.equal(view.conversation.length,0);results.push('T8/U6 confirmed reset clears progress and next opens first');
@@ -149,7 +145,7 @@ if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${pr
 results.push('UI task history hidden by default, single disclosure, heading alignment');
 // A modal uses the browser top layer: the close target must win hit testing.
 await page.locator('button[aria-controls="source-details-fixture-paper"]').click();
-const openBlog=page.locator('.library-card').filter({has:page.locator('button[aria-controls="source-details-fixture-paper"]')}).getByRole('button',{name:'打开博客',exact:true});
+const openBlog=page.locator('#source-details-fixture-paper').getByRole('button',{name:'打开博客',exact:true});
 await page.waitForFunction(()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='打开博客')?.disabled===false);
 for (const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
  await page.setViewportSize(viewport);await openBlog.click();
