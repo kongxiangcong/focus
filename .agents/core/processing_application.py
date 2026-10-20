@@ -63,7 +63,7 @@ class ProcessingApplication:
                                           purpose='register source and generate blog', scope='ingestion')
             scopes[item_id] = {
                 'request_id': request_id, **self._binding(item),
-                'scope': ['ingestion', 'reading_blog', 'conditional_value_analysis', 'html'] if generate_blog else ['ingestion'],
+                'scope': ['ingestion', 'reading_blog', 'html'] if generate_blog else ['ingestion'],
             }
             _write_document(self.path, scopes)
             return item

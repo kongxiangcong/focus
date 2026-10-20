@@ -39,7 +39,7 @@ it("disables unread navigation, advances once, and reviews history without movin
   fireEvent.click(within(screen.getByRole("navigation", { name: "已读段落" })).getByRole("button", { name: /第 1 段.*Method/ }));
   expect(host.continueReading).toHaveBeenCalledTimes(1);
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "这段是什么意思？" } });
-  fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
   await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ chunkId: "chunk-001" }) })));
   expect(host.continueReading).toHaveBeenCalledTimes(1);
 });
@@ -117,7 +117,7 @@ it("streams one assistant card into the central timeline and keeps only prompts 
   const app = render(<FocusReader host={host} appearance="mist" />);
   await screen.findByRole("heading", { name: "Method" });
   fireEvent.change(screen.getByRole("textbox"), { target: { value: prompt.content } });
-  fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
   const companion = screen.getByRole("complementary", { name: "阅读助手" });
   await within(screen.getByRole("main", { name: "阅读与对话" })).findByText(prompt.content);
   expect(screen.queryByRole("navigation", { name: "历史提问" })).not.toBeInTheDocument();
@@ -189,7 +189,7 @@ it("T3/T6 appends chunks chronologically and sends a pre-navigation draft with i
   await screen.findByRole("heading", { name: "Results" });
   expect(screen.getByRole("heading", { name: "Method" })).toBeInTheDocument();
   expect([...document.querySelectorAll(".focus-output")].map(el => el.getAttribute("data-event-id"))).toEqual(["r1", "r2"]);
-  fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
   await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ chunkId: "chunk-001", planId: current.planId }) })));
 });
 
@@ -237,7 +237,7 @@ it("places image/notes toggle and fullscreen in the Mist function row", async ()
   expect(toggle).toHaveBeenCalledWith(true);
 });
 
-it("moves expand into the function row and releases the composer row, preserving draft", async () => {
+it("keeps one disclosure in the function row and preserves draft and focus", async () => {
   const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(first)),
     continueReading: vi.fn(), sendMessage: vi.fn() };
   render(<FocusReader host={host} appearance="mist" />);
@@ -245,14 +245,21 @@ it("moves expand into the function row and releases the composer row, preserving
   const row = textbox.closest(".focus-composer-row");
   expect(row).not.toBeNull();
   const collapse = screen.getByRole("button", { name: "收起" });
-  expect(collapse.closest(".focus-composer-row")).toBe(row);
+  const actions = screen.getByRole("navigation", { name: "阅读功能控制区" });
+  expect(collapse.closest(".mist-reading-actions")).toBe(actions);
+  expect(collapse).toHaveAttribute("aria-expanded", "true");
+  expect(within(row as HTMLElement).queryByRole("button", { name: "收起" })).toBeNull();
   fireEvent.change(textbox, { target: { value: "暂存的问题" } });
   fireEvent.click(collapse);
   expect(row?.parentElement).toHaveAttribute("data-collapsed", "true");
   expect(row?.parentElement).toHaveAttribute("inert");
   expect(row?.parentElement).toHaveAttribute("aria-hidden", "true");
   const expand = screen.getByRole("button", { name: "提问" });
-  expect(expand.closest(".mist-reading-actions")).toBe(screen.getByRole("navigation", { name: "阅读功能控制区" }));
+  expect(expand).toBe(collapse);
+  expect(expand).toHaveAttribute("aria-expanded", "false");
+  expect(expand.textContent).toBe("提问");
+  expect(expand.querySelector(".mist-composer-toggle__draft")).toHaveAttribute("aria-hidden", "true");
+  await waitFor(() => expect(expand).toHaveFocus());
   // jsdom does not run grid transitions; actual zero height is checked in Playwright.
   expect(document.querySelector(".focus-bottom")).toHaveAttribute("data-empty", "true");
   expect(screen.queryByRole("button", { name: "收起" })).not.toBeInTheDocument();
@@ -260,6 +267,7 @@ it("moves expand into the function row and releases the composer row, preserving
   expect(textbox).toHaveValue("暂存的问题");
   expect(row?.parentElement).toHaveAttribute("data-collapsed", "false");
   expect(row?.parentElement).not.toHaveAttribute("inert");
+  await waitFor(() => expect(textbox).toHaveFocus());
 });
 
 it("closes the left-side drawer with Escape and keeps the function entry in place", async () => {
@@ -298,4 +306,38 @@ it("keeps quote jumps and answer review local, and saves through the existing me
     content: "请把下面的回答记下来：\n\n这是原文的解释。", attachmentIds: [], sourceId: current.sourceId, requestId: expect.any(String) }));
   expect(screen.getByRole("textbox")).toHaveValue("保留的草稿");
   expect(document.querySelector(".mist-history-rail")).toBeNull();
+});
+
+it("uses decorative function-row icons and a clean fullscreen accessible name", async () => {
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(first)),
+    continueReading: vi.fn(), sendMessage: vi.fn() };
+  const { rerender } = render(<FocusReader host={host} appearance="mist" />);
+  await screen.findByRole("heading", { name: "Method" });
+  const controls = screen.getByRole("navigation", { name: "阅读功能控制区" });
+  const icons = controls.querySelectorAll("button > svg");
+  expect(icons.length).toBeGreaterThan(0);
+  icons.forEach(icon => { expect(icon).toHaveAttribute("aria-hidden", "true"); expect(icon).toHaveAttribute("focusable", "false"); expect(icon.textContent).toBe(""); });
+  rerender(<FocusReader host={host} appearance="mist" fullscreen />);
+  const exit = within(controls).getByRole("button", { name: "退出全屏" });
+  expect(exit).toHaveTextContent("退出全屏");
+  expect(exit.textContent).not.toContain("×");
+});
+
+it("keeps inline send with a screen-reader keyboard hint and ignores composing Enter", async () => {
+  const host = setup();
+  const textbox = await screen.findByRole("textbox", { name: "输入问题或阅读需求" });
+  const send = screen.getByRole("button", { name: "发送" });
+  expect(textbox.closest("form.focus-composer")).toBe(send.closest("form.focus-composer"));
+  expect(textbox).toHaveAttribute("rows", "1");
+  expect(document.querySelector(".focus-composer__chin")).toBeNull();
+  expect(document.querySelector(".composer-key-hint")).toBeNull();
+  expect(document.querySelector(".focus-composer__tools")).toBeNull();
+  expect(document.getElementById(textbox.getAttribute("aria-describedby")!)).toHaveTextContent("Enter 发送");
+  fireEvent.change(textbox, { target: { value: "正在输入的问题" } });
+  fireEvent.keyDown(textbox, { key: "Enter", isComposing: true });
+  fireEvent.keyDown(textbox, { key: "Enter", keyCode: 229 });
+  fireEvent.keyDown(textbox, { key: "Enter", shiftKey: true });
+  expect(host.sendMessage).not.toHaveBeenCalled();
+  fireEvent.keyDown(textbox, { key: "Enter" });
+  await waitFor(() => expect(host.sendMessage).toHaveBeenCalledTimes(1));
 });

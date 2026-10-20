@@ -75,7 +75,6 @@ class DshFocusWorkerTests(unittest.TestCase):
 
                 relative_assets = (
                     "blog.md",
-                    "value-analysis.md",
                     "evidence/evidence-map.md",
                     "index.html",
                 )
@@ -89,7 +88,7 @@ class DshFocusWorkerTests(unittest.TestCase):
                     self.assertEqual(dsh_bytes, standalone_bytes, relative)
                 self.assertEqual("completed", dsh_status["runStatus"])
                 self.assertEqual("completed", standalone_status["runStatus"])
-                for artifact in ("reading_blog", "value_analysis", "html"):
+                for artifact in ("reading_blog", "html"):
                     self.assertEqual(
                         dsh_status["artifacts"][artifact]["status"],
                         standalone_status["artifacts"][artifact]["status"],

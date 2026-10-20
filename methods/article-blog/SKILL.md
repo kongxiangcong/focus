@@ -1,49 +1,36 @@
 ---
 name: article-blog
-version: article-blog-v1
-description: Turn a published PDF or HTML Reading Source Parser Bundle into a Chinese Blog Output — a Reading Blog (always), a Value Analysis (only for hardware architecture, DSE, compiler, simulator or performance modeling work), and one self-contained merged index.html. Use for paper interpretation or paper value analysis, not for generic summaries or unsupported promotional copy.
+description: Generate a Chinese Reading Blog and self-contained HTML from a registered PDF or HTML Reading Source Parser Bundle. Use for source-based technical reading and explanation, not generic summaries or unsupported promotional copy.
+metadata:
+  version: article-blog-v2
 ---
 
 # article-blog
 
-生成一份 Reading Source 的 Blog Output：`blog.md`（Reading Blog，必有）、`value-analysis.md`（Value Analysis，条件产物）、`evidence/` 写作证据笔记，以及把两篇 Markdown 合并渲染出的单文件 `index.html`。
+从已发布的 Reading Source Parser Bundle 生成 `blog.md`、`evidence/evidence-map.md` 和单文件 `index.html`。本资源包是唯一运行副本，宿主通过共享 BlogApplication 调用；Core 是正式资产的唯一写入者。
 
-本资源包是 **唯一运行副本**。宿主不得复制本目录或其中任何文件；需要行为时只能调用本资源包内的脚本与方法文档。需求层权威文档是 `docs/requirements/reading-blog-guide.md`（带读博客）与 `docs/requirements/paper_architecture_value_guide.md`（论文价值分析）；方法内容与编辑入口在本资源包的 `reference/` 下。
+## 输入与边界
 
-## 输入前提
+输入为已通过校验的 `paper_pdf` 或 `article_html` Parser Bundle。需求依据为 `docs/requirements/reading-blog-guide.md`；运行方法见 `reference/reading-blog-method.md`。网页为二手解读时，区分文章作者转述与原研究结论。
 
-输入必须是已发布并通过校验的 `paper_pdf` 或 `article_html` Reading Source：其规范 `parser-bundle/` 含 `content.md`、`metadata.json`、`validation.json`，且 `validation.json.ok=true`、`metadata.json.source_kind` 为 `paper_pdf` 或 `article_html`、`metadata.json.parser=article-parser`。网页文章应区分文章作者的解读与原研究证据，不虚构论文贡献、实验或图表编号。若用户只给 PDF 或 HTML，先完成入库（解析 + 发布 Bundle），不要在此处重新解析。
-
-博客生成由共享 Application 编排：**Core 是唯一资产写入权威**，本资源包的脚本只写候选目录或读取产物，不直接发布 `sources/<source-id>/blog/`。
-
-## 命令
-
-脚本路径统一为 `scripts/article2blog.py`：
-
-```powershell
-python -B -X utf8 scripts/article2blog.py prepare --workspace <workspace> --source-id <source-id> --candidate <candidate-dir>
-python -B -X utf8 scripts/article2blog.py render <blog-dir> [--no-embed-images]
-python -B -X utf8 scripts/article2blog.py check <blog-dir> [--require-html]
-```
-
-- `prepare`：只读取 `sources/<source-id>/source.yaml` 与该 Source 的 `parser-bundle/`，在**候选目录**中生成 Blog Output 骨架（`evidence/evidence-map.md`、`evidence/implementation-notes.md`、`assets/`、`metadata.json`）。不复制 `source.pdf` 或 `source.html`，不读取 Workspace `state.json` 或 `sources/<id>/reading/` 下任何阅读资产。骨架提交由 Core 完成。
-- `render`：把 `blog.md` 与（存在且适用时的）`value-analysis.md` 渲染为**单文件自包含** `index.html`：样式与脚本内联、引用图片默认 base64 内嵌（`--no-embed-images` 才退回链接）、公式由资源包内置的 KaTeX 渲染（`assets/katex/`，无外网请求）。渲染只写 `index.html`；渲染失败不改写任何 Markdown，也不破坏已发布的旧 HTML。
-- `check`：对候选产物跑共用校验器，产出 `ok`、`errors`、`warnings` 与 `metrics`。`--require-html` 追加第④项：两页可渲染、默认打开带读博客、无外链资源、图片已内嵌、公式有渲染器、不适用页显示判定理由。校验只验形态合格；深度与证据缺口只报警告，不冒充质量通过。
-
-失败返回稳定的 `error_id`，不回退到调用方自选输出目录。
+只给原始文件时先完成入库。生成只使用来源与候选目录，不读取或修改 Reading Plan、Cursor、翻译、Reading Records 或用户 Reading Notes。共享写作证据单独保存在博客目录。
 
 ## 流程
 
-1. **先建共享写作证据笔记**：`evidence/evidence-map.md` 记录 3–5 项贡献及其原文锚点、方法模块（输入／输出／设计原因／自然替代／代价）、核心公式或算法、关键图表与实验证据、复现设置与缺失项、主张边界。
-2. **写 Reading Blog**（`blog.md`）：按 `reference/reading-blog-method.md`。以问题组织材料，解释方法为什么成立，图表与实验只展开与结论有关的部分，区分作者结论、解释性推论与局限。
-3. **判定并写 Value Analysis**（`value-analysis.md`，条件产物）：按 `reference/value-analysis-method.md`。论文涉及硬件架构／DSE／编译器／仿真器／性能建模任一方向时生成，固定五段主线：研究问题 → 输入输出 → 模块拆解 → 一个运行例子 → 贡献与边界；不适用则不生成，并在 `metadata.json` 记录 `not_applicable` 与判定理由，HTML 对应页面显示不适用说明。
-4. **实现检索（条件执行）**：写 `evidence/implementation-notes.md`。有网时先查论文内代码／项目页／artifact 链接，再查作者或机构官方仓库，源码可访问时沿核心路径静态核查；无网时降级为"仅论文阅读"，记录检索范围与缺口。核查层级（仅论文阅读／静态核查／实际运行）写入该笔记并在 HTML 标注。检索不可用不判步骤失败，不以猜测升级为确定结论。
-5. **合并渲染**：`index.html` 两个可切换页面——"带读博客"（默认）与"论文价值分析"。Value Analysis 不适用时，第二页显示不适用说明与 `metadata.json` 中的判定理由（不写成失败）；尚未生成时显示"本次未生成"。CSS／JS 内联、图片 base64 内嵌、公式由内置 KaTeX 渲染（TeX 原文保留为无脚本时的降级显示）；页脚展示 `metadata.json` 中的降级与证据缺口警告、实现核查层级，不出现质量通过字样。证据笔记只留磁盘，不进 HTML。
+1. 在候选目录准备 metadata 和来源图片，绑定 Source、Bundle 指纹与 `article-blog-v2`。
+2. 按 `reference/reading-blog-method.md` 写带读博客，并生成 `evidence/evidence-map.md`，记录主张、原文锚点、机制、图表、实验证据与边界。使用 `reference/reading-format.md` 的语义排版。
+3. 校验正文结构、引用及来源图片；图片须能实际解码并与来源对应。缺失证据标记为待核实，不编造作者、URL、指标或结论。自动校验只证明形态合格，深度与证据缺口以警告记录。
+4. 将 `blog.md` 渲染为单页 `index.html`。CSS、脚本、引用图片和 KaTeX 内嵌，无外部资源依赖。内部证据和核查记录留在磁盘，不进入阅读正文。
+5. Core 校验候选并原子发布。失败或取消保留 Parser Bundle 和已有合法产物；HTML 失败只重试渲染，正文失败只重试正文后渲染。
 
-## 硬边界
+## 脚本接口
 
-- 不发明作者、机构、年份、URL、代码仓库、指标或结果；缺失文献信息标记为待核实。
-- 不读取或修改用户私人阅读数据：`state.json`、Reading Plan、Plan Glossary、Reading Record、翻译与 Reading Notes 一律不触碰；写作证据笔记保存在 `blog/evidence/`，与用户 Reading Notes 分开。
-- 不创建 Reading Plan 或全文翻译任务。
-- 博客失败、取消或引用无效不删除、不要求重传 Parser Bundle。
-- 一张图片只有文件名不足以采信；必须实际打开核对图片内容，并与图注、正文一起判断其支持的结论。
+```powershell
+python -B -X utf8 scripts/article2blog.py prepare --workspace <workspace> --source-id <source-id> --candidate <candidate-dir>
+python -B -X utf8 scripts/article2blog.py render <candidate-dir>
+python -B -X utf8 scripts/article2blog.py check <candidate-dir> --require-html
+```
+
+`prepare` 仅建立候选骨架，不复制原始 PDF／HTML。`render` 仅写候选 HTML，默认内嵌图片；`--no-embed-images` 仅用于显式请求链接资源的非发布用途。`check` 返回 `ok`、`errors`、`warnings` 与 `metrics`；正式发布须通过自包含单页校验。
+
+旧版本的额外文件保持原样，当前流程不消费它们；只有明确重新生成或重新渲染才更新现有博客及方法版本。

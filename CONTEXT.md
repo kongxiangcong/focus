@@ -69,16 +69,12 @@ _Avoid_: Source ID, directory name, display title
 _Avoid_: Temporary extraction, duplicate source tree, Reading Plan
 
 **Blog Output**:
-从 Reading Source 的 Parser Bundle 派生的解释性产物集合，包含必需的 Reading Blog、适用时生成的 Value Analysis 及合并单文件 HTML；它不拥有或修改阅读数据。
+从 Reading Source 的 Parser Bundle 派生的解释性产物集合，包含 Reading Blog 及其单文件 HTML；它不拥有或修改阅读数据。
 _Avoid_: Reading Plan, Reading Record, source bundle
 
 **Reading Blog**:
 Blog Output 中按 `reading-blog-guide.md`（带读博客方法）生成的技术细读长文（`blog.md`）；以问题组织材料、解释方法成立的原因。
 _Avoid_: full translation, section-by-section summary, paper2blog（历史资产名）
-
-**Value Analysis**:
-Blog Output 中基于来源证据解释问题、输入输出、模块、运行例子以及贡献或工程设计边界的架构价值分析文。它仅在来源涉及硬件架构、DSE、编译器、仿真器或性能建模且有足够原文依据时生成，不按文件格式区分适用性，不适用时明确说明理由。
-_Avoid_: review scorecard, abstract, reproduction report, unconditional companion of Reading Blog
 
 **article-blog**:
 从 Paper Source 或 Article Source 的 Parser Bundle 生成 Blog Output 的统一方法；取代历史名 paper2blog，不按来源类型分成不同方法。

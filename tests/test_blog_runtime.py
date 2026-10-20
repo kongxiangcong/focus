@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from host.blog_runtime import AgentBlogRuntime, READING_BLOG_SCHEMA, VALUE_ANALYSIS_SCHEMA
+from host.blog_runtime import AgentBlogRuntime, READING_BLOG_SCHEMA
 
 
 class RecordingAgentBlogRuntime(AgentBlogRuntime):
@@ -16,7 +16,7 @@ class RecordingAgentBlogRuntime(AgentBlogRuntime):
         self.calls.append((prompt, cwd, schema))
         if schema is READING_BLOG_SCHEMA:
             return {"evidence_map": "# 原文证据", "blog": "# 带读博客"}
-        return {"value_analysis": "# 论文价值分析"}
+        raise AssertionError("Unexpected Runtime schema")
 
 
 class BlogRuntimeTests(unittest.TestCase):
@@ -32,25 +32,18 @@ class BlogRuntimeTests(unittest.TestCase):
             (candidate / "assets" / "image-001.png").write_bytes(b"fixture")
             (candidate / "evidence").mkdir()
             (candidate / "evidence" / "evidence-map.md").write_text("# 共享证据", encoding="utf-8")
-            (candidate / "evidence" / "implementation-notes.md").write_text("仅论文阅读", encoding="utf-8")
             runtime = RecordingAgentBlogRuntime()
 
             reading = runtime.write_artifact(
                 artifact="reading_blog", bundle=bundle, candidate=candidate,
                 method_dir=root / "methods/article-blog", network=False,
             )
-            value = runtime.write_artifact(
-                artifact="value_analysis", bundle=bundle, candidate=candidate,
-                method_dir=root / "methods/article-blog", network=False,
-            )
+
 
             self.assertEqual({"evidence/evidence-map.md", "blog.md"}, set(reading["files"]))
-            self.assertEqual({"value-analysis.md": "# 论文价值分析"}, value["files"])
             self.assertFalse((candidate / "blog.md").exists())
             self.assertIn("Figure 1 shows the design", runtime.calls[0][0])
             self.assertIn("image-001.png", runtime.calls[0][0])
-            self.assertIn("# 共享证据", runtime.calls[1][0])
-            self.assertIn("仅论文阅读", runtime.calls[1][0])
             for prompt, _, _ in runtime.calls:
                 self.assertIn("**专业术语**", prompt)
                 self.assertIn("==关键结论或因果关系==", prompt)

@@ -66,7 +66,7 @@ describe("Agent Reader", () => {
   it("sends explicit explanations unchanged and displays the requested answer", async () => {
     const { host, update } = setup(); await screen.findByText("打开一份材料");
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "请讲解这段" } });
-    fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
     await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ content: "请讲解这段" })));
     update({ ...empty, revision: 2, conversation: [{ messageId: "answer", chunkId: "", role: "assistant", content: "这是用户请求的讲解。" }] });
     expect(screen.getByText("这是用户请求的讲解。")).toBeInTheDocument();
@@ -86,7 +86,7 @@ describe("Agent Reader", () => {
     update({ ...running, revision: 4 });
     expect(screen.queryByText("正在解析")).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "新问题" } });
-    fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
     await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "session-2" })));
   });
   it("ignores a late upload after reset and keeps the selected reading reference", async () => {
@@ -101,7 +101,7 @@ describe("Agent Reader", () => {
     update({ ...empty, sessionId: "session-2", revision: 11, sessionFresh: true, timeline: [], status: "reading",
       current: { sourceId: "saved", planId: "plan", chunkId: "old", index: 2, total: 4, sectionPath: [], sourceLines: [1,2], sourceMarkdown: "old text", translation: null, images: [], relevantGlossary: [], presentationStatus: "source-ready" } });
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "新话题" } });
-    fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
     await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       receipt: { sourceId: "saved", planId: "plan", chunkId: "old" }, attachmentIds: [] })));
   });

@@ -85,7 +85,7 @@ it('opens unread figures without navigation or rebinding the question, and share
   expect(screen.getByRole('region',{name:'阅读资料侧栏'})).toHaveAttribute('data-side-placement','left');
   expect(screen.queryByRole('img',{name:future.caption})).not.toBeInTheDocument();
   expect(screen.getByRole('complementary',{name:'阅读资料'})).toBeVisible();
-  fireEvent.click(screen.getByRole('button',{name:'发送 ↑'}));
+  fireEvent.click(screen.getByRole('button',{name:'发送'}));
   expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({receipt:expect.objectContaining({chunkId:chunk.chunkId})}));
   act(()=>emit(readerSuccess({...window, revision:2, source:{...window.source, sourceId:'another-paper'},current:{...chunk,sourceId:'another-paper',sourceMarkdown:'no figure',translation:null,images:[]},figures:[]})));
   expect(screen.queryByRole('region',{name:'阅读资料侧栏'})).not.toBeInTheDocument();

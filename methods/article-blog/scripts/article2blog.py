@@ -26,8 +26,6 @@ from core.article_blog import (  # noqa: E402
     ARTICLE_BLOG_METHOD_VERSION,
     ARTIFACT_FILES,
     IMAGE_SUFFIXES,
-    VALUE_ANALYSIS_DIRECTIONS,
-    VERIFICATION_LEVELS,
     new_blog_metadata,
     _roman_section_number,
     validate_blog_candidate,
@@ -40,20 +38,6 @@ MAX_FIGURE_CANDIDATES = 12
 #: Offline formula rendering: the method pack vendors KaTeX, so no CDN is needed.
 KATEX_DIRECTORY = Path(__file__).resolve().parents[1] / "assets" / "katex"
 _KATEX_CACHE: dict[str, tuple[str, str]] = {}
-
-DIRECTION_LABELS = {
-    "hardware_architecture": "硬件架构",
-    "design_space_exploration": "设计空间探索（DSE）",
-    "compiler": "编译器",
-    "simulator": "仿真器",
-    "performance_modeling": "性能建模",
-}
-
-VERIFICATION_LABELS = {
-    "paper_reading": "仅论文阅读",
-    "static_review": "静态核查",
-    "executed": "实际运行",
-}
 
 
 class BlogError(RuntimeError):
@@ -140,34 +124,6 @@ EVIDENCE_MAP_TEMPLATE = """# Evidence Map（共享写作证据笔记）
 - 待补：证据支持什么、不支持什么；哪些是作者结论，哪些是本文推论。
 """
 
-IMPLEMENTATION_NOTES_TEMPLATE = """# Implementation Notes（实现检索与核查层级）
-
-> 先检查论文内部的代码、项目页和 artifact 链接，再查作者或机构发布的官方仓库。
-> 访问不了就记录检索范围与缺口，不写"未开源"这类无法支持的断言。
-
-## 检索范围
-
-- 论文内链接与 artifact：待补
-- 作者／机构官方仓库：待补
-- 第三方复现（单独标明，不用来补全作者未公开实现）：待补
-
-## 核查层级
-
-- 本次核查层级：待补（仅论文阅读 / 静态核查 / 实际运行）
-- 网络可用性：待补
-- 版本信息（commit、Release）：待补；未获得版本信息时如实说明，不编造 commit 或行号。
-
-## 核心路径核查
-
-| 论文主张 | 实现位置 | 实验配置或脚本 | 支持的结果 |
-|---|---|---|---|
-| 待补 | 待补 | 待补 | 待补 |
-
-## 缺口与影响
-
-- 待补：没有访问权限 / 未找到公开材料 / 材料缺失 / 代码未覆盖 / 本次未运行，分别写明，并说明对结论的影响。
-"""
-
 
 def _prepare(bundle: Path, candidate: Path) -> dict:
     """Build the Blog Output skeleton from a published `paper_pdf` Parser Bundle."""
@@ -209,7 +165,6 @@ def _prepare(bundle: Path, candidate: Path) -> dict:
         ),
         encoding="utf-8",
     )
-    (evidence / "implementation-notes.md").write_text(IMPLEMENTATION_NOTES_TEMPLATE, encoding="utf-8")
     return {
         "ok": True,
         "candidate": str(candidate.resolve()),
@@ -440,10 +395,7 @@ span.math-display { display:block; padding:.9rem; margin:1.3rem 0; overflow:auto
 body { margin:0; background:var(--paper); color:var(--ink); font:17px/1.9 system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; }
 header { border-bottom:1px solid var(--line); padding:20px 0 0; background:var(--paper); position:sticky; top:0; z-index:2; }
 .wrap { width:min(780px, calc(100% - 40px)); margin:0 auto; }
-.tabs { display:flex; gap:4px; }
-.tab { appearance:none; border:1px solid var(--line); border-bottom:none; background:var(--code); color:var(--muted);
        padding:10px 18px; border-radius:8px 8px 0 0; cursor:pointer; font-size:15px; }
-.tab[aria-selected="true"] { background:var(--paper); color:var(--ink); font-weight:600; }
 .panel { display:none; padding:8px 0 64px; }
 .panel[data-active="true"] { display:block; }
 h1,h2,h3,h4,h5,h6 { line-height:1.4; font-weight:700; text-wrap:balance; overflow-wrap:anywhere; }
@@ -462,7 +414,6 @@ mark { color:inherit; background:#fff0b3; padding:.08em .18em; border-radius:3px
   h1 { font-size:1.65rem; }
   h2 { font-size:1.3rem; }
   h3 { font-size:1.12rem; }
-  .tab { padding:10px 12px; }
 }
 a { color:var(--accent); }
 img { display:block; max-width:100%; height:auto; margin:1.4rem auto; border-radius:8px; }
@@ -483,7 +434,6 @@ footer .warn { background:var(--warn-bg); color:var(--warn); border:1px solid #f
 .source-evidence { border-top:1px solid var(--line); padding:18px 0 30px; }
 .source-evidence details { margin:.5rem 0; }
 .source-evidence pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; }
-.not-applicable { border:1px dashed var(--line); border-radius:8px; padding:20px; color:var(--muted); }
 """
 
 PAGE_JS = """
@@ -494,14 +444,7 @@ document.addEventListener('click', function (event) {
     if (excerpt && excerpt.tagName === 'DETAILS') { excerpt.open = true; }
     return;
   }
-  var tab = event.target.closest('.tab');
-  if (!tab) { return; }
-  document.querySelectorAll('.tab').forEach(function (item) {
-    var selected = item === tab;
-    item.setAttribute('aria-selected', selected ? 'true' : 'false');
-    var panel = document.getElementById(item.getAttribute('aria-controls'));
-    if (panel) { panel.setAttribute('data-active', selected ? 'true' : 'false'); }
-  });
+
 });
 """
 
@@ -595,15 +538,10 @@ def _html_document(
     embed_katex: bool = False,
     source_evidence: str = "",
 ) -> str:
-    tabs = "\n".join(
-        f'<button class="tab" role="tab" id="tab-{index}" aria-controls="panel-{index}" '
-        f'aria-selected="{"true" if index == 0 else "false"}">{_escape(label)}</button>'
-        for index, (label, _, _) in enumerate(panels)
-    )
     bodies = "\n".join(
-        f'<section class="panel" id="panel-{index}" role="tabpanel" aria-labelledby="tab-{index}" '
-        f'data-kind="{_escape(kind)}" data-active="{"true" if index == 0 else "false"}">{body}</section>'
-        for index, (_, body, kind) in enumerate(panels)
+        f'<section class="panel" id="panel-{index}" aria-label="{_escape(label)}" '
+        f'data-kind="{_escape(kind)}" data-active="true">{body}</section>'
+        for index, (label, body, kind) in enumerate(panels)
     )
     styles = f"<style>{PAGE_CSS}</style>"
     scripts = f"<script>{PAGE_JS}</script>"
@@ -618,67 +556,10 @@ def _html_document(
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
         f"<meta name=\"generator\" content=\"article-blog {ARTICLE_BLOG_METHOD_VERSION}\">\n"
         f"<title>{_escape(title)}</title>\n{styles}\n</head>\n<body>\n"
-        "<header><div class=\"wrap\"><div class=\"tabs\" role=\"tablist\">" + tabs + "</div></div></header>\n"
         "<main class=\"wrap\">" + bodies + source_evidence + "</main>\n"
         + ("<footer><div class=\"wrap\">" + footer + "</div></footer>\n" if footer else "") +
         f"{scripts}\n</body>\n</html>\n"
     )
-
-
-NOT_APPLICABLE_PAGE = (
-    '<div class="not-applicable">'
-    "<h2>架构价值分析不适用</h2>"
-    "<p><strong>判定：</strong>不适用</p>"
-    "<p><strong>判定理由：</strong>{reason}</p>"
-    "<p>{direction}</p>"
-    "<p>带读博客仍然完整生成；本页不补写价值分析，也不把「不适用」写成失败。</p>"
-    "<h3>适用方向</h3><ul>{directions}</ul>"
-    "<p>只有论文主要贡献落在硬件架构、设计空间探索、编译器、仿真器或性能建模之一时，"
-    "价值分析才会生成。</p>"
-    "</div>"
-)
-
-VALUE_PENDING_PAGE = (
-    '<div class="not-applicable">'
-    "<h2>架构价值分析本次未生成</h2>"
-    "<p>带读博客已生成；价值分析尚未写入本目录（生成失败或尚未完成）。</p>"
-    "<p>可用「重新生成价值分析」单独重跑，带读博客与已有 HTML 不受影响。</p>"
-    "</div>"
-)
-
-VALUE_UNDECIDED_PAGE = (
-    '<div class="not-applicable">'
-    "<h2>架构价值分析尚未判定</h2>"
-    "<p>本次运行还没有判定论文主要贡献是否落在价值分析的适用方向内。</p>"
-    "</div>"
-)
-
-
-def _value_page(metadata: dict) -> str:
-    """What the second page shows when there is no value-analysis.md to render."""
-    judgement = metadata.get("value_analysis_applicability")
-    judgement = judgement if isinstance(judgement, dict) else {}
-    applicable = judgement.get("applicable")
-    if applicable is False:
-        reason = judgement.get("reason")
-        reason = reason.strip() if isinstance(reason, str) and reason.strip() else "未提供判定理由"
-        direction = judgement.get("direction")
-        direction_text = (
-            f"本次未把论文归入任何适用方向（记录值：{_escape(str(direction))}）。"
-            if direction
-            else "本次未把论文归入任何适用方向。"
-        )
-        return NOT_APPLICABLE_PAGE.format(
-            reason=_escape(reason),
-            direction=direction_text,
-            directions="".join(
-                f"<li>{_escape(DIRECTION_LABELS.get(name, name))}（{_escape(name)}）</li>"
-                for name in VALUE_ANALYSIS_DIRECTIONS
-            ),
-        )
-    if applicable is True:
-        return VALUE_PENDING_PAGE
-    return VALUE_UNDECIDED_PAGE
 
 
 def _footer(metadata: dict) -> str:
@@ -769,9 +650,9 @@ def _source_evidence(anchors: dict[str, tuple[str, str]], used: list[str]) -> st
 
 
 def _render(blog_dir: Path, *, embed_images: bool = True, bundle: Path | None = None) -> dict:
-    """Merge both Markdown artifacts into one self-contained index.html.
+    """Render the Reading Blog into one self-contained index.html.
 
-    Rendering only writes index.html. A failure here leaves both Markdown files
+    Rendering only writes index.html. A failure here leaves the Markdown file
     and any previously published HTML exactly as they were.
     """
     blog_dir = blog_dir.resolve()
@@ -786,17 +667,6 @@ def _render(blog_dir: Path, *, embed_images: bool = True, bundle: Path | None = 
     panels: list[tuple[str, str, str]] = [
         ("带读博客", _markdown_to_html(blog, image_src), "reading_blog")
     ]
-    value_path = blog_dir / ARTIFACT_FILES["value_analysis"]
-    if value_path.is_file():
-        panels.append(
-            (
-                "架构价值分析",
-                _markdown_to_html(value_path.read_text(encoding="utf-8", errors="replace"), image_src),
-                "value_analysis",
-            )
-        )
-    else:
-        panels.append(("架构价值分析", _value_page(metadata), "value_analysis"))
     document = _html_document(
         title, panels, _footer(metadata), embed_katex="data-tex" in "".join(body for _, body, _ in panels),
     )

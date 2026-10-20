@@ -77,10 +77,16 @@
   --reader-shadow-popover:0 0 0 1px rgba(29,33,37,.08),0 4px 10px -4px rgba(29,33,37,.10),0 18px 44px -18px rgba(29,33,37,.30);
   /* Geometry: compact density (§6.3) */
   --reader-control-h:24px;
+  --reader-action-h:32px;
+  --reader-pill:999px;
   --reader-control-h-sm:18px;
   --reader-radius:6px;
   --reader-card-radius:10px;
-  --reader-composer-radius:12px;
+  --reader-composer-radius:26px;
+  --reader-composer-send:36px;
+  --reader-composer-inset:7px;
+  --reader-composer-reference-radius:10px;
+  --reader-composer-draft-dot:6px;
   --reader-dialog-radius:16px;
   --reader-bubble-radius:18px;
   --reader-icon:16px;
@@ -89,10 +95,12 @@
   --reader-gap:12px;
   --reader-gap-lg:20px;
   --reader-gap-xl:32px;
-  --reader-column:720px;
+  --reader-column:1040px;
   --reader-nav:288px;
   --reader-nav-collapsed:56px;
   --reader-drawer:420px;
+  --reader-inspector:400px;
+  --reader-library-content:1080px;
   /* Compatibility aliases for pre-existing consumers; not a second table. */
   --reader-control-height:var(--reader-control-h);
   --reader-panel-radius:var(--reader-card-radius);
@@ -137,10 +145,12 @@
 }
 :root[data-density=comfortable] {
   --reader-control-h:32px;
+  --reader-action-h:36px;
   --reader-control-h-sm:22px;
   --reader-radius:8px;
   --reader-card-radius:12px;
-  --reader-composer-radius:14px;
+  --reader-composer-radius:28px;
+  --reader-composer-send:40px;
   --reader-icon:20px;
   --reader-gap-xs:8px;
   --reader-gap-sm:12px;
@@ -152,3 +162,6 @@
 @media(prefers-contrast:more) {
   :root { --reader-line:var(--reader-line-strong); --reader-faint:var(--reader-secondary); }
 }
+
+@media(max-width:599px) { :root, :root[data-density] { --reader-action-h:40px; } }
+@media(pointer:coarse) { :root, :root[data-density] { --reader-action-h:44px; --reader-composer-send:44px; --reader-composer-inset:6px; } }

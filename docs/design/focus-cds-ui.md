@@ -21,7 +21,7 @@ Mist presentation; FOCUS data, ReaderHost, Cursor and recovery semantics are unc
 | §6.3 Spacing | 6/8/12/20/32 compact; 8/12/16/28/40 comfortable | Same scale as `--reader-gap-*` | Density switch changes geometry only |
 | §6.3 Type | UI 13/14, conversation 16/1.75, prose 18/1.9, 16–26 reading sizes | `--reader-ui-size`, `--reader-conversation-*`, `--reader-prose-*`; reading size still comes from the existing font-size preference | Source text keeps the serif role and user font; conversation uses UI sans |
 | §5.1 Navigation | one 288px collapsible sidebar, topics inside it | `.workspace-nav` 288/56; Topics render in the sidebar from the same `topic` state | Removed the separate library Topic card so navigation is not duplicated |
-| §5.2 Library | CDS list, card switch kept, more-menu actions | Toolbar + card/list switch; row actions stay in the details disclosure | Real states preserved (empty / no match / parse failure / preparation) |
+| §5.2 Library (superseded by ADR 0027) | List + shared details panel; card switch retained | Single row action; docked/overlay/mobile panel; Topic counts/Unfiled/order; status filters, Continue Reading and ingestion projections | [ADR 0027](../adr/0027-library-list-and-details-panel.md), [acceptance](library-redesign-acceptance.md) and [evidence](evidence/library-redesign/07-regression.md); business semantics unchanged, browser verification blocked |
 | §5.3 Reading | continuous canvas, 800px measure, actions before composer | `.focus-content` max 800 + 24 padding; actions row above composer | Reading card and assistant bubbles no longer close the prose |
 | §5.3 Timeline | no dimming of history | Removed `--depth-opacity` and `mist-settle` replay | Only a newly appended event animates once (200ms, translateY 8px) |
 | §5.3 Rail | structure/location in the function row | Removed the duplicate 86px reading rail; the location badge opens the paragraph list, structure keeps its own control | Unread paragraphs stay disabled; reviewing never moves the Cursor |
@@ -56,6 +56,8 @@ decisions above. Reference claims about official internals or performance remain
 No reference code, font or asset is imported at runtime; no `external/` path appears in the build.
 
 ## Screenshots
+
+The Library image below is the historical CDS presentation, not evidence for the 2026-10-20 Library redesign. New screenshots were waived by the user; see the [Library acceptance record](library-redesign-acceptance.md) for functional evidence and explicit browser limitations. No replacement screenshot is claimed.
 
 Fixed synthetic workspaces served by the isolated Host, 1440×1000, Edge/Chromium.
 

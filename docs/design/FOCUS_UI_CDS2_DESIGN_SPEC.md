@@ -77,7 +77,7 @@ FOCUS 开始调研时已有 6 个业务/测试文件修改：`.agents/core/artic
 | 阅读正文 | 原文/译文、结构导读、统一时间线 | 取消浮雕玻璃卡片，正文成为视觉中心 | 开始/继续/回看/完成与 Cursor 一致；缓存内容直接呈现 |
 | 讨论 | 用户消息、回复、输入、任务审批 | CDS 消息流、Composer Dock | SSE 真实增量、草稿引用、重试身份、审批和停止 |
 | 资料 | 图片/笔记/进度/讨论共用左抽屉 | 统一 Aside/Tab/编辑器 | 不挤正文；草稿保留；图片归属当前 Source |
-| 博客 | 三产物状态及模态 iframe 查看 | 产物预览卡、统一查看器 | Reading Blog/Value Analysis/HTML 分别报告；不适用有原因 |
+| 博客 | 两项产物状态及模态 iframe 查看 | 产物预览卡、统一查看器 | Reading Blog/HTML 分别报告 |
 | 设置 | 字号、字体、亮度、后端 | 分组设置、深浅色与密度 | 预览/取消/保存；检查连接不等于保存配置 |
 | 全局任务 | 标题旁单入口，可展开批次与单任务 | TurnStatusStep/Disclosure 风格 | 默认收起、取消单个尝试、断连不显示闲置 |
 
@@ -116,7 +116,7 @@ v1 提供了设计哲学、原子控件、消息流、Composer、弹簧与渐隐
 | 冲突 | 参考库证据 | 本方案裁决 |
 | --- | --- | --- |
 | 浅/深画布不一致 | v2 `#FCFCFB/#151515`；主题 CSS `#f5f5f3/#0b0b0a`；AGENTS 又有 `#1b1b19` | 画布采用 v2；其余层见第 6 节明确表 |
-| Composer 圆角 | v1/组件为 20px；v2 compact/comfortable 为 12/14px | 12/14px，取消 Mist 18px 和 v1 20px |
+| Composer 圆角 | v1/组件为 20px；v2 compact/comfortable 为 12/14px | 26/28px，单行药丸；来源 ADR 0028，取代先前 12/14px 裁决 |
 | 控件尺寸 | v1 常见 32px；v2 compact 为 24px | 桌面 compact 24px；comfortable 32px；触控命中区单独扩展 |
 | 运动引擎 | AGENTS 要求 springs；v2 主张 CSS；示例混用 | 基础动效 CSS；确需连续手势的模块单独采用算法/运动库 |
 | 弹簧参数 | AGENTS 的 SNAPPY 为 600/30/.6；实际文件为 320/28/1（stiffness/damping/mass），其他预设也有差异 | 不把 AGENTS 数值当实际实现；保留代码来源记录，基础 UI 不依赖它 |
@@ -129,7 +129,7 @@ v1 提供了设计哲学、原子控件、消息流、Composer、弹簧与渐隐
 
 - `ChatComposer.tsx:77–85` 调用可选回调后立刻清空输入；`:101` 起使用模拟附件。FOCUS 必须等待实际操作结果、保留失败草稿与提交时的引用。
 - `ConfirmationDialog.tsx` 用普通 `div role=dialog`，Confirm 立即调用 `onConfirm()` 和 `onClose()`。示例本身没有提供与原生模态等价的完整焦点隔离、异步提交等待和失败留存。FOCUS 继续采用 `dialog.showModal()` 语义，迁移其外观。
-- `ChatComposerChin.tsx` 的 Attach/Send 按钮没有接业务；“已在 local storage 暂存”的文案不等于已实现队列。FOCUS 不显示没有真实支撑的状态。
+- 历史参考 `ChatComposerChin.tsx`（本地形态已由 ADR 0028 取代）的 Attach/Send 按钮没有接业务；“已在 local storage 暂存”的文案不等于已实现队列。FOCUS 不显示没有真实支撑的状态。
 - `useClaudeScrollPinning.ts` 有 40px/120px/150ms 规则，但用户回到底部的 scroll 事件也可能重设 pinned；接入时需测试冷却期与新内容竞争。不能覆盖 FOCUS 的历史 Chunk/Continue 定位。
 - `ScrollFadeContainer.tsx` 注释写边界 1px，实际判断为 2px；所谓 7 档渐变列出 8 个 stop。方案按实际 8 个 stop 和 2px 边界定义。
 - `src/index.ts` 同时导出浏览器组件和 `createClaudeMainWindow` 等桌面模块；FOCUS 不从根入口整体导入，避免把 Electron 边界引入浏览器。
@@ -149,8 +149,8 @@ v1 提供了设计哲学、原子控件、消息流、Composer、弹簧与渐隐
 │ 专题               │ 阅读时：资料抽屉从内容区左缘覆盖打开       │
 │   Topic A          │                                          │
 │   Topic B          │ 阅读操作：资料  结构  位置  新会话  继续   │
-│                    │ 引用条 + Composer Editor                  │
-│ 设置 / 工作区      │ Composer Chin（真实状态与发送/停止）      │
+│                    │ 引用条 + Composer Editor（行内发送/停止） │
+│ 设置 / 工作区      │ Notices（真实任务状态、审批与恢复）       │
 └────────────────────┴──────────────────────────────────────────┘
 ```
 
@@ -176,15 +176,15 @@ Topic 点击在知识库执行筛选；阅读中的 Topic/Source 选择仍是独
 
 原文/译文切换不重建事件、不启动翻译、不改变阅读位置。结构导读与正文是同一阅读上下文的两种视图；打开文章骨架不记为开始阅读。位置标签保留序号/总数和结构路径。长公式、代码、表格局部滚动，不拖宽页面。（F1、F6、F8）
 
-阅读操作行维持 ADR 0023 的功能顺序：资料在左，结构与位置在 Continue 之前，新会话与输入区展开入口可达。Continue/完成本篇是独立按钮，不合并到 Send。全屏隐藏工作台导航/页头，退出控件不能遮挡资料关闭按钮。
+阅读操作行遵循 ADR 0028 的无边框 ghost + 图标规则，位置徽标为浅灰药丸；只有 Continue 使用实心主按钮。功能区 compact/comfortable 高度 32/36px，触屏 44px；≤720px 新会话和全屏只显示图标，<600px 保持横向滚动。维持 ADR 0023 的功能顺序：资料在左，结构与位置在 Continue 之前，新会话与输入区展开入口可达。Continue/完成本篇是独立按钮，不合并到 Send。全屏隐藏工作台导航/页头，退出控件不能遮挡资料关闭按钮。
 
 ### 5.4 Composer Dock
 
-采用 v2 的 Editor + Notices + Chin 分层：引用条说明问题绑定的 Source/Chunk；编辑区自适应高度；下沿容纳当前后端信息、真实任务反馈以及发送/停止。模型信息只显示当前真实配置，进入设置修改；运行中不能通过 UI 偷换后端。
+采用 ADR 0028 的 Editor（含行内发送/停止）+ Notices 分层：引用条说明问题绑定的 Source/Chunk；编辑区单行时为 52/56px 高、26/28px 圆角药丸，多行自适应高度至 170px，发送/停止为右侧贴底圆按钮；独立提示区容纳真实任务反馈。取消下沿分隔条与可见快捷键提示，快捷键通过 textarea 的读屏描述提供。模型信息只显示当前真实配置，进入设置修改；运行中不能通过 UI 偷换后端。
 
 FOCUS 当前正式 Mist 阅读不展示上传附件（MistReader 测试有此约束）；参考库 Attach 的结构吸收到知识库上传预览，不在阅读页凭空增加附件入口。输入保留现有中文输入法保护，并覆盖 `isComposing` 和 `keyCode === 229`。
 
-输入区收起释放整行，引用和草稿仍保留。展开按钮移动到功能行。审批、停止、错误和草稿恢复在收起时仍可见。发送 pending 禁止重复请求；成功只清除本次已提交且未被更新的草稿；失败保持草稿并使用原请求身份重试。（F2、F3、F6）
+输入区收起释放整行，引用和草稿仍保留。收起/提问是功能行中同一常驻开关，位于全屏之后、停止/继续之前；保留草稿时显示无文本圆点。审批、停止、错误和草稿恢复在收起时仍可见。发送 pending 禁止重复请求；成功只清除本次已提交且未被更新的草稿；失败保持草稿并使用原请求身份重试。（F2、F3、F6）
 
 ### 5.5 资料抽屉与媒体查看
 
@@ -204,7 +204,7 @@ FOCUS 当前正式 Mist 阅读不展示上传附件（MistReader 测试有此约
 
 任务面板采用 TurnStatusStep、状态点、Accordion 和必要的 Banner。只有真实 running 状态有呼吸反馈；approval 明确等待用户；stopping 不显示完成；断连保留最后状态并标为未知；失败保留恢复入口。没有百分比就使用不定进度和已用时间。
 
-Reading Preparation 的关闭提示与取消工作必须是两个动作。博客的 Value Analysis 不适用显示原因，不能显示为永远 pending。成功信息可安静收敛；失败和审批不自动消失，也不只留一个短暂 toast。（F2、F4、TaskProgress.tsx）
+Reading Preparation 的关闭提示与取消工作必须是两个动作。成功信息可安静收敛；失败和审批不自动消失，也不只留一个短暂 toast。（F2、F4、TaskProgress.tsx）
 
 ### 5.7 设置、进入与博客查看
 
@@ -257,7 +257,11 @@ Hairline 继承 R5 的 1px、DPR≥2 时 .5px、DPR≥3 时 1/3px 方案，仅�
 | 控件可见高度 | 24px | 32px | v2 R3 |
 | 内嵌控件高度 | 18px | 22px | v2 R3 |
 | 控件圆角 | 6px | 8px | v2 R3 |
-| Composer 圆角 | 12px | 14px | v2 R3 |
+| Composer 圆角 | 26px | 28px | ADR 0028 |
+| 功能区按钮高度 | 32px | 36px | ADR 0028；<600px 至少 40px，触屏 44px |
+| Composer 发送/停止直径 | 36px | 40px | ADR 0028；触屏 44px |
+| Composer 内距 | 7px | 7px | ADR 0028；触屏 6px |
+| 功能区药丸圆角 | 999px | 999px | ADR 0028 |
 | 卡片圆角 | 10px | 12px | v2 R3 |
 | 图标 | 16px | 20px | v2 R3 |
 | 间距序列 | 6/8/12/20/32px | 8/12/16/28/40px | v2 R3 |
@@ -368,7 +372,7 @@ standalone 工作台控制层 ── reader-ui 阅读控制层
 | ConfirmationDialog.tsx | 管理/重置/删除 Dialog | 吸收外观，保留原生 modal 与异步失败 |
 | AttachmentCard.tsx | 上传文件列表 | 使用真实 File 与批次数据 |
 | ChatComposer.tsx | ReadingComposer | 吸收结构/IME/三态阴影，替换演示业务 |
-| ChatComposerChin.tsx | Composer 下沿 | v2 布局，按钮逐一绑定能力 |
+| ChatComposerChin.tsx（历史参考） | 原 Composer 下沿 | 已由 ADR 0028 的行内发送/停止取代，不再实现该下沿 |
 | ChatMessageBubbles.tsx | User/AssistantMessage | 保留现有 Markdown 管线和事件 ID |
 | ThinkingAccordion.tsx | TaskDisclosure | 只显示真实步骤/摘要，不虚构思维过程 |
 | RichComposerWithMentions.tsx | 引用条与来源选择 | 先吸收 quote chip；@ 搜索作为有需求后的扩展 |

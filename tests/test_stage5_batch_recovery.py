@@ -101,21 +101,21 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(['completed', 'cancelled'], [i['status'] for i in result['items']])
         self.assertEqual(1, len(self.request('GET', '/library/sources')))
 
-    def test_late_classification_after_stop_cannot_publish_or_start_writing(self):
-        classify = self.runtime.classify
+    def test_late_writing_after_stop_cannot_publish(self):
+        write = self.runtime.write_artifact
         def late(**kwargs):
             self.runtime.entered.set()
             self.runtime.release.wait(10)
-            return classify(**kwargs)
-        self.runtime.classify = late
+            return write(**kwargs)
+        self.runtime.write_artifact = late
         self.runtime.cancel = lambda source_id=None: False
         self.start_blocked()
-        self.control('stop', 'stop-classification')
+        self.control('stop', 'stop-writing')
         self.runtime.release.set()
         self.join_batch()
         result = self.request('GET', '/library/batches')[0]
         self.assertEqual('cancelled', result['items'][0]['blog']['runStatus'])
-        self.assertNotIn('reading_blog', self.runtime.calls)
+        self.assertFalse(list(self.root.rglob('blog.md')))
         self.assertEqual('queued', result['items'][1]['status'])
 
     def test_remote_checkpoint_queries_and_unknown_requires_explicit_risk(self):

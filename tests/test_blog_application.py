@@ -118,8 +118,6 @@ class RecordingRuntime:
         self.files = files
         self.warnings = warnings or []
 
-    def classify(self, *, bundle, evidence, method_dir):
-        return {"applicable": False, "direction": None, "reason": "测试夹具：默认非架构类论文"}
 
     def write_artifact(self, *, artifact, bundle, candidate, method_dir, network):
         self.calls += 1
@@ -242,10 +240,10 @@ class BlogApplicationTests(unittest.TestCase):
 
         status = app.status("Fixture-paper")
         # The controlled Runtime judged this fixture non-architectural, so Value
-        # Analysis is not applicable rather than pending; index.html is rendered
+        # Only the Reading Blog and its HTML are generated
         # from the published blog.md and shows that judgement on its second page.
         self.assertEqual(
-            {"value_analysis": "not_applicable", "reading_blog": STATUS_COMPLETED, "html": STATUS_COMPLETED},
+            {"reading_blog": STATUS_COMPLETED, "html": STATUS_COMPLETED},
             {name: entry["status"] for name, entry in status["artifacts"].items()},
         )
         self.assertTrue((blog / "index.html").is_file())

@@ -7,6 +7,11 @@ import { UploadTopicPicker } from "./UploadTopicPicker";
 import { readingFonts, readReadingFont, readingFontFamily, type ReadingFont } from "./reading-fonts";
 import { applyAppearance, readPreference, type Theme, type Density } from "./appearance";
 
+import { LibraryToolbar } from "./library/LibraryToolbar";
+import { LibraryPage } from "./library/LibraryPage";
+import { matchesStatus, sourceStatus, type StatusFilter } from "./library/source-status";
+import { UNFILED, sortingDisabledReason } from "./library/topic-view";
+
 type Route = "/library" | "/reading" | "/settings";
 type FontSize = "small" | "standard" | "large" | "extra";
 const fontOptions: [FontSize, string][] = [["small", "紧凑"], ["standard", "标准"], ["large", "较大"], ["extra", "特大"]];
@@ -14,11 +19,13 @@ function readFont(): FontSize {
   try { const value = localStorage.getItem("focus.fontSize"); return fontOptions.some(([key]) => key === value) ? value as FontSize : "standard"; }
   catch { return "standard"; }
 }
-function routeFromLocation(): Route { return ["/library", "/reading", "/settings"].includes(location.pathname) ? location.pathname as Route : "/library"; }
-
-function readingStatus(source: LibrarySource) {
-  return source.readingStatus ?? (source.progress.planId && source.progress.chunkId === null ? "completed" : source.progress.completed ? "reading" : source.progress.planId ? "ready" : "unplanned");
+function readStandardWidth(): number {
+  try {
+    const value = Number(localStorage.getItem("focus.standardWidth") ?? 1040);
+    return Number.isFinite(value) ? Math.max(720, Math.min(1440, Math.round(value / 40) * 40)) : 1040;
+  } catch { return 1040; }
 }
+function routeFromLocation(): Route { return ["/library", "/reading", "/settings"].includes(location.pathname) ? location.pathname as Route : "/library"; }
 
 const preparationSteps: Record<string, string> = {
   context: "正在分析全文", plan: "正在生成计划", translate: "正在翻译", check: "正在检查", repair: "正在修订译文", ready: "已完成",
@@ -33,18 +40,19 @@ function preparationText(preparation: ReadingPreparation) {
   return `${subject}${status}${preparation.error ? ` · ${preparation.error}` : ""}`;
 }
 
-const blogArtifacts: readonly [BlogArtifactName, string][] = [["value_analysis", "价值分析"], ["reading_blog", "带读博客"], ["html", "HTML"]];
+const blogArtifacts: readonly [BlogArtifactName, string][] = [["reading_blog", "带读博客"], ["html", "HTML"]];
 const blogStatusText: Record<BlogArtifactStatus, string> = {
-  pending: "待生成", generating: "生成中", completed: "已完成", failed: "失败", not_applicable: "不适用",
+  pending: "待生成", generating: "生成中", completed: "已完成", failed: "失败",
 };
 /** Retry is named by granularity: only the failed document is re-run. */
 const blogRetryLabel: Record<BlogArtifactName, string> = {
-  value_analysis: "重新生成价值分析", reading_blog: "重新生成带读博客", html: "重新生成 HTML",
+  reading_blog: "重新生成带读博客", html: "重新生成 HTML",
 };
 
 export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [route, setRoute] = useState<Route>(routeFromLocation);
   const [fontSize, setFontSize] = useState<FontSize>(readFont);
+  const [standardWidth, setStandardWidth] = useState(readStandardWidth);
   const [readingFont, setReadingFont] = useState<ReadingFont>(readReadingFont);
   const [brightness, setBrightness] = useState(() => { try { return Math.max(85, Math.min(110, Number(localStorage.getItem("focus.brightness") ?? 100) || 100)); } catch { return 100; } });
   const [theme, setTheme] = useState<Theme>(() => readPreference("focus.theme", ["light", "dark", "system"], "system"));
@@ -53,7 +61,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [navCollapsed, setNavCollapsed] = useState(() => readPreference("focus.navigation", ["expanded", "collapsed"], "expanded") === "collapsed");
   const [appearanceFeedback, setAppearanceFeedback] = useState("");
   const [moreSource, setMoreSource] = useState<string | null>(null);
-  const savedAppearance = useRef({ fontSize, brightness, readingFont, theme, density, reducedMotion });
+  const savedAppearance = useRef({ fontSize, standardWidth, brightness, readingFont, theme, density, reducedMotion });
   useEffect(() => {
     applyAppearance(theme, density, reducedMotion);
     const media = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
@@ -66,6 +74,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [generateOnUpload, setGenerateOnUpload] = useState(true);
   const [connectionLost, setConnectionLost] = useState(false);
   const [taskDetails, setTaskDetails] = useState(false);
+  const [taskVisited, setTaskVisited] = useState(false);
+  useEffect(() => { if (taskDetails) setTaskVisited(true); }, [taskDetails]);
   const [closingPreparations, setClosingPreparations] = useState<Readonly<Record<string, string>>>({});
   const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
   const refreshing = useRef(false);
@@ -85,15 +95,11 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [managementDisplayTitleEdited, setManagementDisplayTitleEdited] = useState(false);
   const managementDialog = useRef<HTMLDialogElement>(null);
   const [libraryView, setLibraryView] = useState<"cards" | "list">(() => {
-    try { return localStorage.getItem("focus.libraryView") === "list" ? "list" : "cards"; } catch { return "cards"; }
+    try { return localStorage.getItem("focus.libraryView") === "cards" ? "cards" : "list"; } catch { return "list"; }
   });
-  const [expandedSources, setExpandedSources] = useState<ReadonlySet<string>>(new Set());
-  function toggleDetails(id: string) {
-    setMoreSource(null);
-    setExpandedSources(current => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-    if (!blogs[id]) void refreshBlog(id);
-  }
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [sourcesFailed, setSourcesFailed] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [readyNotice, setReadyNotice] = useState("");
@@ -126,24 +132,26 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   function saveAppearance() {
     try {
-      const changes = { "focus.fontSize": fontSize, "focus.brightness": String(brightness), "focus.readingFont": readingFont, "focus.theme": theme, "focus.density": density, "focus.reducedMotion": String(reducedMotion) };
+      const changes = { "focus.standardWidth": String(standardWidth), "focus.fontSize": fontSize, "focus.brightness": String(brightness), "focus.readingFont": readingFont, "focus.theme": theme, "focus.density": density, "focus.reducedMotion": String(reducedMotion) };
       const old = Object.keys(changes).map(key => [key, localStorage.getItem(key)] as const);
       try { for (const [key, value] of Object.entries(changes)) localStorage.setItem(key, value); }
       catch (e) { for (const [key, value] of old) { if (value !== null) localStorage.setItem(key, value); else localStorage.removeItem(key); } throw e; }
-      savedAppearance.current = { fontSize, brightness, readingFont, theme, density, reducedMotion }; return true;
+      savedAppearance.current = { fontSize, standardWidth, brightness, readingFont, theme, density, reducedMotion }; return true;
     } catch { return false; }
   }
   useEffect(() => {
     if (!moreSource) return;
     const close = (event: PointerEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target?.closest(`[data-more-source="${moreSource}"]`)) return;
+      if (target?.closest<HTMLElement>("[data-more-source]")?.dataset.moreSource === moreSource) return;
       setMoreSource(null);
+      document.getElementById(`source-more-trigger-${moreSource}`)?.focus();
     };
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [moreSource]);
   function cancelAppearance() {
+    setStandardWidth(savedAppearance.current.standardWidth);
     setFontSize(savedAppearance.current.fontSize); setBrightness(savedAppearance.current.brightness);
     setReadingFont(savedAppearance.current.readingFont); setTheme(savedAppearance.current.theme);
     setDensity(savedAppearance.current.density); setReducedMotion(savedAppearance.current.reducedMotion);
@@ -155,13 +163,14 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     refreshing.current = true;
     const version = ++requestVersion.current;
     try {
-      const [sourceResult, topicResult, inboxResult, batchResult] = await Promise.all([host.listSources(), host.listTopics(), host.listInbox?.(), host.listBatches?.()]);
+      const sourceRequest = Promise.resolve().then(() => host.listSources!()).then(result => { if (version === requestVersion.current) setSourcesFailed(!result.ok); return result; }, error => { if (version === requestVersion.current) setSourcesFailed(true); throw error; });
+      const [sourceResult, topicResult, inboxResult, batchResult] = await Promise.all([sourceRequest, host.listTopics(), host.listInbox?.(), host.listBatches?.()]);
       if (version !== requestVersion.current) return;
       if (sourceResult.ok) {
         setSources(sourceResult.value);
 
       } else setError(sourceResult.error.message);
-      if (topicResult.ok) { setTopics(topicResult.value); setTopic(current => topicResult.value.some(t => t.topicId === current) ? current : ""); } else setError(topicResult.error.message);
+      if (topicResult.ok) { setTopics(topicResult.value); setTopic(current => (current === UNFILED || topicResult.value.some(t => t.topicId === current)) ? current : ""); } else setError(topicResult.error.message);
       if (batchResult) { if (batchResult.ok) setBatches(batchResult.value); else setError(batchResult.error.message); }
       if (inboxResult) { if (inboxResult.ok) setInbox(inboxResult.value); else setError(inboxResult.error.message); }
     } catch (e) { if (version === requestVersion.current) setError(String(e)); }
@@ -354,8 +363,12 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   const selectedTopic = topics.find(t => t.topicId === topic);
   const managementBusy = !!busy || !!view?.configuration?.busy || active || batches.some(b => b.executing || ["confirmed", "running"].includes(b.status)) || Object.values(blogs).some(b => b.executing || b.runStatus === "running");
-  const filtered = sources.filter(s => (!topic || s.topicIds.includes(topic)) &&
+  const sortingReason = sortingDisabledReason({ managementBusy, query, statusFilter, libraryView, canManage: !!host.manageTopic });
+  const unfiledCount = sources.filter(s => s.topicIds.length === 0).length;
+  const completedCount = (ids: readonly string[]) => sources.filter(s => ids.includes(s.sourceId) && sourceStatus(s, view?.preparations?.[s.sourceId], preparationHidden(s.sourceId)).phase === "completed").length;
+  const scoped = sources.filter(s => (!topic || (topic === UNFILED ? s.topicIds.length === 0 : s.topicIds.includes(topic))) &&
     [s.title, s.displayTitle, s.shortName].filter(Boolean).join(" ").toLowerCase().includes(query.toLowerCase()));
+  const filtered = scoped.filter(s => matchesStatus(sourceStatus(s, view?.preparations?.[s.sourceId], preparationHidden(s.sourceId)), statusFilter, blogs[s.sourceId]));
   if (selectedTopic) filtered.sort((a, b) => selectedTopic.sourceIds.indexOf(a.sourceId) - selectedTopic.sourceIds.indexOf(b.sourceId));
   function openManagement(kind: "create" | "rename" | "delete" | "source", id?: string, title = "") {
     const source = sources.find(s => s.sourceId === id);
@@ -384,11 +397,18 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     if (kind === "source" && id && host.saveSourceDetails) { const requestId = createReaderId(); void manage(() => host.saveSourceDetails!(id, managementTitle, managementTopics, requestId, managementDisplayTitle)); }
   }
   function moveSource(sourceId: string, offset: number) {
-    if (!selectedTopic || !host.manageTopic) return;
+    if (!selectedTopic || !host.manageTopic || sortingReason) return;
     const ids = [...selectedTopic.sourceIds], index = ids.indexOf(sourceId), target = index + offset;
     if (index < 0 || target < 0 || target >= ids.length) return;
     [ids[index], ids[target]] = [ids[target], ids[index]];
     void manage(() => host.manageTopic!(selectedTopic.topicId, "reorder", { sourceIds: ids }));
+  }
+
+  async function reorderTopic(topicId: string, sourceIds: readonly string[]) {
+    if (!selectedTopic || selectedTopic.topicId !== topicId || !host.manageTopic || sortingReason) return false;
+    let succeeded = false;
+    await manage(async () => { const result = await host.manageTopic!(topicId, "reorder", { sourceIds: [...sourceIds] }); succeeded = result.ok; return result; });
+    return succeeded;
   }
 
   function rereadReceipt(sourceId: string) {
@@ -443,7 +463,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   function chooseUpload(selected: readonly File[] = []) {
     if (selected.some(f => !/\.(pdf|html)$/i.test(f.name))) { setError("请选择 PDF 或 SingleFile HTML"); return; }
     setSelectedFiles(selected);
-    setUploadTopic("");
+    setUploadTopic(selectedTopic?.title ?? "");
     setGenerateOnUpload(true); setError(""); setUploadOpen(true);
   }
   const uploadDisabled = !!busy || active || !host.stageIngestion || !host.startBatch;
@@ -455,6 +475,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     cancelled: "已取消，可继续", interrupted: "处理曾中断，可继续", completed: "入库完成",
   };
   const resumableStatuses: readonly IngestionItem["status"][] = ["retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "cancelled", "interrupted"];
+  function continueInbox(item: IngestionItem) { if (host.continueIngestion) void ingest("继续", () => host.continueIngestion!(item.itemId, createReaderId())); }
   const runningStatuses = ["running", "approval", "stopping", "processing", "confirmed", "pending", "generating"];
   const work = (view?.workItems ?? []).filter(item => !item.dismissed && (item.kind !== "preparation" || !preparationHidden(item.targetId)));
   const taskBatches = batches.filter(batch => !batch.dismissed).map(batch => ({ ...batch, items: batch.items.filter(item => !item.dismissed) }));
@@ -484,7 +505,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     return () => document.removeEventListener("keydown", exit);
   }, [readingFullscreen]);
   useEffect(() => { if (route !== "/reading") setReadingFullscreen(false); }, [route]);
-  return <div className="workspace-app" data-nav-collapsed={navCollapsed} data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-brightness": brightness / 100, "--reader-body-font": readingFontFamily(readingFont) } as CSSProperties}>
+  return <div className="workspace-app" data-route={route} data-nav-collapsed={navCollapsed} data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-brightness": brightness / 100, "--reader-body-font": readingFontFamily(readingFont) } as CSSProperties}>
     <aside className="workspace-nav" aria-label="工作台导航">
       <div className="workspace-nav__head">
         <a className="workspace-logo" href="/library" onClick={e => { e.preventDefault(); navigate("/library"); }}>focus<span>.</span></a>
@@ -496,12 +517,13 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <h2>专题</h2>
         <button type="button" className="workspace-topics__new" disabled={managementBusy || !host.createTopic} onClick={() => openManagement("create")}>＋ 新建专题</button>
         <button type="button" aria-pressed={!topic} onClick={() => setTopic("")}>全部 <span>{sources.length}</span></button>
-        {topics.map(t => <button type="button" key={t.topicId} aria-pressed={topic === t.topicId} onClick={() => setTopic(t.topicId)}>{t.title}<span>{t.sourceIds.length}</span></button>)}
+        {topics.map(t => <button type="button" key={t.topicId} aria-pressed={topic === t.topicId} onClick={() => setTopic(t.topicId)} title={`已读完 ${completedCount(t.sourceIds)} / ${t.sourceIds.length} 篇`}>{t.title}<span>{completedCount(t.sourceIds)}/{t.sourceIds.length}</span></button>)}
+        {unfiledCount > 0 && <button type="button" aria-pressed={topic === UNFILED} onClick={() => setTopic(UNFILED)}>未归类<span>{unfiledCount}</span></button>}
       </div>}
     </aside>
     <header className="workspace-header">
-      <div className="workspace-toolbar">
-        {route === "/reading" ? <div className="reading-library-picker"><span className="workspace-reading-title" title={view?.source.title}>{view?.source.title || "阅读"}</span></div> : <h1>{route === "/library" ? "知识库" : "设置"}</h1>}
+      <div className={route === "/library" ? "workspace-toolbar library-toolbar" : "workspace-toolbar"}>
+        {route === "/reading" ? <div className="reading-library-picker"><span className="workspace-reading-title" title={view?.source.title}>{view?.source.title || "阅读"}</span></div> : route === "/library" ? <LibraryToolbar {...{ selectedTopic, topic, filtered, topics, unfiledCount, setTopic, libraryView, setLibraryView, setMoreSource, query, setQuery }} /> : <h1>设置</h1>}
         <div className="workspace-header-actions">
           <section className="workspace-status" aria-label="当前工作">
             <span className="workspace-sr-only" role="status">{connectionLost ? "连接中断，正在恢复" : !view ? "正在连接" : primaryWork ? `${primaryWork.label} · ${runningWork.length} 项进行中` : "当前无工作"}{attention.length > 0 ? ` · ${attention.length} 项需查看` : ""}</span>
@@ -514,7 +536,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           {route === "/library" && <button className="workspace-primary" disabled={uploadDisabled} onClick={() => chooseUpload()}>上传</button>}
         </div>
       </div>
-      {taskDetails && <div className="workspace-task-frame" id="workspace-tasks" aria-label="任务框">
+      {(taskDetails || taskVisited) && <div className="workspace-task-frame" id="workspace-tasks" role="region" aria-label="任务框" data-open={taskDetails} aria-hidden={!taskDetails} inert={!taskDetails} onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setTaskDetails(false); document.querySelector<HTMLButtonElement>(".workspace-task-toggle")?.focus(); } }}>
         <div className="workspace-task-actions"><span>任务状态</span><button disabled={!!busy || !host.clearFinishedStatuses} onClick={() => void clearStatuses()}>全部清空</button></div>
         <small>清空已结束状态，运行中及等待开始的任务保留。</small>
         {work.length === 0 && taskBatches.length === 0 && taskInbox.length === 0 && <p>没有进行中或待处理的任务。</p>}
@@ -559,8 +581,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
             <button className="workspace-primary" disabled={!!busy || !host.resubmitIngestion || !item.resubmitRisk} onClick={() => host.resubmitIngestion && item.resubmitRisk && void ingest("重新提交", () => host.resubmitIngestion!(item.itemId, createReaderId(), item.resubmitRisk!.choiceId))}>重新提交</button>
           </div>
         </div>}
-        {["retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "interrupted"].includes(item.status) && <button disabled={!!busy || !host.continueIngestion} onClick={() => host.continueIngestion && void ingest("继续", () => host.continueIngestion!(item.itemId, createReaderId()))}>继续</button>}
-        {item.status === "cancelled" && !item.resubmitRisk && <button disabled={!!busy || !host.continueIngestion} onClick={() => host.continueIngestion && void ingest("继续", () => host.continueIngestion!(item.itemId, createReaderId()))}>继续</button>}
+        {["retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "interrupted"].includes(item.status) && <button disabled={!!busy || !host.continueIngestion} onClick={() => continueInbox(item)}>继续</button>}
+        {item.status === "cancelled" && !item.resubmitRisk && <button disabled={!!busy || !host.continueIngestion} onClick={() => continueInbox(item)}>继续</button>}
         {["status_check_required", ...resumableStatuses].includes(item.status) && <button disabled={!!busy || !host.confirmIngestion || !host.processIngestion} onClick={() => void confirmAndStart(item)}>重新确认并开始</button>}
         {item.sourceId && <div className="inbox-links">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(item.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(item.sourceId)} target="_blank" rel="noreferrer">正文</a>}</div>}
         {(item.error || item.topicError) && <p className="inbox-error">{item.topicError?.message ?? item.error?.message}</p>}
@@ -576,65 +598,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     {route === "/reading" && readingFullscreen && <button type="button" className="reading-fullscreen-exit"
       aria-label="关闭全屏模式" title="退出全屏" onClick={() => setReadingFullscreen(false)}>×</button>}
     <div className="workspace-reading" hidden={route !== "/reading"}>
-      <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
-    {route === "/library" && <main className="library-page" data-dragging={dragging}
-      onDragOver={e => { e.preventDefault(); if (!uploadDisabled) setDragging(true); }}
-      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false); }}
-      onDrop={e => { e.preventDefault(); setDragging(false); if (!uploadDisabled) chooseUpload(Array.from(e.dataTransfer.files)); }}>
-      <div className="library-layout">
-        <section className="library-sources" aria-label="材料列表">{selectedTopic && <div>
-          <button disabled={managementBusy || !host.manageTopic} onClick={() => openManagement("rename", selectedTopic.topicId, selectedTopic.title)}>重命名专题</button>
-          <button disabled={managementBusy || !host.manageTopic} onClick={() => openManagement("delete", selectedTopic.topicId, selectedTopic.title)}>删除专题</button>
-        </div>}<div className="library-toolbar"><h2>{topics.find(t => t.topicId === topic)?.title ?? "全部材料"}<small>{filtered.length}</small></h2><div className="library-view-switch" role="group" aria-label="显示方式">{([["cards", "卡片显示"], ["list", "列表显示"]] as const).map(([mode, label]) => <button key={mode} aria-pressed={libraryView === mode} onClick={() => { setLibraryView(mode); try { localStorage.setItem("focus.libraryView", mode); } catch { /* The current view remains usable without storage. */ } }}>{label}</button>)}</div><input type="search" aria-label="搜索材料" placeholder="搜索标题" value={query} onChange={e => setQuery(e.target.value)} /></div>
-          {loading ? <p role="status" className="library-empty">读取中…</p> : filtered.length === 0 ? <div className="library-empty"><span aria-hidden="true">▤</span><p>{query || topic ? "暂无匹配材料" : "放入第一份材料"}</p><button className="workspace-primary" disabled={uploadDisabled} onClick={() => { if (query || topic) { setQuery(""); setTopic(""); } else chooseUpload(); }}>{query || topic ? "重置" : "上传"}</button></div> : <div className="library-cards" data-view={libraryView}>{filtered.map(s => <article className="library-card" data-reading-status={readingStatus(s)} data-status={s.parseStatus !== "ready" ? "failed" : readingStatus(s) === "completed" ? "completed" : s.progress.completed > 0 ? "reading" : "unread"} key={s.sourceId}>
-            <div className="library-overview">
-              <h3 title={s.title}>{s.displayTitle || s.title}</h3>
-              <p className="library-summary">{s.parseStatus !== "ready" ? "解析失败" : readingStatus(s) === "completed" ? "阅读完成" : s.progress.completed > 0 ? "阅读中" : "未阅读"}</p>
-              <div className="library-progress"><progress aria-label={`${s.title} 阅读进度`} value={s.progress.completed} max={s.progress.total || 1} /><span>{s.progress.completed} / {s.progress.total}</span></div>
-            </div>
-            <div className="library-card-actions">
-              <button disabled={!host.blogUrl || !blogs[s.sourceId]?.generated || blogs[s.sourceId]?.artifacts?.html?.status !== "completed"} onClick={() => setBlogViewer(s.sourceId)}>打开博客</button>
-              <button title={active ? "请先完成或停止当前问答" : busy ? `${busy}中` : undefined} disabled={!!busy || active || !host.openSource || s.parseStatus !== "ready" || (view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready)} onClick={() => void enterReading(s.sourceId)}>{view?.preparations?.[s.sourceId]?.status === "running" && !view.preparations[s.sourceId].selected_ready ? "阅读准备中…" : preparationFailed(s.sourceId) && !view?.preparations?.[s.sourceId]?.selected_ready ? preparationHidden(s.sourceId) ? "准备阅读" : "重试准备" : readingStatus(s) === "completed" ? "查看已读" : s.progress.completed > 0 ? "继续阅读" : view?.preparations?.[s.sourceId]?.selected_ready || view?.preparations?.[s.sourceId]?.ready ? "开始阅读" : "准备阅读"}</button>
-              {preparationHidden(s.sourceId) && preparationFailed(s.sourceId) && view?.preparations?.[s.sourceId]?.selected_ready && <button disabled={!!busy || active || (!host.resumePreparation && !host.replanSource)} onClick={() => void retryPreparation(s.sourceId)}>准备阅读</button>}
-              <button aria-expanded={expandedSources.has(s.sourceId)} aria-controls={`source-details-${s.sourceId}`} onClick={() => toggleDetails(s.sourceId)}>详细</button>
-              <button aria-expanded={moreSource === s.sourceId} aria-controls={`source-more-${s.sourceId}`} onClick={() => setMoreSource(moreSource === s.sourceId ? null : s.sourceId)}>更多</button>
-            </div>
-            {moreSource === s.sourceId && <div className="library-more-menu" id={`source-more-${s.sourceId}`} data-more-source={s.sourceId} role="group" aria-label="更多操作"
-              onKeyDown={event => { if (event.key === "Escape") { setMoreSource(null); } }}
-              onClick={event => { if ((event.target as HTMLElement).closest("button")) setMoreSource(null); }}>
-              <button disabled={managementBusy || !host.saveSourceDetails} onClick={() => openManagement("source", s.sourceId, s.title)}>管理来源</button>
-              {selectedTopic && <button aria-label={`${s.title} 上移`} disabled={managementBusy || selectedTopic.sourceIds.indexOf(s.sourceId) === 0} onClick={() => moveSource(s.sourceId, -1)}>上移</button>}
-              {selectedTopic && <button aria-label={`${s.title} 下移`} disabled={managementBusy || selectedTopic.sourceIds.indexOf(s.sourceId) === selectedTopic.sourceIds.length - 1} onClick={() => moveSource(s.sourceId, 1)}>下移</button>}
-              <button disabled={!!busy || active || !host.replanSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "replan" })}>重新规划</button>
-              <button disabled={!!busy || !host.clearSource || view?.clearBusySources?.includes(s.sourceId)} onClick={() => setConfirm({ source: s, action: "clear", requestId: createReaderId() })}>重新阅读</button>
-              <button className="library-more-danger" disabled={managementBusy || !host.deleteSource || !host.deletionImpact} onClick={() => void confirmDelete(s)}>删除</button>
-            </div>}
-
-            {expandedSources.has(s.sourceId) && <div className="library-details" id={`source-details-${s.sourceId}`}>
-            {preparationNotice(s.sourceId)}
-            <p className="library-parse-status">解析：{s.parseStatus === "ready" ? "已完成" : "失败"}{s.error ? ` · ${s.error}` : ""}</p>
-            <div className="library-card-top"><span className="source-badge">{s.format ?? (s.kind === "paper" ? "PDF" : "HTML")}</span>{s.parseStatus !== "ready" && <span title={s.error ?? undefined}>需检查</span>}</div>
-            <p className="library-metadata" title={s.title}>{[s.publishedAt, s.venue].filter(Boolean).join(" · ")}</p>
-            <div className="library-card-bottom"><small>{({ ready: "待阅读", reading: "阅读中", completed: "已读完", unplanned: "待规划" })[readingStatus(s)]}</small><div className="library-row-actions">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(s.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(s.sourceId)} target="_blank" rel="noreferrer">正文</a>}</div></div>
-            {view?.preparations?.[s.sourceId]?.candidate && view.preparations[s.sourceId].ready && <button className="workspace-primary" disabled={!!busy || active || !host.activateReadingCandidate || view.readingRevision === undefined} onClick={() => void activateCandidate(s.sourceId)}>打开新计划</button>}
-            <div className="library-tags" aria-label="专题标签"><span>属于专题：{s.topicIds.length === 0 ? "未分类" : ""}</span>{s.topicIds.map(id => <button key={id} onClick={() => setTopic(id)}>{topics.find(t => t.topicId === id)?.title ?? id}</button>)}</div>
-            <section className="library-blog" aria-label={`${s.title} 博客`}>
-              {!blogs[s.sourceId]?.generated ? <button disabled={!!busy || !host.generateBlog || s.parseStatus !== "ready"} onClick={() => void generateBlog(s.sourceId)}>生成博客</button> : <>
-                <ul className="blog-statuses">{blogArtifacts.map(([name, label]) => <li key={name} data-status={blogs[s.sourceId].artifacts?.[name]?.status ?? "pending"}><span>{label}</span><small>{blogStatusText[(blogs[s.sourceId].artifacts?.[name]?.status ?? "pending") as BlogArtifactStatus]}</small></li>)}</ul>
-                {blogs[s.sourceId].valueAnalysis.applicable === false && <p className="blog-note">架构价值分析不适用：{blogs[s.sourceId].valueAnalysis.reason}</p>}
-                {blogs[s.sourceId].error && <p className="blog-note" role="alert">{blogs[s.sourceId].error?.message}</p>}
-                <div className="blog-actions">
-                  {blogs[s.sourceId].runStatus === "running" && <button disabled={!!busy || !host.cancelBlog} onClick={() => void cancelBlog(s.sourceId)}>取消生成</button>}
-                  {blogArtifacts.filter(([name]) => blogs[s.sourceId].artifacts?.[name]?.status === "failed").map(([name]) => <button key={name} disabled={!!busy || blogs[s.sourceId]?.executing || !host.regenerateBlog} onClick={() => void regenerateBlog(s.sourceId, name)}>{blogRetryLabel[name]}</button>)}
-                  {blogArtifacts.every(([name]) => blogs[s.sourceId].artifacts?.[name]?.status !== "failed") && <button disabled={!!busy || blogs[s.sourceId]?.executing || !host.regenerateBlog} onClick={() => void regenerateBlog(s.sourceId, "all")}>重新生成</button>}
-                </div>
-              </>}
-            </section>
-            </div>}
-          </article>)}</div>}
-        </section></div>
-      {busy && <p role="status">{busy}中…</p>}
-    </main>}
+      <FocusReader host={host} appearance="mist" standardWidth={standardWidth} fontSize={fontSize} visible={route === "/reading"} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
+    {route === "/library" && <LibraryPage {...{ scoped, statusFilter, setStatusFilter, sourcesFailed, refresh, taskInbox, taskBatches, statusText, itemStatusText, continueInbox, controlBatch, sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, setConfirm, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} onTasks={() => setTaskDetails(true)} />}
     {route === "/settings" && <main className="settings-page">
       <WorkspaceSelection />
       <BackendSetupPanel host={host} configuration={view?.configuration} onSaved={acceptView} />
@@ -646,6 +611,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <div className="settings-row"><label htmlFor="focus-density">界面密度</label><select id="focus-density" value={density} onChange={e => setDensity(e.target.value as Density)}><option value="compact">紧凑</option><option value="comfortable">舒适</option></select></div>
       <div className="settings-row"><label htmlFor="brightness">亮度</label><input id="brightness" type="range" min="85" max="110" value={brightness} onChange={e => { setBrightness(Number(e.target.value)); }} /></div>
       <div className="settings-row"><label htmlFor="font-size">字号</label><input id="font-size" type="range" min="0" max="3" step="1" value={fontOptions.findIndex(([key]) => key === fontSize)} aria-valuetext={fontOptions.find(([key]) => key === fontSize)?.[1]} onChange={e => { const value = fontOptions[Number(e.target.value)][0]; setFontSize(value); }} /></div>
+      <div className="settings-row"><label htmlFor="standard-width">标准阅读宽度</label><input id="standard-width" type="range" min="720" max="1440" step="40" value={standardWidth} aria-valuetext={`${standardWidth} 像素`} aria-describedby="standard-width-hint" onChange={e => setStandardWidth(Number(e.target.value))} /><output htmlFor="standard-width">{standardWidth}px</output></div>
+      <p id="standard-width-hint">标准阅读与功能／对话区使用此宽度；空间不足时自动适配。宽幅阅读仍使用全部可用空间。</p>
       <div className="settings-row"><label htmlFor="reading-font">正文字体</label><select id="reading-font" value={readingFont} onChange={e => setReadingFont(e.target.value as ReadingFont)}>
         {readingFonts.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}
       </select></div>

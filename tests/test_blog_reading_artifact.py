@@ -1,0 +1,435 @@
+from __future__ import annotations
+
+import json
+import shutil
+import unittest
+import uuid
+import zlib
+from pathlib import Path
+
+from core import BlogApplication, BlogExternalError, WorkspaceError
+from core.article_blog import (
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+    STATUS_PENDING,
+    check_images,
+    check_references,
+    decode_image,
+    validate_blog_candidate,
+)
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+SOURCE_CONTENT = "\n".join(
+    [
+        "# Fixture Paper",
+        "",
+        "## 1 Introduction",
+        "",
+        "The workload stalls on the interconnect.",
+        "",
+        "## 2 Method",
+        "",
+        "![Figure 1](images/image-001.png)",
+        "",
+        "Figure 1 shows the pipeline and its buffers.",
+        "",
+        "## 3 Experiments",
+        "",
+        "Table 1 reports throughput for every baseline.",
+    ]
+)
+
+REFERENCES = "\n".join(
+    [
+        "## 参考文献",
+        "",
+        "1. Fixture Authors. 2026. Fixture Paper. arXiv:0000.0000。",
+        "2. Other Authors. 2025. Baseline Comparison. arXiv:1111.1111。",
+    ]
+)
+
+READING_BLOG = "\n".join(
+    [
+        "# 固件论文带读",
+        "",
+        "## 导语与问题背景",
+        "",
+        "第 1 节指出互连是瓶颈。" + "展开说明。" * 140,
+        "",
+        "## 方法与机制",
+        "",
+        "核心模块按输入、输出与设计原因展开[1]。" + "机制细节。" * 140,
+        "",
+        "## 实验与证据",
+        "",
+        "![Figure 1](assets/image-001.png)",
+        "",
+        "Table 1 说明指标方向与基线差异。" + "证据细节。" * 140,
+        "",
+        "## 局限与边界",
+        "",
+        "结果只在给定配置下成立。" + "边界说明。" * 90,
+        "",
+        REFERENCES,
+    ]
+)
+
+
+EVIDENCE_MAP = "\n".join(
+    [
+        "# Evidence Map",
+        "",
+        "## 贡献与原文锚点",
+        "",
+        "| 贡献 | 原文锚点 | 报告的证据 | 假设与边界 |",
+        "|---|---|---|---|",
+        "| 搜索规模 | 第 2 节 | Figure 1 | 仅在单核配置下验证 |",
+    ]
+)
+
+
+def png_bytes(payload: bytes = b"figure") -> bytes:
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return len(body).to_bytes(4, "big") + kind + body + (zlib.crc32(kind + body) & 0xFFFFFFFF).to_bytes(4, "big")
+
+    header = b"\x89PNG\r\n\x1a\n"
+    ihdr = chunk(b"IHDR", (1).to_bytes(4, "big") + (1).to_bytes(4, "big") + bytes([8, 6, 0, 0, 0]))
+    data = chunk(b"IDAT", zlib.compress(payload))
+    return header + ihdr + data + chunk(b"IEND", b"")
+
+
+
+
+class ReadingRuntime:
+    def __init__(self):
+        self.calls = []
+        self.reading_body = READING_BLOG
+
+    def write_artifact(self, *, artifact, **kwargs):
+        self.calls.append(artifact)
+        if artifact != "reading_blog":
+            raise AssertionError(f"Unexpected artifact: {artifact}")
+        return {"files": {"blog.md": self.reading_body, "evidence/evidence-map.md": EVIDENCE_MAP}, "warnings": []}
+
+
+class DualArtifactTests(unittest.TestCase):
+    def setUp(self):
+        runs = ROOT / "tmp" / "test-runs"
+        runs.mkdir(parents=True, exist_ok=True)
+        self.root = runs / f"blog-dual-{uuid.uuid4().hex[:8]}"
+        self.root.mkdir()
+        self.workspace = self.root / "workspace"
+        self._registered_paper()
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def _registered_paper(self, source_id: str = "Fixture-paper", image: bytes | None = None):
+        source_root = self.workspace / "sources" / source_id
+        bundle = source_root / "parser-bundle"
+        (bundle / "images").mkdir(parents=True, exist_ok=True)
+        (source_root / "source.yaml").write_text(
+            json.dumps(
+                {
+                    "source_kind": "paper_pdf",
+                    "source_id": source_id,
+                    "title": "Fixture Paper",
+                    "short_name": "Fixture",
+                    "identity": "fixture:blog",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (bundle / "source.pdf").write_bytes(b"%PDF fixture")
+        (bundle / "content.md").write_text(SOURCE_CONTENT, encoding="utf-8")
+        (bundle / "metadata.json").write_text(
+            '{"source_kind": "paper_pdf", "language": "en", "parser": "article-parser", "batch_id": "fixture-batch"}\n',
+            encoding="utf-8",
+        )
+        (bundle / "validation.json").write_text('{"ok": true, "warnings": []}\n', encoding="utf-8")
+        (bundle / "images" / "image-001.png").write_bytes(image if image is not None else png_bytes())
+        (self.workspace / "state.json").write_text(
+            json.dumps(
+                {
+                    "current_source_id": source_id,
+                    "current_topic_id": None,
+                    "sources": {source_id: {"current_plan_id": None, "current_chunk_id": None}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        reading = source_root / "reading" / "plans" / "plan-001"
+        reading.mkdir(parents=True, exist_ok=True)
+        (reading / "chunks.jsonl").write_text('{"chunk_id": "chunk-001"}\n', encoding="utf-8")
+        (reading / "records").mkdir(parents=True, exist_ok=True)
+        (reading / "records" / "chunk-001.json").write_text(
+            json.dumps({"chunk_id": "chunk-001", "translation": None, "notes": [{"type": "thought", "text": "读者私人备注"}]}),
+            encoding="utf-8",
+        )
+        return source_root, bundle
+
+    @staticmethod
+    def _snapshot(paths):
+        return {path: path.read_bytes() for root in paths for path in root.rglob("*") if path.is_file()}
+
+    def _app(self, runtime, *, network: bool = True, writer_id: str = "writer-a"):
+        return BlogApplication(self.workspace, runtime=runtime, writer_id=writer_id, network=network)
+
+    # ------------------------------------------------------------------- T03
+
+
+    # ------------------------------------------------------------------- T04
+
+
+    # -------------------------------------------------------------- T11/T12
+
+
+
+
+    # ------------------------------------------------------------------- T06
+
+
+    # ------------------------------------------------------------------- T19
+
+    def test_evidence_notes_stay_separate_from_reading_notes(self):
+        runtime = ReadingRuntime()
+        app = self._app(runtime)
+        source_root, _ = self._registered_paper()
+        private_before = self._snapshot((source_root / "reading",))
+        state_before = (self.workspace / "state.json").read_bytes()
+
+        app.generate("Fixture-paper", request_id="req-1", authorized_by="manual_trigger")
+
+        self.assertEqual(private_before, self._snapshot((source_root / "reading",)))
+        self.assertEqual(state_before, (self.workspace / "state.json").read_bytes())
+        notes = (source_root / "blog" / "evidence" / "evidence-map.md").read_text(encoding="utf-8")
+        self.assertIn("Evidence Map", notes)
+        self.assertNotIn("读者私人备注", notes)
+        self.assertFalse((source_root / "reading" / "blog").exists())
+
+
+    def _legacy(self, retired_status="failed"):
+        source, bundle = self._registered_paper()
+        runtime = ReadingRuntime()
+        app = self._app(runtime)
+        app.generate("Fixture-paper", request_id="initial", authorized_by="manual_trigger")
+        blog = source / "blog"
+        metadata = json.loads((blog / "metadata.json").read_text(encoding="utf-8"))
+        metadata["method_version"] = "article-blog-v1"
+        metadata["artifacts"]["value_analysis"] = {"status": "failed", "updated_at": None}
+        metadata["value_analysis_applicability"] = {"applicable": True}
+        (blog / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+        # Invalid legacy bytes must never be read by the new writer/validator.
+        (blog / "value-analysis.md").write_bytes(b"legacy\xff TODO")
+        (blog / "evidence" / "implementation-notes.md").write_bytes(b"historical\xff")
+        (blog / "index.html").write_text("<html>legacy value analysis</html>", encoding="utf-8")
+        runs_path = self.workspace / "blog" / "runs.json"
+        runs = json.loads(runs_path.read_text(encoding="utf-8"))
+        run = runs["Fixture-paper"]
+        run["status"] = "running" if retired_status == "running" else "failed"
+        run["error"] = {"error_id": "blog_classification_failed", "message": "old failure"}
+        run["steps"]["value_analysis"] = {"status": retired_status, "attempts": []}
+        runs_path.write_text(json.dumps(runs), encoding="utf-8")
+        runtime.calls.clear()
+        return app, runtime, blog, bundle
+
+    def test_reading_pipeline_needs_no_classifier_or_implementation_lookup(self):
+        source, _ = self._registered_paper()
+        runtime = ReadingRuntime()  # exposes only write_artifact
+        app = self._app(runtime)
+        result = app.generate("Fixture-paper", request_id="only-reading", authorized_by="manual_trigger")
+        self.assertEqual(["reading_blog"], runtime.calls)
+        self.assertEqual({"reading_blog", "html"}, set(result["artifacts"]))
+        self.assertNotIn("valueAnalysis", result)
+        self.assertFalse((source / "blog" / "value-analysis.md").exists())
+        self.assertFalse((source / "blog" / "evidence" / "implementation-notes.md").exists())
+
+    def test_legacy_read_and_startup_do_not_rewrite_files_or_resume_retired_steps(self):
+        app, runtime, blog, _ = self._legacy()
+        runs_path = self.workspace / "blog" / "runs.json"
+        for step_name, retired in ((name, status) for name in ("classify", "value_analysis")
+                                   for status in ("failed", "running", "pending")):
+            with self.subTest(step=step_name, retired=retired):
+                runs = json.loads(runs_path.read_text(encoding="utf-8"))
+                runs["Fixture-paper"]["status"] = "running" if retired == "running" else "failed"
+                steps = runs["Fixture-paper"]["steps"]
+                for name in ("classify", "value_analysis"):
+                    steps.pop(name, None)
+                steps[step_name] = {"status": retired, "attempts": []}
+                runs_path.write_text(json.dumps(runs), encoding="utf-8")
+                before = self._snapshot((self.workspace,))
+                restarted = self._app(runtime)
+                status = restarted.status("Fixture-paper")
+                self.assertEqual("completed", status["runStatus"])
+                self.assertIsNone(status["error"])
+                restarted.open_artifact("Fixture-paper", "html")
+                self.assertEqual(before, self._snapshot((self.workspace,)))
+                self.assertEqual([], runtime.calls)
+
+    def test_legacy_html_rerender_upgrades_only_on_explicit_action(self):
+        app, runtime, blog, bundle = self._legacy()
+        legacy = {p: p.read_bytes() for p in [blog / "value-analysis.md", blog / "evidence" / "implementation-notes.md", blog / "blog.md"]}
+        result = app.regenerate("Fixture-paper", artifact="html", request_id="render-v2", authorized_by="manual_trigger")
+        self.assertEqual("completed", result["outcome"]["status"])
+        self.assertEqual([], runtime.calls)
+        self.assertEqual(legacy, {p: p.read_bytes() for p in legacy})
+        metadata = json.loads((blog / "metadata.json").read_text(encoding="utf-8"))
+        self.assertEqual("article-blog-v2", metadata["method_version"])
+        self.assertEqual({"reading_blog", "html"}, set(metadata["artifacts"]))
+        self.assertNotIn("value_analysis_applicability", metadata)
+        document = (blog / "index.html").read_text(encoding="utf-8")
+        self.assertNotIn('role="tab"', document)
+        self.assertNotIn("value_analysis", document)
+        self.assertTrue(validate_blog_candidate(blog, bundle=bundle, require_html=True)["ok"])
+
+    def test_legacy_regenerate_all_leaves_retired_files_untouched(self):
+        app, runtime, blog, _ = self._legacy()
+        before = (blog / "value-analysis.md").read_bytes()
+        result = app.regenerate_all("Fixture-paper", request_id="all-v2", authorized_by="manual_trigger")
+        self.assertEqual("completed", result["html"]["status"])
+        self.assertEqual(["reading_blog"], runtime.calls)
+        self.assertEqual(before, (blog / "value-analysis.md").read_bytes())
+
+    def test_retired_target_is_rejected_without_mutation_or_runtime_calls(self):
+        app, runtime, _, _ = self._legacy()
+        before = self._snapshot((self.workspace,))
+        with self.assertRaises(WorkspaceError) as caught:
+            app.regenerate("Fixture-paper", artifact="value_analysis", request_id="old-target", authorized_by="manual_trigger")
+        self.assertEqual("blog_artifact_invalid", caught.exception.error_id)
+        self.assertEqual([], runtime.calls)
+        self.assertEqual(before, self._snapshot((self.workspace,)))
+
+
+class BlogValidatorTests(unittest.TestCase):
+    """Unit boundary: illegal candidates are injected straight into the validator."""
+
+    def setUp(self):
+        runs = ROOT / "tmp" / "test-runs"
+        runs.mkdir(parents=True, exist_ok=True)
+        self.root = runs / f"blog-validator-{uuid.uuid4().hex[:8]}"
+        self.root.mkdir()
+        self.blog = self.root / "blog"
+        (self.blog / "evidence").mkdir(parents=True)
+        (self.blog / "assets").mkdir(parents=True)
+        self.bundle = self.root / "bundle"
+        (self.bundle / "images").mkdir(parents=True)
+        (self.bundle / "content.md").write_text(SOURCE_CONTENT, encoding="utf-8")
+        (self.bundle / "images" / "image-001.png").write_bytes(png_bytes())
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def _fill(self, blog_body: str = READING_BLOG):
+        (self.blog / "evidence" / "evidence-map.md").write_text(EVIDENCE_MAP, encoding="utf-8")
+        (self.blog / "assets" / "image-001.png").write_bytes(png_bytes())
+        (self.blog / "blog.md").write_text(blog_body, encoding="utf-8")
+
+    # ------------------------------------------------------------------- T15
+
+    def test_an_image_that_does_not_decode_fails_and_names_the_file(self):
+        self._fill()
+        (self.blog / "assets" / "image-001.png").write_bytes(b"not-an-image-at-all")
+
+        checked = validate_blog_candidate(self.blog, bundle=self.bundle)
+
+        self.assertFalse(checked["ok"])
+        self.assertTrue(any("assets/image-001.png" in item for item in checked["errors"]), checked["errors"])
+        self.assertTrue(any("does not decode" in item for item in checked["errors"]))
+
+    def test_an_image_that_is_not_from_the_bundle_fails_and_names_the_file(self):
+        self._fill()
+        (self.blog / "assets" / "image-001.png").write_bytes(png_bytes(b"different-bytes"))
+
+        checked = validate_blog_candidate(self.blog, bundle=self.bundle)
+
+        self.assertFalse(checked["ok"])
+        self.assertTrue(
+            any("assets/image-001.png" in item and "Bundle" in item for item in checked["errors"]), checked["errors"]
+        )
+
+    def test_decode_image_accepts_a_real_png_and_rejects_garbage(self):
+        path = self.root / "ok.png"
+        path.write_bytes(png_bytes())
+        self.assertEqual((True, "png"), decode_image(path))
+        broken = self.root / "broken.png"
+        broken.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 40)
+        ok, detail = decode_image(broken)
+        self.assertFalse(ok)
+        self.assertTrue(detail)
+
+    # ------------------------------------------------------------------- T16
+
+    def test_an_unresolvable_citation_fails_and_locates_it(self):
+        self._fill(blog_body=READING_BLOG.replace("设计原因展开[1]", "设计原因展开[9]"))
+
+        checked = validate_blog_candidate(self.blog, bundle=self.bundle)
+
+        self.assertFalse(checked["ok"])
+        self.assertTrue(any("[9]" in item for item in checked["errors"]), checked["errors"])
+
+    def test_an_unresolvable_section_anchor_fails_and_locates_it(self):
+        self._fill(blog_body=READING_BLOG.replace("第 1 节", "第 12 节"))
+
+        checked = validate_blog_candidate(self.blog, bundle=self.bundle)
+
+        self.assertFalse(checked["ok"])
+        self.assertTrue(any("section 12" in item for item in checked["errors"]), checked["errors"])
+
+    def test_a_figure_anchor_that_the_bundle_text_cannot_hold_is_a_warning(self):
+        self._fill(blog_body=READING_BLOG.replace("Table 1", "Table 42"))
+
+        checked = validate_blog_candidate(self.blog, bundle=self.bundle)
+
+        self.assertTrue(checked["ok"], checked["errors"])
+        self.assertTrue(any("Table 42" in item for item in checked["warnings"]), checked["warnings"])
+
+    # ------------------------------------------------------------------- T17
+
+    def test_depth_and_evidence_gaps_stay_warnings_never_a_quality_pass(self):
+        self._fill()
+        (self.blog / "evidence" / "evidence-map.md").write_text("# Evidence Map\n\n很薄的证据。\n", encoding="utf-8")
+        (self.bundle / "content.md").write_text(SOURCE_CONTENT + "\n" + "补充。" * 20000, encoding="utf-8")
+
+        checked = validate_blog_candidate(self.blog, bundle=self.bundle)
+
+        self.assertTrue(checked["ok"], checked["errors"])
+        self.assertTrue(checked["warnings"])
+        self.assertIn("深度", " ".join(checked["warnings"]))
+        self.assertIn("原文锚点", " ".join(checked["warnings"]))
+        rendered = json.dumps(checked, ensure_ascii=False)
+        self.assertNotIn("质量通过", rendered)
+        self.assertNotIn("quality pass", rendered.lower())
+
+    # ------------------------------------------------------------- structure
+
+
+
+    def test_image_and_reference_helpers_are_reusable_on_their_own(self):
+        errors, warnings = check_images(self.blog, "![x](assets/missing.png)", self.bundle)
+        self.assertTrue(any("missing.png" in item for item in errors))
+        self.assertEqual([], warnings)
+        errors, warnings = check_references("body [3] text", SOURCE_CONTENT)
+        self.assertTrue(errors)
+        self.assertEqual([], warnings)
+
+    def test_arabic_section_references_resolve_roman_numbered_headings(self):
+        bundle = '\n'.join(['## I. INTRODUCTION', '## II. RELATED WORK',
+                            '## III. BACKGROUND', '## IV. ARCHITECTURE', '## V. EVALUATION'])
+        errors, _ = check_references('第 1 节；第 2 节；第 3 节；第 4 节；第 5 节；Section 4 and Sec. 5', bundle)
+        self.assertEqual([], errors)
+        self.assertEqual([], check_references('Section 9', '## ix. Evaluation')[0])
+
+    def test_roman_matching_does_not_accept_missing_or_partial_section_numbers(self):
+        for bundle in ['## II. Related Work', '## IV. Architecture', 'Body mentions Section I.',
+                       '## Introduction']:
+            with self.subTest(bundle=bundle):
+                errors, _ = check_references('第 1 节', bundle)
+                self.assertTrue(errors)
+        self.assertTrue(check_references('第 4 节', '## IIII. Invalid numbering')[0])
+        self.assertTrue(check_references('第 6 节', '## V. Evaluation')[0])
+
+
+if __name__ == "__main__":
+    unittest.main()

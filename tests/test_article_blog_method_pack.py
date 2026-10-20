@@ -184,7 +184,6 @@ class ArticleBlogMethodPackTests(unittest.TestCase):
     def test_pack_exposes_one_method_entry_with_unified_script_name(self):
         self.assertTrue((METHODS / "SKILL.md").is_file())
         self.assertTrue((METHODS / "reference" / "reading-blog-method.md").is_file())
-        self.assertTrue((METHODS / "reference" / "value-analysis-method.md").is_file())
         self.assertTrue((METHODS / "scripts" / "article2blog.py").is_file())
         self.assertFalse((METHODS / "scripts" / "paper2blog.py").exists())
         self.assertFalse((ROOT / ".agents" / "skills" / "paper2blog").exists())
@@ -213,7 +212,6 @@ class ArticleBlogMethodPackTests(unittest.TestCase):
 
         blog = source_root / "blog"
         self.assertTrue((blog / "evidence" / "evidence-map.md").is_file())
-        self.assertTrue((blog / "evidence" / "implementation-notes.md").is_file())
         self.assertTrue((blog / "assets" / "image-001.png").is_file())
         self.assertTrue((blog / "metadata.json").is_file())
         self.assertFalse((blog / "source.pdf").exists())
@@ -228,7 +226,7 @@ class ArticleBlogMethodPackTests(unittest.TestCase):
         status = blog_status(workspace, "Fixture-paper")
         self.assertTrue(status["generated"])
         self.assertEqual(
-            {"value_analysis": STATUS_PENDING, "reading_blog": STATUS_PENDING, "html": STATUS_PENDING},
+            {"reading_blog": STATUS_PENDING, "html": STATUS_PENDING},
             {name: entry["status"] for name, entry in status["artifacts"].items()},
         )
         self.assertEqual(protected_before, self._snapshot((bundle, source_root / "reading")))
@@ -468,14 +466,13 @@ class ArticleBlogBoundaryTests(unittest.TestCase):
             path.relative_to(ROOT).as_posix()
             for path in ROOT.rglob("*")
             if path.is_file()
-            and path.name in {"reading-blog-method.md", "value-analysis-method.md", "article2blog.py"}
+            and path.name in {"reading-blog-method.md", "article2blog.py"}
             and not skipped.intersection(path.parts)
         ]
         self.assertEqual(
             sorted(
                 [
                     "methods/article-blog/reference/reading-blog-method.md",
-                    "methods/article-blog/reference/value-analysis-method.md",
                     "methods/article-blog/scripts/article2blog.py",
                 ]
             ),

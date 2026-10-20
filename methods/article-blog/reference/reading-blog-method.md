@@ -1,7 +1,7 @@
 ---
 name: reading-blog-method
 method: article-blog
-version: article-blog-v1
+version: article-blog-v2
 role: runtime-copy
 requirement-source: docs/requirements/reading-blog-guide.md
 ---
@@ -10,7 +10,7 @@ requirement-source: docs/requirements/reading-blog-guide.md
 
 正文重点标注与标题层级同时遵循同目录的 `reading-format.md`。
 
-本文件是 article-blog 资源包内 **Reading Blog 方法的唯一运行副本**（method version `article-blog-v1`）。
+本文件是 article-blog 资源包内 **Reading Blog 方法的唯一运行副本**（method version `article-blog-v2`）。
 需求层权威文档为 `docs/requirements/reading-blog-guide.md`；方法内容的编辑入口是本文件，需求变更时才同步更新需求文档。
 宿主不得复制本文件；运行时只使用资源包内这一份。
 

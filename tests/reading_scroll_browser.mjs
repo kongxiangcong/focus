@@ -9,6 +9,7 @@ const base = `http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT || 8875}`;
 const output = process.env.FOCUS_BROWSER_OUTPUT || '/tmp/focus-reader-redesign/shots/step5';
 fs.mkdirSync(output, {recursive:true});
 const errors=[]; page.on('pageerror',e=>errors.push(e.message));
+page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
 const metrics={};
 const sleep=ms=>page.waitForTimeout(ms);
 const position=()=>page.locator('.focus-stream').evaluate(el=>el.scrollTop);
@@ -23,7 +24,7 @@ try {
  }
  assert.ok(metrics.landing2.height > metrics.landing2.viewport);
  assert.ok(metrics.landing3.height < metrics.landing3.viewport);
- await page.screenshot({path:`${output}/short-landing.png`});
+ if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${output}/short-landing.png`});
  const group=page.locator('[data-lens-index="3"]');
  const top=()=>group.evaluate(el=>el.getBoundingClientRect().top);
  let before=await top();
@@ -40,19 +41,19 @@ try {
  await page.getByRole('button',{name:'回到进度',exact:true}).click();await sleep(600);
  await page.getByRole('button',{name:'↩ 返回刚才位置',exact:true}).click();await sleep(600);
  metrics.return=(await position())-before;assert.ok(Math.abs(metrics.return)<=1,JSON.stringify(metrics));
- await page.locator('#focus-question').fill('请解释滚动跟随验收'); await page.getByRole('button',{name:'发送 ↑',exact:true}).click();
+ await page.locator('#focus-question').fill('请解释滚动跟随验收'); await page.getByRole('button',{name:'发送',exact:true}).click();
  await page.waitForSelector('[data-streaming="true"]');
  await page.locator('.focus-stream').hover();await page.mouse.wheel(0,-100);
  await page.getByRole('button',{name:/回到最新/}).waitFor();
  before=await position();await sleep(250);metrics.paused=(await position())-before;assert.ok(Math.abs(metrics.paused)<=1,JSON.stringify(metrics));
  metrics.latestEntryWithinPane=await page.getByRole('button',{name:/回到最新/}).evaluate(el=>{const a=el.getBoundingClientRect(),p=document.querySelector('.focus-stream').getBoundingClientRect();return a.bottom<=p.bottom && a.top>=p.top;});
  assert.ok(metrics.latestEntryWithinPane);
- await page.screenshot({path:`${output}/stream-paused.png`});
+ if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${output}/stream-paused.png`});
  await page.getByRole('button',{name:/回到最新/}).click();await sleep(650);
  assert.equal(await page.getByRole('button',{name:/回到最新/}).count(),0);
  metrics.latest=await page.evaluate(()=>{const p=document.querySelector('.focus-stream'),a=p.querySelector('[data-streaming="true"]'); return a ? a.getBoundingClientRect().bottom-p.getBoundingClientRect().bottom : 0;});
  assert.ok(Math.abs(metrics.latest + 24)<=2,JSON.stringify(metrics));
  await sleep(1800);
- for(const width of [1440,1024,390]) {await page.setViewportSize({width,height:1000});for(const theme of ['light','dark']){await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);await sleep(400);await page.screenshot({path:`${output}/${width}-${theme}.png`});}}
+ for(const width of [1440,1024,390]) {await page.setViewportSize({width,height:1000});for(const theme of ['light','dark']){await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);await sleep(400);if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${output}/${width}-${theme}.png`});}}
  assert.deepEqual(errors,[]); fs.writeFileSync(`${output}/metrics.json`,JSON.stringify(metrics,null,2));console.log('PASS',metrics);
 } finally {await browser.close();}

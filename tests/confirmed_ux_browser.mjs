@@ -6,6 +6,7 @@ const { chromium } = require(process.env.FOCUS_PLAYWRIGHT_MODULE || 'playwright'
 const browser=await chromium.launch({headless:true,executablePath:process.env.FOCUS_CHROMIUM_EXECUTABLE || undefined,args:['--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--no-zygote']});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
+page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
 page.on('response',async r=>{if(r.status()<400)return;let body='';try{body=(await r.text()).slice(0,240)}catch{}console.log('HTTP',r.status(),r.url(),body.replace(/\n/g,' '))});
 const results=[];
 const api=async()=> (await (await page.request.get(`http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT || '8765'}/reader/window`)).json()).value;
@@ -22,7 +23,7 @@ await latest(1);
 await page.getByRole('textbox',{name:'输入问题或阅读需求'}).fill('第一段的问题');
 await next(2);
 assert.equal(await page.locator('.focus-output').count(),2);
-await page.getByRole('button',{name:'发送 ↑',exact:true}).click();
+await page.getByRole('button',{name:'发送',exact:true}).click();
 await page.waitForFunction(()=>document.querySelector('[data-role="assistant"]')?.textContent.includes('回复第2句'));
 const stream=page.locator('.focus-stream');await stream.hover();await page.mouse.wheel(0,-400);
 await page.waitForTimeout(100);const manual=await stream.evaluate(el=>el.scrollTop);
@@ -100,11 +101,7 @@ assert.equal(await page.getByRole('button',{name:'已读完',exact:true}).isDisa
 // Reset via Library is confirmed and first Continue opens first, not second.
 await page.getByRole('link',{name:'知识库',exact:true}).click();await page.locator('button[aria-controls="source-details-fixture-paper"]').click();
 assert.equal(await page.getByRole('button',{name:'讨论',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'从头阅读',exact:true}).count(),0);
-try { await page.locator('button[aria-controls="source-more-fixture-paper"]').click(); } catch (error) {
-  if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:process.env.FOCUS_BROWSER_OUTPUT + '/confirmed-failure.png'});
-  throw error;
-}
-await page.getByRole('button',{name:'重新阅读',exact:true}).click();await page.getByRole('button',{name:'确认重新阅读',exact:true}).click();
+await page.locator('#source-details-fixture-paper').getByRole('button',{name:'重新阅读',exact:true}).click();await page.getByRole('button',{name:'确认重新阅读',exact:true}).click();
 await page.waitForFunction(()=>!document.querySelector('.workspace-confirm[open]'));
 await page.getByRole('link',{name:'阅读',exact:true}).click();await page.getByRole('button',{name:'进入正文',exact:true}).waitFor();await enterBody();await latest(1);
 view=await api();assert.equal(view.readingProgress.length,0);assert.equal(view.sourceNotes.length,0);assert.equal(view.conversation.length,0);results.push('T8/U6 confirmed reset clears progress and next opens first');
@@ -123,8 +120,8 @@ results.push('T5 review reaches frontier then advances exactly once');
 // Deterministic published blog fixture: this suite verifies the UI, not model generation.
 await page.route('**/library/sources/fixture-paper/blog',route=>route.fulfill({json:{ok:true,value:{
  sourceId:'fixture-paper',generated:true,runStatus:'completed',methodVersion:'ui-fixture',
- artifacts:{value_analysis:{status:'completed'},reading_blog:{status:'completed'},html:{status:'completed'}},
- valueAnalysis:{applicable:true,reason:''},verificationLevel:'paper_reading',warnings:[],error:null
+ artifacts:{reading_blog:{status:'completed'},html:{status:'completed'}},
+ warnings:[],error:null
 }}}));
 await page.route('**/library/sources/fixture-paper/blog/html',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body><h1>Published blog fixture</h1><p>Readable content for viewer layout verification.</p></body></html>'}));
 // One disclosure owns all upload history; it starts hidden even with multiple batches.
@@ -149,7 +146,7 @@ if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${pr
 results.push('UI task history hidden by default, single disclosure, heading alignment');
 // A modal uses the browser top layer: the close target must win hit testing.
 await page.locator('button[aria-controls="source-details-fixture-paper"]').click();
-const openBlog=page.locator('.library-card').filter({has:page.locator('button[aria-controls="source-details-fixture-paper"]')}).getByRole('button',{name:'打开博客',exact:true});
+const openBlog=page.locator('#source-details-fixture-paper').getByRole('button',{name:'打开博客',exact:true});
 await page.waitForFunction(()=>Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='打开博客')?.disabled===false);
 for (const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
  await page.setViewportSize(viewport);await openBlog.click();

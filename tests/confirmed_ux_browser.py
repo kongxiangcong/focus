@@ -64,8 +64,7 @@ if figure_translations:
 # Published-blog UI fixture; the browser supplies deterministic iframe HTML.
 # Model generation is outside this layout suite.
 blog_fixture={'sourceId':'fixture-paper','generated':True,'runStatus':'completed','methodVersion':'ui-fixture',
- 'artifacts':{name:{'status':'completed','updatedAt':None} for name in ('value_analysis','reading_blog','html')},
- 'valueAnalysis':{'applicable':True,'reason':''},'verificationLevel':'paper_reading','warnings':[],'error':None}
+ 'artifacts':{name:{'status':'completed','updatedAt':None} for name in ('reading_blog','html')},'warnings':[],'error':None}
 host._blog_summary=lambda: {'fixture-paper':blog_fixture}
 if os.environ.get('FOCUS_BROWSER_FAILED_PREPARATION') == '1':
  run=host.reading_app.begin('fixture-paper',request_id=uuid.uuid4().hex,rebuild=True)

@@ -1,0 +1,31 @@
+# Step 6: Responsive layout, motion and accessibility
+
+The Library toolbar now shares the existing workspace header with task disclosure and Upload. It retains the same Topic, search, view preference and action state. At narrow widths the search occupies the second row, the Topic selector remains available, and source rows become two-row grids. Source products hide at <=1180px. Mobile controls have token-derived minimum 40px targets (larger in comfortable density); coarse pointers keep the ordering grip visible. The desktop inspector still docks using the existing 1040px container query. No Host operation, request identity, busy guard, confirmation flow, persistence format or business decision changes.
+
+Inspector, source menus and the task frame use reversible opacity/transform transitions. Closing sets `inert` and `aria-hidden` immediately while retaining the same DOM through the exit; CSS delays visibility until the exit completes. The task frame is a header-anchored floating surface, with unchanged task content and actions. Escape restores its disclosure focus. First inspector/task opening uses `@starting-style`; subsequent toggles retarget the existing transition instead of restarting keyframes.
+
+The <=760px inspector is a bottom dialog with `aria-modal`, an explicit Close button, backdrop dismissal, focus containment and inert navigation/header/list background. The prescribed `12dvh` inset is retained as an approved viewport-geometry exception, like breakpoints, rather than deriving it from unrelated density tokens. Mobile removes the main container's containment so fixed sheet/backdrop geometry is viewport-based. Existing native management, confirmation and blog dialogs are exempt from the sheet's focus trap while open. Closing removes background inertness and the focus listener before restoring the source-title focus. The drop overlay is portalled to the document body so desktop container containment cannot constrain its viewport-wide coverage.
+
+`useLibraryMotion` tracks authoritative source IDs after initial loading. Initial data does not enter as a group; each newly registered visible source can arrive once. Topic, query, status-filter or view changes cancel movement rather than animating remounts. FLIP is restricted to unchanged membership in the same ordering context. It preserves the current animation offset before cancellation, then retargets from the current visual position. Measurements include the source scroller's offset, so scrolling between ordering operations does not create a spurious scroll-sized translation. The hook uses only existing duration/easing/geometry tokens and cancels active animations if either reduced-motion preference becomes active.
+
+Library progress retains accessible progressbar names, minima, maxima and values; the visual fill uses `transform: scaleX` instead of width animation. Search keeps IME composition in a local display draft and applies filtering only at composition end. Ingestion live status remains separate from percentage changes. The user setting and system reduced-motion preference both remove displacement and button scaling, disable FLIP/arrival/progress motion, retain desktop surface opacity and drop fade, and make the mobile sheet immediate. Main-button press duration is `calc(--reader-duration-fade / 2)`, with no new token table.
+
+No contracts, Host, Core, Python, prototypes, specifications, dependencies or token definitions changed. Existing test migrations preserve their original intent: retained task/drop DOM is asserted inaccessible/inert rather than absent, and progress assertions use equivalent ARIA values. Screenshots and videos were waived by the user.
+
+## Validation
+
+Logs: `/tmp/focus-library-redesign/logs/`.
+
+- `pnpm reader:typecheck`: PASS, including all new tests (`step6-typecheck-final.log`).
+- First focused run: 33 PASS / 6 FAIL, 39 total (`step6-targeted.log`). All 30 existing Topic/filter cases passed. Five new accessibility fixtures lacked the existing suites' JSDOM `dialog.showModal/close` stubs; those stubs were added without changing application behavior or assertions. The new scroll-coordinate case ran while its implementation was being corrected; the settled rerun below verifies the final code.
+- Settled new tests: 9/9 PASS (`step6-new-tests.log`). Covers retained panel/menu/task identity on close/reopen, immediate inaccessible state, focus restoration after inert cleanup (including a focus-order spy), modal Tab wrapping, native-dialog exemption, IME deferral, equivalent progress semantics, interrupted FLIP, scrolling before reorder, one-time source arrival and both reduced-motion preferences.
+- `pnpm reader:test`: reader-ui 84 PASS / 2 FAIL, 86 total (`step6-test.log`), stopping recursive execution before standalone. The existing `AgentReader` attachment retry and `MistReader` navigation cases exceed the unchanged default 5000ms timeout. No reader-ui code or assertions changed.
+- Full serial standalone suite (`pnpm --filter @focus/standalone exec vitest run --maxWorkers=1 --testTimeout=20000`): 147/147 PASS across 10 files (`step6-standalone.log`). This includes all 138 prior cases plus the nine new Step 6 cases, including the prior asynchronous configuration and terminal-clear fixtures.
+- `pnpm reader:build`: PASS (`step6-build.log`), with the existing large-chunk advisory.
+- `git diff --check`: PASS. Production output contains no `library-directions` assets or references.
+
+## Unverified browser evidence
+
+No screenshot/video or interpolated-animation claim is made. Actual transition reversal, delayed visibility timing, docking geometry at 1440/1024, viewport anchoring at 390, real touch target measurement, physical keyboard/IME behavior and assistive-technology announcements remain unverified in a browser. Functional DOM and mocked-animation tests are not a substitute for those checks.
+
+The previously established browser blockers remain: the isolated Python fixture imports missing `.agents/skills/focus-read/scripts/focus_read.py`; local Chromium cannot open its required sockets, its escalated launcher also fails, and the cloud browser cannot reach isolated Vite. Failed prerequisites were not repeated merely to restate the same restriction. Production build and source checks do not certify browser layout.

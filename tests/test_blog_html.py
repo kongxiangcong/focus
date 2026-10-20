@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def _load_fixtures():
     """Reuse the dual-artifact fixtures instead of keeping a second copy."""
     spec = importlib.util.spec_from_file_location(
-        "fixture_blog_dual", ROOT / "tests" / "test_blog_dual_artifacts.py"
+        "fixture_blog_reading", ROOT / "tests" / "test_blog_reading_artifact.py"
     )
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
@@ -30,22 +30,20 @@ def _load_fixtures():
     return module
 
 
-DUAL = _load_fixtures()
+FIXTURE = _load_fixtures()
 
 
-class HtmlRuntime(DUAL.ArchitectureRuntime):
+class HtmlRuntime(FIXTURE.ReadingRuntime):
     """Controlled Runtime that can add formulas and warnings to the Reading Blog."""
 
     def __init__(
         self,
         *,
-        applicable: bool = True,
         warnings=None,
         math: bool = False,
         emphasis: bool = False,
-        value_body: str = DUAL.VALUE_ANALYSIS,
     ):
-        super().__init__(applicable=applicable, value_body=value_body)
+        super().__init__()
         self.warnings = list(warnings or [])
         self.math = math
         self.emphasis = emphasis
@@ -56,7 +54,7 @@ class HtmlRuntime(DUAL.ArchitectureRuntime):
         )
         files = dict(result["files"])
         if self.emphasis:
-            name = "blog.md" if artifact == "reading_blog" else "value-analysis.md"
+            name = "blog.md"
             files[name] += "\n\n**专业术语**：==有证据支持的关键结论==。\n"
         warnings = list(result.get("warnings", [])) + self.warnings
         if artifact == "reading_blog" and self.math:
@@ -70,7 +68,7 @@ class HtmlRuntime(DUAL.ArchitectureRuntime):
 
 
 class BlogHtmlTests(unittest.TestCase):
-    """Ticket 04: one self-contained index.html with two switchable pages."""
+    """Ticket 04: one self-contained index.html with one reading page."""
 
     def setUp(self):
         runs = ROOT / "tmp" / "test-runs"
@@ -100,13 +98,13 @@ class BlogHtmlTests(unittest.TestCase):
             encoding="utf-8",
         )
         (bundle / "source.pdf").write_bytes(b"%PDF fixture")
-        (bundle / "content.md").write_text(DUAL.SOURCE_CONTENT, encoding="utf-8")
+        (bundle / "content.md").write_text(FIXTURE.SOURCE_CONTENT, encoding="utf-8")
         (bundle / "metadata.json").write_text(
             '{"source_kind": "paper_pdf", "language": "en", "parser": "article-parser", "batch_id": "b"}\n',
             encoding="utf-8",
         )
         (bundle / "validation.json").write_text('{"ok": true, "warnings": []}\n', encoding="utf-8")
-        (bundle / "images" / "image-001.png").write_bytes(DUAL.png_bytes())
+        (bundle / "images" / "image-001.png").write_bytes(FIXTURE.png_bytes())
         (self.workspace / "state.json").write_text(
             json.dumps({"current_source_id": source_id, "sources": {}}), encoding="utf-8"
         )
@@ -138,7 +136,7 @@ class BlogHtmlTests(unittest.TestCase):
 
     # ------------------------------------------------------- one self-contained file
 
-    def test_generated_html_is_self_contained_with_two_pages(self):
+    def test_generated_html_is_self_contained_with_one_page(self):
         app = self._app(HtmlRuntime(math=True))
         result = app.generate("Fixture-paper", request_id="req-1", authorized_by="manual_trigger")
 
@@ -146,11 +144,9 @@ class BlogHtmlTests(unittest.TestCase):
         blog = self.source_root / "blog"
         html = (blog / "index.html").read_text(encoding="utf-8")
 
-        self.assertEqual(2, html.count('role="tabpanel"'))
-        self.assertEqual(2, html.count('class="tab"'))
-        self.assertTrue(html.index('data-active="true"') < html.index('data-active="false"'))
+        self.assertEqual(1, html.count('data-kind="reading_blog"'))
+        self.assertNotIn('role="tab"', html)
         self.assertIn('data-kind="reading_blog"', html)
-        self.assertIn('data-kind="value_analysis"', html)
 
         self.assertIn("<img src=\"data:image/png;base64,", html)
         self.assertNotIn('src="http', html)
@@ -159,50 +155,31 @@ class BlogHtmlTests(unittest.TestCase):
         self.assertIn("data-tex=", html)
         self.assertIn("katex.render", html)
         self.assertIn("data:font/woff2;base64,", html)
-        self.assertIn('href="#bundle-section-1"', html)
-        self.assertIn('id="bundle-section-1"', html)
-        self.assertIn('id="bundle-figure-1"', html)
-        self.assertIn('data-source-anchor="figure-1"', html)
+        self.assertNotIn('href="#bundle-section-1"', html)
+        self.assertNotIn('id="bundle-section-1"', html)
+        self.assertNotIn('id="bundle-figure-1"', html)
+        self.assertNotIn('data-source-anchor="figure-1"', html)
 
-        checked = validate_blog_candidate(blog, bundle=self.bundle, require_html=True, require_value_analysis=True)
+        checked = validate_blog_candidate(blog, bundle=self.bundle, require_html=True)
         self.assertEqual([], checked["errors"])
-        self.assertEqual(2, checked["metrics"]["html_panels"])
+        self.assertEqual(1, checked["metrics"]["html_panels"])
         self.assertEqual(1, checked["metrics"]["html_embedded_images"])
 
-    def test_both_published_articles_render_reading_emphasis(self):
+    def test_the_reading_blog_render_reading_emphasis(self):
         result = self._app(HtmlRuntime(math=True, emphasis=True)).generate(
             "Fixture-paper", request_id="emphasis", authorized_by="manual_trigger")
         self.assertEqual("completed", result["html"]["status"])
         blog = self.source_root / "blog"
         html = (blog / "index.html").read_text(encoding="utf-8")
-        self.assertEqual(2, html.count('<strong>专业术语</strong>'))
-        self.assertEqual(2, html.count('<mark>有证据支持的关键结论</mark>'))
-        for name in ("blog.md", "value-analysis.md"):
+        self.assertEqual(1, html.count('<strong>专业术语</strong>'))
+        self.assertEqual(1, html.count('<mark>有证据支持的关键结论</mark>'))
+        for name in ("blog.md",):
             self.assertIn("==有证据支持的关键结论==", (blog / name).read_text(encoding="utf-8"))
-        checked = validate_blog_candidate(blog, bundle=self.bundle, require_html=True, require_value_analysis=True)
+        checked = validate_blog_candidate(blog, bundle=self.bundle, require_html=True)
         self.assertEqual([], checked["errors"])
 
     # ---------------------------------------------------------------- T04 (HTML part)
 
-    def test_second_page_shows_the_not_applicable_judgement(self):
-        app = self._app(HtmlRuntime(applicable=False))
-        result = app.generate("Fixture-paper", request_id="req-1", authorized_by="manual_trigger")
-
-        self.assertEqual("completed", result["html"]["status"])
-        blog = self.source_root / "blog"
-        html = (blog / "index.html").read_text(encoding="utf-8")
-        reason = json.loads((blog / "metadata.json").read_text(encoding="utf-8"))[
-            "value_analysis_applicability"
-        ]["reason"]
-
-        self.assertIn('class="not-applicable"', html)
-        self.assertIn(reason, html)
-        self.assertIn("硬件架构", html)
-        # The blog page is still complete; skipping Value Analysis is not a failure.
-        self.assertIn("导语与问题背景", html)
-
-        checked = validate_blog_candidate(blog, bundle=self.bundle, require_html=True, require_value_analysis=False)
-        self.assertEqual([], checked["errors"])
 
     # ---------------------------------------------------------------- T17 (visible)
 
@@ -211,20 +188,20 @@ class BlogHtmlTests(unittest.TestCase):
         app.generate("Fixture-paper", request_id="req-1", authorized_by="manual_trigger")
 
         html = (self.source_root / "blog" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("诚实降级与证据缺口", html)
-        self.assertIn("未实际运行实验脚本", html)
-        self.assertIn("实现核查层级", html)
+        self.assertNotIn("诚实降级与证据缺口", html)
+        self.assertNotIn("未实际运行实验脚本", html)
+        self.assertNotIn("实现核查层级", html)
         self.assertNotIn("质量通过", html)
 
     # ------------------------------------------------------------------- T07 / T08
 
-    def test_render_failure_leaves_both_articles_and_the_old_html_untouched(self):
+    def test_render_failure_leaves_the_blog_and_the_old_html_untouched(self):
         app = self._app(HtmlRuntime())
         app.generate("Fixture-paper", request_id="req-1", authorized_by="manual_trigger")
         blog = self.source_root / "blog"
         before = {
             name: (blog / name).read_bytes()
-            for name in ("blog.md", "value-analysis.md", "index.html", "metadata.json")
+            for name in ("blog.md", "index.html", "metadata.json")
         }
 
         broken = self._app(HtmlRuntime(), method_dir=self._broken_method_dir())
@@ -244,20 +221,21 @@ class BlogHtmlTests(unittest.TestCase):
         retried = app.regenerate("Fixture-paper", artifact="html", request_id="req-3", authorized_by="manual_trigger")
         self.assertEqual("completed", retried["outcome"]["status"])
         self.assertEqual(STATUS_COMPLETED, json.loads((blog / "metadata.json").read_text(encoding="utf-8"))["artifacts"]["html"]["status"])
-        self.assertIn('role="tabpanel"', (blog / "index.html").read_text(encoding="utf-8"))
+        self.assertIn('data-kind="reading_blog"', (blog / "index.html").read_text(encoding="utf-8"))
         # Re-rendering rewrites only index.html.
-        for name in ("blog.md", "value-analysis.md"):
+        for name in ("blog.md",):
             self.assertEqual(before[name], (blog / name).read_bytes())
         self.assertNotIn("html", app.runtime.calls)
 
     def test_regenerating_an_article_follows_with_a_re_render(self):
-        app = self._app(HtmlRuntime(value_body="# 太短\n"))
+        app = self._app(HtmlRuntime())
+        app.runtime.reading_body = "# 太短\n"
         first = app.generate("Fixture-paper", request_id="req-1", authorized_by="manual_trigger")
         self.assertEqual("failed", first["outcome"]["status"])
 
-        app.runtime.value_body = DUAL.VALUE_ANALYSIS
+        app.runtime.reading_body = FIXTURE.READING_BLOG
         retried = app.regenerate(
-            "Fixture-paper", artifact="value_analysis", request_id="req-2", authorized_by="manual_trigger"
+            "Fixture-paper", artifact="reading_blog", request_id="req-2", authorized_by="manual_trigger"
         )
         self.assertEqual("completed", retried["outcome"]["status"])
         self.assertEqual("completed", retried["html"]["status"])
@@ -265,69 +243,35 @@ class BlogHtmlTests(unittest.TestCase):
         self.assertNotIn('class="not-applicable"', html)
 
 
-class BlogHtmlValidatorTests(unittest.TestCase):
-    """Validator item ④, unit boundary: illegal documents are rejected by name."""
-
-    @staticmethod
-    def _document(panels: str, extra: str = "") -> str:
-        return (
-            "<!doctype html>\n<html lang=\"zh-CN\"><head><meta charset=\"utf-8\">" + extra + "</head><body>"
-            '<main><div class="tabs">'
-            '<button class="tab" role="tab" id="tab-0" aria-controls="panel-0" aria-selected="true">带读博客</button>'
-            '<button class="tab" role="tab" id="tab-1" aria-controls="panel-1" aria-selected="false">论文价值分析</button>'
-            "</div>" + panels + "</main></body></html>"
-        )
-
-    def _panels(self, second: str) -> str:
-        return (
-            '<section class="panel" id="panel-0" data-active="true"><p>带读博客正文</p></section>'
-            f'<section class="panel" id="panel-1" data-active="false">{second}</section>'
-        )
-
-    def test_a_valid_two_page_document_passes(self):
-        errors, warnings = check_html(
-            self._document(self._panels('<div class="not-applicable">不适用：主贡献不落在硬件方向</div>')),
-            require_value_analysis=False,
-            not_applicable_reason="主贡献不落在硬件方向",
-        )
-        self.assertEqual([], errors)
-        self.assertEqual([], warnings)
-
-    def test_an_external_stylesheet_is_rejected(self):
-        document = self._document(self._panels("<p>ok</p>"), '<link rel="stylesheet" href="https://cdn.test/a.css">')
-        errors, _ = check_html(document)
-        self.assertTrue(any("self-contained" in item for item in errors))
-
-    def test_a_linked_image_is_rejected(self):
-        document = self._document(self._panels('<img src="assets/image-001.png">'))
-        errors, _ = check_html(document)
-        self.assertTrue(any("not embedded" in item for item in errors))
-
-    def test_a_single_page_document_is_rejected(self):
-        document = self._document('<section class="panel" id="panel-0" data-active="true"><p>only</p></section>')
-        errors, _ = check_html(document)
-        self.assertTrue(any("two pages" in item for item in errors))
-
-    def test_opening_on_the_second_page_is_rejected(self):
-        document = self._document(
-            '<section class="panel" id="panel-0" data-active="false"><p>a</p></section>'
-            '<section class="panel" id="panel-1" data-active="true"><p>b</p></section>'
-        )
-        errors, _ = check_html(document)
-        self.assertTrue(any("Reading Blog page" in item for item in errors))
-
-    def test_formulas_without_a_renderer_are_rejected(self):
-        document = self._document(
-            self._panels('<p><span class="math-inline" data-tex="x^2">x^2</span></p>')
-        )
-        errors, _ = check_html(document)
-        self.assertTrue(any("formula renderer" in item for item in errors))
-
-    def test_a_skipped_value_analysis_must_show_its_recorded_reason(self):
-        document = self._document(self._panels('<div class="not-applicable"><p>不适用</p></div>'))
-        errors, _ = check_html(document, require_value_analysis=False, not_applicable_reason="主贡献是数据集")
-        self.assertTrue(any("reason" in item for item in errors))
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BlogHtmlValidatorTests(unittest.TestCase):
+    @staticmethod
+    def document(body="<p>Reading</p>", extra="", active="true"):
+        return ('<!doctype html><html><head>' + extra + '</head><body>'
+                '<section id="panel-0" data-kind="reading_blog" data-active="' + active + '">' + body + '</section></body></html>')
+
+    def test_single_page_passes(self):
+        self.assertEqual(([], []), check_html(self.document()))
+
+    def test_artifact_tabs_are_rejected(self):
+        self.assertTrue(check_html(self.document('<button role="tab">old tab</button>'))[0])
+
+    def test_extra_page_is_rejected(self):
+        self.assertTrue(check_html(self.document().replace('</body>', '<section id="panel-1">old page</section></body>'))[0])
+
+    def test_hidden_reading_page_is_rejected(self):
+        self.assertTrue(check_html(self.document(active="false"))[0])
+
+    def test_external_stylesheet_is_rejected(self):
+        self.assertTrue(any('self-contained' in e for e in check_html(self.document(extra='<link href="https://cdn.test/a.css">'))[0]))
+
+    def test_linked_image_is_rejected(self):
+        self.assertTrue(any('not embedded' in e for e in check_html(self.document('<img src="assets/x.png">'))[0]))
+
+    def test_formulas_require_renderer(self):
+        self.assertTrue(any('formula renderer' in e for e in check_html(self.document('<span data-tex="x">x</span>'))[0]))

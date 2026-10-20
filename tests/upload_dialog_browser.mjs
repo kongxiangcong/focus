@@ -55,6 +55,12 @@ try {
   assert.equal(staged.at(-1), '架构探索');
   assert.equal(batches.at(-1).generateBlog, false);
 
+  await page.getByRole('group', { name: '专题', exact: true }).getByRole('button', { name: /^架构探索/ }).click();
+  await page.getByRole('button', { name: '上传', exact: true }).first().click();
+  assert.equal(await topic.inputValue(), '架构探索');
+  await dialog.getByRole('button', { name: '取消', exact: true }).click();
+  await page.getByRole('group', { name: '专题', exact: true }).getByRole('button', { name: /^全部/ }).click();
+
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: '上传', exact: true }).first().click();
   assert.equal(await checkbox.isChecked(), false);
@@ -77,7 +83,7 @@ try {
   assert.equal(staged.at(-1), null);
   assert.equal(batches.at(-1).generateBlog, true);
   assert.deepEqual(errors, []);
-  console.log('PASS: desktop/mobile layout; inline checkbox; existing/new/empty topics; keyboard/Escape; parse-only/default-blog HTTP scope; no page errors');
+  console.log('PASS: desktop/mobile layout; Topic upload default; inline checkbox; existing/new/empty topics; keyboard/Escape; parse-only/default-blog HTTP scope; no page errors');
 } catch (error) {
   console.log(await page.locator('body').innerText());
   console.log(errors);

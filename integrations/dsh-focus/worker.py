@@ -41,13 +41,6 @@ BLOG = "\n".join([
     "", "## 实验与证据", "", "![Figure 1](assets/image-001.png)", "", "Table 1 对照基线。" + "证据细节。" * 160,
     "", "## 局限与边界", "", "结果只在给定配置成立。" + "边界说明。" * 120, REFERENCES,
 ])
-VALUE = "\n".join([
-    "# 论文价值分析：固件论文", "", "## 研究问题", "", "互连瓶颈与搜索成本。" + "问题说明。" * 90,
-    "", "## 输入输出", "", "输入是工作负载，输出是候选设计。" + "边界说明。" * 90,
-    "", "## 模块拆解", "", "搜索器生成并筛选候选。" + "模块说明。" * 90,
-    "", "## 一个运行例子", "", "候选经过合法性检查与估价。" + "推演说明。" * 90,
-    "", "## 贡献与边界", "", "本次未运行外部实现。" + "边界说明。" * 90,
-])
 EVIDENCE = "# Evidence Map\n\n| 贡献 | 原文锚点 | 证据 | 边界 |\n|---|---|---|---|\n| 互连优化 | 第 2 节 | Figure 1 | 固件配置 |\n"
 
 
@@ -58,7 +51,6 @@ class ControlledRuntime:
         self.release = threading.Event()
         self.hold_next = False
         self.reading_blog = BLOG
-        self.value_analysis = VALUE
         self.evidence_map = EVIDENCE
 
     def prepare(self, hold: bool) -> None:
@@ -67,8 +59,6 @@ class ControlledRuntime:
         self.release.clear()
         self.hold_next = hold
 
-    def classify(self, **_kwargs):
-        return {"applicable": True, "direction": "design_space_exploration", "reason": "主贡献是架构设计空间探索"}
 
     def write_artifact(self, *, artifact, **_kwargs):
         if self.hold_next:
@@ -79,10 +69,8 @@ class ControlledRuntime:
             raise RuntimeError("controlled runtime cancelled")
         if artifact == "reading_blog":
             return {"files": {"evidence/evidence-map.md": self.evidence_map, "blog.md": self.reading_blog}, "warnings": []}
-        return {"files": {"value-analysis.md": self.value_analysis}, "warnings": []}
+        raise RuntimeError(f"Unknown blog artifact: {artifact}")
 
-    def search_implementation(self, **_kwargs):
-        return {"notes": "受控 Runtime 未执行外部仓库，仅验证本地业务闭环。", "level": "paper_reading", "warnings": []}
 
     def cancel(self):
         self.cancelled.set()

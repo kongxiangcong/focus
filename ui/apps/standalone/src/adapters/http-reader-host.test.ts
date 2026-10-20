@@ -113,7 +113,7 @@ describe("HttpReaderHost", () => {
     const host = new HttpReaderHost({ baseUrl: "http://127.0.0.1:4317", fetch });
 
     expect((await host.generateBlog("fixture-paper", "generate-1")).ok).toBe(true);
-    expect((await host.regenerateBlog("fixture-paper", "retry-1", "value_analysis")).ok).toBe(true);
+    expect((await host.regenerateBlog("fixture-paper", "retry-1", "reading_blog")).ok).toBe(true);
     expect((await host.cancelBlog("fixture-paper")).ok).toBe(true);
     expect(fetch.mock.calls).toEqual([
       ["http://127.0.0.1:4317/library/sources/fixture-paper/blog/generate", {
@@ -122,7 +122,7 @@ describe("HttpReaderHost", () => {
       }],
       ["http://127.0.0.1:4317/library/sources/fixture-paper/blog/regenerate", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ requestId: "retry-1", artifact: "value_analysis" }),
+        body: JSON.stringify({ requestId: "retry-1", artifact: "reading_blog" }),
       }],
       ["http://127.0.0.1:4317/library/sources/fixture-paper/blog/cancel", {
         method: "POST", headers: { "content-type": "application/json" }, body: "{}",

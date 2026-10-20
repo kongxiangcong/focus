@@ -53,3 +53,11 @@ semantics and non-Mist reader placement remain unchanged.
 ## Partial supersession (2026-10-20)
 
 [ADR 0026](0026-reading-lens-on-demand-figures.md) supersedes automatic figure opening/selection, defines making room as translation without changing text width (overlay when space is insufficient), and updates Reading Lens, local attachment preferences, colour and motion. The original decision above is retained for history; other business semantics remain binding.
+
+## Partial supersession (2026-10-20): reading dock
+
+[ADR 0028](0028-reading-dock-ghost-controls-and-inline-send.md) supersedes the bordered location badge, dock control styling,
+Chin composition and separate expanded/collapsed composer controls. The location
+is a borderless light-gray pill with a medium-weight path; one disclosure remains
+in the function row. The earlier text is retained for history. All other business
+semantics and left-drawer behavior remain binding.
