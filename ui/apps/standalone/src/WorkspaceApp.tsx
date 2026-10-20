@@ -7,6 +7,8 @@ import { UploadTopicPicker } from "./UploadTopicPicker";
 import { readingFonts, readReadingFont, readingFontFamily, type ReadingFont } from "./reading-fonts";
 import { applyAppearance, readPreference, type Theme, type Density } from "./appearance";
 
+import { sourceStatus } from "./library/source-status";
+
 type Route = "/library" | "/reading" | "/settings";
 type FontSize = "small" | "standard" | "large" | "extra";
 const fontOptions: [FontSize, string][] = [["small", "紧凑"], ["standard", "标准"], ["large", "较大"], ["extra", "特大"]];
@@ -589,7 +591,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           {loading ? <p role="status" className="library-empty">读取中…</p> : filtered.length === 0 ? <div className="library-empty"><span aria-hidden="true">▤</span><p>{query || topic ? "暂无匹配材料" : "放入第一份材料"}</p><button className="workspace-primary" disabled={uploadDisabled} onClick={() => { if (query || topic) { setQuery(""); setTopic(""); } else chooseUpload(); }}>{query || topic ? "重置" : "上传"}</button></div> : <div className="library-cards" data-view={libraryView}>{filtered.map(s => <article className="library-card" data-reading-status={readingStatus(s)} data-status={s.parseStatus !== "ready" ? "failed" : readingStatus(s) === "completed" ? "completed" : s.progress.completed > 0 ? "reading" : "unread"} key={s.sourceId}>
             <div className="library-overview">
               <h3 title={s.title}>{s.displayTitle || s.title}</h3>
-              <p className="library-summary">{s.parseStatus !== "ready" ? "解析失败" : readingStatus(s) === "completed" ? "阅读完成" : s.progress.completed > 0 ? "阅读中" : "未阅读"}</p>
+              <p className="library-summary">{sourceStatus(s, view?.preparations?.[s.sourceId], preparationHidden(s.sourceId)).label}</p>
               <div className="library-progress"><progress aria-label={`${s.title} 阅读进度`} value={s.progress.completed} max={s.progress.total || 1} /><span>{s.progress.completed} / {s.progress.total}</span></div>
             </div>
             <div className="library-card-actions">
@@ -615,7 +617,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
             <p className="library-parse-status">解析：{s.parseStatus === "ready" ? "已完成" : "失败"}{s.error ? ` · ${s.error}` : ""}</p>
             <div className="library-card-top"><span className="source-badge">{s.format ?? (s.kind === "paper" ? "PDF" : "HTML")}</span>{s.parseStatus !== "ready" && <span title={s.error ?? undefined}>需检查</span>}</div>
             <p className="library-metadata" title={s.title}>{[s.publishedAt, s.venue].filter(Boolean).join(" · ")}</p>
-            <div className="library-card-bottom"><small>{({ ready: "待阅读", reading: "阅读中", completed: "已读完", unplanned: "待规划" })[readingStatus(s)]}</small><div className="library-row-actions">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(s.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(s.sourceId)} target="_blank" rel="noreferrer">正文</a>}</div></div>
+            <div className="library-card-bottom"><small>{sourceStatus(s, view?.preparations?.[s.sourceId], preparationHidden(s.sourceId)).label}</small><div className="library-row-actions">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(s.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(s.sourceId)} target="_blank" rel="noreferrer">正文</a>}</div></div>
             {view?.preparations?.[s.sourceId]?.candidate && view.preparations[s.sourceId].ready && <button className="workspace-primary" disabled={!!busy || active || !host.activateReadingCandidate || view.readingRevision === undefined} onClick={() => void activateCandidate(s.sourceId)}>打开新计划</button>}
             <div className="library-tags" aria-label="专题标签"><span>属于专题：{s.topicIds.length === 0 ? "未分类" : ""}</span>{s.topicIds.map(id => <button key={id} onClick={() => setTopic(id)}>{topics.find(t => t.topicId === id)?.title ?? id}</button>)}</div>
             <section className="library-blog" aria-label={`${s.title} 博客`}>

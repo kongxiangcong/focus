@@ -93,6 +93,8 @@
   --reader-nav:288px;
   --reader-nav-collapsed:56px;
   --reader-drawer:420px;
+  --reader-inspector:400px;
+  --reader-library-content:1080px;
   /* Compatibility aliases for pre-existing consumers; not a second table. */
   --reader-control-height:var(--reader-control-h);
   --reader-panel-radius:var(--reader-card-radius);
