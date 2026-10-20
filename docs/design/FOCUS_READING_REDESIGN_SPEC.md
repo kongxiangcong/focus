@@ -199,7 +199,7 @@ Editor + 引用条 + Chin（收起 · 提示 · 发送/停止）。圆角 14；�
 
 ## 11. 执行约束（实施者必须遵守）
 
-所有路径均相对项目根目录。实施在开发服务器上的项目副本中进行，本机工作区不改代码。
+所有路径均相对项目根目录。
 
 1. **不 commit、不 push**：改动保持在工作区未提交；不得 `git commit`、`git push`、`git stash`、`git reset`、`git checkout -- <file>`，不得切换或新建分支（只读的 `git status`/`git diff` 可以）。
 2. **原型与规范只读**：`ui/apps/standalone/prototypes/focus-directions/`、`ui/apps/standalone/src/prototypes/focus-directions/` 与本文件不得删除或修改。`ui/apps/standalone/vite.config.ts` 未把原型列入构建入口，生产构建不含原型，保持如此。
