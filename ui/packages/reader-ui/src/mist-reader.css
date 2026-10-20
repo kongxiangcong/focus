@@ -116,7 +116,15 @@
 .focus-composer__send > svg { width:16px; height:16px; }
 .focus-mist .focus-composer__send:active:not(:disabled) { transform:scale(.94); }
 .focus-mist .focus-composer__send:disabled { background:var(--reader-surface-1); color:var(--reader-faint); opacity:1; }
-.focus-mist .mist-composer-toggle { flex:0 0 auto; min-height:var(--reader-control-h); font-size:12px; color:var(--reader-muted); border-color:var(--reader-line); }
+.mist-reading-actions .mist-composer-toggle { position:relative; flex:0 0 auto; margin-left:9px; padding:0 10px 0 8px;
+  color:var(--reader-secondary); background:transparent; }
+.mist-reading-actions .mist-composer-toggle::before { content:""; position:absolute; left:-5px; top:25%; bottom:25%;
+  width:1px; background:var(--reader-line-strong); pointer-events:none; }
+.mist-reading-actions .mist-composer-toggle > svg { transition:transform var(--reader-duration-quick) var(--reader-ease-out); }
+.mist-reading-actions .mist-composer-toggle[aria-expanded=false] > svg { transform:rotate(180deg); }
+.mist-composer-toggle__draft { position:absolute; right:1px; width:var(--reader-composer-draft-dot); height:var(--reader-composer-draft-dot); border-radius:50%; background:var(--reader-accent); }
+:root[data-reduced-motion=true] .mist-composer-toggle > svg { transition:none; }
+@media(prefers-reduced-motion:reduce) { .mist-reading-actions .mist-composer-toggle > svg { transition:none; } }
 .focus-reference { display:flex; align-items:center; gap:8px; margin:0 0 6px; padding:6px 10px;
   border-left:2px solid var(--reader-accent); background:var(--reader-surface-1);
   border-radius:0 var(--reader-radius) var(--reader-radius) 0; font-size:12px; color:var(--reader-secondary); }

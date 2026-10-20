@@ -1,4 +1,4 @@
-import { PanelLeft, Pin, Plus, Expand, Collapse, ArrowRight, ArrowUp, StopSquare } from "./ReaderIcons";
+import { PanelLeft, Pin, Plus, Expand, Collapse, ArrowRight, ArrowUp, StopSquare, ChevronDown } from "./ReaderIcons";
 import { createReaderId, cursorReceipt, type ReaderChunk, type ReaderAttachment, type ReaderHost, type ReadingWindow,
   type ReaderHostResult, type SendReaderMessageInput, type ContinueReadingInput, type SourceNote, type ReadingProgressEntry } from "@focus/reader-contracts";
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -742,7 +742,6 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
               : <button type="submit" className="focus-primary focus-composer__send" aria-label={operation === "发送" ? "发送中" : "发送"} title={operation === "发送" ? "发送中" : "发送"} disabled={!view || blocked || uploading || !draft.trim()}><ArrowUp /></button>}
           </div>
           </form>
-          {mist && <button type="button" className="mist-composer-toggle" aria-expanded={!collapsed} aria-controls="focus-composer-form" onClick={() => toggleComposer(true)}>收起</button>}
         </div>
         </div>
         {!mist && current && !reviewChunk && <div className="focus-next"><button disabled={blocked} onClick={current.index === current.total ? finish : next}>{current.index === current.total ? "完成本篇" : operation === "下一段" ? "正在打开…" : "下一段 →"}</button></div>}
@@ -766,7 +765,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       })}><Pin /><span className="mist-action-label">吸附讨论</span></button>
       <button aria-label="新会话" className="reader-new-session" disabled={!host.newSession || !view || blocked} onClick={reset}><Plus /><span className="mist-action-label">新会话</span></button>
       <button className="reader-fullscreen-toggle" aria-label={fullscreen ? "退出全屏" : "全屏"} aria-pressed={fullscreen} onClick={() => onFullscreenChange?.(!fullscreen)}>{fullscreen ? <Collapse /> : <Expand />}<span className="mist-action-label">{fullscreen ? "退出全屏" : "全屏"}</span></button>
-      {collapsed && <button type="button" aria-label="提问" className="mist-composer-toggle" aria-expanded="false" aria-controls="focus-composer-form" onClick={() => toggleComposer(false)}>提问{draft && <span aria-hidden="true" title="有草稿"> ·</span>}</button>}
+      <button type="button" className="mist-composer-toggle" aria-expanded={!collapsed} aria-controls="focus-composer-form" onClick={() => toggleComposer(!collapsed)}><ChevronDown />{collapsed ? "提问" : "收起"}{collapsed && draft && <span aria-hidden="true" className="mist-composer-toggle__draft" />}</button>
       {collapsed && active && host.stop && <button className="focus-reader__stop" onClick={() => void perform("停止", () => host.stop!())}><StopSquare />停止</button>}
       <button className="focus-reader__continue" aria-label={continueLabel} disabled={showStructure || blocked || (!frontier && !reviewChunk) || (view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total))}
         onClick={() => { follow.current = true; view?.sessionFresh ? (view.readingStarted && frontier?.index === frontier?.total ? finishFresh() : freshContinue()) : displayed?.index === displayed?.total && !reviewChunk ? finish() : next(); }}>

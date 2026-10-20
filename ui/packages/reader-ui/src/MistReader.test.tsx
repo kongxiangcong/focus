@@ -237,7 +237,7 @@ it("places image/notes toggle and fullscreen in the Mist function row", async ()
   expect(toggle).toHaveBeenCalledWith(true);
 });
 
-it("moves expand into the function row and releases the composer row, preserving draft", async () => {
+it("keeps one disclosure in the function row and preserves draft and focus", async () => {
   const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(first)),
     continueReading: vi.fn(), sendMessage: vi.fn() };
   render(<FocusReader host={host} appearance="mist" />);
@@ -245,14 +245,21 @@ it("moves expand into the function row and releases the composer row, preserving
   const row = textbox.closest(".focus-composer-row");
   expect(row).not.toBeNull();
   const collapse = screen.getByRole("button", { name: "收起" });
-  expect(collapse.closest(".focus-composer-row")).toBe(row);
+  const actions = screen.getByRole("navigation", { name: "阅读功能控制区" });
+  expect(collapse.closest(".mist-reading-actions")).toBe(actions);
+  expect(collapse).toHaveAttribute("aria-expanded", "true");
+  expect(within(row as HTMLElement).queryByRole("button", { name: "收起" })).toBeNull();
   fireEvent.change(textbox, { target: { value: "暂存的问题" } });
   fireEvent.click(collapse);
   expect(row?.parentElement).toHaveAttribute("data-collapsed", "true");
   expect(row?.parentElement).toHaveAttribute("inert");
   expect(row?.parentElement).toHaveAttribute("aria-hidden", "true");
   const expand = screen.getByRole("button", { name: "提问" });
-  expect(expand.closest(".mist-reading-actions")).toBe(screen.getByRole("navigation", { name: "阅读功能控制区" }));
+  expect(expand).toBe(collapse);
+  expect(expand).toHaveAttribute("aria-expanded", "false");
+  expect(expand.textContent).toBe("提问");
+  expect(expand.querySelector(".mist-composer-toggle__draft")).toHaveAttribute("aria-hidden", "true");
+  await waitFor(() => expect(expand).toHaveFocus());
   // jsdom does not run grid transitions; actual zero height is checked in Playwright.
   expect(document.querySelector(".focus-bottom")).toHaveAttribute("data-empty", "true");
   expect(screen.queryByRole("button", { name: "收起" })).not.toBeInTheDocument();
@@ -260,6 +267,7 @@ it("moves expand into the function row and releases the composer row, preserving
   expect(textbox).toHaveValue("暂存的问题");
   expect(row?.parentElement).toHaveAttribute("data-collapsed", "false");
   expect(row?.parentElement).not.toHaveAttribute("inert");
+  await waitFor(() => expect(textbox).toHaveFocus());
 });
 
 it("closes the left-side drawer with Escape and keeps the function entry in place", async () => {
