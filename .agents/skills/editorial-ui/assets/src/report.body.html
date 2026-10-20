@@ -1,0 +1,23 @@
+<main id="main" class="shell" tabindex="-1">
+ <div class="page-intro report-lede"><div class="eyebrow">03 / Evidence before ornament</div><h1>比较方案，而不是装饰数字</h1><p>把筛选、排序与证据放在同一条阅读路径中。这里的数值仅用于交互演示，不来自真实 NPU 仿真。</p><span class="badge accent">全部为示例数据 · 不能用于工程决策</span></div>
+ <form class="filters" id="filter-form" role="search" aria-label="筛选演示方案">
+  <div class="search-filter"><label for="filter-query">搜索方案</label><input type="search" id="filter-query" placeholder="按名称或设计方向筛选"></div>
+  <div><label for="filter-status">评估状态</label><select id="filter-status"><option value="all">全部状态</option><option value="checked">示例已核对</option><option value="review">待复核</option></select></div>
+  <div><label for="sort-order">排序方式</label><select id="sort-order"><option value="latency">时延从低到高</option><option value="sram">SRAM 从小到大</option><option value="name">方案名称</option></select></div>
+  <div class="reset-filter"><button class="btn" id="reset-filters" type="reset">重置筛选</button></div>
+ </form>
+ <section aria-labelledby="evidence-title">
+  <div class="toolbar evidence-header"><div><h2 id="evidence-title" style="margin-bottom:5px">方案证据</h2><div class="status" id="result-status" role="status" aria-live="polite"></div></div><button class="btn" id="export-csv" type="button">导出当前结果 <span aria-hidden="true">↓</span></button></div>
+  <div class="table-scroll" role="region" aria-label="方案比较表，可横向滚动" tabindex="0">
+   <table><caption>点击方案名查看假设。时延单位为 ms；片上 SRAM 单位为 MiB。</caption><thead><tr><th scope="col">方案</th><th scope="col">设计方向</th><th scope="col" class="numeric">核数</th><th scope="col" class="numeric">SRAM / MiB</th><th scope="col" class="numeric">时延 / ms</th><th scope="col">状态</th></tr></thead><tbody id="rows"></tbody></table>
+  </div>
+  <div class="empty-state" id="empty-state" hidden><h3>没有符合条件的方案</h3><p class="muted">尝试更短的关键词，或重置筛选。</p><button class="btn" id="empty-reset" type="button">显示全部方案</button></div>
+  <div class="status" id="export-status" role="status" aria-live="polite"></div>
+ </section>
+ <aside class="note" style="margin-top:30px"><p class="small"><strong>不要把示例当作结论。</strong>这里没有功耗、面积或真实带宽约束，不能仅凭时延对硬件优劣作判断。模板只验证信息呈现与交互的一致性。</p></aside>
+ <footer class="page-footer"><span>EDITORIAL UI / 交互报告模板</span><span>真实筛选 · 数值排序 · 本地导出</span></footer>
+</main>
+<dialog class="dialog" id="detail-dialog" aria-labelledby="detail-title">
+ <div class="dialog-head"><div><div class="eyebrow">Candidate evidence</div><h2 id="detail-title">方案详情</h2></div><button class="btn ghost close-btn" type="button" data-close aria-label="关闭方案详情">关闭</button></div>
+ <div class="dialog-body"><span class="badge">本地示例数据</span><dl class="detail-dl"><dt>设计方向</dt><dd id="detail-direction"></dd><dt>核数</dt><dd id="detail-cores"></dd><dt>SRAM</dt><dd id="detail-sram"></dd><dt>时延</dt><dd id="detail-latency"></dd><dt>假设</dt><dd id="detail-assumption"></dd></dl><p class="muted small">这些数值是为了测试界面手工构造的，不对应真实测量或模拟结果。</p></div>
+</dialog>

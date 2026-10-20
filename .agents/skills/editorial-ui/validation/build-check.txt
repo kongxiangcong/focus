@@ -1,0 +1,1 @@
+PASS: 5 generated files match canonical sources.

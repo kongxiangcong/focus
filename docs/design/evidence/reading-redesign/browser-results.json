@@ -1,0 +1,50 @@
+[
+  {
+    "test": "tests/reader_figures_browser.mjs",
+    "status": "passed",
+    "figures": true,
+    "evidence": "reader_figures.log"
+  },
+  {
+    "test": "tests/reading_figures_motion_browser.mjs",
+    "status": "passed",
+    "figures": true,
+    "evidence": "reading_figures_motion.log"
+  },
+  {
+    "test": "tests/reading_discussion_browser.mjs",
+    "status": "passed",
+    "figures": true,
+    "evidence": "reading_discussion.log"
+  },
+  {
+    "test": "tests/reading_lens_browser.mjs",
+    "status": "passed",
+    "figures": true,
+    "evidence": "reading_lens.log"
+  },
+  {
+    "test": "tests/reading_scroll_browser.mjs",
+    "status": "passed",
+    "figures": true,
+    "evidence": "reading_scroll.log"
+  },
+  {
+    "test": "tests/reading_attachment_browser.mjs",
+    "status": "passed",
+    "figures": true,
+    "evidence": "reading_attachment.log"
+  },
+  {
+    "test": "tests/reading_motion_browser.mjs",
+    "status": "passed",
+    "figures": true,
+    "evidence": "reading_motion.log"
+  },
+  {
+    "test": "tests/confirmed_ux_browser.mjs",
+    "status": "passed",
+    "figures": true,
+    "evidence": "confirmed_ux.log"
+  }
+]

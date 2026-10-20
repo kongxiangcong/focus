@@ -1,0 +1,6 @@
+interface:
+  display_name: "Editorial UI"
+  short_description: "Content-first UI, authorized redesign and offline HTML"
+  default_prompt: "Use $editorial-ui for the requested interface task. Preserve business contracts; preserve visuals by default or implement the explicitly selected replacement design. Inspect local references, follow product-owned tokens, and validate real interactions."
+policy:
+  allow_implicit_invocation: false

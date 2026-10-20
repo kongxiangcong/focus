@@ -1,0 +1,9 @@
+{"passed": 0, "failed": 1}
+[
+  {
+    "name": "suite execution",
+    "status": "FAIL",
+    "detail": "Error: Page.goto: net::ERR_BLOCKED_BY_ADMINISTRATOR at file:///mnt/data/work/editorial-ui-1.1.0/editorial-ui/assets/starters/reader.html\nCall log:\n  - navigating to \"file:///mnt/data/work/editorial-ui-1.1.0/editorial-ui/assets/starters/reader.html\", waiting until \"load\"\n"
+  }
+]
+Evidence: /mnt/data/work/editorial-ui-1.1.0/editorial-ui/validation/browser-file

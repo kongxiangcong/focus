@@ -1,0 +1,124 @@
+{
+  "version": "1.0.0",
+  "notes": "Independent optional warm profile. Do not overwrite an existing product theme.",
+  "shared": {
+    "font-sans": "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei\", sans-serif",
+    "font-serif": "ui-serif, \"Iowan Old Style\", \"Palatino Linotype\", \"Songti SC\", Georgia, serif",
+    "font-mono": "ui-monospace, \"SFMono-Regular\", Consolas, \"Liberation Mono\", monospace",
+    "space-1": "4px",
+    "space-2": "8px",
+    "space-3": "12px",
+    "space-4": "16px",
+    "space-5": "24px",
+    "space-6": "32px",
+    "space-7": "48px",
+    "space-8": "64px",
+    "radius-control": "8px",
+    "radius-panel": "12px",
+    "radius-dialog": "16px",
+    "radius-composer": "20px",
+    "radius-pill": "999px",
+    "control-size": "40px",
+    "reading-width": "720px",
+    "page-width": "1280px"
+  },
+  "themes": {
+    "light": {
+      "canvas": "#f6f5f1",
+      "surface": "#fdfcf9",
+      "subtle": "#eeede7",
+      "raised": "#ffffff",
+      "text": "#252722",
+      "muted": "#62665c",
+      "border": "#d8d9d0",
+      "control-border": "#808477",
+      "action": "#a8472f",
+      "action-hover": "#903920",
+      "on-action": "#ffffff",
+      "accent-decor": "#d97757",
+      "accent-soft": "#f7e7df",
+      "focus": "#a8472f",
+      "success": "#326047",
+      "danger": "#a43131",
+      "shadow": "0 12px 44px rgba(36,38,31,.10)",
+      "scrim": "rgba(24,27,23,.34)"
+    },
+    "dark": {
+      "canvas": "#191c19",
+      "surface": "#202420",
+      "subtle": "#292e28",
+      "raised": "#2d322c",
+      "text": "#eeeee5",
+      "muted": "#b2b9ac",
+      "border": "#424b40",
+      "control-border": "#88937f",
+      "action": "#efb097",
+      "action-hover": "#fac7b0",
+      "on-action": "#241c18",
+      "accent-decor": "#d97757",
+      "accent-soft": "#403028",
+      "focus": "#efb097",
+      "success": "#96c7a9",
+      "danger": "#f2aaaa",
+      "shadow": "0 16px 48px rgba(0,0,0,.34)",
+      "scrim": "rgba(0,0,0,.58)"
+    }
+  },
+  "contrast_pairs": [
+    [
+      "text",
+      "canvas",
+      4.5
+    ],
+    [
+      "muted",
+      "canvas",
+      4.5
+    ],
+    [
+      "muted",
+      "surface",
+      4.5
+    ],
+    [
+      "text",
+      "raised",
+      4.5
+    ],
+    [
+      "on-action",
+      "action",
+      4.5
+    ],
+    [
+      "on-action",
+      "action-hover",
+      4.5
+    ],
+    [
+      "action",
+      "surface",
+      4.5
+    ],
+    [
+      "success",
+      "surface",
+      4.5
+    ],
+    [
+      "danger",
+      "surface",
+      4.5
+    ],
+    [
+      "focus",
+      "canvas",
+      3
+    ],
+    [
+      "control-border",
+      "surface",
+      3
+    ]
+  ]
+}

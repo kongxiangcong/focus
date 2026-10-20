@@ -1,0 +1,669 @@
+{
+  "generated_at": "2026-10-17T15:39:45.253444+00:00",
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+  "python": "3.13.5",
+  "browser": {
+    "engine": "Chromium",
+    "version": "144.0.7559.96"
+  },
+  "mode": "fresh contexts; inline transport; offline=True; HTTP(S) blocked; no dependency installation",
+  "summary": {
+    "passed": 126,
+    "failed": 0
+  },
+  "checks": [
+    {
+      "name": "reader 1440: primary heading",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader 1440: no page overflow",
+      "status": "PASS",
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "reader 1440: visible main",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader 1440: theme switch",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader 1024: primary heading",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader 1024: no page overflow",
+      "status": "PASS",
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "reader 1024: visible main",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader 1024: theme switch",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader 390: primary heading",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader 390: no page overflow",
+      "status": "PASS",
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "reader 390: visible main",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader 390: theme switch",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader 320: primary heading",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader 320: no page overflow",
+      "status": "PASS",
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "reader 320: visible main",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader 320: theme switch",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: reduced-motion CSS",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: reduced-motion JS",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow-explorer 1440: primary heading",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow-explorer 1440: no page overflow",
+      "status": "PASS",
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "flow-explorer 1440: visible main",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow-explorer 1440: theme switch",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow-explorer 1024: primary heading",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow-explorer 1024: no page overflow",
+      "status": "PASS",
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "flow-explorer 1024: visible main",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow-explorer 1024: theme switch",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow-explorer 390: primary heading",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow-explorer 390: no page overflow",
+      "status": "PASS",
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "flow-explorer 390: visible main",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow-explorer 390: theme switch",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow-explorer 320: primary heading",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow-explorer 320: no page overflow",
+      "status": "PASS",
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "flow-explorer 320: visible main",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow-explorer 320: theme switch",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow-explorer: reduced-motion CSS",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow-explorer: reduced-motion JS",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report 1440: primary heading",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report 1440: no page overflow",
+      "status": "PASS",
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "report 1440: visible main",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report 1440: theme switch",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report 1024: primary heading",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report 1024: no page overflow",
+      "status": "PASS",
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "report 1024: visible main",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report 1024: theme switch",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report 390: primary heading",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report 390: no page overflow",
+      "status": "PASS",
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "report 390: visible main",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report 390: theme switch",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report 320: primary heading",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report 320: no page overflow",
+      "status": "PASS",
+      "detail": "overflow=0px"
+    },
+    {
+      "name": "report 320: visible main",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report 320: theme switch",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: reduced-motion CSS",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: reduced-motion JS",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: dialog opens with question focus",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: focus contained in dialog",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: focus contained in dialog",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: focus contained in dialog",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: focus contained in dialog",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: focus contained in dialog",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: focus contained in dialog",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: focus contained in dialog",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: focus contained in dialog",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: focus contained in dialog",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: focus contained in dialog",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: focus contained in dialog",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: focus contained in dialog",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: focus contained in dialog",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: focus contained in dialog",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: focus contained in dialog",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: close restores opener focus",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: explanation does not advance progress",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: continue appends not replaces",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: synthetic composing Enter does not submit",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: legacy 229 guard",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: Shift Enter newline",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: empty question validation",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: stream has real overflow",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: appended text does not steal history scroll",
+      "status": "PASS",
+      "detail": "0 -> 0"
+    },
+    {
+      "name": "reader: jump control appears",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: explicit jump resumes following",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: stop halts stream",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: cancelled draft preserved",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: failure preserves draft",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: success clears consumed draft",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: newer draft survives completion",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: closing running dialog cancels work",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "reader: questions preserve current reading state",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: keyboard node selection",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: selected state coherent",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: keyboard separator increases ratio",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: reported ratio matches actual geometry",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: Home uses lower limit",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: End uses upper limit",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: reset split to 50",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: sub-threshold pointer movement does not resize",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: real drag changes geometry",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: Escape restores initial ratio",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: Escape removes dragging state",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: pointercancel rolls back",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: lost capture rolls back",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: resize during drag cleans state",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: mobile splitter removed from layout",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: selection survives responsive layout",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: confirmation starts on safe action",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: cancelling reset preserves selection",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: reset confirms real state change",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "flow: reset restores focus",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: starts with six fixture rows",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: numeric sorting",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: search filters data",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: derived summary tracks filtered data",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: empty state visible",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: empty export disabled",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: reset restores all rows",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: status filter",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: numeric SRAM sort",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: detail content matches selection",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: detail focus restoration",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: export uses filtered view",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: export retains data caveat",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: CSV formula neutralized",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: CSV quotes escaped",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "report: search text never becomes HTML",
+      "status": "PASS",
+      "detail": ""
+    },
+    {
+      "name": "all pages: zero attempted external requests",
+      "status": "PASS",
+      "detail": "[]"
+    },
+    {
+      "name": "all pages: zero uncaught page errors",
+      "status": "PASS",
+      "detail": "[]"
+    }
+  ],
+  "attempted_external_requests": [],
+  "uncaught_page_errors": [],
+  "screenshots": [
+    "reader-1440-light.png",
+    "reader-1440-dark.png",
+    "reader-390-light.png",
+    "flow-explorer-1440-light.png",
+    "flow-explorer-1440-dark.png",
+    "flow-explorer-390-light.png",
+    "report-1440-light.png",
+    "report-1440-dark.png",
+    "report-390-light.png",
+    "reader-after-interactions.png"
+  ],
+  "not_run": [
+    "direct file:// open (inline transport selected)",
+    "Codex/Claude Code/Cursor skill loading and generation evals",
+    "Safari and Firefox",
+    "native OS IME",
+    "screen reader audit",
+    "real mobile touch/iframe interactions",
+    "200% browser zoom"
+  ]
+}

@@ -1,0 +1,128 @@
+PASS: reader 1440: primary heading
+PASS: reader 1440: no page overflow
+PASS: reader 1440: visible main
+PASS: reader 1440: theme switch
+PASS: reader 1024: primary heading
+PASS: reader 1024: no page overflow
+PASS: reader 1024: visible main
+PASS: reader 1024: theme switch
+PASS: reader 390: primary heading
+PASS: reader 390: no page overflow
+PASS: reader 390: visible main
+PASS: reader 390: theme switch
+PASS: reader 320: primary heading
+PASS: reader 320: no page overflow
+PASS: reader 320: visible main
+PASS: reader 320: theme switch
+PASS: reader: reduced-motion CSS
+PASS: reader: reduced-motion JS
+PASS: flow-explorer 1440: primary heading
+PASS: flow-explorer 1440: no page overflow
+PASS: flow-explorer 1440: visible main
+PASS: flow-explorer 1440: theme switch
+PASS: flow-explorer 1024: primary heading
+PASS: flow-explorer 1024: no page overflow
+PASS: flow-explorer 1024: visible main
+PASS: flow-explorer 1024: theme switch
+PASS: flow-explorer 390: primary heading
+PASS: flow-explorer 390: no page overflow
+PASS: flow-explorer 390: visible main
+PASS: flow-explorer 390: theme switch
+PASS: flow-explorer 320: primary heading
+PASS: flow-explorer 320: no page overflow
+PASS: flow-explorer 320: visible main
+PASS: flow-explorer 320: theme switch
+PASS: flow-explorer: reduced-motion CSS
+PASS: flow-explorer: reduced-motion JS
+PASS: report 1440: primary heading
+PASS: report 1440: no page overflow
+PASS: report 1440: visible main
+PASS: report 1440: theme switch
+PASS: report 1024: primary heading
+PASS: report 1024: no page overflow
+PASS: report 1024: visible main
+PASS: report 1024: theme switch
+PASS: report 390: primary heading
+PASS: report 390: no page overflow
+PASS: report 390: visible main
+PASS: report 390: theme switch
+PASS: report 320: primary heading
+PASS: report 320: no page overflow
+PASS: report 320: visible main
+PASS: report 320: theme switch
+PASS: report: reduced-motion CSS
+PASS: report: reduced-motion JS
+PASS: reader: dialog opens with question focus
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: focus contained in dialog
+PASS: reader: close restores opener focus
+PASS: reader: explanation does not advance progress
+PASS: reader: continue appends not replaces
+PASS: reader: synthetic composing Enter does not submit
+PASS: reader: legacy 229 guard
+PASS: reader: Shift Enter newline
+PASS: reader: empty question validation
+PASS: reader: stream has real overflow
+PASS: reader: appended text does not steal history scroll
+PASS: reader: jump control appears
+PASS: reader: explicit jump resumes following
+PASS: reader: stop halts stream
+PASS: reader: cancelled draft preserved
+PASS: reader: failure preserves draft
+PASS: reader: success clears consumed draft
+PASS: reader: newer draft survives completion
+PASS: reader: closing running dialog cancels work
+PASS: reader: questions preserve current reading state
+PASS: flow: keyboard node selection
+PASS: flow: selected state coherent
+PASS: flow: keyboard separator increases ratio
+PASS: flow: reported ratio matches actual geometry
+PASS: flow: Home uses lower limit
+PASS: flow: End uses upper limit
+PASS: flow: reset split to 50
+PASS: flow: sub-threshold pointer movement does not resize
+PASS: flow: real drag changes geometry
+PASS: flow: Escape restores initial ratio
+PASS: flow: Escape removes dragging state
+PASS: flow: pointercancel rolls back
+PASS: flow: lost capture rolls back
+PASS: flow: resize during drag cleans state
+PASS: flow: mobile splitter removed from layout
+PASS: flow: selection survives responsive layout
+PASS: flow: confirmation starts on safe action
+PASS: flow: cancelling reset preserves selection
+PASS: flow: reset confirms real state change
+PASS: flow: reset restores focus
+PASS: report: starts with six fixture rows
+PASS: report: numeric sorting
+PASS: report: search filters data
+PASS: report: derived summary tracks filtered data
+PASS: report: empty state visible
+PASS: report: empty export disabled
+PASS: report: reset restores all rows
+PASS: report: status filter
+PASS: report: numeric SRAM sort
+PASS: report: detail content matches selection
+PASS: report: detail focus restoration
+PASS: report: export uses filtered view
+PASS: report: export retains data caveat
+PASS: report: CSV formula neutralized
+PASS: report: CSV quotes escaped
+PASS: report: search text never becomes HTML
+PASS: all pages: zero attempted external requests
+PASS: all pages: zero uncaught page errors
+{"passed": 126, "failed": 0}
+Evidence: /mnt/data/work/editorial-ui-1.1.0/editorial-ui/validation/browser-inline

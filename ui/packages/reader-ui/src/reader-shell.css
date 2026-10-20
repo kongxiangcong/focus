@@ -35,16 +35,18 @@
 .focus-markdown li { margin:.25em 0; }
 .focus-markdown blockquote { margin:1.2em 0; padding-left:16px; border-left:2px solid var(--reader-accent); color:var(--reader-secondary); }
 .focus-markdown mark { background:var(--reader-warning-bg); color:var(--reader-ink); border-radius:2px; padding:0 .15em; }
-.focus-markdown code { font-family:var(--reader-mono); font-size:.86em; padding:.12em .34em; border-radius:4px; background:var(--reader-surface-1); }
-.focus-markdown pre { max-width:100%; overflow:auto; white-space:pre; padding:14px 16px; border:1px solid var(--reader-line); border-radius:var(--reader-card-radius); background:var(--reader-surface-1); font-size:14px; line-height:1.65; }
+.focus-markdown code { font:13px/1.65 var(--reader-mono); padding:.12em .34em; border-radius:4px; background:var(--reader-surface-1); }
+.focus-markdown pre { max-width:100%; overflow-x:auto; white-space:pre; overflow-wrap:normal; padding:14px 16px; border:1px solid var(--reader-line); border-radius:var(--reader-card-radius); background:var(--reader-surface-1); font:13px/1.65 var(--reader-mono); }
 .focus-markdown pre code { padding:0; background:transparent; font-size:inherit; }
-.focus-markdown .katex-display { overflow-x:auto; overflow-y:hidden; padding:6px 0; }
+.focus-markdown .katex { font-size:1.04em; }
+.focus-markdown .katex-display { max-width:100%; overflow-x:auto; overflow-y:hidden; padding:6px 0; }
+.focus-markdown .katex-display > .katex { width:max-content; min-width:100%; }
 .focus-markdown img, .focus-reading img { display:block; max-width:100%; height:auto; border-radius:var(--reader-radius); }
 .focus-markdown figure { margin:20px 0; }
 .focus-markdown figcaption, .focus-reading figcaption { color:var(--reader-muted); font-size:13px; line-height:1.7; margin-top:8px; }
 .focus-table { overflow-x:auto; max-width:100%; margin:20px 0; }
-.focus-table table { border-collapse:collapse; min-width:100%; font-size:.92em; }
-.focus-table th, .focus-table td { border:1px solid var(--reader-line); text-align:left; padding:8px 12px; min-width:90px; vertical-align:top; }
+.focus-table table { border-collapse:collapse; min-width:100%; font:13.5px/1.55 var(--reader-ui); font-variant-numeric:tabular-nums; }
+.focus-table th, .focus-table td { border:1px solid var(--reader-line); text-align:left; padding:8px 12px; min-width:90px; vertical-align:top; white-space:nowrap; }
 .focus-table th { background:var(--reader-surface-1); font-weight:600; }
 
 .focus-dialog { width:min(620px,calc(100vw - 32px)); max-height:80dvh; padding:20px 24px; overflow:auto;
@@ -76,3 +78,14 @@
   .focus-reader *, .focus-reader *::before, .focus-reader *::after { scroll-behavior:auto !important; animation:none !important; transition:none !important; }
 }
 @media(prefers-contrast:more) { .focus-reader :focus-visible { outline-width:3px; } }
+
+/* Native dialog keeps focus/Escape semantics; discrete display/overlay retain exits. */
+.focus-dialog[data-panel=contents] {
+  opacity:0; transform:scale(.98) translateY(4px); transform-origin:left bottom;
+  transition:opacity var(--reader-duration-exit) var(--reader-ease-in), transform var(--reader-duration-exit) var(--reader-ease-in), display var(--reader-duration-exit) allow-discrete, overlay var(--reader-duration-exit) allow-discrete;
+}
+.focus-dialog[data-panel=contents][open] { opacity:1; transform:scale(1) translateY(0);
+  transition-duration:var(--reader-duration-move); transition-timing-function:var(--reader-ease-out); }
+@starting-style {
+  .focus-dialog[data-panel=contents][open] { opacity:0; transform:scale(.98) translateY(4px); }
+}

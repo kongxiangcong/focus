@@ -8,7 +8,8 @@ afterEach(cleanup);
 beforeEach(() => {
   HTMLElement.prototype.scrollIntoView = vi.fn();
   HTMLElement.prototype.scrollTo = vi.fn();
-  HTMLDialogElement.prototype.close = vi.fn();
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
 });
 const chunk = { sourceId: "demo-paper", planId: "plan-001", chunkId: "chunk-001", index: 1, total: 2,
   sectionPath: ["Paper", "Method"], sourceLines: [1, 4] as const, sourceMarkdown: "First body paragraph.",
@@ -46,7 +47,7 @@ it("shows the structure before body text and explicitly starts without advancing
   expect(within(screen.getByRole("main", { name: "阅读与对话" })).queryByLabelText("当前阅读位置")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "收起" }));
   expect([...controls.children].map(el => el.textContent)).toEqual([
-    "资料", "结构", "1 / 2全文 › 方法", "新会话", "全屏", "展开对话框", "继续",
+    "资料", "1 / 2全文 › 方法", "吸附讨论", "新会话", "全屏", "提问", "继续 · 第 2 段",
   ]);
 });
 
@@ -57,7 +58,8 @@ it("returns to structure and reviews read sections without changing the frontier
   render(<FocusReader host={host} appearance="mist" />);
   await screen.findByText("Second body paragraph.");
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "保留草稿" } });
-  fireEvent.click(screen.getByRole("button", { name: "结构" }));
+  fireEvent.click(screen.getByRole("button", { name: "当前阅读位置" }));
+  fireEvent.click(screen.getByRole("button", { name: "文章结构总览" }));
   const tree = screen.getByRole("region", { name: "文章结构" });
   expect(within(tree).getByText("结果").closest("li")).toHaveAttribute("data-current", "true");
   fireEvent.click(within(tree).getByRole("button", { name: /方法/ }));
@@ -71,6 +73,19 @@ it("does not force an introduction in a fresh discussion after reading has begun
   const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess({ ...body, current: null, sessionFresh: true })),
     continueReading: vi.fn(), sendMessage: vi.fn() };
   render(<FocusReader host={host} appearance="mist" />);
-  await screen.findByRole("button", { name: "结构" });
+  await screen.findByRole("button", { name: "当前阅读位置" });
   expect(screen.queryByRole("button", { name: "进入正文" })).not.toBeInTheDocument();
+});
+
+it("opens the overview from the locator and Escape restores the locator focus", async () => {
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(body)), continueReading: vi.fn(), sendMessage: vi.fn() };
+  render(<FocusReader host={host} appearance="mist" />);
+  const locator = await screen.findByRole("button", { name: "当前阅读位置" });
+  fireEvent.click(locator);
+  fireEvent.click(screen.getByRole("button", { name: "文章结构总览" }));
+  expect(screen.getByRole("region", { name: "文章结构" })).toBeVisible();
+  fireEvent.keyDown(document.querySelector(".focus-reader")!, { key: "Escape" });
+  expect(screen.queryByRole("region", { name: "文章结构" })).not.toBeInTheDocument();
+  expect(locator).toHaveFocus();
+  expect(host.continueReading).not.toHaveBeenCalled();
 });

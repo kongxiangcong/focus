@@ -11,7 +11,7 @@ workspace/
 /*.htm
 *.pdf
 !tests/fixtures/**/*.pdf
-
+external
 # Credentials and machine-local configuration.
 .env
 .env.*

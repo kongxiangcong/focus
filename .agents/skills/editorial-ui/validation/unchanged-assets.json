@@ -1,0 +1,82 @@
+[
+  {
+    "path": "assets/design-tokens.json",
+    "sha256": "7177d33de2defe005eea41e5b77e8c9780ceb193ce3e7ab5a5c61a32971d0fcc",
+    "unchanged_from_1_0_0": true
+  },
+  {
+    "path": "assets/motion-presets.json",
+    "sha256": "8ca566ecee8feb8420c14f5026a31c2df50ffef9088a7dbc8d303bea694f88eb",
+    "unchanged_from_1_0_0": true
+  },
+  {
+    "path": "assets/motion.css",
+    "sha256": "a5f7983f662ad51ac83f33945f201c2e5af3288d45ea57abe9fca1724a51f71e",
+    "unchanged_from_1_0_0": true
+  },
+  {
+    "path": "assets/src/base.css",
+    "sha256": "f6a46508f91af7ead67057b90e5f86f44d4eab34e39d0369ee1f25577920203e",
+    "unchanged_from_1_0_0": true
+  },
+  {
+    "path": "assets/src/flow-explorer.body.html",
+    "sha256": "8fcb8cd3c3b9f85f6949ea22938035f0c4f34713846f3832bae3a83329bdec6c",
+    "unchanged_from_1_0_0": true
+  },
+  {
+    "path": "assets/src/flow-explorer.js",
+    "sha256": "ae032d76b2aa630cffc0dcf336e24d03aa7a7e7e5fe635e2e32d69e4dad5998c",
+    "unchanged_from_1_0_0": true
+  },
+  {
+    "path": "assets/src/header.html",
+    "sha256": "bb8d72e662cb8f302a61e27fd7c159d3a7e903ddbf6332e3b7fd54905a316940",
+    "unchanged_from_1_0_0": true
+  },
+  {
+    "path": "assets/src/reader.body.html",
+    "sha256": "98e069a7eda8d95e0a5b766e322b55b7cd4973c913b39f6a4117cc789b127d6c",
+    "unchanged_from_1_0_0": true
+  },
+  {
+    "path": "assets/src/reader.js",
+    "sha256": "198ad98eba6312be25f865cc7d29a2c65d4bb695b007c8d3e7e0cb38898d3f3d",
+    "unchanged_from_1_0_0": true
+  },
+  {
+    "path": "assets/src/report.body.html",
+    "sha256": "7382d87a609e9902c3635ffe1fd05d903291e217e9963207dd89a3fc5bd48483",
+    "unchanged_from_1_0_0": true
+  },
+  {
+    "path": "assets/src/report.js",
+    "sha256": "0dc55ceee1ebcc494cbc0586e775c171afaafc23f182eae31b7cf01d867426ec",
+    "unchanged_from_1_0_0": true
+  },
+  {
+    "path": "assets/src/runtime.js",
+    "sha256": "f7847e243292af113a51fb665fade5c719b673868875b6c6901e7c2f82ee54c6",
+    "unchanged_from_1_0_0": true
+  },
+  {
+    "path": "assets/starters/flow-explorer.html",
+    "sha256": "749290c039ae18d9d150a008a88c6c522ddfcb33fe130d28df4f73bcc6a9ed2a",
+    "unchanged_from_1_0_0": true
+  },
+  {
+    "path": "assets/starters/reader.html",
+    "sha256": "104d67931c5b46fd00c2ca0461e60bd1e52347460b2558ba5aa3bffe2263fc2b",
+    "unchanged_from_1_0_0": true
+  },
+  {
+    "path": "assets/starters/report.html",
+    "sha256": "9728ae09990fe81bb8b2998db5b6622cab1aa825347f400b9afd3d2059221ce1",
+    "unchanged_from_1_0_0": true
+  },
+  {
+    "path": "assets/tokens.css",
+    "sha256": "99923abe6b8122fd270b0958f3c6becfac15b0a630eb9935d5f96eb2f38c9ef1",
+    "unchanged_from_1_0_0": true
+  }
+]

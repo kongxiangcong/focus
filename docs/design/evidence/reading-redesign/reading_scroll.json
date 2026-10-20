@@ -1,0 +1,19 @@
+{
+  "landing2": {
+    "error": 0.12812499999999716,
+    "height": 1901,
+    "viewport": 837
+  },
+  "landing3": {
+    "error": 0.31562499999999716,
+    "height": 408,
+    "viewport": 837
+  },
+  "collapse": 0,
+  "expand": 0,
+  "materials": 0,
+  "return": 0,
+  "paused": 0,
+  "latestEntryWithinPane": true,
+  "latest": -24.609375
+}

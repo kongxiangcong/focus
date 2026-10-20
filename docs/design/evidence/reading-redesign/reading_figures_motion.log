@@ -1,0 +1,37 @@
+ISOLATED SERVER READY
+PASS {
+  shift: { widthBefore: 720, widthAfter: 720, x: 64, anchorError: 0 },
+  reverse: [ { rate: -1, time: 89.0260000204668 } ],
+  invisibleClose: [
+    {
+      offset: null,
+      easing: 'linear',
+      composite: 'auto',
+      opacity: '1',
+      computedOffset: 0
+    },
+    {
+      offset: null,
+      easing: 'linear',
+      composite: 'auto',
+      opacity: '0',
+      computedOffset: 1
+    }
+  ],
+  reduced: [
+    {
+      offset: null,
+      easing: 'linear',
+      composite: 'auto',
+      opacity: '0',
+      computedOffset: 0
+    },
+    {
+      offset: null,
+      easing: 'linear',
+      composite: 'auto',
+      opacity: '1',
+      computedOffset: 1
+    }
+  ]
+}

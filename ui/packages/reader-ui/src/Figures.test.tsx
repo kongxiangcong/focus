@@ -63,7 +63,10 @@ it('opens unread figures without navigation or rebinding the question, and share
   expect(pane.querySelector('.katex')).toBeTruthy();
   expect(pane.querySelector('table img')).toBeTruthy();
   expect(pane.querySelector('img[src*="equation"]')).toBeTruthy();
-  expect(pane.querySelectorAll('img')).toHaveLength(2);
+  expect(pane.querySelectorAll('img:not(.reader-thumbnail img)')).toHaveLength(2);
+  expect(pane.querySelectorAll('.reader-thumbnail img')).toHaveLength(2);
+  expect(screen.queryByRole('region',{name:'阅读资料侧栏'})).not.toBeInTheDocument();
+  fireEvent.click(screen.getAllByRole('button',{name:'在资料栏固定'})[0]);
   fireEvent.change(screen.getByRole('textbox'),{target:{value:'original draft'}});
   const controls = screen.getByRole('navigation',{name:'阅读功能控制区'});
   expect(within(controls).getByRole('button',{name:'收起资料'})).toBeInTheDocument();
@@ -73,12 +76,7 @@ it('opens unread figures without navigation or rebinding the question, and share
   expect(screen.queryByRole('button',{name:'全文图片'})).not.toBeInTheDocument();
   const navigation = screen.getByRole('navigation',{name:'图片目录'});
   expect(within(navigation).getAllByRole('button').map(b => b.textContent)).toEqual(['图 3', '图 4', '图 9']);
-  expect(navigation.querySelector('img')).toBeNull();
-  const disclosure = navigation.closest('details')!;
-  expect(disclosure.open).toBe(true);
-  act(() => { disclosure.open = false; });
-  expect(screen.getByRole('button',{name:'收起资料'})).toBeInTheDocument();
-  act(() => { disclosure.open = true; });
+  expect(navigation.querySelectorAll('img')).toHaveLength(3);
   fireEvent.click(within(screen.getByRole('navigation',{name:'图片目录'})).getByRole('button',{name:/图 9/}));
   expect(screen.getByRole('navigation',{name:'图片目录'}).querySelector('[aria-current=true]')).toHaveTextContent('图 9');
   expect(host.continueReading).not.toHaveBeenCalled();
@@ -97,7 +95,7 @@ it('selects the viewed chunk in the full gallery and exposes it from no-image ch
   const noImages = {...chunk,chunkId:'chunk-002',index:2,sourceMarkdown:'no images',translation:null,images:[]};
   const host: ReaderHost={getReadingWindow:vi.fn(async()=>readerSuccess(window)),continueReading:vi.fn(),sendMessage:vi.fn(),subscribe:callback=>{emit=callback;return()=>{};}};
   render(<FocusReader host={host} appearance="mist" />);
-  await screen.findByRole('button',{name:'收起资料'});
+  await screen.findByRole('button',{name:'资料'});
   act(()=>emit(readerSuccess({...window,revision:2,current:noImages,history:[chunk]})));
   expect(screen.queryByRole('region',{name:'阅读资料侧栏'})).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button',{name:'资料'}));
@@ -106,6 +104,8 @@ it('selects the viewed chunk in the full gallery and exposes it from no-image ch
   expect(screen.queryByRole('navigation',{name:'图片目录'})).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button',{name:'当前阅读位置'}));
   fireEvent.click(within(screen.getByRole('navigation',{name:'已读段落'})).getByRole('button',{name:/第 1 段/}));
+  expect(screen.getByRole('button',{name:'资料'})).toBeInTheDocument();
+  fireEvent.click(screen.getAllByRole('button',{name:'在资料栏固定'})[0]);
   expect(screen.getByRole('button',{name:'收起资料'})).toBeInTheDocument();
 });
 

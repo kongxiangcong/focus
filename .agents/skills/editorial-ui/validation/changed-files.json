@@ -1,0 +1,74 @@
+[
+  {
+    "path": "CHANGELOG.md",
+    "change": "modified"
+  },
+  {
+    "path": "README.md",
+    "change": "modified"
+  },
+  {
+    "path": "SKILL.md",
+    "change": "modified"
+  },
+  {
+    "path": "agents/openai.yaml",
+    "change": "modified"
+  },
+  {
+    "path": "references/delivery-template.md",
+    "change": "modified"
+  },
+  {
+    "path": "references/evaluation-tasks.md",
+    "change": "modified"
+  },
+  {
+    "path": "references/implementation-modes.md",
+    "change": "modified"
+  },
+  {
+    "path": "references/interaction-contracts.md",
+    "change": "modified"
+  },
+  {
+    "path": "references/motion-guidelines.md",
+    "change": "modified"
+  },
+  {
+    "path": "references/product-redesign.md",
+    "change": "added"
+  },
+  {
+    "path": "references/provenance.md",
+    "change": "modified"
+  },
+  {
+    "path": "references/quality-gates.md",
+    "change": "modified"
+  },
+  {
+    "path": "references/reference-adoption.md",
+    "change": "added"
+  },
+  {
+    "path": "references/visual-language.md",
+    "change": "modified"
+  },
+  {
+    "path": "scripts/audit_reference.py",
+    "change": "added"
+  },
+  {
+    "path": "scripts/browser_smoke.py",
+    "change": "modified"
+  },
+  {
+    "path": "tests/test_redesign_contract.py",
+    "change": "added"
+  },
+  {
+    "path": "tests/test_reference_audit.py",
+    "change": "added"
+  }
+]
