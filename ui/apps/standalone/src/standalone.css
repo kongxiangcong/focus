@@ -70,26 +70,26 @@ button { cursor:pointer; }
 .workspace-task-actions { justify-content:space-between; }
 
 /* ---------- controls ---------- */
-.workspace-app button, .focus-entry button, .focus-login button {
+.workspace-app button:where(:not(.focus-reader *)), .focus-entry button, .focus-login button {
   display:inline-flex; align-items:center; justify-content:center; gap:6px;
   min-height:var(--reader-control-h); padding:0 var(--reader-gap); border:1px solid var(--reader-line);
   border-radius:var(--reader-radius); background:transparent; color:var(--reader-ink);
   font-size:var(--reader-ui-size); line-height:1.2; white-space:nowrap;
   transition:background var(--reader-duration-snap) var(--reader-ease-out), border-color var(--reader-duration-snap) var(--reader-ease-out),
     color var(--reader-duration-snap) var(--reader-ease-out), transform var(--reader-duration-fast) var(--reader-ease-out); }
-.workspace-app button:hover:not(:disabled), .focus-entry button:hover:not(:disabled), .focus-login button:hover:not(:disabled) { background:var(--reader-hover); }
-.workspace-app button:active:not(:disabled), .focus-entry button:active:not(:disabled) { transform:scale(.98); }
-.workspace-app button:disabled, .focus-entry button:disabled { opacity:.45; cursor:default; }
-.workspace-app button[aria-pressed=true] { background:var(--reader-accent-soft); border-color:var(--reader-accent-line); }
+.workspace-app button:where(:not(.focus-reader *)):hover:not(:disabled), .focus-entry button:hover:not(:disabled), .focus-login button:hover:not(:disabled) { background:var(--reader-hover); }
+.workspace-app button:where(:not(.focus-reader *)):active:not(:disabled), .focus-entry button:active:not(:disabled) { transform:scale(.98); }
+.workspace-app button:where(:not(.focus-reader *)):disabled, .focus-entry button:disabled { opacity:.45; cursor:default; }
+.workspace-app button:where(:not(.focus-reader *))[aria-pressed=true] { background:var(--reader-accent-soft); border-color:var(--reader-accent-line); }
 .workspace-app .workspace-primary, .focus-entry .workspace-primary { background:var(--reader-action); color:var(--reader-on-action); border-color:var(--reader-action); font-weight:500; }
 .workspace-app .workspace-primary:hover:not(:disabled), .focus-entry .workspace-primary:hover:not(:disabled) { background:var(--reader-action); color:var(--reader-on-action); filter:brightness(1.12); }
-.workspace-app :focus-visible, .focus-entry :focus-visible, .focus-login :focus-visible { outline:2px solid var(--reader-focus); outline-offset:2px; }
-.workspace-app :is(input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea),
+.workspace-app :focus-visible:where(:not(.focus-reader *)), .focus-entry :focus-visible, .focus-login :focus-visible { outline:2px solid var(--reader-focus); outline-offset:2px; }
+.workspace-app :is(input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea):where(:not(.focus-reader *)),
 .focus-entry :is(input:not([type=checkbox]):not([type=radio]), select) {
   min-height:var(--reader-control-h); padding:0 var(--reader-gap-sm); border:1px solid var(--reader-line);
   border-radius:var(--reader-radius); background:var(--reader-surface-2); color:var(--reader-ink); font:inherit; min-width:0; }
-.workspace-app textarea { padding:8px var(--reader-gap-sm); line-height:1.6; }
-.workspace-app :is(input, select, textarea):focus-visible { outline:2px solid var(--reader-focus); outline-offset:1px; border-color:var(--reader-accent-line); }
+.workspace-app textarea:where(:not(.focus-reader *)) { padding:8px var(--reader-gap-sm); line-height:1.6; }
+.workspace-app :is(input, select, textarea):where(:not(.focus-reader *)):focus-visible { outline:2px solid var(--reader-focus); outline-offset:1px; border-color:var(--reader-accent-line); }
 .workspace-app input[type=range] { appearance:none; -webkit-appearance:none; width:min(100%,280px); height:20px;
   padding:0; border:0; background:transparent; }
 .workspace-app input[type=range]::-webkit-slider-runnable-track { height:2px; border-radius:2px; background:var(--reader-line-strong); }
