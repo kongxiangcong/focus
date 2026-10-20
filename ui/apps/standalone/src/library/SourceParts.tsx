@@ -1,3 +1,4 @@
+import { LibraryProgress } from "./LibraryProgress";
 import type { ReactNode } from "react";
 import type { BlogStatus, LibrarySource, LibraryTopic } from "@focus/reader-contracts";
 import { blogSummary, readingStatus, type SourceStatus, type primaryAction } from "./source-status";
@@ -21,7 +22,7 @@ export function SourceMeta({ source, topics, onTopic }: Pick<SourceViewProps, "s
   return <div className="library-source-meta"><span>{[source.venue, source.publishedAt].filter(Boolean).join(" · ")}</span>{source.topicIds.map(id => <a href="/library" key={id} onClick={event => { event.preventDefault(); event.stopPropagation(); onTopic(id); }} onDoubleClick={event => event.stopPropagation()}>#{topics.find(t => t.topicId === id)?.title ?? id}</a>)}{source.topicIds.length === 0 && <span>未归类</span>}</div>;
 }
 export function SourceState({ source, status, candidate, bar = true }: Pick<SourceViewProps, "source" | "status" | "candidate"> & { bar?: boolean }) {
-  return <div className="library-source-status" data-tone={status.tone}><span><i aria-hidden="true" />{status.label}<small>{status.detail}{candidate ? " · 新计划可用" : ""}</small></span>{bar && <progress aria-label={`${source.title} 阅读进度`} value={status.ratio * Math.max(1, source.progress.total)} max={source.progress.total || 1} />}</div>;
+  return <div className="library-source-status" data-tone={status.tone}><span><i aria-hidden="true" />{status.label}<small>{status.detail}{candidate ? " · 新计划可用" : ""}</small></span>{bar && <LibraryProgress label={`${source.title} 阅读进度`} value={status.ratio * Math.max(1, source.progress.total)} max={source.progress.total || 1} />}</div>;
 }
 export function SourceArtifacts({ source, blog }: Pick<SourceViewProps, "source" | "blog">) {
   const summary = blogSummary(blog);

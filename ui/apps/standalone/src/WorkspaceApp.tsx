@@ -7,6 +7,7 @@ import { UploadTopicPicker } from "./UploadTopicPicker";
 import { readingFonts, readReadingFont, readingFontFamily, type ReadingFont } from "./reading-fonts";
 import { applyAppearance, readPreference, type Theme, type Density } from "./appearance";
 
+import { LibraryToolbar } from "./library/LibraryToolbar";
 import { LibraryPage } from "./library/LibraryPage";
 import { matchesStatus, sourceStatus, type StatusFilter } from "./library/source-status";
 import { UNFILED, sortingDisabledReason } from "./library/topic-view";
@@ -66,6 +67,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [generateOnUpload, setGenerateOnUpload] = useState(true);
   const [connectionLost, setConnectionLost] = useState(false);
   const [taskDetails, setTaskDetails] = useState(false);
+  const [taskVisited, setTaskVisited] = useState(false);
+  useEffect(() => { if (taskDetails) setTaskVisited(true); }, [taskDetails]);
   const [closingPreparations, setClosingPreparations] = useState<Readonly<Record<string, string>>>({});
   const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
   const refreshing = useRef(false);
@@ -494,7 +497,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     return () => document.removeEventListener("keydown", exit);
   }, [readingFullscreen]);
   useEffect(() => { if (route !== "/reading") setReadingFullscreen(false); }, [route]);
-  return <div className="workspace-app" data-nav-collapsed={navCollapsed} data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-brightness": brightness / 100, "--reader-body-font": readingFontFamily(readingFont) } as CSSProperties}>
+  return <div className="workspace-app" data-route={route} data-nav-collapsed={navCollapsed} data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-brightness": brightness / 100, "--reader-body-font": readingFontFamily(readingFont) } as CSSProperties}>
     <aside className="workspace-nav" aria-label="工作台导航">
       <div className="workspace-nav__head">
         <a className="workspace-logo" href="/library" onClick={e => { e.preventDefault(); navigate("/library"); }}>focus<span>.</span></a>
@@ -511,8 +514,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       </div>}
     </aside>
     <header className="workspace-header">
-      <div className="workspace-toolbar">
-        {route === "/reading" ? <div className="reading-library-picker"><span className="workspace-reading-title" title={view?.source.title}>{view?.source.title || "阅读"}</span></div> : <h1>{route === "/library" ? "知识库" : "设置"}</h1>}
+      <div className={route === "/library" ? "workspace-toolbar library-toolbar" : "workspace-toolbar"}>
+        {route === "/reading" ? <div className="reading-library-picker"><span className="workspace-reading-title" title={view?.source.title}>{view?.source.title || "阅读"}</span></div> : route === "/library" ? <LibraryToolbar {...{ selectedTopic, topic, filtered, topics, unfiledCount, setTopic, libraryView, setLibraryView, setMoreSource, query, setQuery }} /> : <h1>设置</h1>}
         <div className="workspace-header-actions">
           <section className="workspace-status" aria-label="当前工作">
             <span className="workspace-sr-only" role="status">{connectionLost ? "连接中断，正在恢复" : !view ? "正在连接" : primaryWork ? `${primaryWork.label} · ${runningWork.length} 项进行中` : "当前无工作"}{attention.length > 0 ? ` · ${attention.length} 项需查看` : ""}</span>
@@ -525,7 +528,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           {route === "/library" && <button className="workspace-primary" disabled={uploadDisabled} onClick={() => chooseUpload()}>上传</button>}
         </div>
       </div>
-      {taskDetails && <div className="workspace-task-frame" id="workspace-tasks" aria-label="任务框">
+      {(taskDetails || taskVisited) && <div className="workspace-task-frame" id="workspace-tasks" role="region" aria-label="任务框" data-open={taskDetails} aria-hidden={!taskDetails} inert={!taskDetails} onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setTaskDetails(false); document.querySelector<HTMLButtonElement>(".workspace-task-toggle")?.focus(); } }}>
         <div className="workspace-task-actions"><span>任务状态</span><button disabled={!!busy || !host.clearFinishedStatuses} onClick={() => void clearStatuses()}>全部清空</button></div>
         <small>清空已结束状态，运行中及等待开始的任务保留。</small>
         {work.length === 0 && taskBatches.length === 0 && taskInbox.length === 0 && <p>没有进行中或待处理的任务。</p>}

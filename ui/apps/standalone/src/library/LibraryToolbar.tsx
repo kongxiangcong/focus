@@ -1,0 +1,9 @@
+import { useEffect, useRef, useState } from "react";
+import type { LibraryPageProps } from "./LibraryPage";
+import { UNFILED } from "./topic-view";
+
+export function LibraryToolbar({ selectedTopic, topic, filtered, topics, unfiledCount, setTopic, libraryView, setLibraryView, setMoreSource, query, setQuery }: Pick<LibraryPageProps, "selectedTopic" | "topic" | "filtered" | "topics" | "unfiledCount" | "setTopic" | "libraryView" | "setLibraryView" | "setMoreSource" | "query" | "setQuery">) {
+  const [draft, setDraft] = useState(query), composing = useRef(false);
+  useEffect(() => { if (!composing.current) setDraft(query); }, [query]);
+  return <><h1>{selectedTopic?.title ?? (topic === UNFILED ? "未归类" : "知识库")}<small>{filtered.length}</small></h1><select className="library-topic-select" aria-label="筛选专题" value={topic} onChange={event => setTopic(event.target.value)}><option value="">全部材料</option>{topics.map(t => <option key={t.topicId} value={t.topicId}>{t.title}</option>)}{(unfiledCount > 0 || topic === UNFILED) && <option value={UNFILED}>未归类</option>}</select><div className="library-view-switch" role="group" aria-label="显示方式">{([["list", "列表"], ["cards", "卡片"]] as const).map(([mode, label]) => <button key={mode} aria-label={`${label}显示`} aria-pressed={libraryView === mode} onClick={() => { setLibraryView(mode); setMoreSource(null); try { localStorage.setItem("focus.libraryView", mode); } catch { /* The current view remains usable without storage. */ } }}>{label}</button>)}</div><input type="search" aria-label="搜索材料" placeholder="搜索标题" value={draft} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={event => { composing.current = false; setQuery(event.currentTarget.value); }} onChange={event => { setDraft(event.target.value); if (!composing.current) setQuery(event.target.value); }} /></>;
+}

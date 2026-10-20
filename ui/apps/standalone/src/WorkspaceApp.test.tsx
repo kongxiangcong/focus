@@ -248,7 +248,7 @@ it("filters source cards, exposes source resources, and rejects unsupported inge
   const { host } = setup(); await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("button", { name: "A Paper" }));
   expect(document.querySelector(".source-badge")?.closest("article")).toBeInTheDocument();
-  expect(screen.getByRole("progressbar", { name: "A Paper 阅读进度" })).toHaveAttribute("value", "1");
+  expect(screen.getByRole("progressbar", { name: "A Paper 阅读进度" })).toHaveAttribute("aria-valuenow", "1");
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "missing" } });
   expect(screen.getByText("没有标题匹配这次搜索。")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "清除搜索" }));
@@ -678,7 +678,7 @@ it("keeps work and upload history hidden until the shared disclosure is opened, 
   const toggle = screen.getByRole("button", { name: "任务详情" });
   expect(toggle).toHaveAttribute("aria-expanded", "false");
   expect(toggle).toHaveTextContent("2 项进行中");
-  expect(screen.queryByLabelText("任务框")).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "任务框" })).not.toBeInTheDocument();
   expect(document.querySelector(".workspace-task-frame .library-inbox-item")).not.toBeInTheDocument();
   expect(within(screen.getByRole("region", { name: "入库中" })).getByText("pending.pdf")).toBeVisible();
   fireEvent.click(toggle);
@@ -688,7 +688,9 @@ it("keeps work and upload history hidden until the shared disclosure is opened, 
   expect(screen.getByText("已完成任务").closest("details")).not.toHaveAttribute("open");
   expect(screen.getByText("未关联专题 · 完成")).toBeInTheDocument();
   fireEvent.click(toggle);
-  expect(screen.queryByLabelText("任务框")).not.toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "任务框" })).not.toBeInTheDocument();
+  expect(document.getElementById("workspace-tasks")).toHaveAttribute("inert");
+  expect(document.getElementById("workspace-tasks")).toHaveAttribute("aria-hidden", "true");
 });
 
 it("uses a modal blog viewer and restores the workspace on Escape", async () => {

@@ -1,3 +1,4 @@
+import { LibraryProgress } from "./LibraryProgress";
 import type { IngestionItem, LibrarySource, LibraryTopic, ProcessingBatch } from "@focus/reader-contracts";
 import { UNFILED } from "./topic-view";
 
@@ -28,7 +29,7 @@ export function IngestionRows({ sources, topics, topic, taskInbox, taskBatches, 
     return <article className="library-ingestion" key={key} data-item-id={item.itemId}>
       <span className="source-badge">{/\.pdf$/i.test(item.fileName) ? "PDF" : "HTML"}</span>
       <div className="library-source-main"><strong>{item.fileName}</strong><div className="library-source-meta"><span role="status">{item.parserBackend ? `${item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"} · ` : ""}{status}{item.selectionReason ? ` · ${item.selectionReason}` : ""}{parser ? ` · ${parser}` : ""}</span>{percent !== undefined && <span>{Math.round(percent)}%</span>}</div><small>{target ? `将加入 #${target}` : "不关联专题"}</small></div>
-      {percent !== undefined && <progress aria-label={`${item.fileName} 解析进度`} max={100} value={Math.max(0, Math.min(100, percent))} />}
+      {percent !== undefined && <LibraryProgress label={`${item.fileName} 解析进度`} max={100} value={Math.max(0, Math.min(100, percent))} />}
       {recover && <button disabled={disabled} onClick={recover}>{label}</button>}
       <button aria-label={`${item.fileName} 任务详情`} onClick={onTasks}>任务详情</button>
     </article>;

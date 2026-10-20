@@ -1,15 +1,35 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { BlogArtifactStatus } from "@focus/reader-contracts";
 import type { LibraryPageProps } from "./LibraryPage";
 import { SourceKind, SourceMeta, SourcePrimary, SourceState, type SourceViewProps } from "./SourceParts";
 import { SourceResetActions } from "./SourceMenu";
 
-export function SourceInspector({ source: s, page, presentation, onClose, docked }: { source: SourceViewProps["source"]; page: LibraryPageProps; presentation: SourceViewProps; onClose: () => void; docked: boolean }) {
+export function SourceInspector({ source: s, page, presentation, onClose, docked, open }: { source: SourceViewProps["source"]; page: LibraryPageProps; presentation: SourceViewProps; onClose: () => void; docked: boolean; open: boolean }) {
   const panel = useRef<HTMLElement>(null);
   const { host, busy, active, view, blogs, preparationHidden, preparationFailed, retryPreparation, activateCandidate, preparationNotice, managementBusy, openManagement, setBlogViewer, blogArtifacts, blogStatusText, blogRetryLabel, generateBlog, cancelBlog, regenerateBlog } = page;
   const blog = blogs[s.sourceId];
-  useEffect(() => { if (!docked) panel.current?.focus({ preventScroll: true }); }, [docked, s.sourceId]);
-  return <aside ref={panel} className="library-inspector" id={`source-details-${s.sourceId}`} role={docked ? "complementary" : "dialog"} aria-label="来源详情" tabIndex={-1} onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}>
+  const [mobile, setMobile] = useState(() => !!globalThis.matchMedia?.("(max-width: 760px)").matches);
+  useEffect(() => { const media = globalThis.matchMedia?.("(max-width: 760px)"); if (!media) return; const update = () => setMobile(media.matches); update(); media.addEventListener?.("change", update); return () => media.removeEventListener?.("change", update); }, []);
+  useLayoutEffect(() => {
+    if (!open) return;
+    if (!docked || mobile) panel.current?.focus({ preventScroll: true });
+    if (!mobile) return;
+    const app = panel.current?.closest(".workspace-app");
+    const background = Array.from(app?.querySelectorAll<HTMLElement>(".workspace-nav, .workspace-header, .workspace-reading, .library-sources") ?? []);
+    const prior = background.map(node => node.hasAttribute("inert")); background.forEach(node => node.setAttribute("inert", ""));
+    const contain = (event: FocusEvent) => { if (document.querySelector("dialog[open]") || panel.current?.contains(event.target as Node)) return; panel.current?.focus({ preventScroll: true }); };
+    document.addEventListener("focusin", contain);
+    return () => { background.forEach((node, index) => { if (!prior[index]) node.removeAttribute("inert"); }); document.removeEventListener("focusin", contain); };
+  }, [open, docked, mobile, s.sourceId]);
+  return <><div className="library-inspector-backdrop" data-open={open && mobile} aria-hidden="true" onClick={onClose} /><aside ref={panel} className="library-inspector" data-open={open} aria-hidden={!open} inert={!open} id={`source-details-${s.sourceId}`} role={docked && !mobile ? "complementary" : "dialog"} aria-modal={open && mobile ? true : undefined} aria-label="来源详情" tabIndex={-1} onKeyDown={event => {
+    if (event.key === "Escape") { event.stopPropagation(); onClose(); }
+    if (event.key !== "Tab" || !mobile || !open || document.querySelector("dialog[open]")) return;
+    const controls = Array.from(panel.current?.querySelectorAll<HTMLElement>("button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex='0']") ?? []).filter(node => !node.closest("[inert], [hidden]"));
+    const first = controls[0], last = controls.at(-1), active = document.activeElement;
+    if (event.shiftKey && (active === first || active === panel.current)) { event.preventDefault(); (last ?? panel.current)?.focus(); }
+    else if (!event.shiftKey && (active === last || active === panel.current)) { event.preventDefault(); (first ?? panel.current)?.focus(); }
+  }}>
+
     <header className="library-inspector-head"><SourceKind source={s} /><button aria-label="关闭详情" onClick={onClose}>×</button></header>
     <div className="library-inspector-body"><h2>{s.displayTitle || s.title}</h2>{s.displayTitle && <p className="library-inspector-original">{s.title}</p>}
       <div className="library-inspector-primary"><SourceState {...presentation} bar={false} /><SourcePrimary {...presentation} solid />
@@ -36,5 +56,5 @@ export function SourceInspector({ source: s, page, presentation, onClose, docked
       </section>
       <section className="library-inspector-section" data-tone="danger"><h3>重置与删除</h3><div className="library-row-actions"><SourceResetActions source={s} actions={page} /></div></section>
     </div>
-  </aside>;
+  </aside></>;
 }
