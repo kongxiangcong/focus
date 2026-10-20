@@ -105,8 +105,7 @@ button { cursor:pointer; }
 .workspace-app .focus-mist .focus-composer:focus-within {
   border-color:var(--reader-accent-line);
   box-shadow:0 4px 24px rgba(0,0,0,.08),0 0 0 3px var(--reader-accent-soft); }
-.workspace-app .focus-mist .focus-composer textarea::placeholder,
-.workspace-app .composer-key-hint { color:var(--reader-secondary); }
+.workspace-app .focus-mist .focus-composer textarea::placeholder { color:var(--reader-secondary); }
 .workspace-app .focus-reader .focus-markdown mark { background:var(--reader-mark); color:var(--reader-ink); }
 .workspace-app .focus-reader .focus-markdown blockquote { border-left-color:var(--reader-mark-strong); }
 .workspace-app .focus-reference { border-left-color:var(--reader-mark-strong); background:var(--reader-mark-soft); color:var(--reader-mark-ink); }

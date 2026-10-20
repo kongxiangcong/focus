@@ -39,7 +39,7 @@ it("disables unread navigation, advances once, and reviews history without movin
   fireEvent.click(within(screen.getByRole("navigation", { name: "已读段落" })).getByRole("button", { name: /第 1 段.*Method/ }));
   expect(host.continueReading).toHaveBeenCalledTimes(1);
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "这段是什么意思？" } });
-  fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
   await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ chunkId: "chunk-001" }) })));
   expect(host.continueReading).toHaveBeenCalledTimes(1);
 });
@@ -117,7 +117,7 @@ it("streams one assistant card into the central timeline and keeps only prompts 
   const app = render(<FocusReader host={host} appearance="mist" />);
   await screen.findByRole("heading", { name: "Method" });
   fireEvent.change(screen.getByRole("textbox"), { target: { value: prompt.content } });
-  fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
   const companion = screen.getByRole("complementary", { name: "阅读助手" });
   await within(screen.getByRole("main", { name: "阅读与对话" })).findByText(prompt.content);
   expect(screen.queryByRole("navigation", { name: "历史提问" })).not.toBeInTheDocument();
@@ -189,7 +189,7 @@ it("T3/T6 appends chunks chronologically and sends a pre-navigation draft with i
   await screen.findByRole("heading", { name: "Results" });
   expect(screen.getByRole("heading", { name: "Method" })).toBeInTheDocument();
   expect([...document.querySelectorAll(".focus-output")].map(el => el.getAttribute("data-event-id"))).toEqual(["r1", "r2"]);
-  fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
   await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ chunkId: "chunk-001", planId: current.planId }) })));
 });
 
@@ -313,4 +313,23 @@ it("uses decorative function-row icons and a clean fullscreen accessible name", 
   const exit = within(controls).getByRole("button", { name: "退出全屏" });
   expect(exit).toHaveTextContent("退出全屏");
   expect(exit.textContent).not.toContain("×");
+});
+
+it("keeps inline send with a screen-reader keyboard hint and ignores composing Enter", async () => {
+  const host = setup();
+  const textbox = await screen.findByRole("textbox", { name: "输入问题或阅读需求" });
+  const send = screen.getByRole("button", { name: "发送" });
+  expect(textbox.closest("form.focus-composer")).toBe(send.closest("form.focus-composer"));
+  expect(textbox).toHaveAttribute("rows", "1");
+  expect(document.querySelector(".focus-composer__chin")).toBeNull();
+  expect(document.querySelector(".composer-key-hint")).toBeNull();
+  expect(document.querySelector(".focus-composer__tools")).toBeNull();
+  expect(document.getElementById(textbox.getAttribute("aria-describedby")!)).toHaveTextContent("Enter 发送");
+  fireEvent.change(textbox, { target: { value: "正在输入的问题" } });
+  fireEvent.keyDown(textbox, { key: "Enter", isComposing: true });
+  fireEvent.keyDown(textbox, { key: "Enter", keyCode: 229 });
+  fireEvent.keyDown(textbox, { key: "Enter", shiftKey: true });
+  expect(host.sendMessage).not.toHaveBeenCalled();
+  fireEvent.keyDown(textbox, { key: "Enter" });
+  await waitFor(() => expect(host.sendMessage).toHaveBeenCalledTimes(1));
 });

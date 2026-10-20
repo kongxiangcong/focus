@@ -22,7 +22,7 @@ await latest(1);
 await page.getByRole('textbox',{name:'输入问题或阅读需求'}).fill('第一段的问题');
 await next(2);
 assert.equal(await page.locator('.focus-output').count(),2);
-await page.getByRole('button',{name:'发送 ↑',exact:true}).click();
+await page.getByRole('button',{name:'发送',exact:true}).click();
 await page.waitForFunction(()=>document.querySelector('[data-role="assistant"]')?.textContent.includes('回复第2句'));
 const stream=page.locator('.focus-stream');await stream.hover();await page.mouse.wheel(0,-400);
 await page.waitForTimeout(100);const manual=await stream.evaluate(el=>el.scrollTop);

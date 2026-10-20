@@ -101,7 +101,7 @@ describe("FocusReader unified flow", () => {
     fireEvent.click(screen.getByRole("button", { name: "引用提问" }));
     expect(screen.getByText(/引用第 1 段/)).toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "解释这段" } });
-    fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
     await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ chunkId: "chunk-001" }) })));
     expect(host.continueReading).not.toHaveBeenCalled();
   });
@@ -110,7 +110,7 @@ describe("FocusReader unified flow", () => {
     vi.mocked(host.sendMessage).mockResolvedValueOnce(readerFailure("unavailable", "发送未确认", true));
     const input = screen.getByRole("textbox");
     fireEvent.change(input, { target: { value: "问题一" } });
-    fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
     await screen.findByText("发送未确认");
     expect(input).toHaveValue("问题一"); expect(input).toBeEnabled();
     fireEvent.change(input, { target: { value: "问题二草稿" } });
@@ -157,7 +157,7 @@ describe("FocusReader unified flow", () => {
     const host = setup({ ...secondWindow, status: "completed", current: null, history: [firstWindow.current!, secondWindow.current!] });
     await screen.findByRole("button", { name: "查看已读段落" });
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "总结全文" } });
-    fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
     await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: null })));
     expect(screen.queryByRole("button", { name: "下一段 →" })).not.toBeInTheDocument();
   });
@@ -232,6 +232,6 @@ it("T15 restores the original source draft and never sends it to another source"
   expect(host.sendMessage).not.toHaveBeenCalled();
   act(() => emit!(readerSuccess({ ...first, revision: 3 })));
   expect(screen.getByRole("textbox")).toHaveValue("材料一的草稿");
-  fireEvent.click(screen.getByRole("button", { name: "发送 ↑" }));
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
   await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ sourceId: "fixture-paper", chunkId: "chunk-001" }) })));
 });

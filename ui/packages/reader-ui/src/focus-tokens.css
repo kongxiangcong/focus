@@ -82,7 +82,10 @@
   --reader-control-h-sm:18px;
   --reader-radius:6px;
   --reader-card-radius:10px;
-  --reader-composer-radius:12px;
+  --reader-composer-radius:26px;
+  --reader-composer-send:36px;
+  --reader-composer-inset:7px;
+  --reader-composer-reference-radius:10px;
   --reader-dialog-radius:16px;
   --reader-bubble-radius:18px;
   --reader-icon:16px;
@@ -145,7 +148,8 @@
   --reader-control-h-sm:22px;
   --reader-radius:8px;
   --reader-card-radius:12px;
-  --reader-composer-radius:14px;
+  --reader-composer-radius:28px;
+  --reader-composer-send:40px;
   --reader-icon:20px;
   --reader-gap-xs:8px;
   --reader-gap-sm:12px;
@@ -159,4 +163,4 @@
 }
 
 @media(max-width:599px) { :root, :root[data-density] { --reader-action-h:40px; } }
-@media(pointer:coarse) { :root, :root[data-density] { --reader-action-h:44px; } }
+@media(pointer:coarse) { :root, :root[data-density] { --reader-action-h:44px; --reader-composer-send:44px; --reader-composer-inset:6px; } }

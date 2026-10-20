@@ -40,7 +40,7 @@ try {
  await page.getByRole('button',{name:'回到进度',exact:true}).click();await sleep(600);
  await page.getByRole('button',{name:'↩ 返回刚才位置',exact:true}).click();await sleep(600);
  metrics.return=(await position())-before;assert.ok(Math.abs(metrics.return)<=1,JSON.stringify(metrics));
- await page.locator('#focus-question').fill('请解释滚动跟随验收'); await page.getByRole('button',{name:'发送 ↑',exact:true}).click();
+ await page.locator('#focus-question').fill('请解释滚动跟随验收'); await page.getByRole('button',{name:'发送',exact:true}).click();
  await page.waitForSelector('[data-streaming="true"]');
  await page.locator('.focus-stream').hover();await page.mouse.wheel(0,-100);
  await page.getByRole('button',{name:/回到最新/}).waitFor();

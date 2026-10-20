@@ -1,4 +1,4 @@
-import { PanelLeft, Pin, Plus, Expand, Collapse, ArrowRight, StopSquare } from "./ReaderIcons";
+import { PanelLeft, Pin, Plus, Expand, Collapse, ArrowRight, ArrowUp, StopSquare } from "./ReaderIcons";
 import { createReaderId, cursorReceipt, type ReaderChunk, type ReaderAttachment, type ReaderHost, type ReadingWindow,
   type ReaderHostResult, type SendReaderMessageInput, type ContinueReadingInput, type SourceNote, type ReadingProgressEntry } from "@focus/reader-contracts";
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -726,20 +726,20 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
             <button type="button" aria-label={`移除 ${u.file.name}`} onClick={() => setUploads(old => old.filter(v => v.id !== u.id))}>移除</button>
           </li>)}</ul>}
           <label className="focus-sr-only" htmlFor="focus-question">输入问题或阅读需求</label>
-          <textarea id="focus-question" ref={composer} rows={mist ? 1 : 2} disabled={blocked} value={draft} placeholder="问问这段原文…"
+          <span id="focus-question-hint" className="focus-sr-only">Enter 发送，Shift+Enter 换行</span>
+          <textarea id="focus-question" aria-describedby="focus-question-hint" ref={composer} rows={1} disabled={blocked} value={draft} placeholder="问问这段原文…"
             onChange={e => { if (!draft && e.target.value && !reference) setReference(displayed); setDraft(e.target.value); }} onKeyDown={e => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) { e.preventDefault(); send(); }
             }} />
-          <div className="focus-composer__chin">
-            <span className="composer-key-hint">Enter 发送 · Shift+Enter 换行</span>
-            <div className="focus-composer__tools">{!mist && host.upload && <><input ref={fileInput} className="focus-sr-only" aria-label="选择论文文件" type="file" accept=".pdf,.html" multiple onChange={e => {
+          <div className="focus-composer__actions">
+            {((!mist && host.upload) || uploads.some(u => u.state === "ready")) && <div className="focus-composer__tools">{!mist && host.upload && <><input ref={fileInput} className="focus-sr-only" aria-label="选择论文文件" type="file" accept=".pdf,.html" multiple onChange={e => {
               Array.from(e.target.files ?? []).forEach(f => void upload(f)); e.target.value = "";
             }} /><button type="button" onClick={() => fileInput.current?.click()} aria-label="添加附件">＋ 附件</button></>}
               {uploads.some(u => u.state === "ready") && <button type="button" disabled={blocked || uploading} onClick={() => send("请阅读附件", false)}>阅读附件</button>}
-            </div>
+            </div>}
             {active && host.stop && !collapsed
-              ? <button type="button" className="focus-primary focus-composer__send" onClick={() => void perform("停止", () => host.stop!())} disabled={agent?.run?.status === "stopping"}>停止</button>
-              : <button type="submit" className="focus-primary focus-composer__send" disabled={!view || blocked || uploading || !draft.trim()}>{operation === "发送" ? "发送中…" : "发送 ↑"}</button>}
+              ? <button type="button" className="focus-primary focus-composer__send" aria-label="停止" title="停止" onClick={() => void perform("停止", () => host.stop!())} disabled={agent?.run?.status === "stopping"}><StopSquare /></button>
+              : <button type="submit" className="focus-primary focus-composer__send" aria-label={operation === "发送" ? "发送中" : "发送"} title={operation === "发送" ? "发送中" : "发送"} disabled={!view || blocked || uploading || !draft.trim()}><ArrowUp /></button>}
           </div>
           </form>
           {mist && <button type="button" className="mist-composer-toggle" aria-expanded={!collapsed} aria-controls="focus-composer-form" onClick={() => toggleComposer(true)}>收起</button>}

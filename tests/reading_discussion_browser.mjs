@@ -15,7 +15,7 @@ try {
  });
  await page.getByRole('button',{name:'引用所选提问',exact:true}).click();
  assert.ok((await page.locator('.focus-reference').innerText()).includes(metrics.selection));assert.equal(await page.locator('#focus-question').evaluate(el=>el===document.activeElement),true);
- await page.locator('#focus-question').fill('引用交互验收');await page.getByRole('button',{name:'发送 ↑',exact:true}).click();
+ await page.locator('#focus-question').fill('引用交互验收');await page.getByRole('button',{name:'发送',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('.reader-answer-actions'));
  const quote=page.locator('.reader-quote-bar').first();await quote.click();
  assert.equal(await page.evaluate(()=>CSS.highlights.has('reader-quote')),true);assert.equal(await page.getByRole('button',{name:'↩ 返回刚才位置',exact:true}).isVisible(),true);
