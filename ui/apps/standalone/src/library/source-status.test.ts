@@ -46,5 +46,5 @@ it("summarizes missing, pending, generating, failed and completed blogs", () => 
   expect(blogSummary(blog).label).toBe("未生成");
   expect(blogSummary({ ...blog, executing: true }).label).toBe("生成中");
   expect(blogSummary({ ...blog, error: { errorId: "x", message: "failure" } }).label).toBe("部分失败");
-  expect(blogSummary({ ...blog, generated: true, artifacts: { html: { status: "completed" }, value_analysis: { status: "not_applicable" } } } as BlogStatus).label).toBe("已完成");
+  expect(blogSummary({ ...blog, generated: true, artifacts: { html: { status: "completed" }, reading_blog: { status: "completed" } } } as BlogStatus).label).toBe("已完成");
 });

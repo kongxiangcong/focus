@@ -235,3 +235,20 @@ it("T15 restores the original source draft and never sends it to another source"
   fireEvent.click(screen.getByRole("button", { name: "发送" }));
   await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ sourceId: "fixture-paper", chunkId: "chunk-001" }) })));
 });
+
+
+it("removes a paragraph reference before typing and sends no implicit receipt", async () => {
+  const host = setup();
+  await screen.findByText("The first chunk.");
+  fireEvent.click(screen.getByRole("button", { name: "引用提问" }));
+  fireEvent.click(screen.getByRole("button", { name: "取消段落引用" }));
+  expect(screen.queryByText(/引用第 1 段/)).not.toBeInTheDocument();
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "没有段落引用的问题" } });
+  expect(screen.queryByRole("button", { name: "取消段落引用" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: null, content: "没有段落引用的问题" })));
+  fireEvent.click(screen.getByRole("button", { name: "引用提问" }));
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "重新引用" } });
+  fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  await waitFor(() => expect(host.sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ chunkId: "chunk-001" }) })));
+});

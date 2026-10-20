@@ -39,7 +39,7 @@ export function useLibrary(scenario: Scenario, k: number) {
         sourceId: `${shortName}-${kind}`, title: i.fileName.replace(/\.(pdf|html)$/i, "").replace(/-/g, " "), kind, format: kind === "paper" ? "PDF" : "HTML",
         parseStatus: "ready", error: null, shortName, readingStatus: "unplanned", noteCount: 0,
         progress: { completed: 0, total: 0, planId: null, chunkId: null }, topicIds: i.topicId ? [i.topicId] : [],
-        blog: { generated: true, running: true, artifacts: { value_analysis: "generating", reading_blog: "pending", html: "pending" } },
+        blog: { generated: true, running: true, artifacts: { reading_blog: "pending", html: "pending" } },
       };
     });
     setSources(list => [...added, ...list]);

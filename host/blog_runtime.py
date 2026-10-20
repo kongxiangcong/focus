@@ -2,7 +2,7 @@
 
 The Application owns orchestration; this module is only the writer that produces
 one artifact. It uses the selected Backend for bounded structured candidates
-and restricted implementation lookup tools.
+for the Reading Blog.
 Nothing here touches Core or decides what gets published.
 """
 from __future__ import annotations
@@ -11,9 +11,7 @@ import json
 import re
 from pathlib import Path
 from .candidates import CandidateTurns
-from .implementation_search import ImplementationSearch, TOOL as IMPLEMENTATION_TOOL
 
-from core import BlogExternalError
 
 READING_BLOG_SCHEMA = {
     "type": "object",
@@ -24,45 +22,6 @@ READING_BLOG_SCHEMA = {
     "required": ["evidence_map", "blog"],
     "additionalProperties": False,
 }
-VALUE_ANALYSIS_SCHEMA = {
-    "type": "object",
-    "properties": {"value_analysis": {"type": "string"}},
-    "required": ["value_analysis"],
-    "additionalProperties": False,
-}
-
-CLASSIFY_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "applicable": {"type": "boolean"},
-        "direction": {
-            "type": ["string", "null"],
-            "enum": [
-                "hardware_architecture",
-                "design_space_exploration",
-                "compiler",
-                "simulator",
-                "performance_modeling",
-                None,
-            ],
-        },
-        "reason": {"type": "string", "maxLength": 400},
-    },
-    "required": ["applicable", "direction", "reason"],
-    "additionalProperties": False,
-}
-
-IMPLEMENTATION_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "notes": {"type": "string"},
-        "verification_level": {"type": "string", "enum": ["paper_reading", "static_review", "executed"]},
-        "warnings": {"type": "array", "items": {"type": "string"}},
-    },
-    "required": ["notes", "verification_level"],
-    "additionalProperties": False,
-}
-
 
 class BlogRuntimeError(RuntimeError):
     """The Runtime could not produce the artifact; the step fails, nothing is published."""
@@ -70,10 +29,6 @@ class BlogRuntimeError(RuntimeError):
     def __init__(self, message, *, error_id='blog_output_invalid'):
         super().__init__(message)
         self.error_id = error_id
-
-
-def _excerpt(content: str, limit: int = 12000) -> str:
-    return content[:limit]
 
 
 class AgentBlogRuntime:
@@ -98,22 +53,6 @@ class AgentBlogRuntime:
         path = Path(method_dir) / "reference" / name
         return path.read_text(encoding="utf-8") if path.is_file() else ""
 
-    # ------------------------------------------------------------------ turns
-
-    def classify(self, *, bundle: Path, evidence: Path, method_dir: Path) -> dict:
-        content = (bundle / "content.md").read_text(encoding="utf-8", errors="replace")
-        prompt = (
-            "判断这份来源的主要贡献是否落在以下任一方向：硬件架构、设计空间探索（DSE）、编译器、"
-            "仿真器、性能建模。只依据下面的来源文本判断，不要联网，不要修改文件。\n"
-            "落在其中任一方向时 applicable=true 并给出 direction；否则 applicable=false 且 direction=null。"
-            "reason 用一句话说明依据。\n\n"
-            + _excerpt(content, 8000)
-        )
-        result = self._run(prompt, cwd=Path(evidence).parent, schema=CLASSIFY_SCHEMA, scope=Path(bundle).parent.name)
-        if not isinstance(result, dict):
-            raise BlogRuntimeError("Runtime returned no applicability judgement")
-        return result
-
     def write_artifact(
         self,
         *,
@@ -129,10 +68,6 @@ class AgentBlogRuntime:
             prompt = self._reading_blog_prompt(method_dir, content, candidate)
             result = self._run(prompt, cwd=candidate, schema=READING_BLOG_SCHEMA, scope=Path(bundle).parent.name)
             keys = {"evidence/evidence-map.md": "evidence_map", "blog.md": "blog"}
-        elif artifact == "value_analysis":
-            prompt = self._value_analysis_prompt(method_dir, content, candidate)
-            result = self._run(prompt, cwd=candidate, schema=VALUE_ANALYSIS_SCHEMA, scope=Path(bundle).parent.name)
-            keys = {"value-analysis.md": "value_analysis"}
         else:
             raise BlogRuntimeError(f"Unknown blog artifact: {artifact}")
         files = {}
@@ -166,45 +101,3 @@ class AgentBlogRuntime:
             "# 阅读排版\n" + self._method_doc(method_dir, "reading-format.md") + "\n\n"
             "# 论文正文\n" + content
         )
-
-    def _value_analysis_prompt(self, method_dir: Path, content: str, candidate: Path) -> str:
-        evidence_map = candidate / "evidence" / "evidence-map.md"
-        return (
-            "你是 FOCUS 的论文价值分析写作者。下方提供完整来源正文、写作方法与共享证据。"
-            "只返回符合 JSON schema 的 Markdown；宿主会写入候选目录。\n"
-            "严格按方法的固定五段主线写出 value_analysis：研究问题 → 输入输出 → "
-            "模块拆解 → 一个运行例子 → 贡献与边界，至少 1500 字。\n"
-            "说明实现是否实际运行；未运行时如实写明，不把论文概念名当成真实函数或文件名。\n"
-            "原文锚点、证据缺口、审计证据和生成核查记录属于内部笔记，不复制到 value_analysis。\n"
-            "不要尝试读取或修改本地文件。\n\n"
-            "# 写作方法\n" + self._method_doc(method_dir, "value-analysis-method.md") + "\n\n"
-            "# 阅读排版\n" + self._method_doc(method_dir, "reading-format.md") + "\n\n"
-            "# 共享证据笔记\n" + (evidence_map.read_text(encoding="utf-8") if evidence_map.is_file() else "未获得") + "\n\n"
-            "# 实现核查笔记\n" + (candidate / "evidence" / "implementation-notes.md").read_text(encoding="utf-8") + "\n\n"
-            "# 论文正文\n" + content
-        )
-
-    def search_implementation(self, *, bundle: Path, method_dir: Path, network: bool) -> dict:
-        """Conditional implementation retrieval: no network means no claim of a check."""
-        if not network:
-            raise BlogExternalError("network_unavailable", "Host has no network route for implementation retrieval")
-        content = (bundle / "content.md").read_text(encoding="utf-8", errors="replace")
-        prompt = (
-            "检索这份来源的官方实现：先看论文内的代码、项目页与 artifact 链接，再查作者或机构"
-            "发布的官方仓库；第三方复现要单独标明。源码可访问时沿核心路径静态核查，"
-            "不要声称实际运行过实验。返回 JSON：notes 为 Markdown 笔记（检索范围、核查层级、"
-            "核心路径核查表、缺口与影响），verification_level 取 paper_reading/static_review/executed，"
-            "warnings 为字符串数组。\n\n" + _excerpt(content, 6000)
-        )
-        search = ImplementationSearch()
-        prompt += '\nUse implementation_lookup for actual evidence. Return JSON matching:\n' + json.dumps(IMPLEMENTATION_SCHEMA)
-        result = self.turns.run(prompt, instructions='Inspect public implementation evidence. Never claim execution. Return JSON only.',
-                                timeout=self.timeout, tools=[IMPLEMENTATION_TOOL], tool_handler=search.call,
-                                scope=Path(bundle).parent.name)
-        if not isinstance(result, dict) or not isinstance(result.get("notes"), str):
-            raise BlogExternalError("implementation_search_failed", "Implementation retrieval returned no notes")
-        result['verification_level'] = 'static_review' if any(e['action'] == 'read' for e in search.evidence) else 'paper_reading'
-        result['notes'] += '\n\n## Host 检索回执\n' + '\n'.join(e['url'] for e in search.evidence)
-        if not search.evidence:
-            result.setdefault('warnings', []).append('未取得实际检索证据；仅按论文阅读处理。')
-        return result

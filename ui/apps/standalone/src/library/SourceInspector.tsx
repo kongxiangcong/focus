@@ -40,7 +40,6 @@ export function SourceInspector({ source: s, page, presentation, onClose, docked
       <section className="library-inspector-section" aria-label="专题标签"><h3>专题</h3><SourceMeta source={{ ...s, venue: null, publishedAt: null }} topics={page.topics} onTopic={page.setTopic} /><button disabled={managementBusy || !host.saveSourceDetails} onClick={() => openManagement("source", s.sourceId, s.title)}>编辑</button></section>
       <section className="library-inspector-section library-blog" aria-label={`${s.title} 博客`}><h3>博客</h3>
         <ul className="blog-statuses">{blogArtifacts.map(([name, label]) => <li key={name} data-status={blog?.artifacts?.[name]?.status ?? "pending"}><span>{label}</span><small>{blogStatusText[(blog?.artifacts?.[name]?.status ?? "pending") as BlogArtifactStatus]}</small></li>)}</ul>
-        {blog?.valueAnalysis.applicable === false && <p className="blog-note">架构价值分析不适用：{blog.valueAnalysis.reason}</p>}
         {blog?.error && <p className="blog-note" role="alert">{blog.error.message}</p>}
         <div className="blog-actions"><button disabled={!host.blogUrl || !blog?.generated || blog?.artifacts?.html?.status !== "completed"} onClick={() => setBlogViewer(s.sourceId)}>打开博客</button>
           {!blog?.generated ? <button disabled={!!busy || !host.generateBlog || s.parseStatus !== "ready"} onClick={() => void generateBlog(s.sourceId)}>生成博客</button> : <>

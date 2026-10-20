@@ -1,4 +1,4 @@
-# Reading Blog 与 Value Analysis 的阅读排版
+# Reading Blog 的阅读排版
 
 生成两篇正文时，先理解全文的问题、机制、证据及边界，再直接在 Markdown 中标注重点。不要依赖固定关键词表或把所有英文缩写标粗。
 

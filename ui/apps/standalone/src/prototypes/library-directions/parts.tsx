@@ -138,8 +138,8 @@ export function ShadowRow({ i, topics, onRetry, onTasks }: { i: DemoIngestion; t
   </div>;
 }
 
-const artifactNames: [BlogArtifactName, string][] = [["value_analysis", "价值分析"], ["reading_blog", "带读博客"], ["html", "HTML"]];
-const artifactText = { pending: "待生成", generating: "生成中", completed: "已完成", failed: "失败", not_applicable: "不适用" };
+const artifactNames: [BlogArtifactName, string][] = [["reading_blog", "带读博客"], ["html", "HTML"]];
+const artifactText = { pending: "待生成", generating: "生成中", completed: "已完成", failed: "失败" };
 
 export function Inspector({ s, topics, lib, open, onClose, onPrimary, docked }: {
   s: DemoSource | null; topics: readonly LibraryTopic[]; lib: Library; open: boolean; onClose: () => void; onPrimary: (s: DemoSource) => void; docked: boolean;
@@ -190,7 +190,6 @@ function InspectorBody({ s, topics, lib, onClose, onPrimary }: { s: DemoSource; 
         <ul className="lb-artifact-list">
           {artifactNames.map(([name, label]) => <li key={name} data-status={s.blog.artifacts[name]}><span>{label}</span><small>{artifactText[s.blog.artifacts[name]]}</small></li>)}
         </ul>
-        {s.blog.valueAnalysisReason && <p className="lb-hint">价值分析不适用：{s.blog.valueAnalysisReason}</p>}
         <div className="lb-btn-row">
           {blog.tone === "done" && <button type="button" onClick={() => lib.say("原型：在查看器中打开合并 HTML 博客")}>打开博客</button>}
           {blog.tone === "none" && <button type="button" disabled={s.parseStatus !== "ready"} onClick={() => lib.say("原型：开始生成 Blog Output")}>生成博客</button>}

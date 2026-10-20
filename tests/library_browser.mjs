@@ -32,7 +32,7 @@ async function fixture({ empty = false, offline = false, width = 1440, theme = '
       if (state.failNext) { state.failNext = false; return failure('Synthetic reorder failure'); }
       state.order = [...payload.sourceIds]; return ok({});
     }
-    if (/\/library\/sources\/[^/]+\/blog$/.test(path)) return ok({ sourceId: path.split('/')[3], generated: false, methodVersion: 'fixture', runStatus: 'idle', artifacts: { reading_blog: { status: 'pending', updatedAt: null }, value_analysis: { status: 'pending', updatedAt: null }, html: { status: 'pending', updatedAt: null } }, valueAnalysis: { applicable: null, direction: null, reason: null }, verificationLevel: 'paper_reading', warnings: [], error: null });
+    if (/\/library\/sources\/[^/]+\/blog$/.test(path)) return ok({ sourceId: path.split('/')[3], generated: false, methodVersion: 'fixture', runStatus: 'idle', artifacts: { reading_blog: { status: 'pending', updatedAt: null }, html: { status: 'pending', updatedAt: null } }, warnings: [], error: null });
     if (path === '/library/inbox' || path === '/library/batches') return ok([]);
     throw new Error(`Unexpected mock request: ${request.method()} ${path}`);
   });

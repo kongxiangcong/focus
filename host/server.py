@@ -151,8 +151,8 @@ class Handler(BaseHTTPRequestHandler):
             result = service.blog_generate(source_id, request_id=request_id)
         else:
             artifact = payload.get('artifact')
-            if artifact not in ('value_analysis', 'reading_blog', 'html', 'all'):
-                raise ValueError('A blog artifact is required')
+            if artifact not in ('reading_blog', 'html', 'all'):
+                raise ValueError('Invalid blog artifact; expected reading_blog, html, or all')
             result = service.blog_regenerate(source_id, artifact=artifact, request_id=request_id)
         self._send(202, {'ok': True, 'value': result})
         return

@@ -77,7 +77,7 @@ class BatchTests(unittest.TestCase):
     def test_blog_service_failure_pauses_and_preserves_source(self):
         def fail(**kwargs):
             raise BlogExternalError('service_unavailable', 'provider unavailable')
-        self.runtime.classify = fail
+        self.runtime.write_artifact = fail
         ids = [self.stage('one.pdf', b'%PDF blog auth'), self.stage('two.pdf', b'%PDF untouched')]
         self.request('POST', '/library/batches', {'itemIds': ids, 'requestId': 'blog-auth'})
         result = self.wait_batch('paused')
@@ -93,12 +93,12 @@ class BatchTests(unittest.TestCase):
         self.assertEqual([], self.request('GET', '/library/batches'))
 
     def test_local_blog_output_failure_continues_to_next_item(self):
-        classify = self.runtime.classify
+        write = self.runtime.write_artifact
         def fail_pdf(**kwargs):
             if (kwargs['bundle'] / 'source.pdf').exists():
                 raise RuntimeError('invalid generated JSON')
-            return classify(**kwargs)
-        self.runtime.classify = fail_pdf
+            return write(**kwargs)
+        self.runtime.write_artifact = fail_pdf
         self.runtime.reading_body = self.runtime.reading_body.replace('第 1 节指出', '文章指出').replace('Table 1', '表格')
         ids = [self.stage('one.pdf', b'%PDF local failure'), self.stage('good.html', saved_html().encode())]
         self.request('POST', '/library/batches', {'itemIds': ids, 'requestId': 'local-blog'})

@@ -29,46 +29,33 @@ from .reading_workspace import (
 )
 
 
-ARTICLE_BLOG_METHOD_VERSION = "article-blog-v1"
+ARTICLE_BLOG_METHOD_VERSION = "article-blog-v2"
 ARTICLE_BLOG_METHOD = "article-blog"
 BLOG_DIRECTORY_NAME = "blog"
 
 READING_BLOG = "reading_blog"
-VALUE_ANALYSIS = "value_analysis"
 HTML = "html"
 EVIDENCE = "evidence"
 
-#: The three sub-statuses the Workbench shows, in display order.
-DISPLAY_ARTIFACTS = (VALUE_ANALYSIS, READING_BLOG, HTML)
+#: The two sub-statuses the Workbench shows, in display order.
+DISPLAY_ARTIFACTS = (READING_BLOG, HTML)
 
 ARTIFACT_FILES = {
     READING_BLOG: "blog.md",
-    VALUE_ANALYSIS: "value-analysis.md",
     HTML: "index.html",
     EVIDENCE: "evidence",
 }
 
-EVIDENCE_FILES = ("evidence-map.md", "implementation-notes.md")
+EVIDENCE_FILES = ("evidence-map.md",)
 
 STATUS_PENDING = "pending"
 STATUS_GENERATING = "generating"
 STATUS_COMPLETED = "completed"
 STATUS_FAILED = "failed"
-STATUS_NOT_APPLICABLE = "not_applicable"
 BLOG_STATUSES = frozenset(
-    {STATUS_PENDING, STATUS_GENERATING, STATUS_COMPLETED, STATUS_FAILED, STATUS_NOT_APPLICABLE}
+    {STATUS_PENDING, STATUS_GENERATING, STATUS_COMPLETED, STATUS_FAILED}
 )
 
-#: Value Analysis applies when the paper's main contribution falls in one of these.
-VALUE_ANALYSIS_DIRECTIONS = (
-    "hardware_architecture",
-    "design_space_exploration",
-    "compiler",
-    "simulator",
-    "performance_modeling",
-)
-
-VERIFICATION_LEVELS = ("paper_reading", "static_review", "executed")
 
 PLACEHOLDERS = ("待补", "TODO", "TBD", "<your-", "问题 1：……", "贡献 1：")
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".jp2"}
@@ -83,16 +70,7 @@ READING_BLOG_SIGNALS = {
     "参考文献": ("参考文献", "References", "引用"),
 }
 
-#: Value Analysis must follow the fixed five-part main line of the method.
-VALUE_ANALYSIS_SKELETON = {
-    "研究问题": ("研究问题", "问题定义", "研究对象", "要解决"),
-    "输入输出": ("输入输出", "输入与输出", "系统边界", "输入"),
-    "模块拆解": ("模块拆解", "模块划分", "模块"),
-    "一个运行例子": ("运行例子", "运行示例", "一个例子", "推演"),
-    "贡献与边界": ("贡献与边界", "贡献", "边界"),
-}
 
-MIN_VALUE_ANALYSIS_CHARACTERS = 1500
 MAX_REFERENCE_INDEX = 200
 
 #: Validator item ④ reads the rendered document: tabs, panels, embedded resources.
@@ -161,8 +139,6 @@ def new_blog_metadata(
             name: {"status": STATUS_PENDING, "updated_at": None} for name in DISPLAY_ARTIFACTS
         },
         "evidence": {"status": STATUS_PENDING, "updated_at": None},
-        "value_analysis_applicability": {"applicable": None, "direction": None, "reason": None},
-        "verification_level": None,
         "warnings": [],
         "updated_at": _now(),
     }
@@ -171,29 +147,6 @@ def new_blog_metadata(
 def _require(condition: bool, error_id: str, message: str) -> None:
     if not condition:
         raise WorkspaceError(error_id, message)
-
-
-def validate_applicability(value: Any) -> dict[str, Any]:
-    """Normalize a Value Analysis applicability judgement.
-
-    A paper is in scope when its main contribution falls in hardware
-    architecture, DSE, compiler, simulator or performance modeling.
-    """
-    _require(isinstance(value, dict), "blog_applicability_invalid", "Value Analysis applicability is invalid")
-    applicable = value.get("applicable")
-    _require(isinstance(applicable, bool), "blog_applicability_invalid", "Value Analysis applicability must be decided")
-    direction = value.get("direction")
-    reason = value.get("reason")
-    if applicable:
-        _require(
-            isinstance(direction, str) and direction in VALUE_ANALYSIS_DIRECTIONS,
-            "blog_applicability_invalid",
-            "An applicable Value Analysis must name one of the defined directions",
-        )
-    else:
-        direction = None
-    _require(isinstance(reason, str) and reason.strip(), "blog_applicability_invalid", "The applicability judgement needs a reason")
-    return {"applicable": applicable, "direction": direction, "reason": reason.strip()}
 
 
 def validate_blog_metadata(metadata: dict[str, Any], *, source_id: str, bundle: Path | None = None) -> dict[str, Any]:
@@ -211,7 +164,7 @@ def validate_blog_metadata(metadata: dict[str, Any], *, source_id: str, bundle: 
         "Blog metadata does not name the article-blog method",
     )
     _require(
-        metadata.get("method_version") == ARTICLE_BLOG_METHOD_VERSION,
+        metadata.get("method_version") in {"article-blog-v1", ARTICLE_BLOG_METHOD_VERSION},
         "blog_method_version_invalid",
         "Blog metadata method version does not match the running article-blog method",
     )
@@ -261,8 +214,6 @@ def blog_status(workspace: Path, source_id: str) -> dict[str, Any]:
             "sourceId": source_id,
             "generated": False,
             "artifacts": {name: {"status": STATUS_PENDING, "updatedAt": None} for name in DISPLAY_ARTIFACTS},
-            "valueAnalysis": {"applicable": None, "direction": None, "reason": None},
-            "verificationLevel": None,
             "warnings": [],
             "methodVersion": None,
         }
@@ -277,8 +228,6 @@ def blog_status(workspace: Path, source_id: str) -> dict[str, Any]:
             }
             for name in DISPLAY_ARTIFACTS
         },
-        "valueAnalysis": dict(metadata.get("value_analysis_applicability", {})),
-        "verificationLevel": metadata.get("verification_level"),
         "warnings": list(metadata.get("warnings", [])),
         "methodVersion": metadata.get("method_version"),
     }
@@ -385,12 +334,12 @@ def _bundle_image_digests(bundle: Path | None) -> set[str]:
     return {_sha256(path) for path in images.rglob("*") if path.is_file()}
 
 
-def check_images(blog_dir: Path, blog_text: str, value_text: str, bundle: Path | None) -> tuple[list[str], list[str]]:
+def check_images(blog_dir: Path, blog_text: str, bundle: Path | None) -> tuple[list[str], list[str]]:
     """Validator item ②: every referenced image decodes and comes from the Bundle."""
     errors: list[str] = []
     warnings: list[str] = []
     digests = _bundle_image_digests(bundle)
-    links = [link for link in _markdown_image_links(blog_text) + _markdown_image_links(value_text) if "://" not in link]
+    links = [link for link in _markdown_image_links(blog_text) if "://" not in link]
     for link in sorted(set(links)):
         path = (blog_dir / link).resolve()
         if not path.is_file():
@@ -437,11 +386,11 @@ def _roman_section_number(number: int) -> str:
     return ''.join(result)
 
 
-def check_references(blog_text: str, value_text: str, bundle_text: str) -> tuple[list[str], list[str]]:
+def check_references(blog_text: str, bundle_text: str) -> tuple[list[str], list[str]]:
     """Validator item ③: in-text citations and anchors resolve; figure anchors warn."""
     errors: list[str] = []
     warnings: list[str] = []
-    for label, text in (("blog.md", blog_text), ("value-analysis.md", value_text)):
+    for label, text in (("blog.md", blog_text),):
         if not text.strip():
             continue
         entries = _bibliography_entries(text)
@@ -467,33 +416,22 @@ def check_references(blog_text: str, value_text: str, bundle_text: str) -> tuple
     return errors, warnings
 
 
-def check_structure(blog_text: str, value_text: str, *, require_value_analysis: bool | None) -> list[str]:
-    """Validator item ①: each article follows its own guide skeleton."""
+def check_structure(blog_text: str) -> list[str]:
+    """Validator item ①: the Reading Blog follows its guide skeleton."""
     errors: list[str] = []
     if not blog_text.strip():
         return ["blog.md is missing or empty"]
     for label, signals in READING_BLOG_SIGNALS.items():
         if not any(signal in blog_text for signal in signals):
             errors.append(f"blog.md lacks an observable {label} section")
-    if require_value_analysis is True:
-        if not value_text.strip():
-            return errors + ["value-analysis.md is missing although Value Analysis applies"]
-        for label, signals in VALUE_ANALYSIS_SKELETON.items():
-            if not any(signal in value_text for signal in signals):
-                errors.append(f"value-analysis.md lacks the {label} part of the five-part main line")
-        if len(value_text.strip()) < MIN_VALUE_ANALYSIS_CHARACTERS:
-            errors.append(f"value-analysis.md is shorter than {MIN_VALUE_ANALYSIS_CHARACTERS} characters")
     return errors
 
 
 def check_depth(
     *,
     blog_text: str,
-    value_text: str,
     evidence_text: str,
-    notes_text: str,
     bundle_text: str,
-    require_value_analysis: bool | None,
 ) -> list[str]:
     """Validator item ⑤: depth and evidence gaps that cannot be decided mechanically.
 
@@ -504,27 +442,16 @@ def check_depth(
         warnings.append("带读博客正文不足解析正文长度的 5%，请检查深度")
     if evidence_text and len(evidence_text.strip()) < 400:
         warnings.append("共享写作证据笔记过薄，关键主张可能缺少原文锚点")
-    if require_value_analysis is True and value_text and "实际运行" not in value_text and "未运行" not in notes_text:
-        warnings.append("价值分析未说明实现是否实际运行")
-    unverified = ("未运行", "未找到", "没有访问权限", "未公开", "未验证")
-    found = [marker for marker in unverified if marker in notes_text]
-    if found:
-        warnings.append(
-            "实现检索笔记记录了未核查范围（" + "、".join(found) + "）；实现相关结论只按静态阅读对待"
-        )
     return warnings
 
 
 def check_html(
     html_text: str,
-    *,
-    require_value_analysis: bool | None = None,
-    not_applicable_reason: str | None = None,
 ) -> tuple[list[str], list[str]]:
-    """Validator item ④: the artifact renders as two self-contained pages.
+    """Validator item ④: the artifact renders as a self-contained reading page.
 
     "Renders" is checked as form, not as a browser: the document must be a whole
-    HTML file, open on the Reading Blog page, offer one tab per page and carry
+    HTML file, open on the Reading Blog page, carry
     every resource inline. No quality claim is made here.
     """
     errors: list[str] = []
@@ -539,24 +466,14 @@ def check_html(
         errors.append("index.html does not close its document element")
     markup = HTML_SCRIPT_BLOCK.sub(lambda match: match.group(1) + "</script>", text)
 
-    panels: list[dict[str, str]] = []
-    tabs: list[dict[str, str]] = []
-    for tag in HTML_TAG.finditer(markup):
-        attributes = dict(HTML_ATTRIBUTE.findall(tag.group(0)))
-        (panels if tag.group(1).lower() == "section" else tabs).append(attributes)
-    if len(panels) < 2:
-        errors.append(
-            "index.html does not render two pages; the Reading Blog page and the Value Analysis page must both exist"
-        )
-    if len(tabs) != len(panels):
-        errors.append(f"index.html has {len(tabs)} tab buttons for {len(panels)} pages")
-    if [index for index, panel in enumerate(panels) if panel.get("data-active") == "true"] != [0]:
-        errors.append("index.html must open on the Reading Blog page")
-    if tabs and [tab for tab in tabs if tab.get("aria-selected") == "true"] != [tabs[0]]:
-        errors.append("index.html must select exactly one tab by default")
-    panel_ids = {panel.get("id") for panel in panels}
-    if any(tab.get("aria-controls") not in panel_ids for tab in tabs):
-        errors.append("index.html has a tab that points at no page")
+    panels = [dict(HTML_ATTRIBUTE.findall(tag.group(0))) for tag in HTML_TAG.finditer(markup)
+              if tag.group(1).lower() == "section" and 'data-kind="reading_blog"' in tag.group(0)]
+    if len(panels) != 1 or len(HTML_PANEL_BODY.findall(markup)) != 1:
+        errors.append("index.html must render exactly one Reading Blog page")
+    if panels and panels[0].get("data-active") != "true":
+        errors.append("index.html must display the Reading Blog page")
+    if 'role="tab"' in markup or 'role="tablist"' in markup:
+        errors.append("index.html must not contain artifact tabs")
 
     external = HTML_EXTERNAL_RESOURCE.search(markup)
     if external:
@@ -568,18 +485,6 @@ def check_html(
     if "data-tex" in text and "katex.render" not in text:
         errors.append("index.html contains formulas but embeds no formula renderer")
 
-    bodies = dict(HTML_PANEL_BODY.findall(markup))
-    second = bodies.get(panels[1].get("id", ""), "") if len(panels) > 1 else ""
-    if require_value_analysis is False:
-        if "not-applicable" not in second:
-            errors.append("index.html must explain on its second page why the Value Analysis does not apply")
-        elif isinstance(not_applicable_reason, str) and not_applicable_reason.strip():
-            shown = not_applicable_reason.strip()
-            if shown not in second and html.escape(shown, quote=False) not in second:
-                errors.append("index.html does not show the recorded reason for skipping the Value Analysis")
-    elif require_value_analysis is True and "not-applicable" in second:
-        errors.append("index.html shows the Value Analysis as not applicable although it applies")
-
     return errors, warnings
 
 
@@ -588,7 +493,6 @@ def validate_blog_candidate(
     *,
     bundle: Path | None = None,
     require_html: bool = False,
-    require_value_analysis: bool | None = None,
 ) -> dict[str, Any]:
     """Run the shared validator on a Blog Output candidate.
 
@@ -608,39 +512,30 @@ def validate_blog_candidate(
         errors.append("evidence/evidence-map.md is missing or empty")
 
     evidence_text = _read_text(evidence_map)
-    notes_text = _read_text(blog_dir / "evidence" / "implementation-notes.md")
     blog_text = _read_text(blog_dir / "blog.md")
-    value_text = _read_text(blog_dir / "value-analysis.md")
-
-    if require_value_analysis is False and (blog_dir / "value-analysis.md").exists():
-        errors.append("value-analysis.md exists although Value Analysis was judged not applicable")
-
     placeholders = sorted(
-        {item for item in PLACEHOLDERS if item in evidence_text or item in blog_text or item in value_text}
+        {item for item in PLACEHOLDERS if item in evidence_text or item in blog_text}
     )
     if placeholders:
         errors.append("Unresolved placeholders: " + ", ".join(placeholders))
     if blog_text and len(blog_text.strip()) < MIN_READING_BLOG_CHARACTERS:
         errors.append(f"blog.md is shorter than {MIN_READING_BLOG_CHARACTERS} characters")
 
-    errors.extend(check_structure(blog_text, value_text, require_value_analysis=require_value_analysis))
-    image_errors, image_warnings = check_images(blog_dir, blog_text, value_text, bundle)
+    errors.extend(check_structure(blog_text))
+    image_errors, image_warnings = check_images(blog_dir, blog_text, bundle)
     errors.extend(image_errors)
     warnings.extend(image_warnings)
 
     bundle_text = _read_text(Path(bundle).resolve() / "content.md") if bundle is not None else ""
-    reference_errors, reference_warnings = check_references(blog_text, value_text, bundle_text)
+    reference_errors, reference_warnings = check_references(blog_text, bundle_text)
     errors.extend(reference_errors)
     warnings.extend(reference_warnings)
 
     warnings.extend(
         check_depth(
             blog_text=blog_text,
-            value_text=value_text,
             evidence_text=evidence_text,
-            notes_text=notes_text,
             bundle_text=bundle_text,
-            require_value_analysis=require_value_analysis,
         )
     )
 
@@ -656,14 +551,7 @@ def validate_blog_candidate(
             html_chars = len(rendered)
             if len(rendered.strip()) < 1000:
                 errors.append("index.html is incomplete")
-            applicability = read_blog_metadata(blog_dir) or {}
-            judgement = applicability.get("value_analysis_applicability")
-            judgement = judgement if isinstance(judgement, dict) else {}
-            html_errors, html_warnings = check_html(
-                rendered,
-                require_value_analysis=require_value_analysis,
-                not_applicable_reason=judgement.get("reason") if isinstance(judgement.get("reason"), str) else None,
-            )
+            html_errors, html_warnings = check_html(rendered)
             errors.extend(html_errors)
             warnings.extend(html_warnings)
             stripped = HTML_SCRIPT_BLOCK.sub(lambda match: match.group(1) + "</script>", rendered)
@@ -681,7 +569,6 @@ def validate_blog_candidate(
         "warnings": warnings,
         "metrics": {
             "blog_characters": len(blog_text),
-            "value_analysis_characters": len(value_text),
             "evidence_characters": len(evidence_text),
             "html_characters": html_chars,
             "html_panels": html_panels,
@@ -689,7 +576,7 @@ def validate_blog_candidate(
             "source_characters": len(bundle_text),
             "asset_count": asset_count,
             "referenced_images": len(
-                [link for link in _markdown_image_links(blog_text) + _markdown_image_links(value_text) if "://" not in link]
+                [link for link in _markdown_image_links(blog_text) if "://" not in link]
             ),
         },
     }
@@ -759,7 +646,7 @@ class BlogCore:
             raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {source_id}")
         metadata = _read_document(candidate / "metadata.json")
         validate_blog_metadata(metadata, source_id=source_id, bundle=bundle)
-        for relative in ("evidence/evidence-map.md", "evidence/implementation-notes.md", "metadata.json"):
+        for relative in ("evidence/evidence-map.md", "metadata.json"):
             if not (candidate / relative).is_file():
                 raise WorkspaceError("blog_candidate_invalid", f"Blog candidate is missing: {relative}")
         root = blog_root(self.workspace, source_id)
@@ -798,8 +685,6 @@ class BlogCore:
         writer_id: str,
         request_id: str,
         warnings: list[str] | None = None,
-        applicability: dict[str, Any] | None = None,
-        verification_level: str | None = None,
     ) -> dict[str, Any]:
         """Write generated artifacts into an existing Blog Output directory.
 
@@ -839,12 +724,12 @@ class BlogCore:
                     metadata.setdefault("artifacts", {})[name] = {"status": status, "updated_at": _now()}
             if warnings is not None:
                 metadata["warnings"] = list(warnings)
-            if applicability is not None:
-                metadata["value_analysis_applicability"] = dict(applicability)
-            if verification_level is not None:
-                if verification_level not in VERIFICATION_LEVELS:
-                    raise WorkspaceError("blog_verification_level_invalid", "Verification level is invalid")
-                metadata["verification_level"] = verification_level
+            # Upgrade only on an explicit, successful artifact publication. Legacy files stay on disk.
+            if files:
+                metadata["method_version"] = ARTICLE_BLOG_METHOD_VERSION
+                metadata["artifacts"] = {name: metadata["artifacts"][name] for name in DISPLAY_ARTIFACTS}
+                metadata.pop("value_analysis_applicability", None)
+                metadata.pop("verification_level", None)
             metadata["updated_at"] = _now()
             validate_blog_metadata(metadata, source_id=source_id)
             _write_document(root / "metadata.json", metadata)

@@ -156,7 +156,7 @@ class BatchConfigurationTests(unittest.TestCase):
         class WaitingHarness(HarnessBlog):
             def run(self, prompt, **options):
                 calls.append('deepseek')
-                if len(calls) == 7:  # three classify + blog pairs are complete
+                if len(calls) == 4:  # three reading blogs are complete
                     self.waiting = True
                     entered.set()
                     release.wait(20)
@@ -205,7 +205,7 @@ class BatchConfigurationTests(unittest.TestCase):
                     self.assertFalse(worker.is_alive())
                 result = self.request('GET', '/library/batches')[0]
                 self.assertEqual('completed', result['status'], result)
-                self.assertEqual(2, calls.count('codex'))
+                self.assertEqual(1, calls.count('codex'))
                 self.assertEqual(preserved, {p: Path(p).read_bytes() for p in preserved})
             finally:
                 release.set()

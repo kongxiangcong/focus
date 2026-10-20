@@ -120,8 +120,8 @@ results.push('T5 review reaches frontier then advances exactly once');
 // Deterministic published blog fixture: this suite verifies the UI, not model generation.
 await page.route('**/library/sources/fixture-paper/blog',route=>route.fulfill({json:{ok:true,value:{
  sourceId:'fixture-paper',generated:true,runStatus:'completed',methodVersion:'ui-fixture',
- artifacts:{value_analysis:{status:'completed'},reading_blog:{status:'completed'},html:{status:'completed'}},
- valueAnalysis:{applicable:true,reason:''},verificationLevel:'paper_reading',warnings:[],error:null
+ artifacts:{reading_blog:{status:'completed'},html:{status:'completed'}},
+ warnings:[],error:null
 }}}));
 await page.route('**/library/sources/fixture-paper/blog/html',route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><body><h1>Published blog fixture</h1><p>Readable content for viewer layout verification.</p></body></html>'}));
 // One disclosure owns all upload history; it starts hidden even with multiple batches.

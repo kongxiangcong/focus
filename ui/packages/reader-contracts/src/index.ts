@@ -48,24 +48,21 @@ export interface ReaderSource {
   topicId: string | null;
 }
 
-export type BlogArtifactName = "value_analysis" | "reading_blog" | "html";
+export type BlogArtifactName = "reading_blog" | "html";
 export type BlogRegenerationTarget = BlogArtifactName | "all";
 
 export type BlogArtifactStatus =
   | "pending"
   | "generating"
   | "completed"
-  | "failed"
-  | "not_applicable";
+  | "failed";
 
-/** One Blog Output: the two Markdown artifacts plus the merged single-file page. */
+/** One Blog Output: the Reading Blog and its single-file HTML page. */
 export interface BlogStatus {
   attemptId?: string | null;
   sourceId: string;
   generated: boolean;
   artifacts: Record<BlogArtifactName, { status: BlogArtifactStatus; updatedAt: string | null }>;
-  valueAnalysis: { applicable: boolean | null; direction: string | null; reason: string | null };
-  verificationLevel: string | null;
   warnings: readonly string[];
   methodVersion: string | null;
   runStatus?: string | null;

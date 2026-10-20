@@ -43,6 +43,6 @@ export function blogSummary(blog?: BlogStatus): { label: string; tone: Tone } {
   const artifacts = Object.values(blog.artifacts ?? {});
   if (blog.executing || blog.runStatus === "running" || artifacts.some(a => a.status === "generating")) return { label: "生成中", tone: "accent" };
   if (blog.error || artifacts.some(a => a.status === "failed")) return { label: "部分失败", tone: "danger" };
-  if (blog.generated && artifacts.length > 0 && artifacts.every(a => a.status === "completed" || a.status === "not_applicable")) return { label: "已完成", tone: "success" };
+  if (blog.generated && artifacts.length > 0 && artifacts.every(a => a.status === "completed")) return { label: "已完成", tone: "success" };
   return { label: "未生成", tone: "muted" };
 }

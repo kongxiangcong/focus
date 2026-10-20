@@ -32,7 +32,7 @@ from core.workspace_lifecycle import WorkspaceLease, create_workspace
 from core.source_management import SourceManagement
 
 #: The Workbench offers one retry entry per artifact, named by granularity.
-BLOG_ARTIFACT_LABELS = {'value_analysis': '重新生成价值分析', 'reading_blog': '重新生成带读博客', 'html': '重新生成 HTML'}
+BLOG_ARTIFACT_LABELS = {'reading_blog': '重新生成带读博客', 'html': '重新生成 HTML'}
 
 ACTIVE = ('running', 'approval', 'stopping')
 SKILLS = ('article-parser', 'focus-map', 'focus-read')

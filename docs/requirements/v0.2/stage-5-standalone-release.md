@@ -26,7 +26,7 @@
 
 第一轮 Q1–Q3 已确认：独立网页正式入口为 PDF 与用户保存的单文件 HTML；直接 URL 输入不计入本阶段交付，不新增网页采集能力。现有 Markdown 导入保留回归，不新增正式入口。2026-09-26 用户进一步确定：PDF 保留远端 MinerU，HTML 改为本地 Mozilla Readability 与图片封装；不考虑本地 MinerU 部署。
 
-Reading Blog 对两种来源均为必需产物；Value Analysis 按内容适用性而非文件格式判断，涉及硬件架构、DSE、编译器、仿真器或性能建模且有足够原文依据时生成，否则说明不适用理由。页面统一称“架构价值分析”；非论文材料解释工程设计与边界，不虚构实验或研究贡献。此决定扩展 ADR 0013 的来源适用范围，保留其条件产物、失败重试及合并 HTML 规则。
+Reading Blog 对 Paper Source 和 Article Source 均适用，生成 blog.md 与单页自包含 HTML；现行契约见 ADR 0029。
 
 #### 验收出口
 

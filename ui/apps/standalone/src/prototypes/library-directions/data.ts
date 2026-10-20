@@ -7,7 +7,6 @@ export type BlogDemo = {
   generated: boolean;
   running?: boolean;
   artifacts: Record<BlogArtifactName, BlogArtifactStatus>;
-  valueAnalysisReason?: string;
 };
 
 export type DemoSource = LibrarySource & {
@@ -25,9 +24,9 @@ export type DemoIngestion = {
   failed?: string;
 };
 
-const blogNone: BlogDemo = { generated: false, artifacts: { value_analysis: "pending", reading_blog: "pending", html: "pending" } };
-const blogDone: BlogDemo = { generated: true, artifacts: { value_analysis: "completed", reading_blog: "completed", html: "completed" } };
-const blogNoValue: BlogDemo = { generated: true, artifacts: { value_analysis: "not_applicable", reading_blog: "completed", html: "completed" }, valueAnalysisReason: "来源不涉及硬件架构、DSE、编译器、仿真器或性能建模。" };
+const blogNone: BlogDemo = { generated: false, artifacts: { reading_blog: "pending", html: "pending" } };
+const blogDone: BlogDemo = { generated: true, artifacts: { reading_blog: "completed", html: "completed" } };
+const blogReady: BlogDemo = { generated: true, artifacts: { reading_blog: "completed", html: "completed" } };
 
 function source(partial: Partial<DemoSource> & Pick<DemoSource, "sourceId" | "title" | "kind">): DemoSource {
   return {
@@ -53,10 +52,10 @@ export const initialSources: DemoSource[] = [
     topicIds: ["accelerator"], blog: blogDone }),
   source({ sourceId: "timeloop-paper", kind: "paper", title: "Timeloop: A Systematic Approach to DNN Accelerator Evaluation", displayTitle: "Timeloop",
     venue: "ISPASS", publishedAt: "2019", progress: { completed: 5, total: 26, planId: "plan-002", chunkId: "c006" }, readingStatus: "reading", noteCount: 2,
-    topicIds: ["accelerator", "compiler-dse"], blog: { generated: true, artifacts: { value_analysis: "completed", reading_blog: "failed", html: "pending" } } }),
+    topicIds: ["accelerator", "compiler-dse"], blog: { generated: true, artifacts: { reading_blog: "failed", html: "pending" } } }),
   source({ sourceId: "accelforge-paper", kind: "paper", title: "AccelForge: Generating Accelerator Mappings with Learned Cost Models and Constraint Programming", displayTitle: "AccelForge",
     venue: "MICRO", publishedAt: "2025", progress: { completed: 0, total: 0, planId: null, chunkId: null }, readingStatus: "unplanned",
-    topicIds: ["accelerator"], blog: { generated: true, running: true, artifacts: { value_analysis: "completed", reading_blog: "generating", html: "pending" } },
+    topicIds: ["accelerator"], blog: { generated: true, running: true, artifacts: { reading_blog: "generating", html: "pending" } },
     preparing: { completed: 14, total: 33 } }),
   source({ sourceId: "maestro-paper", kind: "paper", title: "MAESTRO: A Data-Centric Approach to Understand Reuse, Performance, and Hardware Cost of DNN Mappings", displayTitle: "MAESTRO",
     venue: "IEEE Micro", publishedAt: "2020", progress: { completed: 0, total: 22, planId: "plan-001", chunkId: "c001" }, readingStatus: "ready",
@@ -72,13 +71,13 @@ export const initialSources: DemoSource[] = [
     topicIds: ["compiler-dse"] }),
   source({ sourceId: "kv-cache-article", kind: "article", title: "大模型推理中的 KV Cache：从原理到 PagedAttention", format: "HTML",
     publishedAt: "2024-03-12", venue: "知乎", progress: { completed: 18, total: 18, planId: "plan-001", chunkId: null }, readingStatus: "completed", noteCount: 3,
-    topicIds: ["zh-blogs"], blog: blogNoValue }),
+    topicIds: ["zh-blogs"], blog: blogReady }),
   source({ sourceId: "moe-article", kind: "article", title: "混合专家模型（MoE）的路由、负载均衡与通信开销", format: "HTML",
     publishedAt: "2024-08-02", venue: "微信公众号", progress: { completed: 2, total: 15, planId: "plan-001", chunkId: "c003" }, readingStatus: "reading", noteCount: 1,
     topicIds: ["zh-blogs"], blog: blogNone }),
   source({ sourceId: "hbm-article", kind: "article", title: "HBM 带宽为什么总是不够用", format: "Markdown",
     publishedAt: "2025-01-20", progress: { completed: 0, total: 9, planId: "plan-001", chunkId: "c001" }, readingStatus: "ready",
-    topicIds: ["zh-blogs"], blog: blogNoValue }),
+    topicIds: ["zh-blogs"], blog: blogReady }),
   source({ sourceId: "roofline-paper", kind: "paper", title: "Roofline: An Insightful Visual Performance Model for Multicore Architectures", displayTitle: "Roofline 模型",
     venue: "CACM", publishedAt: "2009", progress: { completed: 0, total: 12, planId: "plan-001", chunkId: "c001" }, readingStatus: "ready", noteCount: 0, blog: blogDone }),
   source({ sourceId: "systolic-article", kind: "article", title: "一文看懂脉动阵列（Systolic Array）", format: "HTML",

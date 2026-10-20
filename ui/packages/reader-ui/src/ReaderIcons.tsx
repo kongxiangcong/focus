@@ -13,3 +13,7 @@ export function ArrowRight() { return <Icon><path d="M3 8h10M9 4l4 4-4 4"/></Ico
 export function ChevronDown() { return <Icon><path d="m4 6 4 4 4-4"/></Icon>; }
 export function ArrowUp() { return <Icon><path d="M8 13V3M4 7l4-4 4 4"/></Icon>; }
 export function StopSquare() { return <Icon><rect x="4" y="4" width="8" height="8" rx="1" fill="currentColor" stroke="none"/></Icon>; }
+
+export function Widen() { return <Icon><path d="M2 8h12M5 5 2 8l3 3m6-6 3 3-3 3"/></Icon>; }
+export function Narrow() { return <Icon><path d="M1 8h5m-3-3 3 3-3 3m12-3h-5m3-3-3 3 3 3"/></Icon>; }
+export function Close() { return <Icon><path d="m4 4 8 8m0-8-8 8"/></Icon>; }

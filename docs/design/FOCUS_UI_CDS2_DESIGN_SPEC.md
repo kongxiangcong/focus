@@ -77,7 +77,7 @@ FOCUS 开始调研时已有 6 个业务/测试文件修改：`.agents/core/artic
 | 阅读正文 | 原文/译文、结构导读、统一时间线 | 取消浮雕玻璃卡片，正文成为视觉中心 | 开始/继续/回看/完成与 Cursor 一致；缓存内容直接呈现 |
 | 讨论 | 用户消息、回复、输入、任务审批 | CDS 消息流、Composer Dock | SSE 真实增量、草稿引用、重试身份、审批和停止 |
 | 资料 | 图片/笔记/进度/讨论共用左抽屉 | 统一 Aside/Tab/编辑器 | 不挤正文；草稿保留；图片归属当前 Source |
-| 博客 | 三产物状态及模态 iframe 查看 | 产物预览卡、统一查看器 | Reading Blog/Value Analysis/HTML 分别报告；不适用有原因 |
+| 博客 | 两项产物状态及模态 iframe 查看 | 产物预览卡、统一查看器 | Reading Blog/HTML 分别报告 |
 | 设置 | 字号、字体、亮度、后端 | 分组设置、深浅色与密度 | 预览/取消/保存；检查连接不等于保存配置 |
 | 全局任务 | 标题旁单入口，可展开批次与单任务 | TurnStatusStep/Disclosure 风格 | 默认收起、取消单个尝试、断连不显示闲置 |
 
@@ -204,7 +204,7 @@ FOCUS 当前正式 Mist 阅读不展示上传附件（MistReader 测试有此约
 
 任务面板采用 TurnStatusStep、状态点、Accordion 和必要的 Banner。只有真实 running 状态有呼吸反馈；approval 明确等待用户；stopping 不显示完成；断连保留最后状态并标为未知；失败保留恢复入口。没有百分比就使用不定进度和已用时间。
 
-Reading Preparation 的关闭提示与取消工作必须是两个动作。博客的 Value Analysis 不适用显示原因，不能显示为永远 pending。成功信息可安静收敛；失败和审批不自动消失，也不只留一个短暂 toast。（F2、F4、TaskProgress.tsx）
+Reading Preparation 的关闭提示与取消工作必须是两个动作。成功信息可安静收敛；失败和审批不自动消失，也不只留一个短暂 toast。（F2、F4、TaskProgress.tsx）
 
 ### 5.7 设置、进入与博客查看
 

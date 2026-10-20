@@ -1,4 +1,4 @@
-import { PanelLeft, Pin, Plus, Expand, Collapse, ArrowRight, ArrowUp, StopSquare, ChevronDown } from "./ReaderIcons";
+import { PanelLeft, Pin, Plus, Expand, Collapse, ArrowRight, ArrowUp, StopSquare, ChevronDown, Widen, Narrow, Close } from "./ReaderIcons";
 import { createReaderId, cursorReceipt, type ReaderChunk, type ReaderAttachment, type ReaderHost, type ReadingWindow,
   type ReaderHostResult, type SendReaderMessageInput, type ContinueReadingInput, type SourceNote, type ReadingProgressEntry } from "@focus/reader-contracts";
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -18,7 +18,7 @@ import { chunkFigures, figureChunk, extractFigures, figureNumber, imageIdentity,
 type DraftReference = ReaderChunk & { excerpt?: string };
 type Upload = { id: string; file: File; state: "uploading" | "ready" | "failed"; attachment?: ReaderAttachment; error?: string };
 type Failure = { message: string; label: string; retry: () => void };
-export interface FocusReaderProps { host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
+export interface FocusReaderProps { host: ReaderHost; appearance?: "mist" | "conversation"; standardWidth?: number; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
 
 // Capture entry eligibility only on mount, never on streaming updates.
 function TimelineEvent({ identity, fresh, current, streaming, children }: { identity: string; fresh: boolean; current: boolean; streaming?: boolean; children: ReactNode }) {
@@ -48,12 +48,16 @@ export function groupReadingDiscussion<C extends { chunkId: string }>(
   return groups;
 }
 
-export function FocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange }: FocusReaderProps) {
+export function FocusReader({ host, appearance = "conversation", standardWidth = 1040, fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange }: FocusReaderProps) {
   const mist = appearance === "mist";
   const [attachDiscussion, setAttachDiscussion] = useState(() => {
     try { return localStorage.getItem("focus.attachDiscussion") === "true"; } catch { return false; }
   });
+  const [wideReading, setWideReading] = useState(() => {
+    try { return localStorage.getItem("focus.wideReading") === "true"; } catch { return false; }
+  });
   const [readerShift, setReaderShift] = useState(0);
+  const [availableWidth, setAvailableWidth] = useState(0);
   const [readingWidth, setReadingWidth] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
   const [structureOpen, setStructureOpen] = useState(false);
@@ -64,7 +68,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [selection, setSelection] = useState<{ chunk: ReaderChunk; text: string; x: number; y: number } | null>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [reference, setReference] = useState<DraftReference | null>(null);
+  const [reference, setReference] = useState<DraftReference | null | undefined>(undefined);
   const [sideMode, setSideMode] = useState<"figures" | "notes" | "progress" | "discussion" | null>(null);
   const materialsOpen = sideMode === "notes" || sideMode === "progress" || sideMode === "discussion";
   const lastSideMode = useRef(sideMode);
@@ -79,7 +83,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     try { return Math.max(35, Math.min(75, Number(localStorage.getItem("focus.readerTextShare")) || 60)); } catch { return 60; }
   });
   const layout = useRef<HTMLDivElement>(null);
-  const drafts = useRef<Record<string, { text: string; reference: DraftReference | null; noteId: string | null; note: string; noteRevision: number | null; progressId: string | null; progress: string; progressRevision: number | null }>>({});
+  const drafts = useRef<Record<string, { text: string; reference: DraftReference | null | undefined; noteId: string | null; note: string; noteRevision: number | null; progressId: string | null; progress: string; progressRevision: number | null }>>({});
   const mutationIds = useRef(new Map<string, string>());
   function mutationId(key: string) { if (!mutationIds.current.has(key)) mutationIds.current.set(key, createReaderId()); return mutationIds.current.get(key)!; }
   const draftOwner = useRef("");
@@ -119,7 +123,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
 
   function clearSessionUI() {
     epoch.current += 1;
-    setDraft(""); setUploads([]); setSelection(null); setViewer(null); setReference(null); setReviewChunk(null); setFailure(null); setPanel(null);
+    setDraft(""); setUploads([]); setSelection(null); setViewer(null); setReference(undefined); setReviewChunk(null); setFailure(null); setPanel(null);
     setDiscussionFocus(null);
     setEditingNoteId(null); setEditDraft(""); setEditBaseRevision(null); setNoteError(""); setNoteConflict(null);
     setEditingProgressId(null); setProgressDraft(""); setProgressBaseRevision(null); setProgressConflict(null); setProgressError(""); follow.current = true;
@@ -278,14 +282,14 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     if (!root || !column) return;
     const measure = () => {
       const width = column.offsetWidth, area = root.clientWidth;
-      const shift = sideMode && mist && area >= width + 448 ? Math.max(0, 424 - (area - width) / 2) : 0;
+      const shift = sideMode && mist && wideReading && area >= width + 448 ? Math.max(0, 424 - (area - width) / 2) : 0;
       setReaderShift(shift);
     };
     measure();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
     observer?.observe(root); observer?.observe(column);
     return () => observer?.disconnect();
-  }, [sideMode, mist]);
+  }, [sideMode, mist, wideReading]);
   function preserveReading(change: () => void) {
     scrolling.controller.current?.hold();
     change();
@@ -324,9 +328,9 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   useLayoutEffect(() => {
     const pane = stream.current;
     if (!pane || !mist) return;
-    let previousWidth = pane.clientWidth;
-    setReadingWidth(previousWidth);
+    let previousWidth = 0;
     const measure = () => {
+      setAvailableWidth((layout.current?.clientWidth ?? pane.offsetWidth) - (pane.offsetWidth - pane.clientWidth));
       if (pane.clientWidth === previousWidth) return;
       scrolling.controller.current?.hold();
       previousWidth = pane.clientWidth; setReadingWidth(previousWidth);
@@ -334,6 +338,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     measure();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
     observer?.observe(pane);
+    if (layout.current) observer?.observe(layout.current);
     return () => observer?.disconnect();
   }, [mist]);
   useLayoutEffect(() => {
@@ -383,11 +388,12 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     pendingQuestion.current = view.conversation.filter(m => m.role === "user").at(-1)?.messageId ?? null;
     setDiscussionFocus(displayed ? chunkKey(displayed) : null);
     follow.current = true;
-    const selected = explicitReference ?? reference ?? reviewChunk ?? displayed;
+    // undefined uses the reading context; null is an explicitly removed reference.
+    const selected = explicitReference ?? (reference === null ? null : reference ?? reviewChunk ?? displayed);
     const attachmentIds = (includeAttachments ? uploads : []).flatMap(u => u.attachment ? [u.attachment.attachmentId] : []);
     const sentUploads = (includeAttachments ? uploads : []).filter(u => u.state === "ready").map(u => u.id);
     const input: SendReaderMessageInput = {
-      sessionId: view.sessionId, receipt: selected ? { sourceId: selected.sourceId, planId: selected.planId, chunkId: selected.chunkId } : visibleChunks.some(c => current && chunkKey(c) === chunkKey(current)) ? cursorReceipt(view) : null,
+      sessionId: view.sessionId, receipt: selected ? { sourceId: selected.sourceId, planId: selected.planId, chunkId: selected.chunkId } : reference === null ? null : visibleChunks.some(c => current && chunkKey(c) === chunkKey(current)) ? cursorReceipt(view) : null,
       content: clear && reference?.excerpt ? `> ${reference.excerpt.replace(/\n/g, "\n> ")}\n\n${content.trim()}` : content.trim(), attachmentIds,
       sourceId: selected?.sourceId ?? (view.source.sourceId || undefined),
     };
@@ -397,7 +403,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     }, () => {
       if (clear && draftRef.current === content) setDraft("");
       setUploads(old => old.filter(u => !sentUploads.includes(u.id)));
-      if (clear) setReference(null); setPanel(null);
+      if (clear) setReference(undefined); setPanel(null);
     });
   }
   function next() {
@@ -450,7 +456,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   function finish() {
     if (!view || !current || blocked || reviewChunk || current.index !== current.total || !host.finishReading) return;
     const input = { receipt: cursorReceipt(view)!, sessionId: view.sessionId, requestId: createReaderId() };
-    void perform("完成本篇", () => host.finishReading!(input), () => setReference(null));
+    void perform("完成本篇", () => host.finishReading!(input), () => setReference(undefined));
   }
   function reread() {
     if (!view || blocked || !host.rereadReading || view.readingRevision === undefined) return;
@@ -459,7 +465,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     const input = { receipt: { sourceId: chunk.sourceId, planId: chunk.planId,
       chunkId: current?.chunkId ?? null, readingRevision: view.readingRevision },
       sessionId: view.sessionId, requestId: createReaderId() };
-    void perform("从头重读", () => host.rereadReading!(input), () => { setReviewChunk(null); setReference(null); });
+    void perform("从头重读", () => host.rereadReading!(input), () => { setReviewChunk(null); setReference(undefined); });
   }
   async function changeNote(note: SourceNote, action: "edit" | "delete" | "undo", expectedRevision = note.revision) {
     if (!host.changeSourceNote || !view) return;
@@ -542,7 +548,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     const requestId = createReaderId();
     void perform("回看", () => host.reviewChunk!(chunk.sourceId, chunk.planId, chunk.chunkId, requestId), () => {
       reviewLanding.current = true;
-      setReviewChunk(chunk.chunkId === frontier?.chunkId ? null : chunk); if (!draftRef.current) setReference(null); follow.current = true;
+      setReviewChunk(chunk.chunkId === frontier?.chunkId ? null : chunk); if (!draftRef.current) setReference(undefined); follow.current = true;
     });
   }
 
@@ -567,12 +573,12 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     });
   }
   const continueLabel = view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total) ? "已读完" : (view?.sessionFresh && view.readingStarted && frontier?.index === frontier?.total) || (!view?.sessionFresh && displayed?.index === displayed?.total && !reviewChunk) ? "完成本篇" : operation === "下一段" ? "打开中…" : "继续";
-  return <div ref={layout} data-discussion-attached={discussionAttached} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && structureOpen) {
+  return <div ref={layout} data-reading-width={wideReading ? "wide" : "standard"} data-discussion-attached={discussionAttached} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && structureOpen) {
       setStructureOpen(false); layout.current?.querySelector<HTMLButtonElement>(".reader-location-badge")?.focus({ preventScroll: true });
     } else if (event.key === "Escape" && sideMode && !(event.target as HTMLElement).closest("dialog")) {
     preserveReading(() => setSideMode(null)); event.currentTarget.querySelector<HTMLButtonElement>(mist ? ".reader-side-toggle" : ".reader-figures-toggle")?.focus({ preventScroll: true });
   } }} data-materials-open={mist && materialsOpen && !showStructure} data-side-open={!!sideMode && !showStructure} className={`focus-reader reader-split${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}
-    style={{ "--reader-shift": `${readerShift}px`, "--reader-reading-size": `${readingFontSizes[fontSize]}px`, "--reader-text-share": `${textShare}fr`, "--reader-side-share": `${100 - textShare}fr` } as CSSProperties}>
+    style={{ "--reader-column": `${standardWidth}px`, "--reader-available-width": availableWidth ? `${availableWidth}px` : "100%", "--reader-shift": `${readerShift}px`, "--reader-reading-size": `${readingFontSizes[fontSize]}px`, "--reader-text-share": `${textShare}fr`, "--reader-side-share": `${100 - textShare}fr` } as CSSProperties}>
     {!mist && <header className="focus-header">
       <span className="focus-brand">FOCUS<span>.</span></span>
       <button className="focus-title" title={view?.source.title} onClick={() => setPanel("materials")}>{view?.source.sourceId ? view.source.title : "阅读工作台"}</button>
@@ -719,7 +725,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         </div>
         <div className="focus-composer-collapse" data-collapsed={mist && collapsed} inert={mist && collapsed} aria-hidden={mist && collapsed}><div className="focus-composer-row">
           <form id="focus-composer-form" className="focus-composer" data-busy={blocked || uploading ? "true" : undefined} onSubmit={e => { e.preventDefault(); send(); }}>
-          {reference && <div className="focus-reference"><button type="button" onClick={() => jumpReference(reference, reference.excerpt ?? "")}>引用第 {reference.index} 段 · {reference.excerpt || reference.sectionPath.at(-1)}</button><button type="button" onClick={() => setReference(displayed)}>改为当前段落</button></div>}
+          {reference && <div className="focus-reference"><button type="button" onClick={() => jumpReference(reference, reference.excerpt ?? "")}>引用第 {reference.index} 段 · {reference.excerpt || reference.sectionPath.at(-1)}</button><button type="button" onClick={() => setReference(displayed)}>改为当前段落</button><button type="button" className="focus-reference-remove" aria-label="取消段落引用" title="取消段落引用" onClick={() => { setReference(null); composer.current?.focus({ preventScroll: true }); }}><Close /></button></div>}
           {uploads.length > 0 && <ul className="focus-attachments">{uploads.map(u => <li key={u.id}>
             <span title={u.file.name}>{u.file.name}</span><small>{u.state === "uploading" ? "上传中" : u.state === "failed" ? "上传失败" : "已上传"}</small>
             {u.state === "failed" && <button type="button" title={u.error} onClick={() => void upload(u.file, u.id)}>重试上传</button>}
@@ -728,7 +734,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
           <label className="focus-sr-only" htmlFor="focus-question">输入问题或阅读需求</label>
           <span id="focus-question-hint" className="focus-sr-only">Enter 发送，Shift+Enter 换行</span>
           <textarea id="focus-question" aria-describedby="focus-question-hint" ref={composer} rows={1} disabled={blocked} value={draft} placeholder="问问这段原文…"
-            onChange={e => { if (!draft && e.target.value && !reference) setReference(displayed); setDraft(e.target.value); }} onKeyDown={e => {
+            onChange={e => { if (!draft && e.target.value && reference === undefined) setReference(displayed); setDraft(e.target.value); }} onKeyDown={e => {
               if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) { e.preventDefault(); send(); }
             }} />
           <div className="focus-composer__actions">
@@ -759,6 +765,10 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
           scrolling.controller.current?.jump(target);
         }
       }}>回到进度</button>}
+      <button className="reader-width-toggle" aria-label={wideReading ? "标准" : "宽幅"} title={wideReading ? "切换到标准阅读宽度" : "切换到宽幅阅读"} onClick={() => preserveReading(() => {
+        const next = !wideReading; setWideReading(next);
+        try { localStorage.setItem("focus.wideReading", String(next)); } catch { /* In-memory fallback. */ }
+      })}>{wideReading ? <Narrow /> : <Widen />}<span className="mist-action-label">{wideReading ? "标准" : "宽幅"}</span></button>
       <button className="reader-attach-toggle" aria-pressed={attachDiscussion} title={attachTitle} onClick={() => preserveReading(() => {
         const next = !attachDiscussion; setAttachDiscussion(next);
         try { localStorage.setItem("focus.attachDiscussion", String(next)); } catch { /* In-memory fallback. */ }

@@ -9,9 +9,8 @@ const empty: ReadingWindow = { status: "empty", current: null, history: [], conv
 function blogStatus(overrides: Partial<BlogStatus> = {}, artifacts: Partial<Record<BlogArtifactName, { status: BlogStatus["artifacts"]["html"]["status"]; updatedAt: string | null }>> = {}): BlogStatus {
   return {
     sourceId: "a-paper", generated: true, methodVersion: "article-blog-v1", runStatus: "completed",
-    artifacts: { value_analysis: { status: "completed", updatedAt: "2026-09-24T00:00:00Z" }, reading_blog: { status: "completed", updatedAt: "2026-09-24T00:00:00Z" }, html: { status: "completed", updatedAt: "2026-09-24T00:00:00Z" }, ...artifacts },
-    valueAnalysis: { applicable: true, direction: "design_space_exploration", reason: "主贡献是设计变量与搜索选择" },
-    verificationLevel: "paper_reading", warnings: [], error: null, ...overrides,
+    artifacts: { reading_blog: { status: "completed", updatedAt: "2026-09-24T00:00:00Z" }, html: { status: "completed", updatedAt: "2026-09-24T00:00:00Z" }, ...artifacts },
+    warnings: [], error: null, ...overrides,
   };
 }
 function setup(initialInbox: readonly IngestionItem[] = [], initialWindow: ReadingWindow = empty) {
@@ -343,7 +342,8 @@ it("generates a blog from the source card and shows the three sub-statuses", asy
   fireEvent.click(await screen.findByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "生成博客" }));
   await waitFor(() => expect(host.generateBlog).toHaveBeenCalledWith("a-paper", expect.any(String)));
-  expect(await screen.findByText("价值分析")).toBeInTheDocument();
+  expect(await screen.findByText("带读博客")).toBeInTheDocument();
+  expect(screen.queryByText("价值分析")).not.toBeInTheDocument();
   expect(screen.getByText("带读博客")).toBeInTheDocument();
   expect(screen.getByText("HTML")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "打开博客" })).toBeEnabled();
@@ -367,15 +367,14 @@ it("cancels a running blog through the shared host contract", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "取消生成" }));
   await waitFor(() => expect(host.cancelBlog).toHaveBeenCalledWith("a-paper"));
 });
-it("explains a skipped value analysis instead of showing it as pending", async () => {
+it("keeps internal generation warnings out of the reading surface", async () => {
   const { host } = setup();
   host.generateBlog = vi.fn(async () => readerSuccess(blogStatus({
-    valueAnalysis: { applicable: false, direction: null, reason: "主贡献是数据集与训练技巧" },
     warnings: ["本次运行环境无网络，未检索论文内链接与官方仓库"],
-  }, { value_analysis: { status: "not_applicable", updatedAt: null } })));
+  })));
   fireEvent.click(await screen.findByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "生成博客" }));
-  expect(await screen.findByText(/架构价值分析不适用：主贡献是数据集与训练技巧/)).toBeInTheDocument();
+  expect(screen.queryByText(/架构价值分析不适用/)).not.toBeInTheDocument();
   expect(screen.queryByText(/降级与证据缺口：/)).not.toBeInTheDocument();
   expect(screen.queryByText(/本次运行环境无网络/)).not.toBeInTheDocument();
 });
@@ -878,4 +877,30 @@ it("opens parse problems without invoking reading and preserves double-click pri
   const action = await screen.findByRole("button", { name: "继续阅读" });
   fireEvent.doubleClick(action.closest("article")!);
   await waitFor(() => expect(host.openSource).toHaveBeenCalledTimes(1));
+});
+
+
+it("previews, restores and persists the standard reading width", async () => {
+  const { host, container } = setup();
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("link", { name: "设置" }));
+  const width = () => screen.getByRole("slider", { name: "标准阅读宽度" });
+  expect(width()).toHaveValue("1040");
+  fireEvent.change(width(), { target: { value: "1200" } });
+  expect(container.querySelector<HTMLElement>(".focus-reader")!.style.getPropertyValue("--reader-column")).toBe("1200px");
+  expect(localStorage.getItem("focus.standardWidth")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "还原外观" }));
+  expect(width()).toHaveValue("1040");
+  fireEvent.change(width(), { target: { value: "1200" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存外观" }));
+  expect(localStorage.getItem("focus.standardWidth")).toBe("1200");
+  cleanup(); render(<WorkspaceApp host={host} />);
+  expect(width()).toHaveValue("1200");
+});
+
+it("ignores a nonnumeric saved standard width", () => {
+  localStorage.setItem("focus.standardWidth", "invalid");
+  history.replaceState(null, "", "/settings");
+  setup();
+  expect(screen.getByRole("slider", { name: "标准阅读宽度" })).toHaveValue("1040");
 });

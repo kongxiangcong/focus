@@ -93,12 +93,9 @@ class HarnessInteraction(HarnessCandidates):
 class HarnessBlog(HarnessCandidates):
     def run(self, prompt, **options):
         from test_blog_application import READING_BLOG_BODY, EVIDENCE_BODY
-        if 'applicable=true' in prompt:
-            result = {'applicable': False, 'direction': None, 'reason': '测试非架构来源。'}
-        else:
-            assets = re.search('可用图片文件名：(.*?)\\n', prompt).group(1).split(', ')
-            body = READING_BLOG_BODY.replace('assets/image-001.png', 'assets/' + assets[0])
-            result = {'evidence_map': EVIDENCE_BODY, 'blog': body}
+        assets = re.search('可用图片文件名：(.*?)\\n', prompt).group(1).split(', ')
+        body = READING_BLOG_BODY.replace('assets/image-001.png', 'assets/' + assets[0])
+        result = {'evidence_map': EVIDENCE_BODY, 'blog': body}
         return SimpleNamespace(final_response=json.dumps(result), finish_reason='completed', events=[])
 
 

@@ -109,21 +109,21 @@ class SingleIngestionTests(unittest.TestCase):
         self.assertEqual(1, len(self.request('GET', '/library/sources')))
         self.assertEqual([], self.runtime.calls)
 
-    def test_classification_service_failure_is_persisted_and_recoverable(self):
-        original = self.runtime.classify
+    def test_writing_service_failure_is_persisted_and_recoverable(self):
+        original = self.runtime.write_artifact
         def fail(**kwargs):
             raise RuntimeError('provider unavailable')
-        self.runtime.classify = fail
-        item = self.request('POST', '/library/inbox?name=test.pdf&topic=Systems', b'%PDF classification')
-        self.request('POST', '/library/inbox/' + item['item_id'] + '/start', {'requestId': 'classify-fail'})
+        self.runtime.write_artifact = fail
+        item = self.request('POST', '/library/inbox?name=test.pdf&topic=Systems', b'%PDF writing')
+        self.request('POST', '/library/inbox/' + item['item_id'] + '/start', {'requestId': 'writing-fail'})
         item, status = self.wait_blog(item['item_id'], 'failed')
-        self.assertEqual('blog_classification_failed', status['error']['error_id'])
+        self.assertEqual('blog_runtime_failed', status['error']['error_id'])
         self.stop_host()
         self.start_host()
         status = self.request('GET', '/library/sources/' + item['source_id'] + '/blog')
         self.assertEqual('failed', status['runStatus'])
-        self.runtime.classify = original
-        self.request('POST', '/library/sources/' + item['source_id'] + '/blog/generate', {'requestId': 'classify-retry'})
+        self.runtime.write_artifact = original
+        self.request('POST', '/library/sources/' + item['source_id'] + '/blog/generate', {'requestId': 'writing-retry'})
         self.wait_blog(item['item_id'])
 
     def test_failed_blog_retry_keeps_published_original_and_successful_artifacts(self):
@@ -184,7 +184,6 @@ class SingleIngestionTests(unittest.TestCase):
         self.assertEqual('completed', self.request('GET', '/library/sources/' + sources[0]['sourceId'] + '/blog')['runStatus'])
 
     def test_local_html_variants_and_normalized_topic_share_one_public_path(self):
-        self.runtime.applicable = False
         self.runtime.reading_body = self.runtime.reading_body.replace("第 1 节指出", "文章指出").replace("Table 1", "原文表格")
         for index, (with_image, caption) in enumerate(((True, True), (False, False), (True, False))):
             with self.subTest(with_image=with_image, caption=caption):
@@ -209,7 +208,7 @@ class SingleIngestionTests(unittest.TestCase):
                     time.sleep(.05)
                 self.assertIsNotNone(status)
                 self.assertEqual('completed', status['runStatus'], status)
-                self.assertFalse(status['valueAnalysis']['applicable'])
+                self.assertEqual({'reading_blog', 'html'}, set(status['artifacts']))
                 self.runtime.reading_body = body
         topics = self.request('GET', '/library/topics')
         self.assertEqual(1, len(topics))
