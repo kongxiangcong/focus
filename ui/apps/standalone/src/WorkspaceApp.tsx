@@ -8,7 +8,7 @@ import { readingFonts, readReadingFont, readingFontFamily, type ReadingFont } fr
 import { applyAppearance, readPreference, type Theme, type Density } from "./appearance";
 
 import { LibraryPage } from "./library/LibraryPage";
-import { sourceStatus } from "./library/source-status";
+import { matchesStatus, sourceStatus, type StatusFilter } from "./library/source-status";
 import { UNFILED, sortingDisabledReason } from "./library/topic-view";
 
 type Route = "/library" | "/reading" | "/settings";
@@ -88,6 +88,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     try { return localStorage.getItem("focus.libraryView") === "cards" ? "cards" : "list"; } catch { return "list"; }
   });
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [sourcesFailed, setSourcesFailed] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [readyNotice, setReadyNotice] = useState("");
@@ -150,7 +152,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     refreshing.current = true;
     const version = ++requestVersion.current;
     try {
-      const [sourceResult, topicResult, inboxResult, batchResult] = await Promise.all([host.listSources(), host.listTopics(), host.listInbox?.(), host.listBatches?.()]);
+      const sourceRequest = Promise.resolve().then(() => host.listSources!()).then(result => { if (version === requestVersion.current) setSourcesFailed(!result.ok); return result; }, error => { if (version === requestVersion.current) setSourcesFailed(true); throw error; });
+      const [sourceResult, topicResult, inboxResult, batchResult] = await Promise.all([sourceRequest, host.listTopics(), host.listInbox?.(), host.listBatches?.()]);
       if (version !== requestVersion.current) return;
       if (sourceResult.ok) {
         setSources(sourceResult.value);
@@ -349,11 +352,12 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   const selectedTopic = topics.find(t => t.topicId === topic);
   const managementBusy = !!busy || !!view?.configuration?.busy || active || batches.some(b => b.executing || ["confirmed", "running"].includes(b.status)) || Object.values(blogs).some(b => b.executing || b.runStatus === "running");
-  const sortingReason = sortingDisabledReason({ managementBusy, query, libraryView, canManage: !!host.manageTopic });
+  const sortingReason = sortingDisabledReason({ managementBusy, query, statusFilter, libraryView, canManage: !!host.manageTopic });
   const unfiledCount = sources.filter(s => s.topicIds.length === 0).length;
   const completedCount = (ids: readonly string[]) => sources.filter(s => ids.includes(s.sourceId) && sourceStatus(s, view?.preparations?.[s.sourceId], preparationHidden(s.sourceId)).phase === "completed").length;
-  const filtered = sources.filter(s => (!topic || (topic === UNFILED ? s.topicIds.length === 0 : s.topicIds.includes(topic))) &&
+  const scoped = sources.filter(s => (!topic || (topic === UNFILED ? s.topicIds.length === 0 : s.topicIds.includes(topic))) &&
     [s.title, s.displayTitle, s.shortName].filter(Boolean).join(" ").toLowerCase().includes(query.toLowerCase()));
+  const filtered = scoped.filter(s => matchesStatus(sourceStatus(s, view?.preparations?.[s.sourceId], preparationHidden(s.sourceId)), statusFilter, blogs[s.sourceId]));
   if (selectedTopic) filtered.sort((a, b) => selectedTopic.sourceIds.indexOf(a.sourceId) - selectedTopic.sourceIds.indexOf(b.sourceId));
   function openManagement(kind: "create" | "rename" | "delete" | "source", id?: string, title = "") {
     const source = sources.find(s => s.sourceId === id);
@@ -448,7 +452,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   function chooseUpload(selected: readonly File[] = []) {
     if (selected.some(f => !/\.(pdf|html)$/i.test(f.name))) { setError("请选择 PDF 或 SingleFile HTML"); return; }
     setSelectedFiles(selected);
-    setUploadTopic("");
+    setUploadTopic(selectedTopic?.title ?? "");
     setGenerateOnUpload(true); setError(""); setUploadOpen(true);
   }
   const uploadDisabled = !!busy || active || !host.stageIngestion || !host.startBatch;
@@ -460,6 +464,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     cancelled: "已取消，可继续", interrupted: "处理曾中断，可继续", completed: "入库完成",
   };
   const resumableStatuses: readonly IngestionItem["status"][] = ["retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "cancelled", "interrupted"];
+  function continueInbox(item: IngestionItem) { if (host.continueIngestion) void ingest("继续", () => host.continueIngestion!(item.itemId, createReaderId())); }
   const runningStatuses = ["running", "approval", "stopping", "processing", "confirmed", "pending", "generating"];
   const work = (view?.workItems ?? []).filter(item => !item.dismissed && (item.kind !== "preparation" || !preparationHidden(item.targetId)));
   const taskBatches = batches.filter(batch => !batch.dismissed).map(batch => ({ ...batch, items: batch.items.filter(item => !item.dismissed) }));
@@ -565,8 +570,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
             <button className="workspace-primary" disabled={!!busy || !host.resubmitIngestion || !item.resubmitRisk} onClick={() => host.resubmitIngestion && item.resubmitRisk && void ingest("重新提交", () => host.resubmitIngestion!(item.itemId, createReaderId(), item.resubmitRisk!.choiceId))}>重新提交</button>
           </div>
         </div>}
-        {["retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "interrupted"].includes(item.status) && <button disabled={!!busy || !host.continueIngestion} onClick={() => host.continueIngestion && void ingest("继续", () => host.continueIngestion!(item.itemId, createReaderId()))}>继续</button>}
-        {item.status === "cancelled" && !item.resubmitRisk && <button disabled={!!busy || !host.continueIngestion} onClick={() => host.continueIngestion && void ingest("继续", () => host.continueIngestion!(item.itemId, createReaderId()))}>继续</button>}
+        {["retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "interrupted"].includes(item.status) && <button disabled={!!busy || !host.continueIngestion} onClick={() => continueInbox(item)}>继续</button>}
+        {item.status === "cancelled" && !item.resubmitRisk && <button disabled={!!busy || !host.continueIngestion} onClick={() => continueInbox(item)}>继续</button>}
         {["status_check_required", ...resumableStatuses].includes(item.status) && <button disabled={!!busy || !host.confirmIngestion || !host.processIngestion} onClick={() => void confirmAndStart(item)}>重新确认并开始</button>}
         {item.sourceId && <div className="inbox-links">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(item.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(item.sourceId)} target="_blank" rel="noreferrer">正文</a>}</div>}
         {(item.error || item.topicError) && <p className="inbox-error">{item.topicError?.message ?? item.error?.message}</p>}
@@ -583,7 +588,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       aria-label="关闭全屏模式" title="退出全屏" onClick={() => setReadingFullscreen(false)}>×</button>}
     <div className="workspace-reading" hidden={route !== "/reading"}>
       <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
-    {route === "/library" && <LibraryPage {...{ sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, setConfirm, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} />}
+    {route === "/library" && <LibraryPage {...{ scoped, statusFilter, setStatusFilter, sourcesFailed, refresh, taskInbox, taskBatches, statusText, itemStatusText, continueInbox, controlBatch, sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, setConfirm, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} onTasks={() => setTaskDetails(true)} />}
     {route === "/settings" && <main className="settings-page">
       <WorkspaceSelection />
       <BackendSetupPanel host={host} configuration={view?.configuration} onSaved={acceptView} />

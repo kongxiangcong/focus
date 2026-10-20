@@ -104,7 +104,7 @@ it.each(["check", "open"])("retains the newest shared configuration when a late 
     saveBackendConfiguration: vi.fn(() => new Promise<ReturnType<typeof readerSuccess<ReadingWindow>>>(resolve => { resolveSave = resolve; })),
     openSource: vi.fn(() => new Promise<ReturnType<typeof readerSuccess<ReadingWindow>>>(resolve => { resolveSave = resolve; })),
   };
-  render(<WorkspaceApp host={host} />);
+  await act(async () => { render(<WorkspaceApp host={host} />); });
   if (action === "check") {
     await screen.findByRole("radio", { name: "Codex" });
     fireEvent.click(screen.getByRole("radio", { name: "DeepSeek" }));
@@ -250,8 +250,8 @@ it("filters source cards, exposes source resources, and rejects unsupported inge
   expect(document.querySelector(".source-badge")?.closest("article")).toBeInTheDocument();
   expect(screen.getByRole("progressbar", { name: "A Paper 阅读进度" })).toHaveAttribute("value", "1");
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "missing" } });
-  expect(screen.getByText("暂无匹配材料")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "重置" }));
+  expect(screen.getByText("没有标题匹配这次搜索。")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "清除搜索" }));
   const page = screen.getByRole("main");
   expect(screen.getByRole("link", { name: "原件" })).toHaveAttribute("href", "/library/sources/a-paper/original");
   expect(screen.getByRole("link", { name: "正文" })).toHaveAttribute("href", "/library/sources/a-paper/content");
@@ -312,7 +312,7 @@ it("explains the duplicate-parsing risk next to an explicit resubmission action"
   const unknown: IngestionItem = { itemId: "item-1", fileName: "paper.pdf", status: "status_check_required", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"], remoteReference: false, resubmitRisk: { choiceId: "choice-1" } };
   const { host } = setup([unknown]);
   fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
-  expect(await screen.findByText("远端状态待核对")).toBeInTheDocument();
+  expect(await within(screen.getByLabelText("任务框")).findByText("远端状态待核对")).toBeInTheDocument();
   expect(screen.getByText("上次提交结果未知，重新提交可能重复解析。")).toBeInTheDocument();
   // Without a remote reference, a plain continue is never offered as a way out;
   // reconfirming the changed scope stays a separate, explicit action.
@@ -509,6 +509,9 @@ it("T23/T24 allows unclassified parse-only upload with an explicit immutable sco
   await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole('button', { name: /^编译/ }));
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
+  expect(screen.getByRole('combobox', { name: '专题' })).toHaveValue('编译');
+  fireEvent.click(screen.getByRole('button', { name: '展开已有专题' }));
+  fireEvent.click(within(screen.getByRole('listbox', { name: '已有专题' })).getByRole('option', { name: '不关联专题' }));
   expect(screen.getByRole('combobox', { name: '专题' })).toHaveValue('');
   fireEvent.click(screen.getByRole("checkbox", { name: "仅解析入库" }));
   const file = new File(["%PDF test"], "unclassified.pdf");
@@ -559,11 +562,14 @@ it('clears terminal statuses while an active chat continues, and keeps source ma
   const { host } = setup([failed], initial);
   vi.mocked(host.clearFinishedStatuses!).mockImplementation(async () => {
     vi.mocked(host.listInbox!).mockResolvedValue(readerSuccess([{ ...failed, dismissed: true }]));
-    return readerSuccess({ ...initial, workItems: initial.workItems!.map(item => ({ ...item, dismissed: item.status === 'failed' })) });
+    const cleared = { ...initial, workItems: initial.workItems!.map(item => ({ ...item, dismissed: item.status === 'failed' })) };
+    vi.mocked(host.getReadingWindow).mockResolvedValue(readerSuccess(cleared));
+    return readerSuccess(cleared);
   });
   await screen.findByRole('heading', { name: 'A Paper' });
   fireEvent.click(screen.getByRole('button', { name: '任务详情' }));
-  expect(screen.getByText('failed.pdf')).toBeVisible();
+  expect(within(screen.getByLabelText('任务框')).getByText('failed.pdf')).toBeVisible();
+  expect(within(screen.getByRole('region', { name: '入库中' })).getByText('failed.pdf')).toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: '全部清空' }));
   await waitFor(() => expect(screen.queryByText('failed.pdf')).not.toBeInTheDocument());
   expect(screen.queryByText('old failure')).not.toBeInTheDocument();
@@ -673,10 +679,11 @@ it("keeps work and upload history hidden until the shared disclosure is opened, 
   expect(toggle).toHaveAttribute("aria-expanded", "false");
   expect(toggle).toHaveTextContent("2 项进行中");
   expect(screen.queryByLabelText("任务框")).not.toBeInTheDocument();
-  expect(screen.queryByText("pending.pdf")).not.toBeInTheDocument();
+  expect(document.querySelector(".workspace-task-frame .library-inbox-item")).not.toBeInTheDocument();
+  expect(within(screen.getByRole("region", { name: "入库中" })).getByText("pending.pdf")).toBeVisible();
   fireEvent.click(toggle);
   expect(screen.getByLabelText("任务框")).toHaveTextContent("生成 B");
-  expect(screen.getByText("pending.pdf")).toBeVisible();
+  expect(within(screen.getByLabelText("任务框")).getByText("pending.pdf")).toBeVisible();
   expect(screen.queryByText("解析 pending.pdf · 进行中")).not.toBeInTheDocument();
   expect(screen.getByText("已完成任务").closest("details")).not.toHaveAttribute("open");
   expect(screen.getByText("未关联专题 · 完成")).toBeInTheDocument();
