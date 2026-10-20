@@ -89,8 +89,8 @@
 
 ## 保护边界与未验证项
 
-规范文件在本轮开始时已有未提交修改，本轮未改其字节，也不纳入本次提交。开始/结束 SHA-256 为 `93eaec519d965cbb3fc979b5a76b5c4f4ae067ab431979c77d366995f9f876a4`。Vite入口哈希为 `5a66328b4d075e8e2d3d84e0f40a5a5e7a90c79f2b4013ddd86c101a622f83fb`，未改。原型目录无本轮 diff，构建产物搜索 `focus-directions|TimelineC|fd-viewer` 无匹配。
+规范文件在第7–9步开始时已有未提交修改，实施阶段未改其字节；后续按用户要求提交，并纳入统一发布分支。开始/结束 SHA-256 为 `93eaec519d965cbb3fc979b5a76b5c4f4ae067ab431979c77d366995f9f876a4`。Vite入口哈希为 `5a66328b4d075e8e2d3d84e0f40a5a5e7a90c79f2b4013ddd86c101a622f83fb`，未改。原型目录无本轮 diff，构建产物搜索 `focus-directions|TimelineC|fd-viewer` 无匹配。
 
 未验证：真实中文输入法、真实触屏、forced-colors/高对比度、Firefox/Safari、真实 Runtime 生成内容与真实私人长文、真实系统剪贴板权限失败路径。非 Chromium 的 Custom Highlight 降级已在 Chromium 移除 API 的条件下验证，不等于其他浏览器实测。
 
-原分支的准备提交还包含技能增删及原型资产；发布分支仅承载阅读页实现提交，未捎带这些历史修改。原工作区和准备提交保留。完整变更统计见 `evidence/reading-redesign/changed-files.txt`。
+统一发布分支为 `codex/cds-ui-motion-theme`，包含阅读页实现、规范、原型、editorial-ui 技能安装、focus-map/focus-read 技能删除以及 external 忽略规则。重复的实现分支不再维护。`evidence/reading-redesign/changed-files.txt` 记录实施提交的变更统计；完整 PR 范围还包含此前准备提交及后续规范、发布说明修改。
