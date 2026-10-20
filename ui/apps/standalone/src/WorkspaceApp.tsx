@@ -8,6 +8,8 @@ import { readingFonts, readReadingFont, readingFontFamily, type ReadingFont } fr
 import { applyAppearance, readPreference, type Theme, type Density } from "./appearance";
 
 import { LibraryPage } from "./library/LibraryPage";
+import { sourceStatus } from "./library/source-status";
+import { UNFILED, sortingDisabledReason } from "./library/topic-view";
 
 type Route = "/library" | "/reading" | "/settings";
 type FontSize = "small" | "standard" | "large" | "extra";
@@ -154,7 +156,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         setSources(sourceResult.value);
 
       } else setError(sourceResult.error.message);
-      if (topicResult.ok) { setTopics(topicResult.value); setTopic(current => topicResult.value.some(t => t.topicId === current) ? current : ""); } else setError(topicResult.error.message);
+      if (topicResult.ok) { setTopics(topicResult.value); setTopic(current => (current === UNFILED || topicResult.value.some(t => t.topicId === current)) ? current : ""); } else setError(topicResult.error.message);
       if (batchResult) { if (batchResult.ok) setBatches(batchResult.value); else setError(batchResult.error.message); }
       if (inboxResult) { if (inboxResult.ok) setInbox(inboxResult.value); else setError(inboxResult.error.message); }
     } catch (e) { if (version === requestVersion.current) setError(String(e)); }
@@ -347,7 +349,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   const selectedTopic = topics.find(t => t.topicId === topic);
   const managementBusy = !!busy || !!view?.configuration?.busy || active || batches.some(b => b.executing || ["confirmed", "running"].includes(b.status)) || Object.values(blogs).some(b => b.executing || b.runStatus === "running");
-  const filtered = sources.filter(s => (!topic || s.topicIds.includes(topic)) &&
+  const sortingReason = sortingDisabledReason({ managementBusy, query, libraryView, canManage: !!host.manageTopic });
+  const unfiledCount = sources.filter(s => s.topicIds.length === 0).length;
+  const completedCount = (ids: readonly string[]) => sources.filter(s => ids.includes(s.sourceId) && sourceStatus(s, view?.preparations?.[s.sourceId], preparationHidden(s.sourceId)).phase === "completed").length;
+  const filtered = sources.filter(s => (!topic || (topic === UNFILED ? s.topicIds.length === 0 : s.topicIds.includes(topic))) &&
     [s.title, s.displayTitle, s.shortName].filter(Boolean).join(" ").toLowerCase().includes(query.toLowerCase()));
   if (selectedTopic) filtered.sort((a, b) => selectedTopic.sourceIds.indexOf(a.sourceId) - selectedTopic.sourceIds.indexOf(b.sourceId));
   function openManagement(kind: "create" | "rename" | "delete" | "source", id?: string, title = "") {
@@ -377,11 +382,18 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     if (kind === "source" && id && host.saveSourceDetails) { const requestId = createReaderId(); void manage(() => host.saveSourceDetails!(id, managementTitle, managementTopics, requestId, managementDisplayTitle)); }
   }
   function moveSource(sourceId: string, offset: number) {
-    if (!selectedTopic || !host.manageTopic) return;
+    if (!selectedTopic || !host.manageTopic || sortingReason) return;
     const ids = [...selectedTopic.sourceIds], index = ids.indexOf(sourceId), target = index + offset;
     if (index < 0 || target < 0 || target >= ids.length) return;
     [ids[index], ids[target]] = [ids[target], ids[index]];
     void manage(() => host.manageTopic!(selectedTopic.topicId, "reorder", { sourceIds: ids }));
+  }
+
+  async function reorderTopic(topicId: string, sourceIds: readonly string[]) {
+    if (!selectedTopic || selectedTopic.topicId !== topicId || !host.manageTopic || sortingReason) return false;
+    let succeeded = false;
+    await manage(async () => { const result = await host.manageTopic!(topicId, "reorder", { sourceIds: [...sourceIds] }); succeeded = result.ok; return result; });
+    return succeeded;
   }
 
   function rereadReceipt(sourceId: string) {
@@ -489,7 +501,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <h2>专题</h2>
         <button type="button" className="workspace-topics__new" disabled={managementBusy || !host.createTopic} onClick={() => openManagement("create")}>＋ 新建专题</button>
         <button type="button" aria-pressed={!topic} onClick={() => setTopic("")}>全部 <span>{sources.length}</span></button>
-        {topics.map(t => <button type="button" key={t.topicId} aria-pressed={topic === t.topicId} onClick={() => setTopic(t.topicId)}>{t.title}<span>{t.sourceIds.length}</span></button>)}
+        {topics.map(t => <button type="button" key={t.topicId} aria-pressed={topic === t.topicId} onClick={() => setTopic(t.topicId)} title={`已读完 ${completedCount(t.sourceIds)} / ${t.sourceIds.length} 篇`}>{t.title}<span>{completedCount(t.sourceIds)}/{t.sourceIds.length}</span></button>)}
+        {unfiledCount > 0 && <button type="button" aria-pressed={topic === UNFILED} onClick={() => setTopic(UNFILED)}>未归类<span>{unfiledCount}</span></button>}
       </div>}
     </aside>
     <header className="workspace-header">
@@ -570,7 +583,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       aria-label="关闭全屏模式" title="退出全屏" onClick={() => setReadingFullscreen(false)}>×</button>}
     <div className="workspace-reading" hidden={route !== "/reading"}>
       <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
-    {route === "/library" && <LibraryPage {...{ dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, setConfirm, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} />}
+    {route === "/library" && <LibraryPage {...{ sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, setConfirm, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} />}
     {route === "/settings" && <main className="settings-page">
       <WorkspaceSelection />
       <BackendSetupPanel host={host} configuration={view?.configuration} onSaved={acceptView} />

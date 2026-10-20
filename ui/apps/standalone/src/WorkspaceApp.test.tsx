@@ -237,7 +237,7 @@ it("starts parsing and blog with one explicit confirmation", async () => {
   fireEvent.click(screen.getByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "更多" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "删除…" })).toBeEnabled());
-  fireEvent.click(screen.getByRole("button", { name: "删除…" }));
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: "删除…" })); });
   expect(host.deleteSource).not.toHaveBeenCalled();
   fireEvent.click(await screen.findByRole("button", { name: "永久删除" }));
   await waitFor(() => expect(host.deleteSource).toHaveBeenCalledWith("a-paper"));
@@ -526,7 +526,7 @@ it.each(["existing", "new", "unclassified"] as const)("uploads with a %s topic f
   expect(topic).toHaveAttribute("aria-expanded", "false");
   fireEvent.click(screen.getByRole("button", { name: "展开已有专题" }));
   expect(screen.getByRole("listbox", { name: "已有专题" })).toBeVisible();
-  fireEvent.click(screen.getByRole("option", { name: "编译" }));
+  fireEvent.click(within(screen.getByRole("listbox", { name: "已有专题" })).getByRole("option", { name: "编译" }));
   expect(topic).toHaveValue("编译");
   expect(topic).toHaveAttribute("aria-expanded", "false");
   if (mode === "new") {

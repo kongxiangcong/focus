@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import type { BlogArtifactName, BlogArtifactStatus, BlogRegenerationTarget, BlogStatus, LibrarySource, LibraryTopic, ReaderHost, ReadingWindow } from "@focus/reader-contracts";
 import { primaryAction, sourceStatus } from "./source-status";
+import { UNFILED } from "./topic-view";
+import { TopicHead } from "./TopicHead";
 import { SourceRow } from "./SourceRow";
 import { SourceCard } from "./SourceCard";
 import { SourceInspector } from "./SourceInspector";
@@ -8,6 +10,7 @@ import { SourceMenu } from "./SourceMenu";
 import type { SourceViewProps } from "./SourceParts";
 
 export type LibraryPageProps = {
+  sources: readonly LibrarySource[]; unfiledCount: number; sortingReason: string; reorderTopic: (topicId: string, sourceIds: readonly string[]) => Promise<boolean>;
   dragging: boolean; setDragging: (value: boolean) => void; uploadDisabled: boolean; chooseUpload: (files?: readonly File[]) => void;
   selectedTopic: LibraryTopic | undefined; managementBusy: boolean; host: ReaderHost;
   openManagement: (kind: "create" | "rename" | "delete" | "source", id?: string, title?: string) => void;
@@ -24,11 +27,45 @@ export type LibraryPageProps = {
 };
 
 export function LibraryPage(page: LibraryPageProps) {
-  const { dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, busy, active, view, preparationHidden, blogs, enterReading, refreshBlog, setMoreSource } = page;
+  const { sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, busy, active, view, preparationHidden, blogs, enterReading, refreshBlog, setMoreSource } = page;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [docked, setDocked] = useState(true);
   const root = useRef<HTMLElement>(null);
+  const [preview, setPreview] = useState<readonly string[] | null>(null);
+  const drag = useRef<{ id: string; over?: string; topicId: string; original: readonly string[]; order: readonly string[] } | null>(null);
+  const submitting = useRef(false);
+  const previewTopic = useRef<string | null>(null);
+  const rows = preview && selectedTopic?.topicId === previewTopic.current ? [...filtered].sort((a, b) => preview.indexOf(a.sourceId) - preview.indexOf(b.sourceId)) : filtered;
+  useEffect(() => { if (!submitting.current) { drag.current = null; setPreview(null); } }, [topic, query, libraryView, sortingReason, selectedTopic]);
+  function startDrag(event: DragEvent, id: string) {
+    event.stopPropagation();
+    if (!selectedTopic || sortingReason || submitting.current) { event.preventDefault(); return; }
+    event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", id);
+    drag.current = { id, topicId: selectedTopic.topicId, original: selectedTopic.sourceIds, order: [...selectedTopic.sourceIds] };
+    previewTopic.current = selectedTopic.topicId; setPreview(drag.current.order);
+  }
+  function previewDrag(event: DragEvent, id: string) {
+    const current = drag.current;
+    if (!current || sortingReason || submitting.current) return;
+    event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "move";
+    if (current.over === id) return;
+    current.over = id;
+    if (current.id === id) return;
+    const order = [...current.order], from = order.indexOf(current.id), to = order.indexOf(id);
+    if (from < 0 || to < 0) return;
+    order.splice(from, 1); order.splice(to, 0, current.id); current.order = order; setPreview(order);
+  }
+  async function dropDrag(event: DragEvent) {
+    const current = drag.current;
+    if (!current) return;
+    event.preventDefault(); event.stopPropagation(); drag.current = null;
+    if (sortingReason || current.topicId !== selectedTopic?.topicId || current.order.every((id, i) => id === current.original[i])) { setPreview(null); return; }
+    submitting.current = true;
+    try { await reorderTopic(current.topicId, current.order); }
+    finally { submitting.current = false; setPreview(null); }
+  }
+  function endDrag() { drag.current = null; if (!submitting.current) setPreview(null); }
   const selected = filtered.find(source => source.sourceId === selectedId);
   useEffect(() => {
     if (!root.current || typeof ResizeObserver === "undefined") return;
@@ -45,11 +82,17 @@ export function LibraryPage(page: LibraryPageProps) {
     const target = event.target as HTMLElement;
     if (target.closest("input, textarea, select, [contenteditable=true], .library-source-more, .library-inspector")) return;
     if (event.key === "Escape") { closeInspector(); return; }
+    if (event.altKey && !event.ctrlKey && !event.metaKey && ["ArrowUp", "ArrowDown"].includes(event.key) && target.matches(".library-source-title")) {
+      event.preventDefault();
+      const id = target.closest<HTMLElement>("[data-source-id]")?.dataset.sourceId;
+      if (id && selectedTopic && !sortingReason) { page.moveSource(id, event.key === "ArrowUp" ? -1 : 1); target.focus(); }
+      return;
+    }
     if (event.altKey || event.ctrlKey || event.metaKey || !["ArrowUp", "ArrowDown"].includes(event.key)) return;
     const id = target.closest<HTMLElement>("[data-source-id]")?.dataset.sourceId;
     if (!id) return;
     event.preventDefault();
-    const index = filtered.findIndex(source => source.sourceId === id), next = filtered[Math.max(0, Math.min(filtered.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)))];
+    const index = rows.findIndex(source => source.sourceId === id), next = rows[Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)))];
     if (next) { select(next.sourceId, inspectorOpen); document.getElementById(`source-title-${next.sourceId}`)?.focus(); }
   }
   function presentation(source: LibrarySource): SourceViewProps {
@@ -57,14 +100,14 @@ export function LibraryPage(page: LibraryPageProps) {
     return { source, status: sourceStatus(source, preparation, preparationHidden(source.sourceId)), action, blog: blogs[source.sourceId], topics, selected: selectedId === source.sourceId, expanded: inspectorOpen && selectedId === source.sourceId, candidate: !!(preparation?.candidate && preparation.ready), onSelect: () => select(source.sourceId), onTopic: setTopic, onPrimary: () => { if (!action.disabled) { if (action.kind === "inspect") select(source.sourceId); else void enterReading(source.sourceId); } }, menu: <SourceMenu source={source} page={page} /> };
   }
   return <main ref={root} className="library-page" data-dragging={dragging} onKeyDown={keyboard} onKeyDownCapture={event => { if (event.key === "Escape" && page.moreSource) { event.stopPropagation(); setMoreSource(null); document.getElementById(`source-more-trigger-${page.moreSource}`)?.focus(); } }}
-    onDragOver={event => { event.preventDefault(); if (!uploadDisabled) setDragging(true); }}
+    onDragOver={event => { if (!event.dataTransfer.types?.includes("Files") && !event.dataTransfer.files?.length) return; event.preventDefault(); if (!uploadDisabled) setDragging(true); }}
     onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
-    onDrop={event => { event.preventDefault(); setDragging(false); if (!uploadDisabled) chooseUpload(Array.from(event.dataTransfer.files)); }}>
+    onDrop={event => { if (!event.dataTransfer.types?.includes("Files") && !event.dataTransfer.files?.length) return; event.preventDefault(); setDragging(false); if (!uploadDisabled) chooseUpload(Array.from(event.dataTransfer.files)); }}>
     <div className="library-layout" data-inspector={!!selected && inspectorOpen}>
-      <section className="library-sources" aria-label="材料列表">{selectedTopic && <div><button disabled={managementBusy || !host.manageTopic} onClick={() => openManagement("rename", selectedTopic.topicId, selectedTopic.title)}>重命名专题</button><button disabled={managementBusy || !host.manageTopic} onClick={() => openManagement("delete", selectedTopic.topicId, selectedTopic.title)}>删除专题</button></div>}
-        <div className="library-toolbar"><h2>{topics.find(t => t.topicId === topic)?.title ?? "全部材料"}<small>{filtered.length}</small></h2><div className="library-view-switch" role="group" aria-label="显示方式">{([["list", "列表"], ["cards", "卡片"]] as const).map(([mode, label]) => <button key={mode} aria-label={`${label}显示`} aria-pressed={libraryView === mode} onClick={() => { setLibraryView(mode); setMoreSource(null); try { localStorage.setItem("focus.libraryView", mode); } catch { /* The current view remains usable without storage. */ } }}>{label}</button>)}</div><input type="search" aria-label="搜索材料" placeholder="搜索标题" value={query} onChange={event => setQuery(event.target.value)} /></div>
-        {selectedTopic && libraryView === "cards" && <p className="library-view-hint">切换到列表视图后可调整专题顺序</p>}
-        {loading ? <p role="status" className="library-empty">读取中…</p> : filtered.length === 0 ? <div className="library-empty"><span aria-hidden="true">▤</span><p>{query || topic ? "暂无匹配材料" : "放入第一份材料"}</p><button className="workspace-primary" disabled={uploadDisabled} onClick={() => { if (query || topic) { setQuery(""); setTopic(""); } else chooseUpload(); }}>{query || topic ? "重置" : "上传"}</button></div> : <div className="library-source-list" data-view={libraryView} role="list" aria-label="来源">{filtered.map(source => libraryView === "list" ? <SourceRow key={source.sourceId} {...presentation(source)} /> : <SourceCard key={source.sourceId} {...presentation(source)} />)}</div>}
+      <section className="library-sources" aria-label="材料列表">
+        <div className="library-toolbar"><h2>{selectedTopic?.title ?? (topic === UNFILED ? "未归类" : "全部材料")}<small>{filtered.length}</small></h2><select className="library-topic-select" aria-label="筛选专题" value={topic} onChange={event => setTopic(event.target.value)}><option value="">全部材料</option>{topics.map(t => <option key={t.topicId} value={t.topicId}>{t.title}</option>)}{(unfiledCount > 0 || topic === UNFILED) && <option value={UNFILED}>未归类</option>}</select><div className="library-view-switch" role="group" aria-label="显示方式">{([["list", "列表"], ["cards", "卡片"]] as const).map(([mode, label]) => <button key={mode} aria-label={`${label}显示`} aria-pressed={libraryView === mode} onClick={() => { setLibraryView(mode); setMoreSource(null); try { localStorage.setItem("focus.libraryView", mode); } catch { /* The current view remains usable without storage. */ } }}>{label}</button>)}</div><input type="search" aria-label="搜索材料" placeholder="搜索标题" value={query} onChange={event => setQuery(event.target.value)} /></div>
+        {selectedTopic && <TopicHead topic={selectedTopic} sources={sources} view={view} preparationHidden={preparationHidden} disabled={managementBusy || !host.manageTopic} reason={sortingReason} onRename={() => openManagement("rename", selectedTopic.topicId, selectedTopic.title)} onDelete={() => openManagement("delete", selectedTopic.topicId, selectedTopic.title)} />}
+        {loading ? <p role="status" className="library-empty">读取中…</p> : filtered.length === 0 ? <div className="library-empty"><span aria-hidden="true">▤</span><p>{query || topic ? "暂无匹配材料" : "放入第一份材料"}</p><button className="workspace-primary" disabled={uploadDisabled} onClick={() => { if (query || topic) { setQuery(""); setTopic(""); } else chooseUpload(); }}>{query || topic ? "重置" : "上传"}</button></div> : <div className="library-source-list" data-view={libraryView} role="list" aria-label="来源">{rows.map(source => libraryView === "list" ? <SourceRow key={source.sourceId} {...presentation(source)} ordinal={selectedTopic ? selectedTopic.sourceIds.indexOf(source.sourceId) + 1 : undefined} sortingReason={sortingReason} onDragStart={event => startDrag(event, source.sourceId)} onDragOver={event => previewDrag(event, source.sourceId)} onDrop={event => void dropDrag(event)} onDragEnd={endDrag} /> : <SourceCard key={source.sourceId} {...presentation(source)} />)}</div>}
         {busy && <p role="status">{busy}中…</p>}
       </section>
       {selected && inspectorOpen && <SourceInspector source={selected} page={page} presentation={presentation(selected)} docked={docked} onClose={closeInspector} />}
