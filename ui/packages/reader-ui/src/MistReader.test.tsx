@@ -299,3 +299,18 @@ it("keeps quote jumps and answer review local, and saves through the existing me
   expect(screen.getByRole("textbox")).toHaveValue("保留的草稿");
   expect(document.querySelector(".mist-history-rail")).toBeNull();
 });
+
+it("uses decorative function-row icons and a clean fullscreen accessible name", async () => {
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(first)),
+    continueReading: vi.fn(), sendMessage: vi.fn() };
+  const { rerender } = render(<FocusReader host={host} appearance="mist" />);
+  await screen.findByRole("heading", { name: "Method" });
+  const controls = screen.getByRole("navigation", { name: "阅读功能控制区" });
+  const icons = controls.querySelectorAll("button > svg");
+  expect(icons.length).toBeGreaterThan(0);
+  icons.forEach(icon => { expect(icon).toHaveAttribute("aria-hidden", "true"); expect(icon).toHaveAttribute("focusable", "false"); expect(icon.textContent).toBe(""); });
+  rerender(<FocusReader host={host} appearance="mist" fullscreen />);
+  const exit = within(controls).getByRole("button", { name: "退出全屏" });
+  expect(exit).toHaveTextContent("退出全屏");
+  expect(exit.textContent).not.toContain("×");
+});

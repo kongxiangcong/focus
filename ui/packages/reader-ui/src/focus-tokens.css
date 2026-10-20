@@ -77,6 +77,8 @@
   --reader-shadow-popover:0 0 0 1px rgba(29,33,37,.08),0 4px 10px -4px rgba(29,33,37,.10),0 18px 44px -18px rgba(29,33,37,.30);
   /* Geometry: compact density (§6.3) */
   --reader-control-h:24px;
+  --reader-action-h:32px;
+  --reader-pill:999px;
   --reader-control-h-sm:18px;
   --reader-radius:6px;
   --reader-card-radius:10px;
@@ -139,6 +141,7 @@
 }
 :root[data-density=comfortable] {
   --reader-control-h:32px;
+  --reader-action-h:36px;
   --reader-control-h-sm:22px;
   --reader-radius:8px;
   --reader-card-radius:12px;
@@ -154,3 +157,6 @@
 @media(prefers-contrast:more) {
   :root { --reader-line:var(--reader-line-strong); --reader-faint:var(--reader-secondary); }
 }
+
+@media(max-width:599px) { :root, :root[data-density] { --reader-action-h:40px; } }
+@media(pointer:coarse) { :root, :root[data-density] { --reader-action-h:44px; } }

@@ -60,20 +60,26 @@
 
 /* Function row: materials, structure, location, session, fullscreen, continue. */
 .mist-reading-actions { grid-column:1; grid-row:2; width:100%; max-width:calc(var(--reader-column) + 48px);
-  margin-inline:auto; display:flex; align-items:center; gap:var(--reader-gap-xs); flex-wrap:wrap;
+  margin-inline:auto; display:flex; align-items:center; gap:2px; flex-wrap:wrap;
   padding:8px 24px; border-top:1px solid var(--reader-line); background:var(--reader-canvas); }
-.mist-reading-actions > button { flex-shrink:0; }
-.mist-reading-actions .focus-reader__continue { margin-left:auto; min-height:var(--reader-control-h);
-  padding:0 var(--reader-gap-lg); background:var(--reader-action); color:var(--reader-on-action);
+.mist-reading-actions > button { flex-shrink:0; min-height:var(--reader-action-h); padding:0 10px; gap:6px; border:0; border-radius:var(--reader-pill); color:var(--reader-secondary); font-size:13px; font-weight:450; }
+.mist-reading-actions > button:focus-visible { border-radius:var(--reader-pill); }
+.mist-reading-actions > button:hover:not(:disabled) { color:var(--reader-ink); background:var(--reader-hover); }
+.mist-reading-actions > button:active:not(:disabled) { transform:scale(.97); }
+.mist-reading-actions > button > svg { width:16px; height:16px; flex:none; }
+.mist-reading-actions .reader-side-toggle[aria-expanded=true] { color:var(--reader-ink); background:var(--reader-selected); }
+.mist-reading-actions .focus-reader__continue { min-height:var(--reader-action-h);
+  padding:0 14px 0 16px; border:0; border-radius:var(--reader-pill); gap:6px; background:var(--reader-action); color:var(--reader-on-action);
   border-color:var(--reader-action); font-weight:500; }
 .mist-reading-actions .focus-reader__continue:hover:not(:disabled) { filter:brightness(1.12); background:var(--reader-action); color:var(--reader-on-action); }
+.mist-reading-actions .focus-reader__continue:disabled { background:var(--reader-surface-1); color:var(--reader-faint); opacity:1; }
 .mist-reading-actions__status { flex-basis:100%; font-size:12px; color:var(--reader-muted); }
-.reader-location-badge { display:flex; align-items:center; gap:8px; flex:1 1 180px; max-width:320px; min-width:0; min-height:var(--reader-control-h);
-  padding:0 10px; border:1px solid var(--reader-line); border-radius:var(--reader-radius);
+.mist-reading-actions .reader-location-badge { display:flex; align-items:center; gap:8px; flex:1 1 180px; max-width:320px; min-width:0; min-height:var(--reader-action-h);
+  padding:0 12px; border:0; border-radius:var(--reader-pill);
   background:var(--reader-surface-1); color:var(--reader-ink); font-size:12px; text-align:left; }
-.reader-location-badge:hover:not(:disabled) { border-color:var(--reader-line-strong); background:var(--reader-surface-1); }
+.mist-reading-actions .reader-location-badge:hover:not(:disabled) { background:color-mix(in srgb, var(--reader-ink) 6%, var(--reader-surface-1)); }
 .reader-location-badge small { flex-shrink:0; font-variant-numeric:tabular-nums; color:var(--reader-muted); }
-.reader-location-badge span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.reader-location-badge span { font-weight:500; color:var(--reader-ink); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* Composer: Editor + Notices + Chin (v2 composition). */
 .focus-mist .focus-bottom { grid-column:1; grid-row:3; width:100%; max-width:calc(var(--reader-column) + 48px);
@@ -174,7 +180,7 @@
 /* Compact reading surfaces. */
 @media(max-width:1024px) {
   .focus-mist .focus-content { max-width:calc(var(--reader-column) + 40px); padding:24px 20px 0; }
-  .mist-reading-actions { padding:8px 20px; gap:4px; }
+  .mist-reading-actions { padding:8px 20px; }
   .focus-mist .focus-bottom { padding:0 20px 12px; }
 
 }
@@ -182,7 +188,9 @@
   .focus-mist .focus-content { max-width:calc(var(--reader-column) + 32px); padding:20px 16px 0; }
   .mist-reading-actions { padding:6px 16px; }
   .mist-reading-actions .focus-reader__continue { margin-left:0; flex:1 1 100%; }
-  .reader-location-badge { flex:1 1 100%; order:-1; }
+  .mist-reading-actions .reader-location-badge { flex:1 1 100%; max-width:none; order:-1; }
+  .mist-reading-actions :is(.reader-new-session, .reader-fullscreen-toggle) { padding:0; width:var(--reader-action-h); }
+  .mist-reading-actions :is(.reader-new-session, .reader-fullscreen-toggle) .mist-action-label { display:none; }
   .focus-mist .focus-bottom { padding:0 12px 10px; }
   .composer-key-hint { display:none; }
   .focus-mist .focus-message[data-role=user] { max-width:100%; }
@@ -269,8 +277,9 @@
 .focus-mist[data-discussion-attached=true] .focus-message[data-role=assistant] .focus-markdown { font-size:14.5px; }
 .focus-mist .reading-group-ask { width:100%; border:1px dashed var(--reader-line-strong); color:var(--reader-secondary); }
 .reader-attach-toggle { margin-left:auto; }
-.reader-attach-toggle[aria-pressed=true] { color:var(--reader-accent-ink); background:var(--reader-accent-soft); }
+.mist-reading-actions .reader-attach-toggle[aria-pressed=true] { color:var(--reader-accent-ink); background:var(--reader-accent-soft); }
 .focus-mist[data-reading-narrow=true] .reader-attach-toggle { display:none; }
+.focus-mist[data-reading-narrow=true] .reader-attach-toggle + button { margin-left:auto; }
 :root[data-reduced-motion=true] .focus-mist .reading-group-discussion { animation:none !important; }
 @media(prefers-reduced-motion:reduce) { .focus-mist .reading-group-discussion { animation:none !important; } }
 
@@ -290,8 +299,10 @@
 
 @media(max-width:599px) {
   .focus-reader.focus-mist button { min-height:40px; }
-  .mist-reading-actions { flex-wrap:nowrap; overflow-x:auto; }
-  .mist-reading-actions > button { flex:0 0 auto; min-height:40px; }
-  .mist-reading-actions .reader-location-badge { order:0; flex:0 0 auto; }
+  .mist-reading-actions { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+  .focus-mist .mist-reading-actions > button { flex:0 0 auto; min-height:var(--reader-action-h); }
+  .mist-reading-actions::-webkit-scrollbar { display:none; }
+  .mist-reading-actions__status { display:none; }
+  .mist-reading-actions .reader-location-badge { order:0; flex:0 0 auto; max-width:320px; }
   .mist-reading-actions .focus-reader__continue { flex:0 0 auto; }
 }

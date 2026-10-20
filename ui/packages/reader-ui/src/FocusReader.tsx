@@ -1,3 +1,4 @@
+import { PanelLeft, Pin, Plus, Expand, Collapse, ArrowRight, StopSquare } from "./ReaderIcons";
 import { createReaderId, cursorReceipt, type ReaderChunk, type ReaderAttachment, type ReaderHost, type ReadingWindow,
   type ReaderHostResult, type SendReaderMessageInput, type ContinueReadingInput, type SourceNote, type ReadingProgressEntry } from "@focus/reader-contracts";
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -748,7 +749,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       </div>
     </div>
     {mist && <nav className="mist-reading-actions" aria-label="阅读功能控制区">
-      <button className="reader-side-toggle" aria-controls="reader-side-space" aria-expanded={!!sideMode} onClick={() => preserveReading(() => setSideMode(sideMode ? null : sourceFigures.length ? "figures" : materialTab ?? "notes"))}>{sideMode ? "收起资料" : "资料"}</button>
+      <button className="reader-side-toggle" aria-controls="reader-side-space" aria-expanded={!!sideMode} onClick={() => preserveReading(() => setSideMode(sideMode ? null : sourceFigures.length ? "figures" : materialTab ?? "notes"))}><PanelLeft /><span className="mist-action-label">{sideMode ? "收起资料" : "资料"}</span></button>
 
       {readingLocation}
       {lensReview && <button type="button" onClick={() => {
@@ -762,15 +763,15 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       <button className="reader-attach-toggle" aria-pressed={attachDiscussion} title={attachTitle} onClick={() => preserveReading(() => {
         const next = !attachDiscussion; setAttachDiscussion(next);
         try { localStorage.setItem("focus.attachDiscussion", String(next)); } catch { /* In-memory fallback. */ }
-      })}>吸附讨论</button>
-      <button disabled={!host.newSession || !view || blocked} onClick={reset}>新会话</button>
-      <button className="reader-fullscreen-toggle" aria-label={fullscreen ? "退出全屏" : "全屏"} aria-pressed={fullscreen} onClick={() => onFullscreenChange?.(!fullscreen)}>{fullscreen ? "退出全屏 ×" : "全屏"}</button>
+      })}><Pin /><span className="mist-action-label">吸附讨论</span></button>
+      <button aria-label="新会话" className="reader-new-session" disabled={!host.newSession || !view || blocked} onClick={reset}><Plus /><span className="mist-action-label">新会话</span></button>
+      <button className="reader-fullscreen-toggle" aria-label={fullscreen ? "退出全屏" : "全屏"} aria-pressed={fullscreen} onClick={() => onFullscreenChange?.(!fullscreen)}>{fullscreen ? <Collapse /> : <Expand />}<span className="mist-action-label">{fullscreen ? "退出全屏" : "全屏"}</span></button>
       {collapsed && <button type="button" aria-label="提问" className="mist-composer-toggle" aria-expanded="false" aria-controls="focus-composer-form" onClick={() => toggleComposer(false)}>提问{draft && <span aria-hidden="true" title="有草稿"> ·</span>}</button>}
-      {collapsed && active && host.stop && <button className="focus-reader__stop" onClick={() => void perform("停止", () => host.stop!())}>停止</button>}
+      {collapsed && active && host.stop && <button className="focus-reader__stop" onClick={() => void perform("停止", () => host.stop!())}><StopSquare />停止</button>}
       <button className="focus-reader__continue" aria-label={continueLabel} disabled={showStructure || blocked || (!frontier && !reviewChunk) || (view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total))}
         onClick={() => { follow.current = true; view?.sessionFresh ? (view.readingStarted && frontier?.index === frontier?.total ? finishFresh() : freshContinue()) : displayed?.index === displayed?.total && !reviewChunk ? finish() : next(); }}>
-        {continueLabel === "继续" ? `继续 · 第 ${view?.sessionFresh ? view.readingStarted ? (frontier?.index ?? 0) + 1 : frontier?.index ?? 1 : (displayed?.index ?? 0) + 1} 段` : continueLabel}</button>
-      {blocked && <span>{active ? "请等待回答完成，或停止此问答" : `${operation}中`}</span>}
+        {continueLabel === "继续" ? `继续 · 第 ${view?.sessionFresh ? view.readingStarted ? (frontier?.index ?? 0) + 1 : frontier?.index ?? 1 : (displayed?.index ?? 0) + 1} 段` : continueLabel}<ArrowRight /></button>
+      {blocked && <span className="mist-reading-actions__status">{active ? "请等待回答完成，或停止此问答" : `${operation}中`}</span>}
     </nav>}
 
     {selection && <button className="reader-selection-quote" style={{ left: selection.x, top: selection.y }} onMouseDown={e => e.preventDefault()} onClick={() => { referenceChunk(selection.chunk, selection.text); setSelection(null); window.getSelection()?.removeAllRanges(); }}>引用所选提问</button>}
