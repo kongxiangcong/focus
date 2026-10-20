@@ -6,6 +6,7 @@ const { chromium } = require(process.env.FOCUS_PLAYWRIGHT_MODULE || 'playwright'
 const browser=await chromium.launch({headless:true,executablePath:process.env.FOCUS_CHROMIUM_EXECUTABLE || undefined,args:['--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--no-zygote']});
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
+page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
 page.on('response',async r=>{if(r.status()<400)return;let body='';try{body=(await r.text()).slice(0,240)}catch{}console.log('HTTP',r.status(),r.url(),body.replace(/\n/g,' '))});
 const results=[];
 const api=async()=> (await (await page.request.get(`http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT || '8765'}/reader/window`)).json()).value;

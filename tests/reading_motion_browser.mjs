@@ -9,6 +9,7 @@ const output = process.env.FOCUS_BROWSER_OUTPUT || 'tmp/focus-reader-redesign/sh
 fs.mkdirSync(output, { recursive: true });
 const errors = [];
 page.on('pageerror', error => errors.push(error.message));
+page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
 const url = `http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT || 8873}/reading`;
 const sample = locator => locator.evaluate(el => {
   const css = getComputedStyle(el);
@@ -25,6 +26,25 @@ try {
   if (await drawer.getAttribute('data-open') === 'true') await drawer.getByRole('button', { name: '关闭阅读侧栏' }).click();
   await page.waitForTimeout(250);
   const width = await page.locator('.focus-content').evaluate(el => el.getBoundingClientRect().width);
+  // ADR 0028: single-row pill and borderless function-row geometry.
+  const dockGeometry = await page.locator('.focus-composer').evaluate(form => {
+    const textarea = form.querySelector('#focus-question').getBoundingClientRect();
+    const send = form.querySelector('.focus-composer__send').getBoundingClientRect();
+    return {
+      height: form.getBoundingClientRect().height,
+      radius: getComputedStyle(form).borderTopLeftRadius,
+      centerDelta: Math.abs((send.top + send.bottom) / 2 - (textarea.top + textarea.bottom) / 2),
+      sendLeft: send.left, textareaRight: textarea.right,
+      ghostBorders: [...document.querySelectorAll('.mist-reading-actions button:not(.focus-reader__continue)')]
+        .map(button => getComputedStyle(button).borderTopWidth),
+    };
+  });
+  assert.ok(Math.abs(dockGeometry.height - 52) <= 1, JSON.stringify(dockGeometry));
+  assert.equal(dockGeometry.radius, '26px');
+  assert.ok(dockGeometry.centerDelta <= 1, JSON.stringify(dockGeometry));
+  assert.ok(dockGeometry.sendLeft >= dockGeometry.textareaRight - 1, JSON.stringify(dockGeometry));
+  assert.ok(dockGeometry.ghostBorders.every(border => border === '0px'), JSON.stringify(dockGeometry));
+
   // DOM clicks avoid Playwright's stability waiting, exercising genuine mid-frame reversals.
   for (let i = 0; i < 3; i++) {
     const { opening, reversing } = await toggle.evaluate(el => new Promise((resolve, reject) => {
@@ -56,12 +76,16 @@ try {
   await drawer.getByRole('button', { name: '关闭阅读侧栏' }).click();
   const editor = page.getByRole('textbox', { name: '输入问题或阅读需求' });
   await editor.fill('动效测试保留的草稿');
+  const disclosure = page.locator('.mist-reading-actions .mist-composer-toggle');
+  const disclosureLeft = await disclosure.evaluate(el => el.getBoundingClientRect().left);
   await page.getByRole('button', { name: '收起', exact: true }).click();
   await page.waitForTimeout(280);
   assert.equal((await sample(page.locator('.focus-composer-collapse'))).height, 0);
+  assert.ok(Math.abs(await disclosure.evaluate(el => el.getBoundingClientRect().left) - disclosureLeft) <= 1, 'collapse must not move the disclosure');
   await page.getByRole('button', { name: '提问', exact: true }).click();
   await page.waitForTimeout(280);
   assert.equal(await editor.inputValue(), '动效测试保留的草稿');
+  assert.ok(Math.abs(await disclosure.evaluate(el => el.getBoundingClientRect().left) - disclosureLeft) <= 1, 'expand must not move the disclosure');
   await page.getByRole('button', { name: '当前阅读位置' }).click();
   await page.waitForTimeout(280);
   await page.locator('.focus-dialog').getByRole('button', { name: '关闭', exact: true }).click();
@@ -98,7 +122,7 @@ try {
     await page.getByRole('button', { name: '继续', exact: true }).click();
     await page.waitForSelector('.focus-output[data-fresh=true]');
     assert.equal((await sample(page.locator('.focus-output').last())).transform, 'none');
-    await page.screenshot({ path: `${output}/reduced-${mode}.png` });
+    if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({ path: `${output}/reduced-${mode}.png` });
   }
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   for (const width of [1440, 1024, 390]) {
@@ -106,9 +130,9 @@ try {
     for (const theme of ['light', 'dark']) {
       await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
       await page.waitForTimeout(300);
-      await page.screenshot({ path: `${output}/${width}-${theme}.png` });
+      if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({ path: `${output}/${width}-${theme}.png` });
     }
   }
   assert.deepEqual(errors, []);
-  console.log('PASS: 3 drawer reversals, stable body width, composer draft/height, dialog exit, restored history, user/system reduced motion, 8 screenshots.');
+  console.log('PASS: 3 drawer reversals, stable body width, composer draft/height, dialog exit, restored history, user/system reduced motion, dock geometry, optional captures.');
 } finally { await browser.close(); }

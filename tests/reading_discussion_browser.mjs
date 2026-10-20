@@ -3,8 +3,10 @@ import fs from 'node:fs';
 import {createRequire} from 'node:module';
 const {chromium}=createRequire(import.meta.url)(process.env.FOCUS_PLAYWRIGHT_MODULE);
 const browser=await chromium.launch({headless:true,executablePath:process.env.FOCUS_CHROMIUM_EXECUTABLE});
-const page=await browser.newPage({viewport:{width:1440,height:1000}}), metrics={}, posts=[];
+const page=await browser.newPage({viewport:{width:1440,height:1000}}), metrics={}, posts=[], errors=[];
 page.setDefaultTimeout(60000);
+page.on('pageerror', error => errors.push(error.message));
+page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
 page.on('request',r=>{if(r.method()==='POST')posts.push({url:r.url(),body:r.postDataJSON()});});
 const api=async()=>(await(await page.request.get(`http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT}/reader/window`)).json()).value;
 try {
@@ -35,5 +37,6 @@ try {
  await page.getByRole('button',{name:'资料',exact:true}).click();assert.equal(await page.getByRole('button',{name:'笔记',exact:true}).locator('small').innerText(),String(metrics.notes.after));await page.getByRole('button',{name:'关闭阅读侧栏',exact:true}).click();
  const locator=page.getByRole('button',{name:'当前阅读位置',exact:true});await locator.click();await page.getByRole('button',{name:'文章结构总览',exact:true}).click();await page.getByRole('region',{name:'文章结构',exact:true}).waitFor();await page.keyboard.press('Escape');assert.equal(await locator.evaluate(el=>el===document.activeElement),true);
  assert.equal(await page.locator('.mist-history-rail').count(),0);
+ assert.deepEqual(errors, []);
  fs.writeFileSync(`${process.env.FOCUS_BROWSER_OUTPUT}/discussion.json`,JSON.stringify(metrics,null,2));console.log('PASS',metrics);
 } catch(error) {console.log("STATE",JSON.stringify(await api()));console.log("BODY",await page.locator("body").innerText());throw error;} finally {await browser.close();}

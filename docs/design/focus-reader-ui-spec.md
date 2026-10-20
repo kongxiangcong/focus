@@ -61,6 +61,11 @@ by monotonic snapshot revision and UI session epochs; uploads also carry an epoc
 
 ## Input and recovery
 
+Mist uses one persistent Collapse/Ask disclosure in the function row, after
+fullscreen and before stop/continue (ADR 0028). The pill editor keeps send/stop
+inline; no separate right-hand collapse button or visible keyboard-hint strip
+remains. Expanding focuses the textarea; collapsing retains the disclosure node.
+
 The draft is preserved but disabled during a submitted operation or active Agent
 task (including approval and stopping). Send, Continue and New Session are also
 disabled during conflicting operations. Read-only navigation and necessary Agent

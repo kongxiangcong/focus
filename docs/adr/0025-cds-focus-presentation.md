@@ -32,7 +32,9 @@ Topics. Reading renders a continuous document on the canvas with the function ro
 composer; the duplicate progress rail is removed and its paragraph list is reachable from the
 location control. Materials remain a left overlay with four content types and never reflow the
 text column. The composer keeps the Editor / Notices / Chin composition and its existing draft,
-request-identity and recovery behavior.
+request-identity and recovery behavior. The composition is superseded by
+[ADR 0028](0028-reading-dock-ghost-controls-and-inline-send.md), which uses Editor with inline send/stop + Notices;
+the draft, request-identity and recovery behavior remains binding.
 
 No new package or dependency boundary is introduced; no reference code, font or asset is imported
 at runtime. The appended `focus-workbench.css` override layer is removed and its intent lives in the
@@ -44,3 +46,11 @@ See [the implementation and evidence record](../design/focus-cds-ui.md); tracker
 ## Partial supersession (2026-10-20)
 
 [ADR 0026](0026-reading-lens-on-demand-figures.md) supersedes automatic figure opening/selection, defines making room as translation without changing text width (overlay when space is insufficient), and updates Reading Lens, local attachment preferences, colour and motion. The original decision above is retained for history; other business semantics remain binding.
+
+## Partial supersession (2026-10-20): reading dock
+
+[ADR 0028](0028-reading-dock-ghost-controls-and-inline-send.md) supersedes the bordered location badge, dock control styling,
+Chin composition and separate expanded/collapsed composer controls. The location
+is a borderless light-gray pill with a medium-weight path; one disclosure remains
+in the function row. The earlier text is retained for history. All other business
+semantics and left-drawer behavior remain binding.

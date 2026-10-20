@@ -10,6 +10,7 @@ const output = process.env.FOCUS_BROWSER_OUTPUT || '/tmp/focus-reader-redesign/s
 fs.mkdirSync(output, { recursive: true });
 const errors = [];
 page.on('pageerror', error => errors.push(error.message));
+page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
 const windowValue = async () => (await (await page.request.get(`${base}/reader/window`)).json()).value;
 const progress = value => ({ current: value.navigationCurrent, revision: value.readingRevision, records: value.readingProgress });
 const selected = async () => Number(await page.locator('.reading-lens-group[data-state=focus]').getAttribute('data-lens-index'));
@@ -74,7 +75,7 @@ try {
     for (const theme of ['light', 'dark']) {
       await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
       await page.waitForTimeout(450);
-      await page.screenshot({ path: `${output}/${width}-${theme}.png` });
+      if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({ path: `${output}/${width}-${theme}.png` });
     }
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -98,8 +99,8 @@ try {
     await page.evaluate(mode => { document.documentElement.dataset.reducedMotion = String(mode === 'user'); }, mode);
     await page.emulateMedia({ reducedMotion: mode === 'system' ? 'reduce' : 'no-preference' });
     assert.equal(await page.locator('.reading-lens').evaluate(el => getComputedStyle(el).transitionDuration), '0s');
-    await page.screenshot({ path: `${output}/reduced-${mode}.png` });
+    if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({ path: `${output}/reduced-${mode}.png` });
   }
   assert.deepEqual(errors, []);
-  console.log('PASS: 3 dwell stops = 3 commits; skipped transient paragraph; hover unchanged; Host progress unchanged during review; Continue opens/focuses 6; exact lens geometry; reduced motion; 8 screenshots.');
+  console.log('PASS: 3 dwell stops = 3 commits; skipped transient paragraph; hover unchanged; Host progress unchanged during review; Continue opens/focuses 6; exact lens geometry; reduced motion; optional captures.');
 } finally { await browser.close(); }
