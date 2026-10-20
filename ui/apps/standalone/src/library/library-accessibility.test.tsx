@@ -51,3 +51,19 @@ it("keeps IME composition local until compositionend in the shared header", asyn
 it("preserves progress semantics while exposing a transform-only visual fill", async () => {
   setup(); const progress = await screen.findByRole("progressbar", { name: "Alpha 阅读进度" }); expect(progress).toHaveAttribute("aria-valuenow", "1"); expect(progress).toHaveAttribute("aria-valuemax", "4"); expect(progress.firstElementChild).toHaveStyle({ transform: "scaleX(0.25)" });
 });
+
+it.each(["searchbox", "combobox"] as const)("closes the menu before the inspector from the shared header %s", async role => {
+  setup(); const title = await screen.findByRole("button", { name: "Alpha" }); fireEvent.click(title);
+  const control = screen.getByRole(role), more = screen.getByRole("button", { name: "更多" }), panel = screen.getByRole("complementary", { name: "来源详情" });
+  fireEvent.click(more); control.focus(); fireEvent.keyDown(control, { key: "Escape" });
+  expect(screen.queryByRole("group", { name: "更多操作" })).not.toBeInTheDocument(); expect(more).toHaveFocus(); expect(panel).toHaveAttribute("data-open", "true");
+  control.focus(); fireEvent.keyDown(control, { key: "Escape" }); expect(panel).toHaveAttribute("inert"); expect(title).toHaveFocus();
+});
+it("does not handle header Escape during IME composition or while a native dialog is open", async () => {
+  setup(); const title = await screen.findByRole("button", { name: "Alpha" }); fireEvent.click(title);
+  const search = screen.getByRole("searchbox"), more = screen.getByRole("button", { name: "更多" }), panel = screen.getByRole("complementary", { name: "来源详情" }); fireEvent.click(more);
+  for (const properties of [{ isComposing: true }, { keyCode: 229 }]) { search.focus(); fireEvent.keyDown(search, { key: "Escape", ...properties }); expect(more).toHaveAttribute("aria-expanded", "true"); expect(panel).toHaveAttribute("data-open", "true"); expect(search).toHaveFocus(); }
+  const dialog = document.createElement("dialog"); dialog.setAttribute("open", ""); document.body.append(dialog);
+  fireEvent.keyDown(search, { key: "Escape" }); expect(more).toHaveAttribute("aria-expanded", "true"); expect(panel).toHaveAttribute("data-open", "true"); dialog.remove();
+  fireEvent.keyDown(search, { key: "Escape" }); expect(more).toHaveAttribute("aria-expanded", "false"); expect(panel).toHaveAttribute("data-open", "true");
+});

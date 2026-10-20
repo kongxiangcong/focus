@@ -1,0 +1,184 @@
+{
+  "date": "2026-10-20",
+  "scope": "15 JavaScript browser suites and 5 Python fixture launchers; no real user data",
+  "logs_directory": "/tmp/focus-library-redesign/logs",
+  "module_selection": "Use Playwright index.mjs for dynamic imports; index.js for createRequire scripts. Initial module selection errors were corrected before final launch attempts.",
+  "screenshots": "waived; no new screenshot evidence",
+  "entries": [
+    {
+      "script": "tests/backend_setup_browser.mjs",
+      "syntax": "PASS",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-backend_setup_browser.mjs.log"
+    },
+    {
+      "script": "tests/confirmed_ux_browser.mjs",
+      "syntax": "PASS",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-confirmed_ux_browser.mjs.log"
+    },
+    {
+      "script": "tests/library_browser.mjs",
+      "syntax": "PASS",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-library_browser.mjs.log"
+    },
+    {
+      "script": "tests/preparation_dismiss_browser.mjs",
+      "syntax": "PASS",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-preparation_dismiss_browser.mjs.log"
+    },
+    {
+      "script": "tests/reader_figures_browser.mjs",
+      "syntax": "PASS",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-reader_figures_browser.mjs.log"
+    },
+    {
+      "script": "tests/reading_attachment_browser.mjs",
+      "syntax": "PASS",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-reading_attachment_browser.mjs.log"
+    },
+    {
+      "script": "tests/reading_discussion_browser.mjs",
+      "syntax": "PASS",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-reading_discussion_browser.mjs.log"
+    },
+    {
+      "script": "tests/reading_figures_motion_browser.mjs",
+      "syntax": "PASS",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-reading_figures_motion_browser.mjs.log"
+    },
+    {
+      "script": "tests/reading_lens_browser.mjs",
+      "syntax": "PASS",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-reading_lens_browser.mjs.log"
+    },
+    {
+      "script": "tests/reading_matrix_browser.mjs",
+      "syntax": "PASS",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-reading_matrix_browser.mjs.log"
+    },
+    {
+      "script": "tests/reading_motion_browser.mjs",
+      "syntax": "PASS",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-reading_motion_browser.mjs.log"
+    },
+    {
+      "script": "tests/reading_scroll_browser.mjs",
+      "syntax": "PASS",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-reading_scroll_browser.mjs.log"
+    },
+    {
+      "script": "tests/status_clear_browser.mjs",
+      "syntax": "PASS",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-status_clear_browser.mjs.log"
+    },
+    {
+      "script": "tests/upload_dialog_browser.mjs",
+      "syntax": "PASS",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-upload_dialog_browser.mjs.log"
+    },
+    {
+      "script": "tests/workspace_binding_browser.mjs",
+      "syntax": "PASS",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Chromium process_singleton_posix.cc: socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-workspace_binding_browser.mjs.log"
+    },
+    {
+      "script": "tests/backend_setup_browser.py",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Missing .agents/skills/focus-read/scripts/focus_read.py before fixture startup",
+      "assertions_executed": false,
+      "log": "step7-backend_setup_browser.py.log"
+    },
+    {
+      "script": "tests/confirmed_ux_browser.py",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Missing .agents/skills/focus-read/scripts/focus_read.py before fixture startup",
+      "assertions_executed": false,
+      "log": "step7-confirmed_ux_browser.py.log"
+    },
+    {
+      "script": "tests/reading_structure_browser.py",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Missing .agents/skills/focus-read/scripts/focus_read.py before fixture startup",
+      "assertions_executed": false,
+      "log": "step7-reading_structure_browser.py.log"
+    },
+    {
+      "script": "tests/status_clear_browser.py",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Isolated fixture reached browser launcher; Chromium socket() failed: Operation not permitted (1)",
+      "assertions_executed": false,
+      "log": "step7-status_clear_browser.py.log"
+    },
+    {
+      "script": "tests/workspace_binding_browser.py",
+      "execution": "BLOCKED",
+      "exit_code": 1,
+      "reason": "Missing .agents/skills/focus-read/scripts/focus_read.py before fixture startup",
+      "assertions_executed": false,
+      "log": "step7-workspace_binding_browser.py.log"
+    }
+  ]
+}

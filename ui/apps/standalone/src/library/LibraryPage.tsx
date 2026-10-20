@@ -84,10 +84,17 @@ export function LibraryPage(page: LibraryPageProps) {
   }
   function closeInspector() { setInspectorOpen(false); }
   useLayoutEffect(() => { if (!inspectorOpen && selectedId) document.getElementById(`source-title-${selectedId}`)?.focus(); }, [inspectorOpen, selectedId]);
+  useEffect(() => {
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || event.isComposing || event.keyCode === 229 || document.querySelector("dialog[open]")) return;
+      if (page.moreSource) { event.preventDefault(); setMoreSource(null); document.getElementById(`source-more-trigger-${page.moreSource}`)?.focus(); }
+      else if (inspectorOpen) { event.preventDefault(); setInspectorOpen(false); }
+    };
+    document.addEventListener("keydown", escape); return () => document.removeEventListener("keydown", escape);
+  }, [page.moreSource, inspectorOpen, setMoreSource]);
   function keyboard(event: KeyboardEvent<HTMLElement>) {
     const target = event.target as HTMLElement;
     if (target.closest("input, textarea, select, [contenteditable=true], .library-source-more, .library-inspector")) return;
-    if (event.key === "Escape") { closeInspector(); return; }
     if (event.altKey && !event.ctrlKey && !event.metaKey && ["ArrowUp", "ArrowDown"].includes(event.key) && target.matches(".library-source-title")) {
       event.preventDefault();
       const id = target.closest<HTMLElement>("[data-source-id]")?.dataset.sourceId;
@@ -110,7 +117,7 @@ export function LibraryPage(page: LibraryPageProps) {
   const continuation = current && cursor && cursor.sourceId === current.sourceId && cursor.sectionPath.at(-1)?.trim() && Number.isInteger(cursor.index) && cursor.index > 0 && Number.isInteger(cursor.total) && cursor.total >= cursor.index ? { source: current, cursor, action: primaryAction(current, view?.preparations?.[current.sourceId], preparationHidden(current.sourceId), { busy, active, canOpen: !!host.openSource }) } : undefined;
   const emptyKind: EmptyKind | null = sources.length === 0 && page.sourcesFailed ? "offline" : sources.length === 0 ? "library" : filtered.length ? null : query ? "search" : page.statusFilter !== "all" ? "filter" : "topic";
   function emptyAction() { if (emptyKind === "offline") void page.refresh(); else if (emptyKind === "library") chooseUpload(); else if (emptyKind === "search") setQuery(""); else if (emptyKind === "filter") page.setStatusFilter("all"); else setTopic(""); }
-  return <main ref={root} className="library-page" data-dragging={dragging} onKeyDown={keyboard} onKeyDownCapture={event => { if (event.key === "Escape" && page.moreSource) { event.stopPropagation(); setMoreSource(null); document.getElementById(`source-more-trigger-${page.moreSource}`)?.focus(); } }}
+  return <main ref={root} className="library-page" data-dragging={dragging} onKeyDown={keyboard} onKeyDownCapture={event => { if (event.key === "Escape" && (event.nativeEvent.isComposing || event.keyCode === 229 || document.querySelector("dialog[open]"))) { event.stopPropagation(); return; } if (event.key === "Escape" && page.moreSource) { event.stopPropagation(); setMoreSource(null); document.getElementById(`source-more-trigger-${page.moreSource}`)?.focus(); } }}
     onDragOver={event => { if (!event.dataTransfer.types?.includes("Files") && !event.dataTransfer.files?.length) return; event.preventDefault(); if (!uploadDisabled) setDragging(true); }}
     onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
     onDrop={event => { if (!event.dataTransfer.types?.includes("Files") && !event.dataTransfer.files?.length) return; event.preventDefault(); setDragging(false); if (!uploadDisabled) chooseUpload(Array.from(event.dataTransfer.files)); }}>
