@@ -16,3 +16,5 @@ Covers: spec §6，验证基础设施
 `PYTHONPATH=tests:.agents .venv/bin/python -m unittest tests.test_web_host`：FAIL，FileNotFoundError。
 ## Comments
 - 原样命令还需要 tests/.agents 导入路径。临时 browser runner 只省略无关 CLI 导入，保留 workspace fixture；不能将该兼容运行声称为规范原样命令通过。
+
+- 补充证据：临时省略废弃CLI加载后，旧Host/Core测试仍因legacy fixture没有provenance、已失效的提示词断言失败。基线9f183cd在独立worktree同样失败，当前与基线失败测试名称相同（一次旧异步附件场景另有超时）。建议在独立工单重建fixture与过期断言；本次不顺手修改。新直接笔记测试完全不依赖废弃CLI，可独立通过。

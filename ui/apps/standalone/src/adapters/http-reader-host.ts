@@ -1,4 +1,4 @@
-import { createReaderId,
+import { createReaderId, type CreateSourceNoteInput,
   type BackendSetupAction, type BackendSetupInput, type BackendSetupResult,
   type BlogRegenerationTarget,
   type BlogStatus,
@@ -42,6 +42,7 @@ function isReaderChunk(value: unknown): value is NonNullable<ReadingWindow["curr
   return (
     typeof chunk.sourceId === "string" &&
     typeof chunk.planId === "string" &&
+    (chunk.bundleVersion === undefined || typeof chunk.bundleVersion === "string") &&
     typeof chunk.chunkId === "string" &&
     typeof chunk.index === "number" &&
     typeof chunk.total === "number" &&
@@ -90,7 +91,7 @@ function isReadingWindow(value: unknown): value is ReadingWindow {
 }
 
 function isFailureCode(value: unknown): value is ReaderFailureCode {
-  return ["cursor-changed", "invalid-request", "invalid-response", "unavailable", "unknown"].includes(
+  return ["note_bundle_changed", "cursor-changed", "invalid-request", "invalid-response", "unavailable", "unknown"].includes(
     String(value),
   );
 }
@@ -408,6 +409,12 @@ export class HttpReaderHost implements ReaderHost {
 
   selectDiscussionSource(sourceId: string, discussionId?: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/discuss`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ discussionId }) });
+  }
+
+  createSourceNote({ sourceId, ...input }: CreateSourceNoteInput): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/notes`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input),
+    });
   }
 
   changeSourceNote(sourceId: string, noteId: string, operation: "edit" | "delete" | "undo",

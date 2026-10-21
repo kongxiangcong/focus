@@ -1,6 +1,6 @@
 # 06 Host 创建笔记、bundleVersion 与适配器
 
-Status: ready-for-agent
+Status: needs-info
 Blocked by: 05
 Covers: spec §3.6，问题 P5
 
@@ -66,3 +66,11 @@ Covers: spec §3.6，问题 P5
 
 ## Comments
 - 2026-10-21 SOURCE/PASS：已核对以上代码位置。待记录红/绿结果与截图。
+
+- 文件：host/service.py、server.py、core_bridge.py；reader-contracts；http-reader-host、fixture-reader-host；test_direct_source_notes.py、direct-note.test.ts。
+- 红灯：7 项初始 Host 场景（当时6个测试含子用例）出现缺方法/接口400/缺 bundleVersion；适配器2 FAIL。
+- 绿灯：typecheck PASS；reader:test PASS（107 reader-ui +156 standalone）；reader:build PASS；`.venv/bin/python -m unittest tests.test_direct_source_notes tests.test_article_overview` PASS（15项）。
+- 验证：真实 Host/Core/SQLite + 合成 Source；幂等与不同 payload 冲突、锚点和 quote、旧 Bundle、整篇笔记、kind/origin 校验、Plan provenance 缓存、编辑/删除/撤销/清除；Cursor 文件、Timeline、Conversation 保存前后不变。
+- HTTP 测试使用真实 Workbench instance 门禁：无访问口令401、有口令缺instance400、正确实例201、旧Bundle409且code=note_bundle_changed。没有放宽鉴权。
+- 原样 `.venv/bin/python -m unittest tests.test_web_host` FAIL（test_focus_read导入路径）；设置PYTHONPATH后FAIL（已删除CLI）；仅临时兼容加载后仍有旧fixture缺provenance/过期提示断言。基线9f183cd也失败，见12。没有调整生产代码绕过验证，也不计为PASS。
+- 阻塞：没有可读取的真实 Knowledge Base；spec要求的笔记真实数据副本回归NOT_RUN。不能满足resolved门禁。请提供含Plan/Parser Bundle的副本或可读路径；07及其下游保持阻塞。

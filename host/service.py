@@ -517,6 +517,34 @@ class HostService:
             self.changed()
             return self.snapshot()
 
+    def source_note_create(self, source_id, payload):
+        with self.lock:
+            self.source_clear.recover()
+            selected = self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']
+            if source_id != selected:
+                raise ValueError('讨论材料已改变，请刷新后重试。')
+            kind, origin = payload.get('kind'), payload.get('origin')
+            if kind not in ('thought', 'conclusion', 'question') or origin not in ('user', 'dialogue'):
+                raise ValueError('笔记类型或来源不正确。')
+            bundle = self.source_notes.bundle_version(source_id)
+            chunk, anchor = payload.get('chunk'), None
+            if chunk is not None:
+                if not isinstance(chunk, dict) or set(chunk) != {'planId', 'chunkId'}:
+                    raise ValueError('笔记段落引用不正确。')
+                if self.core.plan_bundle(source_id, chunk['planId']) != bundle:
+                    raise WorkspaceError('note_bundle_changed', '这段原文已更新，可改存为整篇笔记')
+                reference = self.core.reference({'sourceId': source_id, **chunk})
+                anchor = {'sourceId': source_id, 'bundle': bundle, 'sourceLines': reference['sourceLines']}
+                if payload.get('quote') is not None:
+                    anchor['quote'] = payload['quote']
+            request_id = payload.get('requestId')
+            result = self.source_notes.save(source_id, bundle=bundle, request_id=request_id, intent_id=request_id,
+                content=payload.get('content'), kind=kind, origin=origin,
+                evidence_role='unresolved_question' if kind == 'question' else 'explanation', anchor=anchor)
+            self.state['noteOperation'] = {'sourceId': source_id, **result}
+            self.changed()
+            return self.snapshot()
+
     def source_note_change(self, source_id, note_id, payload, operation):
         with self.lock:
             self.source_clear.recover()

@@ -121,8 +121,8 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
         except Exception as exc:
             self.close_connection = True
-            code = 'cursor-changed' if getattr(exc, 'error_id', None) == 'cursor_changed' else 'invalid-request' if isinstance(exc, (ValueError, WorkspaceError)) else 'unavailable'
-            self._send(409 if code == 'cursor-changed' else 400 if code == 'invalid-request' else 500,
+            code = 'note_bundle_changed' if getattr(exc, 'error_id', None) == 'note_bundle_changed' else 'cursor-changed' if getattr(exc, 'error_id', None) == 'cursor_changed' else 'invalid-request' if isinstance(exc, (ValueError, WorkspaceError)) else 'unavailable'
+            self._send(409 if code in ('cursor-changed', 'note_bundle_changed') else 400 if code == 'invalid-request' else 500,
                        {'ok': False, 'error': {'code': code, 'message': str(exc), 'retryable': code == 'unavailable'}})
 
     def _blog(self, method, path, source_id, parts):
@@ -309,6 +309,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._blog(method, path, source_id, parts)
                 return
             if len(parts) >= 2 and parts[1] == 'notes':
+                if method == 'POST' and len(parts) == 2:
+                    result = service.source_note_create(source_id, self._body())
+                    self._send(201, {'ok': True, 'value': result})
+                    return
                 if method == 'GET' and len(parts) == 4 and parts[2] == 'requests':
                     self._send(200, {'ok': True, 'value': service.source_note_request(source_id, unquote(parts[3]))})
                     return
