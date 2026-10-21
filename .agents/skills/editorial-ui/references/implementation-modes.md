@@ -14,7 +14,7 @@ The delivered `index.html` has inline CSS, classic JavaScript and inline data. N
 
 Use source code sources only at authoring time. `build_starters.py` resolves JSON/CSS/JS into HTML; opening a built HTML never reads those files. Never use `fetch('./data.json')` with file URLs. Blob-backed CSV export is generated locally and temporary URLs are revoked.
 
-Use feature detection for optional animations. The baseline expects modern browsers with native dialog, CSS Grid and standard DOM APIs. The bundled browser suite targets Chromium only; consult the current release report for actual execution; do not promise Safari/Firefox/embedded-WebView behavior. Essential no-JavaScript explanatory text can use `<noscript>`, but the interactive experience requires JavaScript.
+Use feature detection for optional animations. The baseline expects modern browsers with native dialog, CSS Grid and standard DOM APIs. The bundled browser suite targets Chromium only; record the browser and version actually exercised, and mark other browser coverage as unverified. Essential no-JavaScript explanatory text can use `<noscript>`, but the interactive experience requires JavaScript.
 
 ## Review mode
 

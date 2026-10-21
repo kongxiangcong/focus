@@ -22,7 +22,7 @@ def main() -> int:
     try:
         from playwright.sync_api import sync_playwright
     except ImportError:
-        print('NOT_RUN: Playwright is absent. Install it only with user authorization. See README.')
+        print('NOT_RUN: Playwright is absent. Install it only with user authorization. See MAINTAINING.md.')
         return 2
     args.out.mkdir(parents=True, exist_ok=True)
     checks: list[dict] = []

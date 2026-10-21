@@ -20,7 +20,7 @@ If a layout changes while an interaction is active, cancel or settle it delibera
 
 Inspect current screenshots, styles and component ownership before modifying an application. Do not transplant `.topbar`, `button`, or `body` global styles from a starter. Scope tokens and selectors, reuse theme providers, and do not fork the app's modal stack.
 
-For FOCUS-like readers: preserve the existing theme rather than assuming it needs this bundle's warm palette. Ordinary questions do not advance reading state. Continuing reading is a separate explicit command. Fullscreen and non-fullscreen share the same auxiliary-panel behavior, and existing history/session handling stays authoritative.
+For readers with auxiliary discussion, keep discussion actions separate from explicit reading progression. Preserve the product’s history/session contracts and consistent auxiliary-panel behavior across fullscreen and normal layouts. Resolve theme choices through [design authority](design-authority.md).
 
 ## Layout invariants for validation
 

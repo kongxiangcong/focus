@@ -55,6 +55,4 @@ Keep a small named scenario for each regression. Fix the cause in the shared sou
 
 ## Reference-led product acceptance
 
-Freeze the chosen design target with fixed synthetic/public content, viewport, DPR, fonts, theme and density. Compare actual product pages and component states against that target. Track reference resemblance separately from task fit and behavioral correctness. Do not invent a pixel-diff percentage, frame-rate guarantee or performance budget without a measured baseline.
-
-Maintain an implementation/verification matrix per page and state. Required-final scope cannot silently become optional; unimplemented requirements are incomplete, not NOT_APPLICABLE. For redesign calibration and slice sequencing, use [product redesign](product-redesign.md#real-product-slice). Check dev and production-served assets, long timelines, rapid reversals and reduced-motion changes. Keep historical release logs labeled historical; passed bundle tests do not certify a product or generation quality.
+For reference calibration, the real product slice and migration acceptance, follow [product redesign](product-redesign.md#real-product-slice).
