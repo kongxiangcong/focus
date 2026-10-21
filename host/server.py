@@ -296,7 +296,7 @@ class Handler(BaseHTTPRequestHandler):
                         remaining -= len(data)
                 if target.suffix.lower() == '.pdf' and target.read_bytes()[:4] != b'%PDF':
                     raise ValueError('文件内容不是 PDF。')
-                result = service.ingestion.stage_file(target, topic_title=topic, topic_id=topic_id)
+                result = service.inbox_stage_file(target, topic_title=topic, topic_id=topic_id)
             finally:
                 target.unlink(missing_ok=True)
                 root.rmdir()

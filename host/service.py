@@ -627,9 +627,26 @@ class HostService:
             upload = self.store.get('upload:' + attachment_id)
             if not upload:
                 raise ValueError('上传文件不存在')
-            return self.ingestion.stage_file(
-                self.workspace / upload['path'], topic_title=topic_title, topic_id=topic_id
-            )
+            path = self.workspace / upload['path']
+        return self.inbox_stage_file(path, topic_title=topic_title, topic_id=topic_id)
+
+    def inbox_stage_file(self, path, *, topic_title=None, topic_id=None):
+        item = self.ingestion.stage_file(path, topic_title=topic_title, topic_id=topic_id)
+        if item.get('duplicate'):
+            app = self._batch_app()
+            # Match the Batch -> Host lock order used by batch controls. Restoring
+            # the parent must not restore its other dismissed children.
+            with app.lock:
+                batch_ids = [batch['batchId'] for batch in app.list()
+                             if any(child['itemId'] == item['item_id'] for child in batch['items'])]
+                with self.lock:
+                    StatusNotifications(self.store).restore([
+                        ('work', 'ingestion:' + item['item_id']),
+                        ('inbox', item['item_id']), ('batch-item', item['item_id']),
+                        *(('batch', batch_id) for batch_id in batch_ids),
+                    ])
+                    self.changed()
+        return item
 
     def inbox_confirm(self, item_id, *, generate_blog=False):
         """One confirmation covers ingestion; the blog checkbox authorizes the follow-up step.

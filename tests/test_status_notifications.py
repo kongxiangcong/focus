@@ -14,6 +14,25 @@ class MemoryStore:
 
 
 class StatusNotificationTests(unittest.TestCase):
+    def test_restore_is_selective_persistent_and_does_not_replay_clear_requests(self):
+        store = MemoryStore()
+        notices = StatusNotifications(store)
+        failed = {'status': 'failed', 'notificationId': 'attempt-1'}
+        entries = [('work', 'ingestion:a', failed), ('inbox', 'a', failed),
+                   ('batch-item', 'a', failed), ('batch', 'parent', failed),
+                   ('inbox', 'b', failed), ('batch-item', 'b', failed)]
+        notices.clear(entries, 'clear-1')
+        notices.restore([(kind, identity) for kind, identity, _ in entries[:4]])
+        notices.clear(entries, 'clear-1')
+        reloaded = StatusNotifications(store)
+        for kind, identity, value in entries[:4]:
+            self.assertFalse(reloaded.project(kind, identity, value)['dismissed'])
+        for kind, identity, value in entries[4:]:
+            self.assertTrue(reloaded.project(kind, identity, value)['dismissed'])
+        before = store.get('statusNotifications')
+        notices.restore([('inbox', 'a'), ('inbox', 'missing')])
+        self.assertEqual(before, store.get('statusNotifications'))
+
     def test_expiring_diagnostics_does_not_restore_a_dismissed_chat_attempt(self):
         notices = StatusNotifications(MemoryStore())
         failure = {'status': 'failed', 'notificationId': 'run-1', 'label': 'chat', 'error': 'old log'}

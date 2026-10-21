@@ -70,7 +70,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   useEffect(() => { if (taskDetails) setTaskVisited(true); }, [taskDetails]);
   const [closingPreparations, setClosingPreparations] = useState<Readonly<Record<string, string>>>({});
   const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
-  const refreshing = useRef(false);
+  const refreshing = useRef<Promise<void> | null>(null);
+  const taskFrame = useRef<HTMLDivElement>(null);
+  const [pendingTaskFocus, setPendingTaskFocus] = useState<readonly string[] | null>(null);
   const blogRefreshing = useRef(new Set<string>());
   const [dragging, setDragging] = useState(false);
   const [view, setView] = useState<ReadingWindow | null>(null);
@@ -148,24 +150,31 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     setDensity(savedAppearance.current.density); setReducedMotion(savedAppearance.current.reducedMotion);
   }
   function navigate(next: Route) { history.pushState(null, "", next); setRoute(next); setError(""); setRetryAction(null); }
-  async function refresh() {
+  async function refresh(afterCurrent = false): Promise<void> {
     if (!host.listSources || !host.listTopics) { setLoading(false); return; }
-    if (refreshing.current) return;
-    refreshing.current = true;
+    if (refreshing.current) {
+      await refreshing.current;
+      if (afterCurrent) await refresh();
+      return;
+    }
     const version = ++requestVersion.current;
-    try {
-      const sourceRequest = Promise.resolve().then(() => host.listSources!()).then(result => { if (version === requestVersion.current) setSourcesFailed(!result.ok); return result; }, error => { if (version === requestVersion.current) setSourcesFailed(true); throw error; });
-      const [sourceResult, topicResult, inboxResult, batchResult] = await Promise.all([sourceRequest, host.listTopics(), host.listInbox?.(), host.listBatches?.()]);
-      if (version !== requestVersion.current) return;
-      if (sourceResult.ok) {
-        setSources(sourceResult.value);
+    const request = (async () => {
+      try {
+        const sourceRequest = Promise.resolve().then(() => host.listSources!()).then(result => { if (version === requestVersion.current) setSourcesFailed(!result.ok); return result; }, error => { if (version === requestVersion.current) setSourcesFailed(true); throw error; });
+        const [sourceResult, topicResult, inboxResult, batchResult] = await Promise.all([sourceRequest, host.listTopics!(), host.listInbox?.(), host.listBatches?.()]);
+        if (version !== requestVersion.current) return;
+        if (sourceResult.ok) {
+          setSources(sourceResult.value);
 
-      } else setError(sourceResult.error.message);
-      if (topicResult.ok) { setTopics(topicResult.value); setTopic(current => (current === UNFILED || topicResult.value.some(t => t.topicId === current)) ? current : ""); } else setError(topicResult.error.message);
-      if (batchResult) { if (batchResult.ok) setBatches(batchResult.value); else setError(batchResult.error.message); }
-      if (inboxResult) { if (inboxResult.ok) setInbox(inboxResult.value); else setError(inboxResult.error.message); }
-    } catch (e) { if (version === requestVersion.current) setError(String(e)); }
-    finally { refreshing.current = false; if (version === requestVersion.current) setLoading(false); }
+        } else setError(sourceResult.error.message);
+        if (topicResult.ok) { setTopics(topicResult.value); setTopic(current => (current === UNFILED || topicResult.value.some(t => t.topicId === current)) ? current : ""); } else setError(topicResult.error.message);
+        if (batchResult) { if (batchResult.ok) setBatches(batchResult.value); else setError(batchResult.error.message); }
+        if (inboxResult) { if (inboxResult.ok) setInbox(inboxResult.value); else setError(inboxResult.error.message); }
+      } catch (e) { if (version === requestVersion.current) setError(String(e)); }
+      finally { if (version === requestVersion.current) setLoading(false); }
+    })();
+    refreshing.current = request;
+    try { await request; } finally { if (refreshing.current === request) refreshing.current = null; }
   }
   useEffect(() => {
     if (location.pathname !== routeFromLocation()) history.replaceState(null, "", "/library");
@@ -296,6 +305,18 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     await operate("打开新计划", () => host.activateReadingCandidate!(sourceId, preparation.plan_id!,
       view.readingRevision!, createReaderId()), true);
   }
+  function duplicateNotice(item: IngestionItem) {
+    const published = !!item.sourceId && ["published", "reused"].includes(item.documentStatus);
+    return `${item.fileName}：该原件已有未完成任务。${published ? "文档已入库，仍有后续步骤未完成" : "原件已上传，文档尚未入库"}；已恢复原任务，请在任务面板查看或重试。不会自动重复解析。`;
+  }
+  async function revealIngestion(items: readonly IngestionItem[]) {
+    setNotice(items.map(duplicateNotice).join("\n"));
+    setTaskDetails(true);
+    setPendingTaskFocus(items.map(item => item.itemId));
+    // A poll started before staging may still contain dismissal receipts.
+    // Wait for it, then fetch the persisted restored projections.
+    await refresh(true);
+  }
   function replaceInbox(item: IngestionItem) { setInbox(current => [item, ...current.filter(existing => existing.itemId !== item.itemId)]); }
   async function ingest(label: string, operation: () => Promise<ReaderHostResult<IngestionItem>>, closeUpload = false) {
     if (locked.current) return;
@@ -304,7 +325,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       const result = await operation();
       if (!result.ok) { setError(result.error.message); setRetryAction(() => () => void ingest(label, operation, closeUpload)); return; }
       setRetryAction(null); replaceInbox(result.value);
-      if (result.value.duplicate) setNotice("该原件已有未完成任务，已回到原任务；不会重复解析。");
+      if (result.value.duplicate) await revealIngestion([result.value]);
       if (closeUpload) { setUploadOpen(false); setSelectedFiles([]); }
     } catch (e) { setError(String(e)); setRetryAction(() => () => void ingest(label, operation, closeUpload)); }
     finally { locked.current = false; setBusy(""); }
@@ -430,15 +451,16 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   async function uploadAndStart() {
     if (locked.current || !selectedFiles.length || !host.stageIngestion || !host.startBatch) return;
     const files = [...selectedFiles], topicTitle = uploadTopic.trim();
-    locked.current = true; setBusy("开始处理"); setError("");
+    locked.current = true; setBusy("开始处理"); setError(""); setNotice("");
     try {
       const ids: string[] = [];
+      const duplicates: IngestionItem[] = [];
       for (const file of files) {
         const staged = await host.stageIngestion(file, { ...(topicTitle ? { topicTitle } : {}) });
         if (!staged.ok) { setError(staged.error.message); return; }
         replaceInbox(staged.value);
-        if (staged.value.duplicate && !["awaiting_confirmation", "confirmed"].includes(staged.value.status)) {
-          setNotice("该原件已有未完成任务，已回到原任务；不会重复解析。");
+        if (staged.value.duplicate) {
+          duplicates.push(staged.value);
           continue;
         }
         ids.push(staged.value.itemId);
@@ -447,7 +469,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         const started = await identified(`upload:${ids.join(",")}`, id => host.startBatch!(ids, id, generateOnUpload));
         if (!started.ok) { setError(started.error.message); return; }
       }
-      setUploadOpen(false); setSelectedFiles([]); await refresh();
+      setUploadOpen(false); setSelectedFiles([]);
+      if (duplicates.length) await revealIngestion(duplicates);
+      else await refresh(true);
     } catch (e) { setError(String(e)); }
     finally { locked.current = false; setBusy(""); }
   }
@@ -470,7 +494,19 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const runningStatuses = ["running", "approval", "stopping", "processing", "confirmed", "pending", "generating"];
   const work = (view?.workItems ?? []).filter(item => !item.dismissed && (item.kind !== "preparation" || !preparationHidden(item.targetId)));
   const taskBatches = batches.filter(batch => !batch.dismissed).map(batch => ({ ...batch, items: batch.items.filter(item => !item.dismissed) }));
-  const taskInbox = inbox.filter(item => !item.dismissed && !batches.some(batch => batch.items.some(entry => entry.itemId === item.itemId)));
+  const taskInbox = inbox.filter(item => !item.dismissed && !taskBatches.some(batch => batch.items.some(entry => entry.itemId === item.itemId)));
+  useEffect(() => {
+    if (!pendingTaskFocus || !taskDetails || uploadOpen || busy) return;
+    const rows = Array.from(taskFrame.current?.querySelectorAll<HTMLElement>("[data-task-item-id]") ?? [])
+      .filter(row => pendingTaskFocus.includes(row.dataset.taskItemId!));
+    if (!rows.length) return;
+    for (const row of rows) { const batch = row.closest("details"); if (batch) batch.open = true; }
+    const row = rows[0];
+    row.scrollIntoView({ block: "nearest" });
+    (row.querySelector<HTMLElement>("[data-task-retry]:not(:disabled), button:not(:disabled)") ?? row).focus({ preventScroll: true });
+    setPendingTaskFocus(null);
+  }, [pendingTaskFocus, taskDetails, uploadOpen, busy, inbox, batches]);
+
   async function clearStatuses() {
     if (!host.clearFinishedStatuses || locked.current) return;
     await operate('全部清空', () => identified('clear-statuses', id => host.clearFinishedStatuses!(id)));
@@ -527,7 +563,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           {route === "/library" && <button className="workspace-primary" disabled={uploadDisabled} onClick={() => chooseUpload()}>上传</button>}
         </div>
       </div>
-      {(taskDetails || taskVisited) && <div className="workspace-task-frame" id="workspace-tasks" role="region" aria-label="任务框" data-open={taskDetails} aria-hidden={!taskDetails} inert={!taskDetails} onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setTaskDetails(false); document.querySelector<HTMLButtonElement>(".workspace-task-toggle")?.focus(); } }}>
+      {(taskDetails || taskVisited) && <div ref={taskFrame} className="workspace-task-frame" id="workspace-tasks" role="region" aria-label="任务框" data-open={taskDetails} aria-hidden={!taskDetails} inert={!taskDetails} onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setTaskDetails(false); document.querySelector<HTMLButtonElement>(".workspace-task-toggle")?.focus(); } }}>
         <div className="workspace-task-actions"><span>任务状态</span><button disabled={!!busy || !host.clearFinishedStatuses} onClick={() => void clearStatuses()}>全部清空</button></div>
         <small>清空已结束状态，运行中及等待开始的任务保留。</small>
         {work.length === 0 && taskBatches.length === 0 && taskInbox.length === 0 && <p>没有进行中或待处理的任务。</p>}
@@ -544,14 +580,14 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         {["confirmed", "running"].includes(batch.status) && <button disabled={!!busy || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "stop")}>停止整批</button>}
         {["paused", "partial"].includes(batch.status) && <button disabled={!!busy || batch.executing || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "continue")}>继续剩余工作</button>}
         {batch.error && <p role="status">{batch.error.message}</p>}
-        {batch.items.map(item => <div className="library-inbox-item" data-status={item.ingestionStatus === "failed" ? "failed" : item.status} key={item.itemId}>
+        {batch.items.map(item => <div className="library-inbox-item" data-task-item-id={item.itemId} tabIndex={-1} data-status={item.ingestionStatus === "failed" ? "failed" : item.status} key={item.itemId}>
           <strong>{item.fileName}</strong><span>{itemStatusText[item.status]}</span>
           <small>{item.status === "deleted" ? "原处理授权已失效" : item.ingestionStatus === "completed" ? "解析完成" : "解析：" + (statusText[item.ingestionStatus as IngestionItem["status"]] ?? "待处理")}{item.blog ? " · 博客：" + ({ running: "生成中", completed: "已完成", failed: "失败", cancelled: "已取消", interrupted: "已中断" }[item.blog.runStatus ?? ""] ?? "待生成") : ""}</small>
           {item.parserBackend && <small>{item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"}{item.selectionReason ? ` · ${item.selectionReason}` : ""}{item.parserProgress?.status ? ` · ${item.parserProgress.status === "queued" ? "排队中" : "解析中"}` : ""}{typeof item.parserProgress?.percent === "number" ? ` · ${Math.round(item.parserProgress.percent)}%` : ""}</small>}
           {item.error && <p>{item.error.message}</p>}
           {item.status === "processing" && <button disabled={!!busy || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "cancel-item", item.itemId)}>取消此项</button>}
           {item.status === "queued" && <button disabled={!!busy || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "remove-item", item.itemId)}>移出队列</button>}
-          {["failed", "partial", "cancelled"].includes(item.status) && !item.resubmitRisk && <button disabled={!!busy || batch.executing || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "retry-item", item.itemId)}>重试未完成步骤</button>}
+          {["failed", "partial", "cancelled"].includes(item.status) && !item.resubmitRisk && <button data-task-retry disabled={!!busy || batch.executing || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "retry-item", item.itemId)}>重试未完成步骤</button>}
           {item.resubmitRisk && <div><p>上次提交结果未知，重新提交可能重复解析。</p>
             {item.remoteReference && <button disabled={!!busy || batch.executing || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "retry-item", item.itemId)}>查询并续接原任务</button>}
             <button disabled={!!busy || batch.executing || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "resubmit-item", item.itemId, item.resubmitRisk!.choice_id)}>重新提交</button>
@@ -559,7 +595,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           {item.sourceId && <div className="inbox-links">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(item.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(item.sourceId)} target="_blank" rel="noreferrer">正文</a>}</div>}
         </div>)}
       </article></details>)}</section>}
-      {taskInbox.length > 0 && <section className="library-inbox" aria-label="Inbox"><div className="library-inbox-heading"><h2>单项上传</h2><button disabled={!!busy} onClick={() => void refresh()}>刷新状态</button></div>{taskInbox.map(item => <article key={item.itemId} className="library-inbox-item" data-status={item.status}>
+      {taskInbox.length > 0 && <section className="library-inbox" aria-label="Inbox"><div className="library-inbox-heading"><h2>单项上传</h2><button disabled={!!busy} onClick={() => void refresh()}>刷新状态</button></div>{taskInbox.map(item => <article key={item.itemId} className="library-inbox-item" data-task-item-id={item.itemId} tabIndex={-1} data-status={item.status}>
         <div><strong>{item.fileName}</strong><span>{statusText[item.status]}</span><small>{item.topicTitle ?? topics.find(t => t.topicId === item.topicId)?.title ?? "不关联专题"}</small></div>
         {item.parserBackend && <p role="status">{item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"}{item.selectionReason ? ` · ${item.selectionReason}` : ""}{item.parserProgress?.status ? ` · ${item.parserProgress.status === "queued" ? "排队中" : item.parserProgress.status === "running" ? "解析中" : item.parserProgress.status}` : ""}{typeof item.parserProgress?.percent === "number" ? ` · ${Math.round(item.parserProgress.percent)}%` : ""}</p>}
         {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>PDF 由运行 FOCUS 后端的服务器自动选择本地 MinerU 或远端 MinerU API；HTML 使用本地解析。解析仅用于建立 Source 并关联专题，不会自动进入阅读。</p>
@@ -572,8 +608,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
             <button className="workspace-primary" disabled={!!busy || !host.resubmitIngestion || !item.resubmitRisk} onClick={() => host.resubmitIngestion && item.resubmitRisk && void ingest("重新提交", () => host.resubmitIngestion!(item.itemId, createReaderId(), item.resubmitRisk!.choiceId))}>重新提交</button>
           </div>
         </div>}
-        {["retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "interrupted"].includes(item.status) && <button disabled={!!busy || !host.continueIngestion} onClick={() => continueInbox(item)}>继续</button>}
-        {item.status === "cancelled" && !item.resubmitRisk && <button disabled={!!busy || !host.continueIngestion} onClick={() => continueInbox(item)}>继续</button>}
+        {["retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "interrupted"].includes(item.status) && <button data-task-retry disabled={!!busy || !host.continueIngestion} onClick={() => continueInbox(item)}>{item.status === "failed" ? "重试解析" : "继续"}</button>}
+        {item.status === "cancelled" && !item.resubmitRisk && <button data-task-retry disabled={!!busy || !host.continueIngestion} onClick={() => continueInbox(item)}>继续</button>}
         {["status_check_required", ...resumableStatuses].includes(item.status) && <button disabled={!!busy || !host.confirmIngestion || !host.processIngestion} onClick={() => void confirmAndStart(item)}>重新确认并开始</button>}
         {item.sourceId && <div className="inbox-links">{host.sourceOriginalUrl && <a href={host.sourceOriginalUrl(item.sourceId)} target="_blank" rel="noreferrer">原件</a>}{host.sourceContentUrl && <a href={host.sourceContentUrl(item.sourceId)} target="_blank" rel="noreferrer">正文</a>}</div>}
         {(item.error || item.topicError) && <p className="inbox-error">{item.topicError?.message ?? item.error?.message}</p>}

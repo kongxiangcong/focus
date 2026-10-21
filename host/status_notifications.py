@@ -43,6 +43,15 @@ class StatusNotifications:
         dismissed = clearable(value) and state.get('dismissed', {}).get(kind + ':' + identity) == receipt(kind, value)
         return {**value, 'dismissed': dismissed}
 
+    def restore(self, identities):
+        """Reveal selected records without replaying attempts or old clear requests."""
+        previous = self.store.get('statusNotifications') or {}
+        dismissed = dict(previous.get('dismissed', {}))
+        for kind, identity in identities:
+            dismissed.pop(kind + ':' + identity, None)
+        if dismissed != previous.get('dismissed', {}):
+            self.store.put('statusNotifications', {**previous, 'dismissed': dismissed})
+
     def clear(self, entries, request_id):
         if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 160:
             raise ValueError('清空状态需要有效的请求标识。')

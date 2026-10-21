@@ -43,3 +43,15 @@ explicitly opening a completed Source displays every saved Chunk and hides Conti
 Missing Chunks are projected without writing reading events, progress or the Cursor;
 existing discussion/review events and notes remain intact. New Session still clears
 its display until the reader explicitly opens the Source again.
+
+## 2026-10-21 duplicate-upload recovery
+
+Re-uploading an original with unfinished ingestion restores that Inbox Item and
+its containing Processing Batch in the task projection, including after bulk
+status dismissal. Other dismissed items remain hidden, including siblings in the
+same batch. Host persists this visibility change across refresh and restart;
+the underlying attempt, batch membership and parsing authorization are unchanged.
+The UI opens the task panel, expands the matching batch and focuses its recovery
+action. Re-upload does not submit parsing again, even for an already confirmed
+item. The notice distinguishes an uploaded original awaiting publication from
+a published document with unfinished follow-up work.

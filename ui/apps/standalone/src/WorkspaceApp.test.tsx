@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ReaderHostResult, type ReaderHost, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
+import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ProcessingBatch, type ReaderHostResult, type ReaderHost, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
 import { WorkspaceApp } from "./WorkspaceApp";
 const empty: ReadingWindow = { status: "empty", current: null, history: [], conversation: [], source: { sourceId: "", title: "", topicId: null }, sessionId: "s1",
   agent: { run: null, catalog: { sources: [], topics: [] }, backend: "codex", backends: [{ id: "codex", label: "Codex" }, { id: "deepseek", label: "DeepSeek" }] } };
@@ -56,6 +56,7 @@ beforeEach(() => {
     clear: () => values.clear(),
   } });
   history.replaceState(null, "", "/"); localStorage.clear();
+  HTMLElement.prototype.scrollIntoView = vi.fn();
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
   HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
 });
@@ -298,8 +299,9 @@ it("shows the original unfinished task instead of a new one when the same file i
 
   const notice = await screen.findByText(/该原件已有未完成任务/);
   expect(notice.closest("[role=status]")).not.toBeNull();
-  expect(notice).toHaveTextContent("已回到原任务；不会重复解析。");
-  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
+  expect(notice).toHaveTextContent("原件已上传，文档尚未入库");
+  expect(notice).toHaveTextContent("不会自动重复解析");
+  expect(screen.getByRole("button", { name: "任务详情" })).toHaveAttribute("aria-expanded", "true");
   const row = document.querySelector(".library-inbox-item");
   expect(row).toHaveTextContent("test.pdf");
   expect(row).toHaveTextContent("远端状态待核对");
@@ -926,4 +928,94 @@ it("allows narrow-screen navigation to expand and retains the explicit choice", 
     fireEvent.click(screen.getByRole("button", { name: "收起导航" }));
     expect(toggle).toHaveAttribute("aria-expanded", "false");
   } finally { window.matchMedia = original; }
+});
+
+it.each([false, true])("restores a cleared duplicate and focuses retry (batch=%s), preserving other dismissals across reload", async batched => {
+  const failed: IngestionItem = { itemId: "failed-1", fileName: "2609.20519v1.pdf", status: "failed", topicId: null, topicTitle: null,
+    sourceId: null, documentStatus: "not_started", topicStatus: "not_started", error: { errorId: "parse_failed", message: "解析失败" } };
+  const other: IngestionItem = { ...failed, itemId: "other-1", fileName: "other.pdf" };
+  let dismissed = new Set<string>();
+  const items = () => [failed, other].map(item => ({ ...item, dismissed: dismissed.has(item.itemId) }));
+  const batches = (): ProcessingBatch[] => batched ? [{ batchId: "original-batch", topicId: null, status: "partial", error: null,
+    dismissed: dismissed.has(failed.itemId) && dismissed.has(other.itemId), items: items().map(item => ({
+      itemId: item.itemId, fileName: item.fileName, sourceId: null, status: "failed", ingestionStatus: "failed", blog: null, error: null, dismissed: item.dismissed,
+    })) }] : [];
+  const { host, unmount } = setup([], empty, {
+    listInbox: vi.fn(async () => readerSuccess(items())), listBatches: vi.fn(async () => readerSuccess(batches())),
+    clearFinishedStatuses: vi.fn(async () => { dismissed = new Set([failed.itemId, other.itemId]); return readerSuccess(empty); }),
+    stageIngestion: vi.fn(async () => { dismissed.delete(failed.itemId); return readerSuccess({ ...failed, duplicate: true }); }),
+  });
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
+  fireEvent.click(screen.getByRole("button", { name: "全部清空" }));
+  await screen.findByText("没有进行中或待处理的任务。");
+  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传" }));
+  fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF failed"], failed.fileName)] } });
+  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  const taskFrame = await screen.findByRole("region", { name: "任务框" });
+  const retryName = batched ? "重试未完成步骤" : "重试解析";
+  const retry = await within(taskFrame).findByRole("button", { name: retryName });
+  await waitFor(() => expect(retry).toHaveFocus());
+  expect(within(taskFrame).getByText(failed.fileName)).toBeVisible();
+  expect(within(taskFrame).queryByText(other.fileName)).not.toBeInTheDocument();
+  expect(screen.getByText(/原件已上传，文档尚未入库/)).toBeVisible();
+  expect(host.startBatch).not.toHaveBeenCalled();
+  expect(host.processIngestion).not.toHaveBeenCalled();
+  expect(host.continueIngestion).not.toHaveBeenCalled();
+  expect(host.controlBatch).not.toHaveBeenCalled();
+  if (batched) expect(retry.closest("details")).toHaveAttribute("open");
+  unmount(); render(<WorkspaceApp host={host} />);
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
+  const reloaded = screen.getByRole("region", { name: "任务框" });
+  if (batched) fireEvent.click(within(reloaded).getByText("当前任务 / 待处理", { selector: "summary" }));
+  expect(within(reloaded).getByText(failed.fileName)).toBeVisible();
+  expect(within(reloaded).queryByText(other.fileName)).not.toBeInTheDocument();
+  fireEvent.click(within(reloaded).getByRole("button", { name: retryName }));
+  if (batched) await waitFor(() => expect(host.controlBatch).toHaveBeenCalledWith("original-batch", "retry-item", expect.any(String), failed.itemId, undefined));
+  else await waitFor(() => expect(host.continueIngestion).toHaveBeenCalledWith(failed.itemId, expect.any(String)));
+});
+
+it("starts only new files in a mixed upload and restores existing confirmed tasks without submitting them again", async () => {
+  const existing: IngestionItem = { itemId: "old", fileName: "old.pdf", status: "confirmed", topicTitle: null, topicId: null,
+    sourceId: null, documentStatus: "not_started", topicStatus: "not_started", duplicate: true };
+  const fresh = { ...existing, itemId: "fresh", fileName: "fresh.pdf", status: "awaiting_confirmation" as const, duplicate: false };
+  const { host } = setup([], empty, {
+    stageIngestion: vi.fn(async file => readerSuccess(file.name === "old.pdf" ? existing : fresh)),
+    listInbox: vi.fn(async () => readerSuccess([existing, fresh])),
+  });
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "上传" }));
+  fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF old"], "old.pdf"), new File(["%PDF fresh"], "fresh.pdf")] } });
+  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["fresh"], expect.any(String), true));
+  expect(host.startBatch).toHaveBeenCalledTimes(1);
+  expect(await screen.findByRole("region", { name: "任务框" })).toBeVisible();
+  expect(host.processIngestion).not.toHaveBeenCalled();
+});
+
+it("refreshes restored tasks after an older list request and identifies an already published document", async () => {
+  const item: IngestionItem = { itemId: "published", fileName: "published.pdf", status: "topic_attachment_pending", topicTitle: null, topicId: null,
+    sourceId: "published-source", documentStatus: "published", topicStatus: "failed" };
+  const { host } = setup([item], empty, {
+    stageIngestion: vi.fn(async () => readerSuccess({ ...item, duplicate: true })),
+  });
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
+  let finishOldRequest!: (result: ReaderHostResult<readonly IngestionItem[]>) => void;
+  vi.mocked(host.listInbox!).mockImplementationOnce(() => new Promise(resolve => { finishOldRequest = resolve; }));
+  fireEvent.click(screen.getByRole("button", { name: "刷新状态" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传" }));
+  fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF"], item.fileName)] } });
+  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  await waitFor(() => expect(host.stageIngestion).toHaveBeenCalledTimes(1));
+  await act(async () => { finishOldRequest(readerSuccess([{ ...item, dismissed: true }])); });
+  const panel = await screen.findByRole("region", { name: "任务框" });
+  await waitFor(() => expect(within(panel).getByRole("button", { name: "继续" })).toHaveFocus());
+  expect(within(panel).getByText(item.fileName)).toBeVisible();
+  expect(screen.getByText(/文档已入库，仍有后续步骤未完成/)).toBeVisible();
+  expect(screen.queryByText(/文档尚未入库/)).not.toBeInTheDocument();
+  expect(host.startBatch).not.toHaveBeenCalled();
+  expect(host.continueIngestion).not.toHaveBeenCalled();
 });
