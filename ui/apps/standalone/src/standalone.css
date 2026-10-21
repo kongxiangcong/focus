@@ -459,7 +459,7 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
 
 /* ---------- reading container ---------- */
 .workspace-reading { grid-column:2; grid-row:2; display:flex; flex-direction:column; min-width:0; min-height:0;
-  background:var(--reader-canvas); filter:brightness(var(--reader-brightness,1)); }
+  background:var(--reader-canvas); }
 .workspace-reading[hidden] { display:none; }
 .workspace-reading .focus-mist { flex:1; min-height:0; }
 .reading-library-picker { display:flex; gap:8px; min-width:0; }

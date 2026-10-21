@@ -47,14 +47,13 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [route, setRoute] = useState<Route>(routeFromLocation);
   const [fontSize, setFontSize] = useState<FontSize>(readFont);
   const [readingFont, setReadingFont] = useState<ReadingFont>(readReadingFont);
-  const [brightness, setBrightness] = useState(() => { try { return Math.max(85, Math.min(110, Number(localStorage.getItem("focus.brightness") ?? 100) || 100)); } catch { return 100; } });
   const [theme, setTheme] = useState<Theme>(() => readPreference("focus.theme", ["light", "dark", "system"], "system"));
   const [reducedMotion, setReducedMotion] = useState(() => readPreference("focus.reducedMotion", ["true", "false"], "false") === "true");
   const [density, setDensity] = useState<Density>(() => readPreference("focus.density", ["compact", "comfortable"], "compact"));
   const [navCollapsed, setNavCollapsed] = useState(() => readPreference("focus.navigation", ["expanded", "collapsed"], "expanded") === "collapsed");
   const [appearanceFeedback, setAppearanceFeedback] = useState("");
   const [moreSource, setMoreSource] = useState<string | null>(null);
-  const savedAppearance = useRef({ fontSize, brightness, readingFont, theme, density, reducedMotion });
+  const savedAppearance = useRef({ fontSize, readingFont, theme, density, reducedMotion });
   useEffect(() => {
     applyAppearance(theme, density, reducedMotion);
     const media = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
@@ -125,11 +124,11 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   function saveAppearance() {
     try {
-      const changes = { "focus.fontSize": fontSize, "focus.brightness": String(brightness), "focus.readingFont": readingFont, "focus.theme": theme, "focus.density": density, "focus.reducedMotion": String(reducedMotion) };
+      const changes = { "focus.fontSize": fontSize, "focus.readingFont": readingFont, "focus.theme": theme, "focus.density": density, "focus.reducedMotion": String(reducedMotion) };
       const old = Object.keys(changes).map(key => [key, localStorage.getItem(key)] as const);
       try { for (const [key, value] of Object.entries(changes)) localStorage.setItem(key, value); }
       catch (e) { for (const [key, value] of old) { if (value !== null) localStorage.setItem(key, value); else localStorage.removeItem(key); } throw e; }
-      savedAppearance.current = { fontSize, brightness, readingFont, theme, density, reducedMotion }; return true;
+      savedAppearance.current = { fontSize, readingFont, theme, density, reducedMotion }; return true;
     } catch { return false; }
   }
   useEffect(() => {
@@ -144,7 +143,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     return () => document.removeEventListener("pointerdown", close);
   }, [moreSource]);
   function cancelAppearance() {
-    setFontSize(savedAppearance.current.fontSize); setBrightness(savedAppearance.current.brightness);
+    setFontSize(savedAppearance.current.fontSize);
     setReadingFont(savedAppearance.current.readingFont); setTheme(savedAppearance.current.theme);
     setDensity(savedAppearance.current.density); setReducedMotion(savedAppearance.current.reducedMotion);
   }
@@ -497,7 +496,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     return () => document.removeEventListener("keydown", exit);
   }, [readingFullscreen]);
   useEffect(() => { if (route !== "/reading") setReadingFullscreen(false); }, [route]);
-  return <div className="workspace-app" data-route={route} data-nav-collapsed={navCollapsed} data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-brightness": brightness / 100, "--reader-body-font": readingFontFamily(readingFont) } as CSSProperties}>
+  return <div className="workspace-app" data-route={route} data-nav-collapsed={navCollapsed} data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-body-font": readingFontFamily(readingFont) } as CSSProperties}>
     <aside className="workspace-nav" aria-label="工作台导航">
       <div className="workspace-nav__head">
         <a className="workspace-logo" href="/library" onClick={e => { e.preventDefault(); navigate("/library"); }}>focus<span>.</span></a>
@@ -601,7 +600,6 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <div className="settings-row"><label htmlFor="focus-theme">主题</label><select id="focus-theme" value={theme} onChange={e => setTheme(e.target.value as Theme)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div>
       <div className="settings-row"><label htmlFor="focus-reduced-motion">低动态</label><input id="focus-reduced-motion" type="checkbox" checked={reducedMotion} onChange={e => setReducedMotion(e.target.checked)} /></div>
       <div className="settings-row"><label htmlFor="focus-density">界面密度</label><select id="focus-density" value={density} onChange={e => setDensity(e.target.value as Density)}><option value="compact">紧凑</option><option value="comfortable">舒适</option></select></div>
-      <div className="settings-row"><label htmlFor="brightness">亮度</label><input id="brightness" type="range" min="85" max="110" value={brightness} aria-valuetext={`${brightness}%`} onChange={e => { setBrightness(Number(e.target.value)); }} /><output htmlFor="brightness">{brightness}%</output></div>
       <div className="settings-row"><label htmlFor="font-size">字号</label><input id="font-size" type="range" min="0" max="3" step="1" value={fontOptions.findIndex(([key]) => key === fontSize)} aria-valuetext={fontOptions.find(([key]) => key === fontSize)?.[1]} onChange={e => { const value = fontOptions[Number(e.target.value)][0]; setFontSize(value); }} /><output htmlFor="font-size">{readingFontSizes[fontSize]}px</output></div>
       <div className="settings-row"><label htmlFor="reading-font">正文字体</label><select id="reading-font" value={readingFont} onChange={e => setReadingFont(e.target.value as ReadingFont)}>
         {readingFonts.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}

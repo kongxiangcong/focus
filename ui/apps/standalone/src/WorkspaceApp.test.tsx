@@ -276,13 +276,13 @@ it("offers explicit reconfirmation for a recoverable Inbox item", async () => {
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["recover"], expect.any(String)));
   expect(host.processIngestion).not.toHaveBeenCalled();
 });
-it("persists brightness and omits the unused network control", async () => {
+it("omits brightness and ignores the retired saved preference", async () => {
+  localStorage.setItem("focus.brightness", "85");
   setup(); await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
-  fireEvent.change(screen.getByRole("slider", { name: "亮度" }), { target: { value: "90" } });
-  expect(localStorage.getItem("focus.brightness")).toBeNull();
+  expect(screen.queryByRole("slider", { name: "亮度" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "保存外观" }));
-  expect(localStorage.getItem("focus.brightness")).toBe("90");
+  expect(document.querySelector<HTMLElement>(".workspace-app")!.style.getPropertyValue("--reader-brightness")).toBe("");
   expect(screen.queryByRole("switch", { name: "网络" })).not.toBeInTheDocument();
 });
 it("shows the original unfinished task instead of a new one when the same file is added again", async () => {
@@ -580,14 +580,12 @@ it('clears terminal statuses while an active chat continues, and keeps source ma
 it("T2 appearance previews can be cancelled without touching saved settings", async () => {
   setup(); await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
-  fireEvent.change(screen.getByRole("slider", { name: "亮度" }), { target: { value: "90" } });
   fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
   fireEvent.change(screen.getByRole("combobox", { name: "正文字体" }), { target: { value: "source-han-sans" } });
   expect(localStorage.getItem("focus.fontSize")).toBeNull();
   expect(localStorage.getItem("focus.readingFont")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "还原外观" }));
   expect(screen.getByRole("slider", { name: "字号" })).toHaveValue("1");
-  expect(screen.getByRole("slider", { name: "亮度" })).toHaveValue("100");
   expect(screen.getByRole("combobox", { name: "正文字体" })).toHaveValue("default");
 });
 
