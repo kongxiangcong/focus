@@ -32,3 +32,8 @@ export function effectiveReadingMeasure(preferred: ReadingMeasure, fontSize: num
   if (!available || measureWidth(preferred, fontSize) + readingLayout.padding + reserve <= available) return preferred;
   return [...readingMeasures].reverse().find(m => measureWidth(m.id, fontSize) + readingLayout.padding + reserve <= available)?.id ?? "narrow";
 }
+
+/** The measured document width includes Attached Notes when present. */
+export function drawerTranslation(available: number, documentWidth: number, drawerRight: number, gap: number) {
+  return available >= documentWidth + drawerRight + gap ? Math.max(0, drawerRight + gap - (available - documentWidth) / 2) : 0;
+}

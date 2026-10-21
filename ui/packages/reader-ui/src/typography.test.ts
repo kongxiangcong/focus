@@ -19,3 +19,11 @@ it('falls back only for display and restores a wider preference when space retur
  expect(effectiveReadingMeasure('full',18,1600)).toBe('full');
  expect(effectiveReadingMeasure('standard',18,390)).toBe('narrow');
 });
+
+import {drawerTranslation} from './typography';
+it('translates the whole document including a note column only when both fit',()=>{
+ expect(drawerTranslation(1600,756,428,8)).toBe(14);
+ expect(drawerTranslation(1600,1068,428,8)).toBe(170);
+ expect(drawerTranslation(1280,1068,428,8)).toBe(0);
+ expect(drawerTranslation(390,342,370,8)).toBe(0);
+});

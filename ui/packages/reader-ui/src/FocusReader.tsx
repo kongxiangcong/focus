@@ -5,7 +5,7 @@ import { createReaderId, cursorReceipt, type ReaderChunk, type ReaderAttachment,
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentControls } from "./AgentControls";
 import { ReadingChunk, ReaderConversation, chunkKey } from "./ReadingChunk";
-import { readingFontSizes, readingMeasures, readingLayout, readReadingMeasure, effectiveReadingMeasure, measureWidth, type ReadingMeasure } from "./typography";
+import { readingFontSizes, readingMeasures, readingLayout, readReadingMeasure, effectiveReadingMeasure, measureWidth, drawerTranslation, type ReadingMeasure } from "./typography";
 import "./reader-shell.css";
 import "./mist-reader.css";
 import "./reader-figures.css";
@@ -317,7 +317,9 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     if (!root || !column) return;
     const measure = () => {
       const width = column.offsetWidth, area = root.clientWidth;
-      const shift = sideMode && mist && area >= width + 448 ? Math.max(0, 424 - (area - width) / 2) : 0;
+      const drawer = root.querySelector<HTMLElement>(".reader-left-drawer");
+      const gap = parseFloat(getComputedStyle(root).getPropertyValue("--reader-gap-sm")) || 0;
+      const shift = sideMode && mist && drawer ? drawerTranslation(area, width, drawer.offsetLeft + drawer.offsetWidth, gap) : 0;
       setReaderShift(shift);
     };
     measure();

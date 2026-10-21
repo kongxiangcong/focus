@@ -1,6 +1,6 @@
 # 04 资料抽屉平移不改宽度
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: 03
 Covers: spec §3.5，问题 P6
 
@@ -44,3 +44,8 @@ Covers: spec §3.5，问题 P6
 
 ## Comments
 - 2026-10-21 SOURCE/PASS：已核对以上代码位置。待记录红/绿结果与截图。
+
+- 03 已删除 data-reading-width 与桌面让列死代码；本工单实际修改 FocusReader 平移测量、typography.ts 平移函数与测试，新增 reader_drawer_translation_browser.mjs。
+- 红灯：新增平移测试 FAIL（函数缺失）；转绿：typecheck PASS、reader:test PASS（107+154）、reader:build PASS。
+- Browser PASS：Chromium 153；四视口×浅深色含移动触屏、全屏；阅读列宽度/工具栏宽度开合保持，足够空间时位于抽屉右侧，窄屏上下堆叠，无流横向溢出。截图 `evidence/04/*.png`。
+- 附注宽度通过实际 document.offsetWidth 纳入计算；07 实际 Attached Notes DOM 尚待实现，因此该组合当前仅纯函数覆盖。
