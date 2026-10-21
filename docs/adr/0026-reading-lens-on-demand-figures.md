@@ -9,3 +9,5 @@ status: accepted
 In Mist, making room means translating the entire reading column without changing its width or line wrapping. If the available space cannot contain both drawer and unchanged column, the drawer overlays the text. Reading anchors preserve the vertical reading position.
 
 Reading Lens represents visual attention, never the persistent Reading Cursor. Discussion attachment is an explicit local presentation preference, paused when space is insufficient or materials are open. Neither writes to Host state. The redesign specification replaces ADR 0025 colour and motion choices with one product-owned token source, interruptible motion and reduced-motion fallbacks. Host calls, drafts, notes, progress and recovery semantics remain unchanged.
+
+Discussion attachment 部分由 [ADR 0031](0031-attached-notes-and-direct-note-entry.md) 取代（2026-10-21）；原文保留，其余决定继续有效。

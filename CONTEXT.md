@@ -129,8 +129,12 @@ _Avoid_: Topic-owned plan, duplicated progress, tag browsing
 _Avoid_: Chat history, plan row, learner record
 
 **Reading Note**:
-用户明确要求记录后保留的 Source 级精简笔记，脱离原始对话仍可理解，通常以例子和总结后的结论表达，也可包含理解链、澄清的概念或待解的问题；不依附某个 Topic 或 Reading Plan。
+用户明确要求记录后保留的 Source 级精简笔记，脱离原始对话仍可理解，通常以例子和总结后的结论表达，也可包含理解链、澄清的概念或待解的问题；不依附某个 Topic 或 Reading Plan。可按 Source Anchor 显示在对应 Reading Chunk 旁（吸附笔记），但不属于 Chunk 或 Plan；可由用户直接手写，或从讨论回答中确认保存。
 _Avoid_: Transcript, discussion log, assessment result, cognitive evidence
+
+**Attached Notes（吸附笔记）**:
+将 Source 级 Reading Notes 按 Source Anchor 投影到当前已加载 Reading Chunk 旁的展示形态。宽屏使用旁注，空间不足时使用原文与讨论之间的内联笔记块；不改变笔记归属或 Reading Cursor。FOCUS Discussion 始终保留在阅读流中。
+_Avoid_: Chunk-owned notes, attached discussion, second note store
 
 **FOCUS Discussion**:
 属于 FOCUS Workspace、固定绑定一份 Reading Source 的持续讨论，独立于所选 Backend；切换 Backend 不拆分或重建讨论。讨论历史与显式 Reading Notes、Reading Cursor 分开，保留至用户明确清除。

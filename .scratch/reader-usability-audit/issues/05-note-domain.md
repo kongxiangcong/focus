@@ -1,6 +1,6 @@
 # 05 领域记录：CONTEXT 与 ADR 0031
 
-Status: ready-for-agent
+Status: resolved
 Blocked by: —
 Covers: spec §3.6，问题 D1、D2、D5
 
@@ -53,3 +53,7 @@ Covers: spec §3.6，问题 D1、D2、D5
 
 ## Comments
 - 2026-10-21 SOURCE/PASS：已核对以上代码位置。待记录红/绿结果与截图。
+
+- 文件：CONTEXT.md、ADR 0031、ADR 0026 superseded 指针、docs/design/README.md 索引。
+- 纯文档工单按要求跳过红灯；术语、文件及指针断言 PASS；git diff --check PASS。
+- `pnpm reader:typecheck` PASS；`pnpm reader:test` PASS（107+154）。无界面改动，截图/构建 NOT_APPLICABLE；06–11 功能不由本 ADR 验收通过。
