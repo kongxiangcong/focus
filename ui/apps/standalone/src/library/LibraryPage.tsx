@@ -1,3 +1,4 @@
+import { ArticleOverviewPanel } from "@focus/reader-ui";
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import type { BlogArtifactName, BlogArtifactStatus, BlogRegenerationTarget, BlogStatus, LibrarySource, LibraryTopic, ReaderHost, ReadingWindow } from "@focus/reader-contracts";
@@ -32,6 +33,16 @@ export type LibraryPageProps = Pick<IngestionRowsProps, "taskInbox" | "taskBatch
 
 export function LibraryPage(page: LibraryPageProps) {
   const { sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, busy, active, view, preparationHidden, blogs, enterReading, refreshBlog, setMoreSource } = page;
+  const [overviewId, setOverviewId] = useState<string | null>(null);
+  const overviewDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (!overviewId) return;
+    const trigger = document.activeElement as HTMLElement | null;
+    const scroller = root.current?.querySelector<HTMLElement>(".library-sources");
+    const top = scroller?.scrollTop ?? 0;
+    overviewDialog.current?.showModal();
+    return () => { trigger?.focus({ preventScroll: true }); if (scroller) scroller.scrollTop = top; };
+  }, [overviewId]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [docked, setDocked] = useState(true);
@@ -110,7 +121,7 @@ export function LibraryPage(page: LibraryPageProps) {
   }
   function presentation(source: LibrarySource): SourceViewProps {
     const preparation = view?.preparations?.[source.sourceId], action = primaryAction(source, preparation, preparationHidden(source.sourceId), { busy, active, canOpen: !!host.openSource });
-    return { source, status: sourceStatus(source, preparation, preparationHidden(source.sourceId)), action, blog: blogs[source.sourceId], topics, selected: selectedId === source.sourceId, expanded: inspectorOpen && selectedId === source.sourceId, candidate: !!(preparation?.candidate && preparation.ready), onSelect: () => select(source.sourceId), onTopic: setTopic, onPrimary: () => { if (!action.disabled) { if (action.kind === "inspect") select(source.sourceId); else void enterReading(source.sourceId); } }, menu: <SourceMenu source={source} page={page} /> };
+    return { source, onOverview: host.getArticleOverview ? () => setOverviewId(source.sourceId) : undefined, onBlog: () => { if (blogs[source.sourceId]?.artifacts.html.status === "completed") page.setBlogViewer(source.sourceId); else { select(source.sourceId); void refreshBlog(source.sourceId); } }, status: sourceStatus(source, preparation, preparationHidden(source.sourceId)), action, blog: blogs[source.sourceId], topics, selected: selectedId === source.sourceId, expanded: inspectorOpen && selectedId === source.sourceId, candidate: !!(preparation?.candidate && preparation.ready), onSelect: () => select(source.sourceId), onTopic: setTopic, onPrimary: () => { if (!action.disabled) { if (action.kind === "inspect") select(source.sourceId); else void enterReading(source.sourceId); } }, menu: <SourceMenu source={source} page={page} /> };
   }
   const current = !topic && !query && page.statusFilter === "all" ? sources.find(source => source.sourceId === view?.source.sourceId && sourceStatus(source, view?.preparations?.[source.sourceId], preparationHidden(source.sourceId)).phase === "reading") : undefined;
   const cursor = view?.navigationCurrent ?? view?.current;
@@ -133,6 +144,10 @@ export function LibraryPage(page: LibraryPageProps) {
       </section>
       {selected && <SourceInspector source={selected} page={page} presentation={presentation(selected)} open={inspectorOpen} docked={docked} onClose={closeInspector} />}
     </div>
+    {overviewId && <dialog ref={overviewDialog} className="article-overview-dialog" aria-label="文章结构预览" onCancel={event => { event.preventDefault(); setOverviewId(null); }}>
+      <header><span>文章结构</span><button aria-label="关闭文章结构" onClick={() => setOverviewId(null)}>关闭</button></header>
+      <ArticleOverviewPanel key={overviewId} host={host} sourceId={overviewId} title={sources.find(s => s.sourceId === overviewId)?.title ?? "文章结构"} />
+    </dialog>}
     {createPortal(<div className="library-drop" data-open={dragging} aria-hidden={!dragging} inert={!dragging} role="status"><div><strong>松开即可上传</strong><span>PDF 由服务器选择 MinerU 解析；SingleFile HTML 本地解析{selectedTopic ? ` · 默认加入 #${selectedTopic.title}` : ""}</span></div></div>, document.body)}
   </main>;
 }

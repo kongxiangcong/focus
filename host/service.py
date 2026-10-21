@@ -26,6 +26,7 @@ from core.reading_progress import ReadingProgress, ProgressApplication
 from core.processing_application import ProcessingApplication
 from core.batch_application import BatchApplication
 from .reading_runtime import AgentReadingRuntime
+from core.article_overview import ArticleOverview
 from .candidates import CandidateTurns
 from .configuration import UserSettings, DEFAULT_MODELS, normalize
 from core.workspace_lifecycle import WorkspaceLease, create_workspace
@@ -209,6 +210,13 @@ class HostService:
             selected_state = json.loads((self.workspace / 'state.json').read_text()) if (self.workspace / 'state.json').is_file() else {}
             window['readingStarted'] = bool(selected_state.get('sources', {}).get(note_source, {}).get('reading_started'))
             window['structureIntro'] = bool(window.get('structure') and window['navigationCurrent'] and not window['readingStarted'])
+            if note_source and window.get('structure'):
+                window['articleOverview'] = self.article_overview(note_source)
+                overview = window['articleOverview']
+                if overview['status'] == 'ready':
+                    window['structure'] = overview['structure']
+                    for chunk, node in zip(window['outline'], overview['chunkNodes']):
+                        chunk['nodeId'] = node
             window['resetVersion'] = sum(1 for source in selected_state.get('source_resets', {}).values() if source == note_source)
             if not self.state['displayReading'] or (window['navigationCurrent'] and not window['readingStarted']):
                 window['sessionFresh'] = True
@@ -243,6 +251,22 @@ class HostService:
                                       if (e['kind'] == 'message' and e['messageId'] in visible_ids)
                                       or (e['kind'] == 'reading' and self.state['displayReading'] and e['chunk']['sourceId'] == note_source
                                           and (not e.get('discussionId') or e['discussionId'] == discussion_id))]
+            # Completed reading is a full-document projection, not another reading event.
+            # Keep real discussion/review events and insert only missing current-plan chunks.
+            if window['status'] == 'completed' and self.state['displayReading']:
+                present = {(e['chunk']['sourceId'], e['chunk']['planId'], e['chunk']['chunkId'])
+                           for e in window['timeline'] if e['kind'] == 'reading'}
+                for chunk in window['history']:
+                    key = tuple(chunk[k] for k in ('sourceId', 'planId', 'chunkId'))
+                    if key in present:
+                        continue
+                    index = next((i for i, e in enumerate(window['timeline'])
+                                  if e['kind'] == 'reading' and e['chunk']['planId'] == chunk['planId']
+                                  and e['chunk']['sourceId'] == chunk['sourceId']
+                                  and e['chunk']['index'] > chunk['index']), len(window['timeline']))
+                    window['timeline'].insert(index, {'kind': 'reading', 'chunk': chunk,
+                        'eventId': 'completed:' + ':'.join(key)})
+                    present.add(key)
             window['conversation'] = json.loads(json.dumps(messages))
             window['sourceNotes'] = self.source_notes.list(note_source, include_deleted=True) if note_source else []
             window['readingProgress'] = self.progress_core.list(note_source) if note_source else []
@@ -333,6 +357,8 @@ class HostService:
         try:
             self.reading_app.process(source_id, run_id=run_id, attempt=attempt,
                                      on_progress=progress_changed)
+            if hasattr(self.reading_app.runtime, "overview_structure"):
+                ArticleOverview(self.workspace, self.reading_app).generate(source_id, stopped=lambda: self.shutting_down, on_progress=progress_changed)
         except Exception:
             # ReadingCore has already persisted a failed or closed attempt.
             pass
@@ -341,9 +367,63 @@ class HostService:
                 if not self.shutting_down:
                     self.changed()
 
+    def article_overview(self, source_id):
+        overview = ArticleOverview(self.workspace, self.reading_app).status(source_id)
+        worker = self.reading_workers.get(source_id)
+        if worker and worker.is_alive() and overview['status'] != 'ready':
+            return {**overview, 'status': 'running'}
+        if overview['status'] == 'running':
+            return {**overview, 'status': 'interrupted', 'error': '准备已中断，请重试。'}
+        preparation = self.reading_app.status(source_id)
+        if overview['status'] == 'missing' and preparation and preparation['status'] in ('failed', 'cancelled', 'interrupted'):
+            return {**overview, 'status': preparation['status'], 'error': preparation.get('error')}
+        return overview
+
+    def prepare_article_overview(self, source_id, *, request_id):
+        with self.lock:
+            self.source_clear.recover()
+            SourceLibrary(self.workspace).get(source_id)
+            if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9-]{8,80}', request_id):
+                raise ValueError('Unique request ID required')
+            if self.shutting_down or self.resetting:
+                raise ValueError('工作区正在关闭或重置，请稍后重试。')
+            worker = self.reading_workers.get(source_id)
+            if worker and worker.is_alive():
+                return self.article_overview(source_id)
+            if self.article_overview(source_id)['status'] == 'ready':
+                return self.article_overview(source_id)
+            target = ArticleOverview(self.workspace, self.reading_app).target(source_id)
+            if target is None:
+                preparation = self.reading_app.status(source_id)
+                if preparation and preparation['status'] in ('failed', 'cancelled', 'interrupted'):
+                    self.resume_preparation(source_id, request_id=request_id)
+                else:
+                    self.prepare_reading(source_id, request_id=request_id)
+                return self.article_overview(source_id)
+            def run():
+                def changed():
+                    with self.lock:
+                        if not self.shutting_down:
+                            self.changed()
+                try:
+                    ArticleOverview(self.workspace, self.reading_app).generate(source_id, stopped=lambda: self.shutting_down, on_progress=changed)
+                except Exception:
+                    pass  # The version-bound asset records failures for explicit retry.
+                finally:
+                    changed()
+            worker = threading.Thread(target=run, daemon=True)
+            self.reading_workers[source_id] = worker
+            worker.start()
+            return self.article_overview(source_id)
+
     def prepare_reading(self, source_id, *, request_id, rebuild=False):
         with self.lock:
             self.source_clear.recover()
+            worker = self.reading_workers.get(source_id)
+            if worker and worker.is_alive():
+                existing = self.reading_app.status(source_id)
+                if rebuild or not existing or existing['status'] not in ('running', 'ready'):
+                    raise WorkspaceError('reading_busy', '此文章正在准备，请完成后再重新规划。')
             run = self.reading_app.begin(source_id, request_id=request_id, rebuild=rebuild)
             worker = self.reading_workers.get(source_id)
             if run['status'] == 'running' and (worker is None or not worker.is_alive()):
@@ -357,6 +437,9 @@ class HostService:
     def resume_preparation(self, source_id, *, request_id):
         with self.lock:
             self.source_clear.recover()
+            worker = self.reading_workers.get(source_id)
+            if worker and worker.is_alive():
+                return self.snapshot()
             run = self.reading_app.resume(source_id, request_id=request_id)
             worker = self.reading_workers.get(source_id)
             if run['status'] == 'running' and (worker is None or not worker.is_alive()):
@@ -431,6 +514,34 @@ class HostService:
             discussions.select(self.state, source_id, discussion_id=discussion_id)
             self.state['discussionSourceId'] = source_id
             self.state['displayReading'] = True
+            self.changed()
+            return self.snapshot()
+
+    def source_note_create(self, source_id, payload):
+        with self.lock:
+            self.source_clear.recover()
+            selected = self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']
+            if source_id != selected:
+                raise ValueError('讨论材料已改变，请刷新后重试。')
+            kind, origin = payload.get('kind'), payload.get('origin')
+            if kind not in ('thought', 'conclusion', 'question') or origin not in ('user', 'dialogue'):
+                raise ValueError('笔记类型或来源不正确。')
+            bundle = self.source_notes.bundle_version(source_id)
+            chunk, anchor = payload.get('chunk'), None
+            if chunk is not None:
+                if not isinstance(chunk, dict) or set(chunk) != {'planId', 'chunkId'}:
+                    raise ValueError('笔记段落引用不正确。')
+                if self.core.plan_bundle(source_id, chunk['planId']) != bundle:
+                    raise WorkspaceError('note_bundle_changed', '这段原文已更新，可改存为整篇笔记')
+                reference = self.core.reference({'sourceId': source_id, **chunk})
+                anchor = {'sourceId': source_id, 'bundle': bundle, 'sourceLines': reference['sourceLines']}
+                if payload.get('quote') is not None:
+                    anchor['quote'] = payload['quote']
+            request_id = payload.get('requestId')
+            result = self.source_notes.save(source_id, bundle=bundle, request_id=request_id, intent_id=request_id,
+                content=payload.get('content'), kind=kind, origin=origin,
+                evidence_role='unresolved_question' if kind == 'question' else 'explanation', anchor=anchor)
+            self.state['noteOperation'] = {'sourceId': source_id, **result}
             self.changed()
             return self.snapshot()
 
@@ -516,9 +627,26 @@ class HostService:
             upload = self.store.get('upload:' + attachment_id)
             if not upload:
                 raise ValueError('上传文件不存在')
-            return self.ingestion.stage_file(
-                self.workspace / upload['path'], topic_title=topic_title, topic_id=topic_id
-            )
+            path = self.workspace / upload['path']
+        return self.inbox_stage_file(path, topic_title=topic_title, topic_id=topic_id)
+
+    def inbox_stage_file(self, path, *, topic_title=None, topic_id=None):
+        item = self.ingestion.stage_file(path, topic_title=topic_title, topic_id=topic_id)
+        if item.get('duplicate'):
+            app = self._batch_app()
+            # Match the Batch -> Host lock order used by batch controls. Restoring
+            # the parent must not restore its other dismissed children.
+            with app.lock:
+                batch_ids = [batch['batchId'] for batch in app.list()
+                             if any(child['itemId'] == item['item_id'] for child in batch['items'])]
+                with self.lock:
+                    StatusNotifications(self.store).restore([
+                        ('work', 'ingestion:' + item['item_id']),
+                        ('inbox', item['item_id']), ('batch-item', item['item_id']),
+                        *(('batch', batch_id) for batch_id in batch_ids),
+                    ])
+                    self.changed()
+        return item
 
     def inbox_confirm(self, item_id, *, generate_blog=False):
         """One confirmation covers ingestion; the blog checkbox authorizes the follow-up step.

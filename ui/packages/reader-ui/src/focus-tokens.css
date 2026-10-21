@@ -4,6 +4,13 @@
    Every consumer (workbench, reader, dialogs, tasks) resolves values here;
    component CSS must not introduce a second colour/size/motion table. */
 :root {
+  --reader-measure-panel-w: 280px;
+  --reader-measure-panel-padding: 8px;
+  --reader-measure-panel-gap: 8px;
+  --reader-measure-panel-radius: 12px;
+  --reader-measure-panel-shadow: 0 8px 24px #0002;
+  --reader-measure-panel-z: 40;
+
   color-scheme:light;
   /* Surfaces */
   --reader-canvas:#f5f4f0;

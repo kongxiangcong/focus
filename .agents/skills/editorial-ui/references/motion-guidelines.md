@@ -1,10 +1,6 @@
 # Motion: state, continuity, control
 
-## Canonical values
-
-The **standalone bundle defaults** live in `assets/motion-presets.json`. `scripts/build_starters.py` generates CSS and embeds those values into standalone JavaScript. For Integrate, the selected product specification and one product-owned motion configuration are authoritative, whether preserved or intentionally redesigned. Do not copy both preset tables, require matching bundle durations, or claim the selected upstream generation has been audited merely because this bundle has a historical source baseline.
-
-These presets are independently chosen conservative defaults, not “official Claude physics”. The previous audit found incompatible values between upstream `AGENTS.md` and `ClaudeMotionPresets.ts`; do not combine those tables. No default spring dependency is needed in this bundle.
+Resolve motion values using [design authority](design-authority.md#numeric-ownership).
 
 ## Map intent to behavior
 

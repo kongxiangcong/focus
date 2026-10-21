@@ -1,2 +1,0 @@
-PASS: reader.html; 0 findings; 0 user-activated links.
-Scope: static heuristic only. Also test file:// behavior in a fresh network-blocked browser.

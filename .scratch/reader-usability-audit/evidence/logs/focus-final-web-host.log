@@ -1,0 +1,18 @@
+E
+======================================================================
+ERROR: test_web_host (unittest.loader._FailedTest.test_web_host)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_web_host
+Traceback (most recent call last):
+  File "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/unittest/loader.py", line 137, in loadTestsFromName
+    module = __import__(module_name)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/b42f77eddc90/focus/tests/test_web_host.py", line 17, in <module>
+    import test_focus_read
+ModuleNotFoundError: No module named 'test_focus_read'
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+FAILED (errors=1)

@@ -34,6 +34,9 @@ it("shows the structure before body text and explicitly starts without advancing
   render(<FocusReader host={host} appearance="mist" />);
   await screen.findByRole("region", { name: "文章结构" });
   expect(screen.queryByText("First body paragraph.")).not.toBeInTheDocument();
+  fireEvent.touchStart(screen.getByRole("main", { name: "阅读与对话" }));
+  fireEvent.wheel(screen.getByRole("main", { name: "阅读与对话" }), { deltaY: -100 });
+  expect(screen.queryByRole("button", { name: /回到最新/ })).not.toBeInTheDocument();
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /结果/ })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "进入正文" }));
@@ -45,12 +48,12 @@ it("shows the structure before body text and explicitly starts without advancing
   const controls = screen.getByRole("navigation", { name: "阅读功能控制区" });
   expect(controls).toContainElement(location);
   expect(within(screen.getByRole("main", { name: "阅读与对话" })).queryByLabelText("当前阅读位置")).not.toBeInTheDocument();
-  expect([...controls.children].map(el => el.textContent)).toEqual([
-    "资料", "1 / 2全文 › 方法", "宽幅", "吸附讨论", "新会话", "全屏", "收起", "继续 · 第 2 段",
+  expect(within(controls).getAllByRole("button").map(el => el.textContent)).toEqual([
+    "1 / 2全文 › 方法", "资料", "行宽", "笔记", "全屏", "收起", "继续 · 第 2 段",
   ]);
   fireEvent.click(screen.getByRole("button", { name: "收起" }));
-  expect([...controls.children].map(el => el.textContent)).toEqual([
-    "资料", "1 / 2全文 › 方法", "宽幅", "吸附讨论", "新会话", "全屏", "提问", "继续 · 第 2 段",
+  expect(within(controls).getAllByRole("button").map(el => el.textContent)).toEqual([
+    "1 / 2全文 › 方法", "资料", "行宽", "笔记", "全屏", "提问", "继续 · 第 2 段",
   ]);
 });
 

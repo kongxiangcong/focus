@@ -1,0 +1,11 @@
+{
+  "results": [
+    "figure chunk stays closed until pinned; overlay does not reflow the text column",
+    "drawer tabs 图片 / 笔记 / 进度 / 讨论 from one overlay",
+    "figure selection, zoom top layer, natural size and Close/Escape focus restore do not move the Cursor",
+    "language captions come from the same gallery without another request",
+    "chunks with their own figures keep the catalogue; a chunk without figures preserves the drawer",
+    "390px drawer, three-column figure navigation, no page overflow, Escape and Continue reachable"
+  ],
+  "errors": []
+}

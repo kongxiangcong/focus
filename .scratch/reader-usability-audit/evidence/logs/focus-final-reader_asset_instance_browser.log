@@ -1,0 +1,2 @@
+ISOLATED SERVER READY
+PASS asset thumbnail/viewer/gallery HTTP 200 and naturalWidth; browser 153.0.8010.0

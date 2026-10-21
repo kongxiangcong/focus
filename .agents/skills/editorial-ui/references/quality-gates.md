@@ -19,12 +19,29 @@ Full-screen overlays must be tested inside the existing app's full-screen root. 
 
 ## Evidence levels
 
-`PASS`: performed assertion passed, with command or observation.
-`FAIL`: observed a problem, with reproduction and scope.
-`NOT_RUN`: needed but not executed, with reason.
-`NOT_APPLICABLE`: explicitly out of scope, with explanation.
+Record two independent dimensions. **Basis** says where a finding comes from; **status** says whether a specific check ran and passed.
 
-A successful syntax check is not a successful browser interaction. A screenshot is not proof of keyboard operation. A blocked request is still a network dependency attempt, not an offline pass. Generated fixture data does not become measured data because a chart looks polished.
+| Basis | Meaning |
+|---|---|
+| SOURCE | Inspected implementation or declaration; identify file/region/version |
+| CLAIM | Upstream assertion or unverified hypothesis; identify origin and needed check |
+| DECISION | Approved product target, adaptation or scope choice |
+| RUNTIME | Scenario actually exercised; identify environment, inputs and observation |
+
+| Status | Meaning |
+|---|---|
+| PASS | Named assertion was performed and passed, with evidence |
+| FAIL | Check exposed a problem, with reproduction and consequence |
+| NOT_RUN | Required check was unavailable or unexecuted; give reason |
+| NOT_APPLICABLE | Check is outside this task's scope; give reason |
+
+For example, a source check can be `SOURCE / PASS` while the corresponding browser scenario is `RUNTIME / NOT_RUN`. An unimplemented requirement remains incomplete; it cannot be marked NOT_APPLICABLE merely to close delivery.
+
+### Evidence limits
+
+Static checks establish only their named assertions. `check_offline.py` is heuristic, not a security boundary or proof of no network use; exercise the output in a fresh offline browser context. A denied dependency request remains a failed offline dependency check. If file URLs are blocked, use permitted inline testing and record direct-file opening as NOT_RUN.
+
+Screenshots establish appearance in a fixed state, not keyboard operation. Synthetic IME events test handler logic, not native OS input. Fixtures are illustrative, not measured product data. Bundle/starter tests, historical release records and upstream marketing establish neither current product quality nor official affiliation. Report measured performance only with a recorded baseline and measurement. Respect tool/environment limits; unavailable or unauthorized live checks remain NOT_RUN.
 
 ## Acceptance rubric for a generated artifact
 
@@ -38,6 +55,4 @@ Keep a small named scenario for each regression. Fix the cause in the shared sou
 
 ## Reference-led product acceptance
 
-Freeze the chosen design target with fixed synthetic/public content, viewport, DPR, fonts, theme and density. Compare actual product pages and component states against that target. Track reference resemblance separately from task fit and behavioral correctness. Do not invent a pixel-diff percentage, frame-rate guarantee or performance budget without a measured baseline.
-
-Maintain an implementation/verification matrix per page and state. Required-final scope cannot silently become optional; unimplemented requirements are incomplete, not NOT_APPLICABLE. The board must use the product's primitives and cannot replace primary-route acceptance. Check dev and production-served assets, long timelines, rapid reversals and reduced-motion changes. Keep historical release logs labeled historical; passed bundle tests do not certify a product or generation quality.
+For reference calibration, the real product slice and migration acceptance, follow [product redesign](product-redesign.md#real-product-slice).

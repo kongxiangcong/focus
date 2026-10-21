@@ -1,5 +1,8 @@
 # Formal Focus Reader UI specification
 
+> 当前适用范围与后续替代关系见[设计索引](README.md)。以下保留原始方案／实施记录及其当时状态。
+
+
 Status 2026-09-17: [ADR 0008](../adr/0008-library-navigation-and-mist.md)
 supersedes the presentation and navigation rules below. Production Standalone uses
 Library / Reading / Settings, defaulting to Library, with Mist in Reading.

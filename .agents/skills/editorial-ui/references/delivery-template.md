@@ -1,44 +1,25 @@
-# Delivery record template
+# Delivery record
 
-Use for a substantial implementation; embed in the existing project process where possible.
+Use for Substantial implementation tasks, embedded in the existing tracker. Link the [implementation brief](brief-schema.md) instead of repeating its schema. Tiny and Small tasks may use a concise result plus relevant evidence.
 
 ```markdown
 # UI delivery
 
-## Scope
-Primary task:
-Mode: Integrate / Standalone / Review
-Visual policy: preserve / redesign (Integrate)
-Selected specification and execution overrides:
-Reference snapshot (Git root/HEAD/status or file hashes):
-Product-owned token/motion source:
-Required-first / required-final / optional / out-of-scope:
-Per-page implementation and verification status:
-Files delivered:
-Existing contracts retained:
-Assumptions and data provenance:
+Brief: <existing spec/issue path>
+Changes since brief: <approved scope/decision changes, or none>
+Files/routes delivered:
 
 ## Implemented behavior
 Action → state transition → visible result:
-Cancellation/recovery:
-Keyboard and focus:
-Narrow-screen behavior:
+Recovery and retained state:
 
 ## Validation
-| Check | Status | Evidence |
-|---|---|---|
-| Main interaction | PASS / FAIL / NOT_RUN | command / observation |
-| Wide/narrow layout | | viewport + screenshot |
-| Keyboard/focus | | sequence |
-| IME | | synthetic vs native |
-| Error/cancel | | reproduction |
-| Motion/theme/contrast | | scope |
-| Offline file:// | | request attempts + behavior |
+| Scenario | Status | Evidence basis | Evidence / environment / reason |
+|---|---|---|---|
+| <acceptance scenario from brief> | | | |
 
-## Remaining limitations
-Browser coverage:
-Known issues:
-Checks not run:
+## Remaining work
+Required gaps, known issues, next action:
 ```
 
-Do not turn a small cosmetic patch into a large required documentation project. Do not invent a test report when no browser was available.
+Use the vocabulary and evidence limits in [quality gates](quality-gates.md#evidence-levels). Include only scenarios applicable to the task; keep implementation completion separate from verification status.

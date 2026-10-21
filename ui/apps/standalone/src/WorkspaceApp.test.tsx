@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ReaderHostResult, type ReaderHost, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
+import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ProcessingBatch, type ReaderHostResult, type ReaderHost, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
 import { WorkspaceApp } from "./WorkspaceApp";
 const empty: ReadingWindow = { status: "empty", current: null, history: [], conversation: [], source: { sourceId: "", title: "", topicId: null }, sessionId: "s1",
   agent: { run: null, catalog: { sources: [], topics: [] }, backend: "codex", backends: [{ id: "codex", label: "Codex" }, { id: "deepseek", label: "DeepSeek" }] } };
@@ -13,7 +13,7 @@ function blogStatus(overrides: Partial<BlogStatus> = {}, artifacts: Partial<Reco
     warnings: [], error: null, ...overrides,
   };
 }
-function setup(initialInbox: readonly IngestionItem[] = [], initialWindow: ReadingWindow = empty) {
+function setup(initialInbox: readonly IngestionItem[] = [], initialWindow: ReadingWindow = empty, overrides: Partial<ReaderHost> = {}) {
   const staged: IngestionItem = { itemId: "item-1", fileName: "test.pdf", status: "awaiting_confirmation", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"] };
   const confirmed: IngestionItem = { ...staged, status: "confirmed", confirmation: { services: ["mineru"], purpose: "register source", scope: "ingestion" } };
   const processing: IngestionItem = { ...staged, status: "processing" };
@@ -44,6 +44,7 @@ function setup(initialInbox: readonly IngestionItem[] = [], initialWindow: Readi
     cancelBlog: vi.fn(async () => readerSuccess(blogStatus({ runStatus: "cancelled" }))),
     blogUrl: (id: string) => `/library/sources/${id}/blog/html`,
   };
+  Object.assign(host, overrides);
   return { host, ...render(<WorkspaceApp host={host} />) };
 }
 beforeEach(() => {
@@ -55,6 +56,7 @@ beforeEach(() => {
     clear: () => values.clear(),
   } });
   history.replaceState(null, "", "/"); localStorage.clear();
+  HTMLElement.prototype.scrollIntoView = vi.fn();
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
   HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
 });
@@ -275,13 +277,13 @@ it("offers explicit reconfirmation for a recoverable Inbox item", async () => {
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["recover"], expect.any(String)));
   expect(host.processIngestion).not.toHaveBeenCalled();
 });
-it("persists brightness and omits the unused network control", async () => {
+it("omits brightness and ignores the retired saved preference", async () => {
+  localStorage.setItem("focus.brightness", "85");
   setup(); await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
-  fireEvent.change(screen.getByRole("slider", { name: "亮度" }), { target: { value: "90" } });
-  expect(localStorage.getItem("focus.brightness")).toBeNull();
+  expect(screen.queryByRole("slider", { name: "亮度" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "保存外观" }));
-  expect(localStorage.getItem("focus.brightness")).toBe("90");
+  expect(document.querySelector<HTMLElement>(".workspace-app")!.style.getPropertyValue("--reader-brightness")).toBe("");
   expect(screen.queryByRole("switch", { name: "网络" })).not.toBeInTheDocument();
 });
 it("shows the original unfinished task instead of a new one when the same file is added again", async () => {
@@ -297,8 +299,9 @@ it("shows the original unfinished task instead of a new one when the same file i
 
   const notice = await screen.findByText(/该原件已有未完成任务/);
   expect(notice.closest("[role=status]")).not.toBeNull();
-  expect(notice).toHaveTextContent("已回到原任务；不会重复解析。");
-  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
+  expect(notice).toHaveTextContent("原件已上传，文档尚未入库");
+  expect(notice).toHaveTextContent("不会自动重复解析");
+  expect(screen.getByRole("button", { name: "任务详情" })).toHaveAttribute("aria-expanded", "true");
   const row = document.querySelector(".library-inbox-item");
   expect(row).toHaveTextContent("test.pdf");
   expect(row).toHaveTextContent("远端状态待核对");
@@ -342,9 +345,9 @@ it("generates a blog from the source card and shows the three sub-statuses", asy
   fireEvent.click(await screen.findByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "生成博客" }));
   await waitFor(() => expect(host.generateBlog).toHaveBeenCalledWith("a-paper", expect.any(String)));
-  expect(await screen.findByText("带读博客")).toBeInTheDocument();
+  expect(await within(screen.getByRole("complementary", { name: "来源详情" })).findByText("带读博客")).toBeInTheDocument();
   expect(screen.queryByText("价值分析")).not.toBeInTheDocument();
-  expect(screen.getByText("带读博客")).toBeInTheDocument();
+  expect(within(screen.getByRole("complementary", { name: "来源详情" })).getByText("带读博客")).toBeInTheDocument();
   expect(screen.getByText("HTML")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "打开博客" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "重新生成" })).toBeEnabled();
@@ -429,7 +432,7 @@ it("keeps rows compact, opens the inspector, and persists card display", async (
   const app = setup();
   const title = await screen.findByRole("button", { name: "A Paper" });
   const row = title.closest("article")!;
-  expect(within(row).getAllByRole("button").map(button => button.getAttribute("aria-label") ?? button.textContent)).toEqual(["A Paper", "继续阅读", "更多"]);
+  expect(within(row).getAllByRole("button").map(button => button.getAttribute("aria-label") ?? button.textContent)).toEqual(["A Paper", "文章结构", "博客：博客状态未载入", "继续阅读", "更多"]);
   expect(screen.queryByRole("button", { name: "管理来源" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "打开博客" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "列表显示" })).toHaveAttribute("aria-pressed", "true");
@@ -445,7 +448,7 @@ it("keeps rows compact, opens the inspector, and persists card display", async (
   expect(card.parentElement).toHaveAttribute("data-view", "cards");
   fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));
   expect(screen.queryByRole("complementary", { name: "来源详情" })).not.toBeInTheDocument();
-  expect(within(card).getAllByRole("button")).toHaveLength(3);
+  expect(within(card).getAllByRole("button")).toHaveLength(5);
   fireEvent.click(within(card).getByRole("button", { name: "继续阅读" }));
   await waitFor(() => expect(app.host.openSource).toHaveBeenCalledWith("a-paper", expect.any(String)));
   app.unmount(); setup();
@@ -579,14 +582,12 @@ it('clears terminal statuses while an active chat continues, and keeps source ma
 it("T2 appearance previews can be cancelled without touching saved settings", async () => {
   setup(); await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
-  fireEvent.change(screen.getByRole("slider", { name: "亮度" }), { target: { value: "90" } });
   fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
   fireEvent.change(screen.getByRole("combobox", { name: "正文字体" }), { target: { value: "source-han-sans" } });
   expect(localStorage.getItem("focus.fontSize")).toBeNull();
   expect(localStorage.getItem("focus.readingFont")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "还原外观" }));
   expect(screen.getByRole("slider", { name: "字号" })).toHaveValue("1");
-  expect(screen.getByRole("slider", { name: "亮度" })).toHaveValue("100");
   expect(screen.getByRole("combobox", { name: "正文字体" })).toHaveValue("default");
 });
 
@@ -880,27 +881,141 @@ it("opens parse problems without invoking reading and preserves double-click pri
 });
 
 
-it("previews, restores and persists the standard reading width", async () => {
-  const { host, container } = setup();
-  await screen.findByRole("heading", { name: "A Paper" });
+it("keeps reading width out of workspace settings", async () => {
+  setup();
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
-  const width = () => screen.getByRole("slider", { name: "标准阅读宽度" });
-  expect(width()).toHaveValue("1040");
-  fireEvent.change(width(), { target: { value: "1200" } });
-  expect(container.querySelector<HTMLElement>(".focus-reader")!.style.getPropertyValue("--reader-column")).toBe("1200px");
-  expect(localStorage.getItem("focus.standardWidth")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "还原外观" }));
-  expect(width()).toHaveValue("1040");
-  fireEvent.change(width(), { target: { value: "1200" } });
-  fireEvent.click(screen.getByRole("button", { name: "保存外观" }));
-  expect(localStorage.getItem("focus.standardWidth")).toBe("1200");
-  cleanup(); render(<WorkspaceApp host={host} />);
-  expect(width()).toHaveValue("1200");
+  expect(screen.queryByRole("slider", { name: "标准阅读宽度" })).not.toBeInTheDocument();
 });
 
-it("ignores a nonnumeric saved standard width", () => {
-  localStorage.setItem("focus.standardWidth", "invalid");
-  history.replaceState(null, "", "/settings");
-  setup();
-  expect(screen.getByRole("slider", { name: "标准阅读宽度" })).toHaveValue("1040");
+it.each(["列表显示", "卡片显示"])("opens a structure preview from %s and restores library context without starting reading", async display => {
+  const getArticleOverview = vi.fn(async () => readerSuccess({ sourceId: "a-paper", title: "A Paper", status: "ready" as const,
+    revision: "v1", guide: "作者先指出等待数据的问题，再提出改进办法，最后用模型分析检验效果。",
+    structure: [{ id: "root", parentId: null, title: "问题与验证", description: "说明方法成立的条件。", sourceLines: [1, 4] as const }], chunkNodes: ["root"] }));
+  const { host, container } = setup([], empty, { getArticleOverview });
+  await screen.findByRole("button", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: display }));
+  fireEvent.change(screen.getByRole("searchbox", { name: "搜索材料" }), { target: { value: "Paper" } });
+  const scroller=container.querySelector<HTMLElement>(".library-sources")!;
+  scroller.scrollTop=240;
+  const trigger=screen.getByRole("button", { name: "文章结构" });
+  trigger.focus(); fireEvent.click(trigger);
+  const dialog=await screen.findByRole("dialog", { name: "文章结构预览" });
+  await within(dialog).findByRole("heading", { name: "文章导读" });
+  expect(host.openSource).not.toHaveBeenCalled(); expect(host.continueReading).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "关闭文章结构" }));
+  expect(screen.queryByRole("dialog", { name: "文章结构预览" })).not.toBeInTheDocument();
+  expect(screen.getByRole("searchbox", { name: "搜索材料" })).toHaveValue("Paper");
+  expect(scroller.scrollTop).toBe(240); expect(trigger).toHaveFocus();
+  fireEvent.click(trigger);
+  const again=await screen.findByRole("dialog", { name: "文章结构预览" });
+  fireEvent(again, new Event("cancel", { bubbles: true, cancelable: true }));
+  expect(screen.queryByRole("dialog", { name: "文章结构预览" })).not.toBeInTheDocument();
+});
+
+
+it("allows narrow-screen navigation to expand and retains the explicit choice", async () => {
+  const original = window.matchMedia;
+  window.matchMedia = vi.fn(query => ({ matches: query === "(max-width: 1180px)", media: query, onchange: null,
+    addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() })) as typeof window.matchMedia;
+  try {
+    const { container } = setup();
+    const toggle = screen.getByRole("button", { name: "展开导航" });
+    expect(container.querySelector(".workspace-app")).toHaveAttribute("data-nav-collapsed", "true");
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "收起导航" })).toHaveAttribute("aria-expanded", "true");
+    expect(container.querySelector(".workspace-app")).toHaveAttribute("data-nav-collapsed", "false");
+    expect(localStorage.getItem("focus.navigation")).toBe("expanded");
+    fireEvent.click(screen.getByRole("button", { name: "收起导航" }));
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  } finally { window.matchMedia = original; }
+});
+
+it.each([false, true])("restores a cleared duplicate and focuses retry (batch=%s), preserving other dismissals across reload", async batched => {
+  const failed: IngestionItem = { itemId: "failed-1", fileName: "2609.20519v1.pdf", status: "failed", topicId: null, topicTitle: null,
+    sourceId: null, documentStatus: "not_started", topicStatus: "not_started", error: { errorId: "parse_failed", message: "解析失败" } };
+  const other: IngestionItem = { ...failed, itemId: "other-1", fileName: "other.pdf" };
+  let dismissed = new Set<string>();
+  const items = () => [failed, other].map(item => ({ ...item, dismissed: dismissed.has(item.itemId) }));
+  const batches = (): ProcessingBatch[] => batched ? [{ batchId: "original-batch", topicId: null, status: "partial", error: null,
+    dismissed: dismissed.has(failed.itemId) && dismissed.has(other.itemId), items: items().map(item => ({
+      itemId: item.itemId, fileName: item.fileName, sourceId: null, status: "failed", ingestionStatus: "failed", blog: null, error: null, dismissed: item.dismissed,
+    })) }] : [];
+  const { host, unmount } = setup([], empty, {
+    listInbox: vi.fn(async () => readerSuccess(items())), listBatches: vi.fn(async () => readerSuccess(batches())),
+    clearFinishedStatuses: vi.fn(async () => { dismissed = new Set([failed.itemId, other.itemId]); return readerSuccess(empty); }),
+    stageIngestion: vi.fn(async () => { dismissed.delete(failed.itemId); return readerSuccess({ ...failed, duplicate: true }); }),
+  });
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
+  fireEvent.click(screen.getByRole("button", { name: "全部清空" }));
+  await screen.findByText("没有进行中或待处理的任务。");
+  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传" }));
+  fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF failed"], failed.fileName)] } });
+  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  const taskFrame = await screen.findByRole("region", { name: "任务框" });
+  const retryName = batched ? "重试未完成步骤" : "重试解析";
+  const retry = await within(taskFrame).findByRole("button", { name: retryName });
+  await waitFor(() => expect(retry).toHaveFocus());
+  expect(within(taskFrame).getByText(failed.fileName)).toBeVisible();
+  expect(within(taskFrame).queryByText(other.fileName)).not.toBeInTheDocument();
+  expect(screen.getByText(/原件已上传，文档尚未入库/)).toBeVisible();
+  expect(host.startBatch).not.toHaveBeenCalled();
+  expect(host.processIngestion).not.toHaveBeenCalled();
+  expect(host.continueIngestion).not.toHaveBeenCalled();
+  expect(host.controlBatch).not.toHaveBeenCalled();
+  if (batched) expect(retry.closest("details")).toHaveAttribute("open");
+  unmount(); render(<WorkspaceApp host={host} />);
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
+  const reloaded = screen.getByRole("region", { name: "任务框" });
+  if (batched) fireEvent.click(within(reloaded).getByText("当前任务 / 待处理", { selector: "summary" }));
+  expect(within(reloaded).getByText(failed.fileName)).toBeVisible();
+  expect(within(reloaded).queryByText(other.fileName)).not.toBeInTheDocument();
+  fireEvent.click(within(reloaded).getByRole("button", { name: retryName }));
+  if (batched) await waitFor(() => expect(host.controlBatch).toHaveBeenCalledWith("original-batch", "retry-item", expect.any(String), failed.itemId, undefined));
+  else await waitFor(() => expect(host.continueIngestion).toHaveBeenCalledWith(failed.itemId, expect.any(String)));
+});
+
+it("starts only new files in a mixed upload and restores existing confirmed tasks without submitting them again", async () => {
+  const existing: IngestionItem = { itemId: "old", fileName: "old.pdf", status: "confirmed", topicTitle: null, topicId: null,
+    sourceId: null, documentStatus: "not_started", topicStatus: "not_started", duplicate: true };
+  const fresh = { ...existing, itemId: "fresh", fileName: "fresh.pdf", status: "awaiting_confirmation" as const, duplicate: false };
+  const { host } = setup([], empty, {
+    stageIngestion: vi.fn(async file => readerSuccess(file.name === "old.pdf" ? existing : fresh)),
+    listInbox: vi.fn(async () => readerSuccess([existing, fresh])),
+  });
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "上传" }));
+  fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF old"], "old.pdf"), new File(["%PDF fresh"], "fresh.pdf")] } });
+  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["fresh"], expect.any(String), true));
+  expect(host.startBatch).toHaveBeenCalledTimes(1);
+  expect(await screen.findByRole("region", { name: "任务框" })).toBeVisible();
+  expect(host.processIngestion).not.toHaveBeenCalled();
+});
+
+it("refreshes restored tasks after an older list request and identifies an already published document", async () => {
+  const item: IngestionItem = { itemId: "published", fileName: "published.pdf", status: "topic_attachment_pending", topicTitle: null, topicId: null,
+    sourceId: "published-source", documentStatus: "published", topicStatus: "failed" };
+  const { host } = setup([item], empty, {
+    stageIngestion: vi.fn(async () => readerSuccess({ ...item, duplicate: true })),
+  });
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
+  let finishOldRequest!: (result: ReaderHostResult<readonly IngestionItem[]>) => void;
+  vi.mocked(host.listInbox!).mockImplementationOnce(() => new Promise(resolve => { finishOldRequest = resolve; }));
+  fireEvent.click(screen.getByRole("button", { name: "刷新状态" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传" }));
+  fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF"], item.fileName)] } });
+  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  await waitFor(() => expect(host.stageIngestion).toHaveBeenCalledTimes(1));
+  await act(async () => { finishOldRequest(readerSuccess([{ ...item, dismissed: true }])); });
+  const panel = await screen.findByRole("region", { name: "任务框" });
+  await waitFor(() => expect(within(panel).getByRole("button", { name: "继续" })).toHaveFocus());
+  expect(within(panel).getByText(item.fileName)).toBeVisible();
+  expect(screen.getByText(/文档已入库，仍有后续步骤未完成/)).toBeVisible();
+  expect(screen.queryByText(/文档尚未入库/)).not.toBeInTheDocument();
+  expect(host.startBatch).not.toHaveBeenCalled();
+  expect(host.continueIngestion).not.toHaveBeenCalled();
 });

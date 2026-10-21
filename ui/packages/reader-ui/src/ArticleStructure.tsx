@@ -1,7 +1,7 @@
 import type { ReadingWindow } from "@focus/reader-contracts";
 
-export function ArticleStructure({ view, currentChunkId, blocked, onReview, onBody }: {
-  view: ReadingWindow; currentChunkId?: string; blocked: boolean;
+export function ArticleStructure({ view, currentChunkId, blocked, onReview, onBody, preview = false }: {
+  preview?: boolean; view: ReadingWindow; currentChunkId?: string; blocked: boolean;
   onReview: (chunkId: string) => void; onBody: () => void;
 }) {
   const nodes = view.structure ?? [];
@@ -26,7 +26,7 @@ export function ArticleStructure({ view, currentChunkId, blocked, onReview, onBo
       const inProgress = !!view.readingStarted && !!frontier && chunks.some(c => c.index === frontier.index);
       const children = nodes.some(n => n.parentId === node.id);
       const ownChunk = chunks.find(c => c.nodeId === node.id && (view.status === "completed" || (view.readingStarted && frontier && c.index <= frontier.index)));
-      const label = <><strong>{node.title}</strong><small>{selected ? "当前位置 · " : ""}{done === chunks.length && done > 0 ? "已读完" : `${inProgress ? "阅读中" : done ? "已读" : "未读"} · ${done} / ${chunks.length}`}</small></>;
+      const label = <><strong>{node.title}</strong><small hidden={preview}>{selected ? "当前位置 · " : ""}{done === chunks.length && done > 0 ? "已读完" : `${inProgress ? "阅读中" : done ? "已读" : "未读"} · ${done} / ${chunks.length}`}</small></>;
       return <li key={node.id} data-current={selected}>
         {children ? <details open><summary>{label}</summary>
           {node.description && <p>{node.description}</p>}
@@ -41,6 +41,9 @@ export function ArticleStructure({ view, currentChunkId, blocked, onReview, onBo
     <h1 tabIndex={-1}>{view.source.title}</h1>
     <p className="article-structure-kicker">文章结构</p>
     {branch(null)}
+    {view.articleOverview?.guide && <section className="article-guide" aria-label="文章导读"><h2>文章导读</h2>
+      {view.articleOverview.guide.split(/\n\s*\n/).map((paragraph, i) => <p key={i}>{paragraph}</p>)}
+    </section>}
     {view.structureIntro && <button className="focus-primary" disabled={blocked} onClick={onBody}>进入正文</button>}
   </section>;
 }

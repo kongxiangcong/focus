@@ -54,3 +54,34 @@ describe('reading scroll', () => {
     pane.scrollTop = 250; control.capture(); top = 420; control.restore(); expect(pane.scrollTop).toBe(370);
   });
 });
+
+
+it('dismisses each notice without moving or resuming follow, including streaming updates', () => {
+  document.documentElement.dataset.reducedMotion = 'true';
+  const { pane, end, control, follow, notify } = fixture();
+  const target = document.createElement("div"); pane.append(target);
+  Object.defineProperty(target, "offsetTop", { value: 1200 });
+  pane.scrollTop = 500; control.jump(target); control.contentChanged();
+  const top = pane.scrollTop;
+  control.dismissLatest(); expect(notify).toHaveBeenLastCalledWith(false, true);
+  control.dismissBack(); expect(notify).toHaveBeenLastCalledWith(false, false);
+  control.streaming = true; control.contentChanged(); control.onScroll();
+  expect(notify).toHaveBeenLastCalledWith(false, false);
+  expect(pane.scrollTop).toBe(top); expect(follow.current).toBe(false);
+  control.jump(target); expect(notify).toHaveBeenLastCalledWith(false, true);
+  control.userIntent(true); expect(notify).toHaveBeenLastCalledWith(true, true);
+  control.dispose();
+});
+
+it('does not advertise a latest destination already visible in the viewport', () => {
+  const { pane, control, notify } = fixture();
+  pane.scrollTop = 1200;
+  control.userIntent(true);
+  expect(notify).toHaveBeenLastCalledWith(false, false);
+  control.contentChanged();
+  expect(notify).toHaveBeenLastCalledWith(false, false);
+  pane.scrollTop = 100;
+  control.contentChanged();
+  expect(notify).toHaveBeenLastCalledWith(true, false);
+  control.dispose();
+});

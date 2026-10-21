@@ -28,6 +28,7 @@ export interface GlossaryTerm {
 }
 
 export interface ReaderChunk {
+  bundleVersion?: string;
   sourceId: string;
   planId: string;
   chunkId: string;
@@ -118,7 +119,7 @@ export interface ReadingProgressEntry {
 
 export interface SourceNoteOperation {
   sourceId: string;
-  status: "changed" | "conflict";
+  status: "saved" | "changed" | "conflict";
   operation?: "edit" | "delete" | "undo";
   note?: SourceNote;
   current?: SourceNote;
@@ -134,7 +135,14 @@ export interface ReadingStructureNode {
   sourceLines: readonly [number, number];
 }
 
+export interface ArticleOverview {
+  sourceId: string; title: string; status: "missing" | "running" | "ready" | "failed" | "interrupted" | "cancelled" | "stale";
+  planId?: string; bundle?: string; chunksRevision?: string; version?: string; revision?: string;
+  error?: string | null; guide?: string; structure?: readonly ReadingStructureNode[]; chunkNodes?: readonly string[];
+}
+
 export interface ReadingWindow {
+  articleOverview?: ArticleOverview;
   structure?: readonly ReadingStructureNode[];
   structureIntro?: boolean;
   workspace?: { workspaceId: string; instanceId: string; path: string };
@@ -172,7 +180,7 @@ export interface ReadingWindow {
   blog?: Readonly<Record<string, BlogStatus>>;
   sourceNotes?: readonly SourceNote[];
   readingProgress?: readonly ReadingProgressEntry[];
-  progressOperation?: { status: "changed" | "conflict"; entry?: ReadingProgressEntry; current?: ReadingProgressEntry; attempted_content?: string | null } | null;
+  progressOperation?: { status: "saved" | "changed" | "conflict"; entry?: ReadingProgressEntry; current?: ReadingProgressEntry; attempted_content?: string | null } | null;
   noteFeedback?: { sourceId: string; status: "saved" | "failed" } | null;
   noteOperation?: SourceNoteOperation | null;
 }
@@ -275,6 +283,7 @@ export interface SendReaderMessageInput {
 }
 
 export type ReaderFailureCode =
+  | "note_bundle_changed"
   | "cursor-changed"
   | "invalid-request"
   | "invalid-response"
@@ -384,7 +393,18 @@ export interface LibrarySource {
   topicIds: readonly string[];
 }
 
+export interface CreateSourceNoteInput {
+  sourceId: string;
+  requestId: string;
+  content: string;
+  kind: "thought" | "conclusion" | "question";
+  origin: "user" | "dialogue";
+  chunk?: { planId: string; chunkId: string };
+  quote?: string;
+}
+
 export interface ReaderHost {
+  createSourceNote?(input: CreateSourceNoteInput): Promise<ReaderHostResult<ReadingWindow>>;
   clearFinishedStatuses?(requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   listTopics?(): Promise<ReaderHostResult<readonly LibraryTopic[]>>;
   listSources?(): Promise<ReaderHostResult<readonly LibrarySource[]>>;
@@ -417,6 +437,8 @@ export interface ReaderHost {
   clearSource?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   replanSource?(sourceId: string, requestId?: string): Promise<ReaderHostResult<ReadingWindow>>;
   rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  getArticleOverview?(sourceId: string): Promise<ReaderHostResult<ArticleOverview>>;
+  prepareArticleOverview?(sourceId: string, requestId: string): Promise<ReaderHostResult<ArticleOverview>>;
   openSource?(sourceId: string, requestId?: string): Promise<ReaderHostResult<ReadingWindow>>;
   activateReadingCandidate?(sourceId: string, planId: string, readingRevision: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   dismissPreparation?(sourceId: string, attempt: string): Promise<ReaderHostResult<ReadingWindow>>;

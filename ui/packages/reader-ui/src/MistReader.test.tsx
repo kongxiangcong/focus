@@ -156,7 +156,7 @@ it("shows immediate feedback and locks task-changing actions through startup and
   fireEvent.click(screen.getByRole("button", { name: "继续" }));
   expect(screen.getByRole("status")).toHaveTextContent("正在打开下一段");
   expect(screen.getByRole("textbox")).toBeDisabled();
-  expect(screen.getByRole("button", { name: "新会话" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "新会话" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "打开中…" }));
   expect(host.continueReading).toHaveBeenCalledTimes(1);
   await act(async () => resolve(readerSuccess(running)));
@@ -227,7 +227,7 @@ it("places image/notes toggle and fullscreen in the Mist function row", async ()
   render(<FocusReader host={host} appearance="mist" fullscreen={false} onFullscreenChange={toggle} />);
   await screen.findByRole("heading", { name: "Method" });
   const actions = screen.getByRole("navigation", { name: "阅读功能控制区" });
-  expect(actions).toHaveTextContent("新会话");
+  expect(within(actions).queryByRole("button", { name: "新会话" })).not.toBeInTheDocument();
   expect(actions).toHaveTextContent("继续");
   expect(within(actions).queryByRole("button", { name: "收起资料" })).not.toBeInTheDocument();
   expect(actions).toHaveTextContent("资料");
@@ -340,4 +340,45 @@ it("keeps inline send with a screen-reader keyboard hint and ignores composing E
   expect(host.sendMessage).not.toHaveBeenCalled();
   fireEvent.keyDown(textbox, { key: "Enter" });
   await waitFor(() => expect(host.sendMessage).toHaveBeenCalledTimes(1));
+});
+
+it("selects character measures with arrows, restores focus and persists without advancing", async () => {
+  localStorage.clear(); const host = setup();
+  await screen.findByRole("heading", { name: "Method" });
+  fireEvent.click(screen.getByRole("button", { name: "行宽" }));
+  expect(screen.getByRole("radio", { name: "标准" })).toHaveAttribute("aria-checked", "true");
+  fireEvent.keyDown(screen.getByRole("radio", { name: "标准" }), { key: "ArrowRight" });
+  expect(screen.getByRole("radio", { name: "宽" })).toHaveFocus();
+  expect(localStorage.getItem("focus.readingMeasure")).toBe("wide");
+  expect(document.querySelector<HTMLElement>(".focus-reader")!.style.getPropertyValue("--reader-column")).toBe("calc(50 * var(--reader-reading-size))");
+  fireEvent.keyDown(screen.getByRole("radio", { name: "宽" }), { key: "Escape" });
+  expect(screen.queryByRole("radiogroup")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "行宽" })).toHaveFocus();
+  cleanup(); render(<FocusReader host={host} appearance="mist" />);
+  fireEvent.click(screen.getByRole("button", { name: "行宽" }));
+  expect(screen.getByRole("radio", { name: "宽" })).toHaveAttribute("aria-checked", "true");
+  expect(host.continueReading).not.toHaveBeenCalled();localStorage.clear();
+});
+
+it("shows the completed document without a Continue button", async () => {
+  const last = { ...current, chunkId: "chunk-002", index: 2, sourceMarkdown: "Final paragraph." };
+  const completed: ReadingWindow = { ...first, status: "completed", current: null, history: [current, last],
+    timeline: [{ kind: "reading", chunk: current }, { kind: "reading", chunk: last }] };
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(completed)),
+    continueReading: vi.fn(), sendMessage: vi.fn() };
+  render(<FocusReader host={host} appearance="mist" />);
+  await screen.findByText("Final paragraph.");
+  expect(screen.getByText("Original paragraph.")).toBeInTheDocument();
+  expect(document.querySelector(".focus-reader__continue")).toBeNull();
+  expect(host.continueReading).not.toHaveBeenCalled();
+});
+
+
+it("does not show latest navigation on the first body page", async () => {
+  setup();
+  await screen.findByRole("heading", { name: "Method" });
+  const pane = document.querySelector<HTMLElement>(".focus-stream")!;
+  fireEvent.wheel(pane, { deltaY: -100 });
+  fireEvent.touchStart(pane);
+  expect(screen.queryByRole("button", { name: /回到最新/ })).not.toBeInTheDocument();
 });

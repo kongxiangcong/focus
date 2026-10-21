@@ -1,0 +1,21 @@
+$ pnpm --recursive --if-present test
+Scope: 4 of 5 workspace projects
+$ vitest run --environment jsdom
+
+ RUN  v4.1.11 /workspace/scratch/b42f77eddc90/focus/ui/packages/reader-ui
+
+
+ Test Files  14 passed (14)
+      Tests  107 passed (107)
+   Start at  09:20:54
+   Duration  8.01s (transform 1.50s, setup 0ms, import 5.63s, tests 21.52s, environment 7.95s)
+
+$ vitest run
+
+ RUN  v4.1.11 /workspace/scratch/b42f77eddc90/focus/ui/apps/standalone
+
+
+ Test Files  11 passed (11)
+      Tests  156 passed (156)
+   Start at  09:21:03
+   Duration  53.85s (transform 3.58s, setup 0ms, import 6.66s, tests 91.12s, environment 4.35s)

@@ -1,4 +1,4 @@
-import { createReaderId,
+import { createReaderId, type CreateSourceNoteInput,
   type BackendSetupAction, type BackendSetupInput, type BackendSetupResult,
   type BlogRegenerationTarget,
   type BlogStatus,
@@ -17,6 +17,7 @@ import { createReaderId,
   type ReaderHost,
   type ReaderHostResult,
   type ReadingWindow,
+  type ArticleOverview,
   type SendReaderMessageInput,
   type SourceNoteRequestResult,
 } from "@focus/reader-contracts";
@@ -41,6 +42,7 @@ function isReaderChunk(value: unknown): value is NonNullable<ReadingWindow["curr
   return (
     typeof chunk.sourceId === "string" &&
     typeof chunk.planId === "string" &&
+    (chunk.bundleVersion === undefined || typeof chunk.bundleVersion === "string") &&
     typeof chunk.chunkId === "string" &&
     typeof chunk.index === "number" &&
     typeof chunk.total === "number" &&
@@ -89,7 +91,7 @@ function isReadingWindow(value: unknown): value is ReadingWindow {
 }
 
 function isFailureCode(value: unknown): value is ReaderFailureCode {
-  return ["cursor-changed", "invalid-request", "invalid-response", "unavailable", "unknown"].includes(
+  return ["note_bundle_changed", "cursor-changed", "invalid-request", "invalid-response", "unavailable", "unknown"].includes(
     String(value),
   );
 }
@@ -359,6 +361,29 @@ export class HttpReaderHost implements ReaderHost {
   rereadSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/reread`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   }
+  getArticleOverview(sourceId: string): Promise<ReaderHostResult<ArticleOverview>> {
+    return this.overviewRequest(sourceId, false);
+  }
+  prepareArticleOverview(sourceId: string, requestId: string): Promise<ReaderHostResult<ArticleOverview>> {
+    return this.overviewRequest(sourceId, true, requestId);
+  }
+  private async overviewRequest(sourceId: string, prepare: boolean, requestId?: string): Promise<ReaderHostResult<ArticleOverview>> {
+    try {
+      const response = await this.fetch(`${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/overview`, {
+        method: prepare ? "POST" : "GET", headers: { "content-type": "application/json" },
+        ...(prepare ? { body: JSON.stringify({ requestId }) } : {}), cache: "no-store",
+      });
+      const body = await response.json();
+      if (response.ok && body.ok && body.value?.sourceId === sourceId && typeof body.value.title === "string" &&
+          ["missing", "running", "ready", "failed", "interrupted", "cancelled", "stale"].includes(body.value.status) &&
+          (body.value.status !== "ready" || (typeof body.value.guide === "string" && Array.isArray(body.value.structure) && Array.isArray(body.value.chunkNodes))))
+        return { ok: true, value: body.value };
+      return { ok: false, error: { code: "unavailable", message: body.error?.message ?? "文章结构响应无效", retryable: true } };
+    } catch (error) {
+      return { ok: false, error: { code: "unavailable", message: String(error), retryable: true } };
+    }
+  }
+
   openSource(sourceId: string, requestId = createReaderId()): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/open`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });
   }
@@ -384,6 +409,12 @@ export class HttpReaderHost implements ReaderHost {
 
   selectDiscussionSource(sourceId: string, discussionId?: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/discuss`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ discussionId }) });
+  }
+
+  createSourceNote({ sourceId, ...input }: CreateSourceNoteInput): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/notes`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input),
+    });
   }
 
   changeSourceNote(sourceId: string, noteId: string, operation: "edit" | "delete" | "undo",

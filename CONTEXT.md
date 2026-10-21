@@ -96,6 +96,10 @@ Reading Plan 中以原文章节和顺序为基础的层级结构，以简短标�
 首次打开已准备的 Reading Plan 时呈现的文章骨架。读者明确进入正文后才开始第一段阅读；查看骨架不推进阅读位置，也不生成阅读进度记录。
 _Avoid_: Reading Chunk, Reading Progress Entry
 
+**Article Overview（文章结构与导读）**:
+Reading Plan 的派生展示资产，由中文 Article Structure 和与其对应的简短文章导读组成。知识库独立预览与首次正式阅读共用同一份内容，按“标题、中文骨架、导读”的顺序显示。资产绑定 Source、Plan、原文版本与段落版本；准备和预览不选择或推进 Reading Cursor，不生成阅读记录。旧 Plan 按用户请求补齐，不改写已保存的段落、译文或进度。
+_Avoid_: Reading Chunk, Reading Blog, independent progress cursor
+
 **Reading Chunk**:
 Reading Plan 中一个稳定、连续、可整体展示的原文单元。
 _Avoid_: Lesson, checkpoint, mastery node
@@ -125,8 +129,12 @@ _Avoid_: Topic-owned plan, duplicated progress, tag browsing
 _Avoid_: Chat history, plan row, learner record
 
 **Reading Note**:
-用户明确要求记录后保留的 Source 级精简笔记，脱离原始对话仍可理解，通常以例子和总结后的结论表达，也可包含理解链、澄清的概念或待解的问题；不依附某个 Topic 或 Reading Plan。
+用户明确要求记录后保留的 Source 级精简笔记，脱离原始对话仍可理解，通常以例子和总结后的结论表达，也可包含理解链、澄清的概念或待解的问题；不依附某个 Topic 或 Reading Plan。可按 Source Anchor 显示在对应 Reading Chunk 旁（吸附笔记），但不属于 Chunk 或 Plan；可由用户直接手写，或从讨论回答中确认保存。
 _Avoid_: Transcript, discussion log, assessment result, cognitive evidence
+
+**Attached Notes（吸附笔记）**:
+将 Source 级 Reading Notes 按 Source Anchor 投影到当前已加载 Reading Chunk 旁的展示形态。界面入口名为“笔记”。空间充足时使用旁注，空间不足时在阅读段内按正文 3/4、笔记 1/4 分栏；不改变笔记归属或 Reading Cursor。FOCUS Discussion 始终保留在阅读流中。
+_Avoid_: Chunk-owned notes, attached discussion, second note store
 
 **FOCUS Discussion**:
 属于 FOCUS Workspace、固定绑定一份 Reading Source 的持续讨论，独立于所选 Backend；切换 Backend 不拆分或重建讨论。讨论历史与显式 Reading Notes、Reading Cursor 分开，保留至用户明确清除。
@@ -170,7 +178,7 @@ _Avoid_: Public fixture, reusable project asset, user profile
 _Avoid_: Understanding score, per-Topic progress copy
 
 **Reading Review**:
-对已读 Reading Chunk 的回看，可围绕所查看内容提问或继续打开下一段；在已读范围内不改变 Reading Cursor、不重复补记，也不改变完成状态。最后一段已完成时继续明确禁用。
+对已读 Reading Chunk 的回看，可围绕所查看内容提问或继续打开下一段；在已读范围内不改变 Reading Cursor、不重复补记，也不改变完成状态。已完成来源打开时展示全部段落并隐藏继续按钮；新会话仍先清空显示，显式重新打开来源后恢复全文。
 _Avoid_: Second cursor, unread preview, reread from start
 
 **Reading Preparation**:

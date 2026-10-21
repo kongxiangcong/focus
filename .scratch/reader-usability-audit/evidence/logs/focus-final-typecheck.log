@@ -1,0 +1,5 @@
+$ pnpm --recursive --if-present typecheck
+Scope: 4 of 5 workspace projects
+$ tsc -p tsconfig.json
+$ tsc -p tsconfig.json
+$ tsc -p tsconfig.json

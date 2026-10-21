@@ -45,6 +45,7 @@ class CoreBridge:
         self.workspace = workspace
         self.core = WorkspaceCore(workspace)
         self._figures_cache = {}
+        self._plan_bundle_cache = {}
 
     def figure_catalog(self, source_id):
         """Expose only images bound to this Source's current Parser Bundle."""
@@ -204,9 +205,26 @@ class CoreBridge:
             return '/reader/historical-assets/' + quote(source_id, safe='') + '/' + quote(str(path.relative_to(archived)).replace('\\', '/'), safe='/') + suffix
         raise ValueError('Image reference is outside a Source Bundle')
 
+    def plan_bundle(self, source_id, plan_id):
+        source = validate_source_id(source_id)
+        plan = _identifier(plan_id, 'planId')
+        path = self.workspace / 'sources' / source / 'reading' / 'plans' / plan / 'provenance.json'
+        if not path.is_file():
+            return None
+        stat = path.stat()
+        signature = (stat.st_mtime_ns, stat.st_size)
+        cached = self._plan_bundle_cache.get((source, plan))
+        if cached is None or cached[0] != signature:
+            bundle = json.loads(path.read_text(encoding='utf-8')).get('bundle')
+            if bundle is not None and not isinstance(bundle, str):
+                raise ValueError('Plan Bundle version is invalid')
+            self._plan_bundle_cache[(source, plan)] = (signature, bundle)
+        return self._plan_bundle_cache[(source, plan)][1]
+
     def project_chunk(self, c):
         return {'sourceId': c['source_id'], 'planId': c['plan_id'], 'chunkId': c['chunk_id'],
                 'index': c['index'], 'total': c['total'], 'sectionPath': c['section_path'],
+                **({'bundleVersion': version} if (version := self.plan_bundle(c['source_id'], c['plan_id'])) is not None else {}),
                 'sourceLines': c['source_lines'], 'sourceMarkdown': c['source_text'], 'translation': c['translation'],
                 'images': [{'src': self._image_url(c['source_id'], i['path']),
                             'caption': i['caption']} for i in c['images']],
