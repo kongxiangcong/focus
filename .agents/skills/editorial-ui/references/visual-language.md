@@ -2,11 +2,11 @@
 
 ## Decisions
 
-Identify the primary content and its natural reading rhythm. Default to a quiet canvas, high-contrast text, one action accent, and restrained elevation. A beautiful but indistinguishable disabled/error state is a failure. The selected product specification takes precedence over the sample warm palette. Preserve existing visuals by default, or use the explicitly authorized replacement spec for a redesign.
+Identify the primary content and its natural reading rhythm. Default to a quiet canvas, high-contrast text, one action accent, and restrained elevation. A beautiful but indistinguishable disabled/error state is a failure.
 
 Use four surface roles only when useful: canvas, subtle section, raised control, overlay. Adjacent regions may share a fill when typography and spacing already separate them. Do not add a border to every nested element. This is not a ban on borders: a visible input boundary or focus indicator is functional.
 
-`assets/design-tokens.json` is canonical **for the bundled defaults only**. Build `assets/tokens.css`; do not hand-edit generated constants. In Integrate, use one product-owned CSS/config source for the selected existing or replacement design and link/generate its documentation. Do not import a competing default theme or require a JSON generator. The bundled `#d97757` decorative pigment is NOT the default filled-action background: a darker action token is used for text contrast.
+Resolve values using [design authority](design-authority.md#numeric-ownership).
 
 ## Typography and density
 
@@ -38,4 +38,4 @@ Huge empty hero areas above a working tool; generic dashboard card grids; oversi
 
 [S1] https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html
 [S2] https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html
-Source mapping and upstream caveats: `provenance.md`.
+Source mapping is in the maintenance-only provenance ledger.

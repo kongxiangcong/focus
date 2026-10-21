@@ -1,5 +1,8 @@
 # FOCUS CDS presentation
 
+> 当前适用范围与后续替代关系见[设计索引](README.md)。以下保留原始方案／实施记录及其当时状态。
+
+
 Execution authority: 2026-10-18 user request; [ADR 0025](../adr/0025-cds-focus-presentation.md).
 Selected design: [FOCUS_UI_CDS2_DESIGN_SPEC.md](FOCUS_UI_CDS2_DESIGN_SPEC.md) §4–§12.
 Numbers: [focus-tokens.css](../../ui/packages/reader-ui/src/focus-tokens.css) — the only numeric authority.

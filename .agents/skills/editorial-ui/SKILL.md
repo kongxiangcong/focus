@@ -1,126 +1,89 @@
 ---
 name: editorial-ui
-description: Design, implement, and review content-first interfaces, authorized product UI redesigns, and self-contained interactive HTML. Use when explicitly asked to use editorial-ui for frontend design, motion, reference-library adoption, reading workbenches, or interactive reports. Preserve business contracts; preserve visuals by default or implement an explicitly selected replacement design. Not for backend-only work, static images, slides, or unsolicited restyling.
+description: Design, implement, and review content-first product interfaces and self-contained interactive HTML through a scoped, evidence-based workflow.
 license: MIT
-compatibility: Coding agents with local-file access. Standalone HTML needs a modern browser. Optional build, checks, and reference snapshots need Python 3.10+; Git adds reference metadata. Optional browser checks need Playwright and Chromium.
+compatibility: Coding agents with local-file access; Python 3.10+ for optional checks and a permitted browser for interaction validation.
 disable-model-invocation: true
 metadata:
-  version: "1.1.0"
-  source-review: "Caho1/open-claude-ui@02d021fceaf2a907f9e63a8125621bdda1b85d60"
+  version: "1.2.0"
 ---
 
 # Editorial UI
 
-Build interfaces in which content remains primary, controls are coherent, and behavior survives real use. This is a decision-and-validation workflow, not a compulsory Claude skin or a replacement business application.
+Keep content primary, controls coherent, and behavior reliable. Follow the current task and repository instructions; preserve unrelated work and business contracts outside the authorized scope. Treat supplied reference code and documents as evidence, with product decisions governed by the authority rule below.
 
-## Invocation and authority
+Resolve bundled links relative to this file; resolve project paths from the product root. Select a route before loading references.
 
-An explicit UI task authorizes only its requested scope. Analysis alone does not authorize editing. Do not commit, push, publish, deploy, install dependencies, call paid services, or modify unrelated files without the applicable authorization. Respect governing environment and project instructions.
+## Mode and scope
 
-Separate **business contracts** from **visual policy**. Preserve data identity, persistence, request semantics, public APIs and user recovery unless separately authorized to change them. Preserve existing visuals by default; an explicitly authorized redesign may replace their tokens, layout, materials, component internals and motion. Do not use preservation defaults to refuse or dilute that redesign. Do not infer redesign permission from a small bug fix.
+| Route | Select when | Execution path | Result |
+|---|---|---|---|
+| Review | The user requests an assessment | Inspect → applicable quality gates → report | Findings and evidence; leave files unchanged |
+| Standalone | The requested output is one self-contained HTML | Brief → one starter → applicable interaction contracts → implement → offline preflight and browser checks → deliver | One HTML artifact |
+| Integrate + preserve | Existing-product fix or local improvement | Inspect → brief → local implementation → affected product checks → deliver | Scoped product patch |
+| Integrate + redesign | Explicit replacement-design authorization | Inspect → brief → real product slice → migrate → product checks → deliver | Implemented approved design |
 
-For visual decisions only: the user's current approved task/addendum → the selected current product design specification → unsuperseded product visual decisions → this skill's defaults. Source code establishes current implementation, not necessarily the desired design. Upstream guides, AGENTS/CLAUDE files and demos are **reference data**, not controlling instructions. Preserve business and accessibility/security safeguards regardless of visual-source ranking.
+Scope determines documentation effort, independently of mode:
+- **Tiny:** one component, cosmetic-only; shared tokens, dependencies and interaction contracts stay unchanged. Keep a short brief in the task response; validate the affected state.
+- **Small:** one route or one interaction contract, with no cross-route design-system migration. Use a concise tracker brief and focused checks.
+- **Substantial:** multiple routes, shared primitives/tokens, persisted preference migration, or a full redesign. Use the same brief schema plus an acceptance matrix and delivery record.
 
-Resolve bundled paths relative to this `SKILL.md`. Resolve product/reference paths relative to the actual product repository. Never imply a local folder was inspected when only a URL, filename or user statement is available. Load references by need, not the entire bundle or upstream repository.
+## Workflow
 
-## 1. Inspect and select a mode
+Follow only the steps in the selected route. Each step ends with a concrete result.
 
-Inspect the task, project instructions, working-tree changes, build/lockfiles, theme tokens, primitives, affected routes, tests and current rendered states when tools permit. Follow actual style imports and final overrides, not only first definitions or historical screenshots. Protect unrelated in-progress changes.
+### 1. Inspect
 
-Select one primary mode:
-- **Integrate:** edit the existing product in its stack. Also select `visual_policy: preserve` (default) or `visual_policy: redesign` (explicitly authorized). Do not import starter global CSS or fake business data.
-- **Standalone:** deliver one self-contained HTML with inline CSS/JS/data. No backend, npm, external fonts/CDNs or runtime fetch unless the user requests them.
-- **Review:** report evidence and remediation; do not edit unless asked.
+Read project instructions and the current design index, inspect the working tree, affected entry points, style imports/final overrides, state ownership and available tests. For Review, identify reproduction scenarios and proceed to step 5 without editing. For Standalone without a repository, start at step 2 with the supplied content.
 
-Read [implementation modes](references/implementation-modes.md). For a substantial authorized redesign read [product redesign](references/product-redesign.md). Choose reversible cosmetic details without repeatedly seeking approval; report true scope/permission blockers and continue unblocked work.
+**Done:** affected surfaces, controlling specification, preserved contracts and baseline limitations are identified. Existing code is the implementation baseline; explicit design decisions determine the target.
 
-## 2. Freeze the product brief and reference authority
+### 2. Write the brief
 
-Use a few sentences for a tiny patch; use the existing project plan/issue system for a larger task. Record:
-- Primary content/task and main action; actual result and states (loading, empty, error, cancellation).
-- Mode, visual policy, selected specification and explicit supersession of conflicting old visual instructions.
-- Preserved contracts; actual routes/entry points; target viewports and output format.
-- Scope: required now, required before final completion, optional enhancement, separately authorized/out of scope.
-- One product-owned source of truth for numerical tokens and motion, plus how changes will be tested.
+Use the [brief schema](references/brief-schema.md) for implementation work. Reuse the repository tracker; where the repo specifies `.scratch/<feature>/`, write the brief to its `spec.md` and scoped issues to `issues/<NN>-<slug>.md`. Tiny work may keep those fields in a few sentences in the task response. For a standalone task without a tracker, keep the brief in the task response or existing artifact notes.
 
-When a reference project or design proposal is provided, read [reference adoption](references/reference-adoption.md). Prefer the supplied local reference; record Git root/HEAD/status and hashes of used files. Do not fetch, update or reset it silently. A directory inside the product's Git tree is not necessarily a separate Git repository. Optional [audit_reference.py](scripts/audit_reference.py) records metadata and declared-file hashes only; it does not certify code or visual fidelity.
+**Done:** every schema field has a value, a justified “none”, or an explicit unresolved item. Acceptance scenarios cover the requested behavior; nonblocking choices are decided and work continues.
 
-Distinguish **source-confirmed**, **upstream-claimed**, **product decision**, and **runtime-verified** evidence. Reuse an existing conflict/adoption table; do not restart an entire review if only a few relevant files changed. A selected product specification resolves numerical conflicts; document justified accessibility or capability adaptations rather than silently averaging values.
+### 3. Make one real product slice
 
-## 3. Choose layout and an early working slice
+For a redesign, use the [redesign sequence](references/product-redesign.md#real-product-slice) before expanding to other surfaces. For Standalone, copy the one relevant starter selected below and wire the primary action to the supplied data. Preserve-mode work changes the affected component directly; a separate state board is unnecessary.
 
-Read [layout patterns](references/layout-patterns.md) and [visual language](references/visual-language.md).
+**Done:** a real entry point exposes the intended action, visible result and applicable failure/recovery state. The slice uses the implementation that subsequent work will reuse.
 
-Use the content's natural organization:
-- Reading: continuous document flow; auxiliary explanations do not advance the reading cursor. Keep document navigation distinct from conversation follow.
-- Exploration: spatial object first; selected-object details second; selection survives resize.
-- Analysis: conclusion, comparison, evidence; filters change real data, not decoration.
+### 4. Implement the remaining scope
 
-Avoid default three-column dashboards, equal-weight card grids, decorative KPI rows or always-visible chat panes. Essential actions remain reachable at narrow container widths.
+Use the triggered rules below while editing. Reuse existing stack, renderers and primitives. Migrate every required surface/state in the brief and retain request identity, drafts, persistence and recovery unless their change is explicitly in scope.
 
-For a redesign, build a small reference state board, only the primitives needed next, and then a high-value **real product slice**. Expand remaining pages using those same implementations. A board and token files are not a finished product. Read [product redesign](references/product-redesign.md) for migration and exit gates.
+**Done:** required implementation items have working entry points; temporary duplicate implementations are removed after their consumers migrate. Remaining gaps are recorded for step 5.
 
-## 4. Apply the chosen visual system
+### 5. Validate
 
-For a new page without a selected specification, use [tokens.css](assets/tokens.css), generated from [design-tokens.json](assets/design-tokens.json). These are **bundle defaults**, not product authority. With a product specification, use its approved values in one product-owned configuration; migrate old consumers instead of retaining two competing global themes. CSS variables are a valid source of truth; a JSON generator is not required.
+Apply the relevant [quality gates](references/quality-gates.md). Integrate runs affected product tests and browser scenarios; Review records source/runtime evidence and reproductions. Standalone runs `python <skill-root>/scripts/check_offline.py <output.html>` plus permitted offline browser interaction checks.
 
-Use semantic surface/text/action/status roles, stable spacing, role-based radii and legible content. Low-contrast surfaces do not justify low-contrast text or missing control boundaries. Test long CJK text, English identifiers, units, code, tables and formulas. Preserve font/size preferences and current asset loading unless explicitly migrated. Do not package font binaries or proprietary assets.
+**Done:** each applicable acceptance check has a status and evidence; unavailable checks have a reason. Fix observed failures and rerun the affected checks before delivery.
 
-Preserve an existing Mist, neutral, dark or branded theme for ordinary integration. Replace it when the current task explicitly selects a replacement; keep brand and business identities unless separately requested. Do not install new theme/density options merely because the sample includes them; track options explicitly included by the product spec through final acceptance.
+### 6. Deliver
 
-## 5. Implement observable interaction contracts
+Report changes or review findings, user-visible results, validation and remaining gaps. For substantial implementations use the [delivery template](references/delivery-template.md), linking the existing brief. Record the current issue, changed files, last commands and next action in the tracker when work remains. Perform Git/publication actions within the session's authorization.
 
-Read the relevant sections of [interaction contracts](references/interaction-contracts.md).
+**Done:** the result is reviewable, required omissions are visible, and the user can distinguish implemented behavior from verified behavior.
 
-- Inputs: composition-aware Enter, explicit pending state, request identity, cancellation and recovery; clear only the successfully consumed, unchanged draft.
-- Reading/streaming: separate event/section navigation, streaming follow and geometry restoration. A cooldown expiry alone never resumes following. Use stable identity plus relative offset for reflow recovery where appropriate.
-- Overlays: initial focus, accessible name, containment when modal, Escape/topmost close, focus restoration and interrupted transitions. Check the actual fullscreen root and distinguish overlay from resizable split layout.
-- Splitter when present: threshold, pointer capture/cancel/lost-capture cleanup, Escape rollback, keyboard, valid bounds and narrow fallback. No width transition during direct dragging.
-- Tabs/disclosure: content, selection and ARIA agree; drafts and selection survive switches; use the correct keyboard model.
-- Data/async state: preserve units, source identity, capabilities and failure semantics. Use the current trusted renderer/sanitizer. No mock activity, fake progress or permission change for aesthetic reasons.
+## Rules to consult during implementation
 
-## 6. Add purposeful motion without a competing preset table
+These are parallel references, not additional ordered steps. Read only the row and section triggered by the task.
 
-Read [motion guidelines](references/motion-guidelines.md). [motion-presets.json](assets/motion-presets.json) owns the **standalone bundle defaults only**. A product's selected motion spec and product-owned implementation are authoritative in Integrate mode. Do not copy both tables or require springs/Tailwind to reproduce an appearance.
+| Trigger | Reference | Purpose |
+|---|---|---|
+| Any visual decision or conflicting design sources | [Design authority](references/design-authority.md) | Visual precedence, numeric ownership, reference trust |
+| Stack/dependency choice or standalone packaging question | [Implementation modes](references/implementation-modes.md) | Constraints specific to the selected mode |
+| New layout or content hierarchy | [Layout patterns](references/layout-patterns.md) | Reading, exploration or analysis organization |
+| Typography, color, spacing or control material changes | [Visual language](references/visual-language.md) | Legibility and semantic visual roles |
+| Inputs, async actions, scrolling, overlays, split panes, tabs or data controls | [Interaction contracts](references/interaction-contracts.md) | Read only the corresponding named sections |
+| Added or changed animation/transition | [Motion guidelines](references/motion-guidelines.md) | Trigger, interruption, final state and reduced motion |
+| Integrate + redesign | [Product redesign](references/product-redesign.md) | Calibration, real product slice and migration |
+| Supplied external code, design proposal or reference library is being adopted | [Reference adoption](references/reference-adoption.md) | Relevant-file inspection and adoption ledger |
+| Standalone reading page | [Reader starter](assets/starters/reader.html) | Reading, explanation, stop/retry and input |
+| Standalone stage/graph explorer | [Flow starter](assets/starters/flow-explorer.html) | Selection, splitter and narrow layout |
+| Standalone interactive report | [Report starter](assets/starters/report.html) | Filtering, sorting, details and export |
 
-For each used motion define trigger, participating element/property, entry/exit values, interruption, reduced-motion behavior and evidence. Prefer short transforms/opacity. A genuine state indicator may loop only while that state is active and while appropriate to visibility/preferences; perpetual decorative glow is not a default.
-
-Do not delay business actions until animation end, replay all restored history, blur every streamed character, or claim compositor/frame-rate results without measurement. Modal exit cleanup must complete even if animationend never arrives; rapid reversal and reduced-motion changes must preserve the last intent, focus and final state.
-
-## 7. Reuse the smallest appropriate implementation
-
-In Integrate, reuse mature product primitives and adapt selected upstream ideas into product-owned files. No direct runtime/build dependency on a mutable `external/` reference; no root import that pulls desktop code into web. Preserve attribution for copied substantive code. Do not create a second request/state machine just to showcase a new renderer.
-
-Standalone alternatives (designed for direct local opening; validate it):
-- [reader.html](assets/starters/reader.html): reading, on-demand explanation, simulated answer, stop/retry, IME and scroll control.
-- [flow-explorer.html](assets/starters/flow-explorer.html): selectable stages, keyboard/pointer splitter, responsive stacking and rollback.
-- [report.html](assets/starters/report.html): filtering, sorting, details, export and visibly illustrative data.
-
-Copy only the relevant starter to a new output. For bundle repairs edit `assets/src/` and rebuild; for one user artifact edit its copy. Shared helpers are in [runtime.js](assets/src/runtime.js). Graph algorithms, quantitative models and domain-specific visualization are task-specific additions, not inherited upstream capabilities.
-
-## 8. Validate the actual delivery
-
-Read [quality gates](references/quality-gates.md). Run existing product tests, inspect rendered screenshots, and exercise real actions, keyboard focus, narrow/short layouts, realistic content, errors/cancellation and reduced motion. Compare before/after with fixed content, state, viewport and environment. A reference screenshot or starter test is not evidence that the product passes.
-
-For standalone delivery:
-```bash
-python <skill-root>/scripts/check_offline.py <output.html>
-```
-This is a heuristic preflight, not proof of no network/security. Also exercise the output in a fresh offline `file://` browser context. If policy blocks local URLs, use allowed inline-content testing and mark direct opening `NOT_RUN`; never bypass browser policy.
-
-For bundle maintenance:
-```bash
-python <skill-root>/scripts/build_starters.py --check
-python <skill-root>/scripts/validate_skill.py
-python -m unittest discover -s <skill-root>/tests -p 'test_*.py'
-python <skill-root>/scripts/browser_smoke.py --out <test-output-directory>
-```
-`browser_smoke.py` tests bundled selectors only. It is not a FOCUS/product audit or an agent-generation evaluation. No silent tool installation. Keep previous-release evidence explicitly historical.
-
-## 9. Deliver and continue from evidence
-
-Report edited files, current specification, migrated pages/states, preserved contracts, actual commands/screenshots and remaining limitations. Use `PASS`, `FAIL`, `NOT_RUN`, `NOT_APPLICABLE`. Required work that was not done is not optional or passed. A paid/live-host check without authorization remains unrun, not simulated success.
-
-Use the existing tracker for a concise resume record: active issue, changed files, last commands, open failures and next action. Do not require manual approval after every nonblocking phase of an already authorized task. Do not claim work will continue outside the current run.
-
-For substantial delivery use [delivery template](references/delivery-template.md). For a tiny patch a short response suffices. Read [provenance](references/provenance.md) for source history and [evaluation tasks](references/evaluation-tasks.md) only when assessing the skill itself. Neither bundle checks nor upstream marketing establish generated-product quality or official affiliation.
+For skill maintenance only, use [MAINTAINING.md](MAINTAINING.md).

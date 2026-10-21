@@ -22,6 +22,30 @@ def contrast(a: str, b: str) -> float:
     return (y+.05)/(x+.05)
 
 
+def markdown_link_errors(root: Path) -> list[str]:
+    """Check repository-local Markdown targets and explicit/heading anchors."""
+    errors = []
+    def anchors(text):
+        found = set(re.findall(r'<a\s+id=["\']([^"\']+)', text))
+        counts = {}
+        for heading in re.findall(r'^#{1,6}\s+(.+)$', text, re.M):
+            slug = re.sub(r'[^\w\- ]', '', heading.strip().lower()).replace(' ', '-')
+            n = counts.get(slug, 0); counts[slug] = n + 1
+            found.add(slug if n == 0 else f'{slug}-{n}')
+        return found
+    for source in root.rglob('*.md'):
+        for target in re.findall(r'\]\(([^)]+)\)', source.read_text(encoding='utf-8')):
+            if re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:', target):
+                continue
+            path_text, _, anchor = unquote(target).partition('#')
+            path = (source.parent/path_text).resolve() if path_text else source.resolve()
+            if not path.is_relative_to(root.resolve()) or not path.exists():
+                errors.append(f'{source.relative_to(root)}: missing/outside local reference: {target}')
+            elif anchor and path.suffix == '.md' and anchor not in anchors(path.read_text(encoding='utf-8')):
+                errors.append(f'{source.relative_to(root)}: missing anchor: {target}')
+    return errors
+
+
 def validate() -> tuple[list[str], dict[str, float]]:
     errors = []
     text = (ROOT/'SKILL.md').read_text(encoding='utf-8')
@@ -42,13 +66,7 @@ def validate() -> tuple[list[str], dict[str, float]]:
     metadata = (ROOT/'agents/openai.yaml').read_text(encoding='utf-8')
     if 'allow_implicit_invocation: false' not in metadata or '$editorial-ui' not in metadata:
         errors.append('Codex explicit-invocation metadata missing.')
-    # This is intentionally NOT a general YAML or official skill-schema validator.
-    for target in re.findall(r'\]\(([^)]+)\)', text):
-        if '://' in target or target.startswith('#'):
-            continue
-        path = (ROOT/unquote(target.split('#')[0])).resolve()
-        if not path.is_relative_to(ROOT.resolve()) or not path.exists():
-            errors.append(f'Missing/outside local reference: {target}')
+    errors.extend(markdown_link_errors(ROOT))
     for path in ROOT.rglob('*'):
         if path.suffix.lower() in {'.ttf', '.otf', '.woff', '.woff2', '.mp3', '.wav'}:
             errors.append(f'Forbidden bundled binary asset: {path.relative_to(ROOT)}')

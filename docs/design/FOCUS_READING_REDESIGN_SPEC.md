@@ -1,5 +1,8 @@
 # FOCUS 阅读页重设计：实施规范（阅读镜头 · 手动讨论吸附）
 
+> 当前适用范围与后续替代关系见[设计索引](README.md)。以下保留原始方案／实施记录及其当时状态。
+
+
 状态：方向已选定（2026-10-19 修订），尚未实施。
 基础：PR #19 `feat/cds-ui-presentation` @ `07c0fee`。main @ `6070204` 仅作体验参考。
 参考原型：`ui/apps/standalone/src/prototypes/focus-directions/`（未跟踪，`?d=c` 为阅读镜头，`?d=ab` 为吸附布局参考）。原型不含“手动吸附按钮”，凡与本文冲突以本文为准。

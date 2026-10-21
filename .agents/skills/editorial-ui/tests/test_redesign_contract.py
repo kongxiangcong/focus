@@ -1,57 +1,63 @@
-"""Static release/document invariants only; not proof an agent follows the skill."""
+"""Execution structure and link integrity, independent of editorial phrasing."""
 import re
+import sys
+import tempfile
 from pathlib import Path
 import unittest
-from urllib.parse import unquote
-ROOT=Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT/'scripts'))
+from validate_skill import markdown_link_errors
 
-class RedesignContractTests(unittest.TestCase):
-    def test_version_is_updated(self):
-        self.assertIn('version: "1.1.0"',(ROOT/'SKILL.md').read_text())
-        self.assertIn('1.1.0',(ROOT/'CHANGELOG.md').read_text())
-    def test_three_modes_and_two_visual_policies(self):
-        text=(ROOT/'SKILL.md').read_text()
-        for phrase in ['**Integrate:**','**Standalone:**','**Review:**','visual_policy: preserve','visual_policy: redesign']:
-            self.assertIn(phrase,text)
-    def test_product_parameter_authority_is_explicit(self):
-        text=(ROOT/'SKILL.md').read_text()
-        self.assertIn('standalone bundle defaults only',text)
-        self.assertIn('one product-owned',text)
-    def test_reference_and_redesign_are_routed(self):
-        text=(ROOT/'SKILL.md').read_text()
-        self.assertIn('(references/reference-adoption.md)',text)
-        self.assertIn('(references/product-redesign.md)',text)
-        self.assertIn('(scripts/audit_reference.py)',text)
-    def test_instruction_layer_has_no_focus_project_paths(self):
-        targets=[ROOT/'SKILL.md',ROOT/'references/product-redesign.md',ROOT/'references/reference-adoption.md']
-        for p in targets:
-            s=p.read_text()
-            for forbidden in ['ui/packages/reader-ui', 'ADR 0023', 'external/open-claude-ui']:
-                self.assertNotIn(forbidden,s)
-    def test_reference_ownership_warning(self):
-        s=(ROOT/'references/reference-adoption.md').read_text()
-        self.assertIn('parent product',s)
-        self.assertIn('read-only',s)
-        self.assertIn('not controlling instructions',(ROOT/'SKILL.md').read_text())
-    def test_default_invocation_does_not_freeze_design(self):
-        s=(ROOT/'agents/openai.yaml').read_text()
-        self.assertIn('explicitly selected replacement design',s)
-        self.assertIn('allow_implicit_invocation: false',s)
-    def test_local_markdown_links_resolve(self):
-        for p in [ROOT/'SKILL.md',*(ROOT/'references').glob('*.md')]:
-            for target in re.findall(r'\]\(([^)]+)\)',p.read_text()):
-                if '://' in target or target.startswith('#'):continue
-                q=(p.parent/unquote(target.split('#')[0])).resolve()
-                with self.subTest(file=p.name,target=target):
-                    self.assertTrue(q.is_relative_to(ROOT.resolve()))
-                    self.assertTrue(q.exists())
-    def test_release_evidence_has_separate_history(self):
-        self.assertTrue((ROOT/'history/1.0.0/validation/REPORT.md').exists())
-        self.assertIn('1.0.0',(ROOT/'history/1.0.0/validation/REPORT.md').read_text())
-    def test_first_slice_and_required_final(self):
-        s=(ROOT/'references/product-redesign.md').read_text()
-        self.assertIn('real vertical slice',s)
-        self.assertIn('required-final',s)
-        self.assertIn('do not build an entire abstract design system first',s)
+class WorkflowTests(unittest.TestCase):
+    def test_six_ordered_workflow_steps(self):
+        text = (ROOT/'SKILL.md').read_text()
+        self.assertEqual(re.findall(r'^### (\d+)\.', text, re.M), list('123456'))
+        steps = re.split(r'^### \d+\.', text, flags=re.M)[1:]
+        self.assertTrue(all('**Done:**' in step for step in steps))
 
-if __name__=='__main__':unittest.main()
+    def test_mode_routes_are_explicit(self):
+        text = (ROOT/'SKILL.md').read_text()
+        rows = [line.split('|')[1].strip() for line in text.split('## Workflow', 1)[0].splitlines() if line.startswith('|')]
+        for mode in ('Review', 'Standalone', 'Integrate + preserve', 'Integrate + redesign'):
+            self.assertEqual(rows.count(mode), 1)
+
+    def test_reference_table_has_conditions_and_existing_targets(self):
+        text = (ROOT/'SKILL.md').read_text()
+        table = text.split('## Rules to consult during implementation', 1)[1]
+        rows = [line for line in table.splitlines() if line.startswith('|') and '](' in line]
+        self.assertGreaterEqual(len(rows), 8)
+        for row in rows:
+            cells = row.split('|')[1:-1]
+            self.assertEqual(len(cells), 3)
+            self.assertTrue(all(cell.strip() for cell in cells))
+
+    def test_brief_is_shared_by_workflow_redesign_and_delivery(self):
+        for file in ['SKILL.md', 'references/product-redesign.md', 'references/delivery-template.md']:
+            self.assertIn('brief-schema.md)', (ROOT/file).read_text())
+
+    def test_local_links_and_anchors_resolve(self):
+        self.assertEqual(markdown_link_errors(ROOT), [])
+
+    def test_link_checker_catches_missing_target_anchor_and_escape(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root/'a.md').write_text('[valid](b.md#good-heading) [missing](no.md) [bad anchor](b.md#bad) [escape](../outside.md)')
+            (root/'b.md').write_text('# Good heading\n')
+            errors = markdown_link_errors(root)
+            self.assertEqual(len(errors), 3)
+            self.assertTrue(any('missing anchor' in e for e in errors))
+            (root/'a.md').write_text('[valid](b.md#good-heading)')
+            self.assertEqual(markdown_link_errors(root), [])
+
+    def test_execution_entry_excludes_release_work(self):
+        text = (ROOT/'SKILL.md').read_text()
+        self.assertIn('(MAINTAINING.md)', text)
+        for path in ['validation', 'history', 'SHA256SUMS.txt', 'README.md']:
+            self.assertFalse((ROOT/path).exists())
+        for script in ['build_starters.py', 'browser_smoke.py', 'validate_skill.py']:
+            self.assertNotIn(script, text)
+        for path in ['maintenance/provenance.md', 'maintenance/evaluation-tasks.md']:
+            self.assertTrue((ROOT/path).is_file())
+
+if __name__ == '__main__':
+    unittest.main()
