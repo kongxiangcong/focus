@@ -1,59 +1,135 @@
+/** FocusReader geometry/interaction regression against `pnpm reader:dev` (port 5173).
+ * Set FOCUS_PLAYWRIGHT_MODULE and FOCUS_CHROMIUM_EXECUTABLE; optional FOCUS_BROWSER_PORT/OUTPUT.
+ * Uses synthetic Source anchors and a reserved workbench sidebar; no model or private workspace calls.
+ */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {createRequire} from 'node:module';
-const require=createRequire(import.meta.url);
-const {chromium}=require(process.env.FOCUS_PLAYWRIGHT_MODULE);
-const browser=await chromium.launch({headless:true,executablePath:process.env.FOCUS_CHROMIUM_EXECUTABLE});
-const page=await browser.newPage({viewport:{width:1440,height:1000}});
-page.setDefaultTimeout(60000);
-const out=process.env.FOCUS_BROWSER_OUTPUT || '/tmp/focus-reader-redesign/shots/step6'; fs.mkdirSync(out,{recursive:true});
-// Until ticket 07 replaces discussion attachment, retain its geometry/scroll invariants at the selected character measure.
-const metrics={}, errors=[];page.on('pageerror',e=>errors.push(e.message));
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.FOCUS_PLAYWRIGHT_MODULE);
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const tempRoot = path.join(root, 'ui/apps/standalone/tmp');
+fs.mkdirSync(tempRoot, { recursive: true });
+const fixture = fs.mkdtempSync(path.join(tempRoot, 'attached-notes-'));
+const out = process.env.FOCUS_BROWSER_OUTPUT || '/tmp/focus-attached-notes';
+fs.mkdirSync(out, { recursive: true });
+const chunks = [1, 2].map(index => ({ sourceId: 'demo', planId: 'plan', chunkId: `chunk-${index}`, index, total: 3,
+  bundleVersion: 'v1', sourceLines: [index * 10, index * 10 + 9], sectionPath: ['体系结构', index === 1 ? '存储与计算' : '调度与映射'],
+  sourceMarkdown: Array.from({ length: 12 }, (_, i) => `段落 ${index}.${i + 1}：在阅读这一节时，重点关注数据如何在存储层次之间移动，以及计算单元如何复用数据。局部缓存减少重复传输，调度策略决定资源之间的协作方式。`).join('\n\n'),
+  translation: null, images: [], relevantGlossary: [], presentationStatus: 'source-ready' }));
+const notes = chunks.map((chunk, index) => ({ noteId: `note-${index + 1}`, sourceId: 'demo', revision: 1, content: index === 0
+  ? '**对应第一段的笔记**\n\n' + Array.from({ length: 12 }, (_, i) => `${i + 1}. 数据复用的收益取决于局部存储容量，需要结合访存量与计算量一起判断。`).join('\n\n')
+  : '**对应第二段的笔记**\n\n映射策略需要同时考虑并行度和数据搬运成本。\n\n- 空间映射\n- 时间复用',
+  kind: 'thought', origin: 'user', evidenceRole: 'explanation', bundle: 'v1',
+  anchor: { sourceId: 'demo', bundle: 'v1', sourceLines: chunk.sourceLines }, referenceStatus: 'current', sourceUpdated: false, deleted: false, canUndo: false }));
+const view = { status: 'reading', source: { sourceId: 'demo', title: '架构阅读示例', topicId: null }, sessionId: 's1',
+  current: chunks[1], navigationCurrent: chunks[1], history: [chunks[0]], sourceNotes: notes,
+  conversation: [{ messageId: 'm1', role: 'assistant', content: '这是一条仍留在阅读流中的讨论回复。', chunkId: chunks[0].chunkId,
+    reference: { sourceId: 'demo', planId: 'plan', chunkId: chunks[0].chunkId } }],
+  timeline: [...chunks.map(chunk => ({ kind: 'reading', chunk })), { kind: 'message', messageId: 'm1' }] };
+fs.writeFileSync(path.join(fixture, 'index.html'), '<!doctype html><html lang="zh-CN"><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>段落笔记验证</title><link rel="icon" href="data:,"><div id="root"></div><script type="module" src="./main.tsx"></script></html>');
+fs.writeFileSync(path.join(fixture, 'main.tsx'), `
+import { useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { FocusReader } from '/@fs${root}/ui/packages/reader-ui/src/FocusReader.tsx';
+import '/@fs${root}/ui/packages/reader-ui/src/focus-tokens.css';
+const view = ${JSON.stringify(view)};
+window.notesCalls = [];
+const host = { getReadingWindow: async () => ({ok:true,value:view}),
+  sendMessage: async input => { window.notesCalls.push(input); return {ok:true,value:view}; },
+  continueReading: async () => { throw new Error('Unexpected cursor change'); } };
+function Fixture() {
+ const [fullscreen, setFullscreen] = useState(false);
+ return <><style>{'html,body,#root{margin:0;height:100%;}body{background:#eceae4}.fixture-nav{position:absolute;left:24px;top:24px;font:14px system-ui;color:#777}.fixture-reader{height:100%;margin-left:248px}.fixture-reader[data-fullscreen=true]{margin-left:0}@media(max-width:720px){.fixture-reader{margin-left:0}.fixture-nav{display:none}}'}</style>
+ {!fullscreen && <div className="fixture-nav">FOCUS · 阅读工作台</div>}
+ <div className="fixture-reader" data-fullscreen={fullscreen}><FocusReader host={host} appearance="mist" fullscreen={fullscreen} onFullscreenChange={setFullscreen}/></div></>;
+}
+createRoot(document.getElementById('root')).render(<Fixture/>);
+`);
+const browser = await chromium.launch({ headless: true, executablePath: process.env.FOCUS_CHROMIUM_EXECUTABLE });
+const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+const errors = [], metrics = {};
+page.on('pageerror', e => errors.push(e.message));
+page.on('response', response => { if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`); });
 page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-const wait=()=>page.waitForTimeout(850);
-const button=page.getByRole('button',{name:'吸附讨论',exact:true});
-const attached=()=>page.locator('.focus-reader').getAttribute('data-discussion-attached');
-const width=()=>page.locator('[data-lens-index="2"] .focus-reading .focus-markdown').first().evaluate(e=>e.getBoundingClientRect().width);
+const settle = () => page.waitForTimeout(400);
+const toggle = page.getByRole('navigation', { name: '阅读功能控制区' }).getByRole('button', { name: '笔记', exact: true });
+const layout = () => page.locator('.focus-reader').getAttribute('data-notes-layout');
+const geometry = () => page.locator('[data-lens-index="2"] .reading-group-passage').evaluate(e => {
+ const source = e.querySelector('.reading-group-source'), notes = e.querySelector('.reading-group-notes');
+ return { passage: e.getBoundingClientRect().width, source: source.getBoundingClientRect().width,
+   text: source.querySelector('.focus-markdown').getBoundingClientRect().width, notes: notes?.getBoundingClientRect().width };
+});
 try {
- await page.goto(`http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT}/reading`);
- await page.getByRole('button',{name:'进入正文',exact:true}).click();await wait();
- await page.getByRole('button',{name:'继续',exact:true}).click();await page.waitForSelector('[data-lens-index="2"]');await wait();
- assert.equal(await button.getAttribute('aria-pressed'),'false');
- // The workbench may reserve navigation width; fullscreen exposes the 1440px reading area.
- await page.getByRole('button',{name:'全屏',exact:true}).click();await wait();
- const baseWidth=await width();
- await page.locator('.focus-stream').evaluate(p=>{p.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-1}));p.scrollTop+=400;});await wait();
- const anchor=page.locator('[data-lens-index="2"] .focus-markdown > p').filter({hasText:'Paragraph 8:'}).first();
- const top=()=>anchor.evaluate(e=>e.getBoundingClientRect().top);
- for(const mode of ['on','off','onAgain']) {const before=await top();await button.click();await wait();metrics[mode]={error:(await top())-before,width:await width()};assert.ok(Math.abs(metrics[mode].error)<=2,JSON.stringify(metrics));assert.ok(Math.abs(metrics[mode].width-(mode === "off" ? baseWidth : Math.min((baseWidth-32)*.6,baseWidth-32-300)))<1,JSON.stringify({baseWidth,metrics}));}
- assert.equal(await attached(),'true');
- metrics.sticky=await page.locator('[data-lens-index="2"] .reading-group-discussion').evaluate(e=>e.getBoundingClientRect().top-document.querySelector('.focus-stream').getBoundingClientRect().top);
- assert.ok(Math.abs(metrics.sticky-14)<=1,JSON.stringify(metrics));
- if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${out}/1440-sticky.png`});
- await page.getByRole('button',{name:'＋ 就这段提问',exact:true}).click();await wait();assert.match(await page.locator('.focus-reference').innerText(),/引用第 2 段/);assert.equal(await page.locator('#focus-question').evaluate(e=>e===document.activeElement),true);
- await page.locator('.reader-side-toggle').click();await wait();assert.equal(await attached(),'false');assert.match(await button.getAttribute('title'),/资料/);assert.ok(Math.abs(await width()-await page.locator(".focus-stream").evaluate((e,limit)=>Math.min(limit,e.clientWidth-48),baseWidth))<1);
- await page.locator('.reader-side-toggle').click();await wait();assert.equal(await attached(),'true');
- await page.setViewportSize({width:1100,height:1000});await wait();assert.equal(await attached(),'false');assert.equal(await button.getAttribute('aria-pressed'),'true');assert.match(await button.getAttribute('title'),/1240/);assert.ok(Math.abs(await width()-await page.locator(".focus-stream").evaluate((e,limit)=>Math.min(limit,e.clientWidth-48),baseWidth))<1);
- await page.setViewportSize({width:1440,height:1000});await wait();assert.equal(await attached(),'true');
- await page.reload();await wait();assert.equal(await button.getAttribute('aria-pressed'),'true');
- if(await attached()!=='true') {await page.getByRole('button',{name:'全屏',exact:true}).click();await wait();}
- await page.locator('#focus-question').fill('讨论吸附验收');await page.getByRole('button',{name:'发送',exact:true}).click();await page.waitForFunction(index=>{const group=document.querySelector(`[data-lens-index="${index}"]`);return group?.querySelector('[data-role="assistant"]')?.textContent.includes('回复第20句') && !group.querySelector('[data-streaming="true"]');},2);
- await page.locator('[data-lens-index="2"]').evaluate(e=>{const p=document.querySelector('.focus-stream');p.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-1}));p.scrollTop+=e.getBoundingClientRect().top-p.getBoundingClientRect().top+250;});await wait();
- metrics.messageSticky=await page.locator('[data-lens-index="2"] .reading-group-discussion').evaluate(e=>e.getBoundingClientRect().top-document.querySelector('.focus-stream').getBoundingClientRect().top);
- assert.ok(Math.abs(metrics.messageSticky-14)<=1,JSON.stringify(metrics));if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${out}/1440-discussion-sticky.png`});
- // A reply taller than a short source must grow the group, with source top-aligned.
- await page.getByRole('button',{name:'继续',exact:true}).click();await page.waitForSelector('[data-lens-index="3"]');await wait();
- await page.locator('#focus-question').fill('短段落的长讨论验收');await page.getByRole('button',{name:'发送',exact:true}).click();await page.waitForFunction(index=>{const group=document.querySelector(`[data-lens-index="${index}"]`);return group?.querySelector('[data-role="assistant"]')?.textContent.includes('回复第20句') && !group.querySelector('[data-streaming="true"]');},3);
- metrics.tallReply=await page.locator('[data-lens-index="3"]').evaluate(e=>{const s=e.querySelector('.reading-group-source'),d=e.querySelector('.reading-group-discussion');return {group:e.offsetHeight,source:s.offsetHeight,discussion:d.offsetHeight,alignment:s.getBoundingClientRect().top-e.getBoundingClientRect().top};});
- assert.ok(metrics.tallReply.discussion>metrics.tallReply.source,JSON.stringify(metrics.tallReply));assert.ok(metrics.tallReply.group>=metrics.tallReply.discussion);assert.equal(metrics.tallReply.alignment,0);
- await page.locator('[data-lens-index="3"]').evaluate(e=>{const p=document.querySelector('.focus-stream');p.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-1}));p.scrollTop+=e.getBoundingClientRect().top-p.getBoundingClientRect().top-100;});await wait();
- const third=page.locator('[data-lens-index="3"] .focus-markdown > p').first();
- for(const mode of ['withMessagesOff','withMessagesOn']) {const before=await third.evaluate(e=>e.getBoundingClientRect().top);await button.click();await wait();metrics[mode]=(await third.evaluate(e=>e.getBoundingClientRect().top))-before;assert.ok(Math.abs(metrics[mode])<=2,JSON.stringify(metrics));}
- await page.emulateMedia({reducedMotion:'reduce'});await button.click();await button.click();await wait();
- metrics.reduced=await page.locator('[data-lens-index="3"] .reading-group-discussion').evaluate(e=>({animation:getComputedStyle(e).animationName,lensTransition:getComputedStyle(document.querySelector('.reading-lens')).transitionDuration}));
- assert.equal(metrics.reduced.animation,'none');assert.equal(metrics.reduced.lensTransition,'0s');if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${out}/1440-reduced-motion.png`});
- await page.emulateMedia({reducedMotion:'no-preference'});
- metrics.longDiscussion=await page.locator('[data-lens-index="2"]').evaluate(e=>({group:e.offsetHeight,source:e.querySelector('.reading-group-source').offsetHeight,discussion:e.querySelector('.reading-group-discussion').offsetHeight}));
- for(const w of [1440,1024,390]) {await page.setViewportSize({width:w,height:1000});for(const theme of ['light','dark']) {await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);await wait();if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${out}/${w}-${theme}.png`});} if(w===390)assert.equal(await button.isVisible(),false);}
- assert.deepEqual(errors,[]);fs.writeFileSync(`${out}/metrics.json`,JSON.stringify(metrics,null,2));console.log('PASS',metrics);
-} finally {await browser.close();}
+ await page.goto(`http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT || 5173}/tmp/${path.basename(fixture)}/index.html`);
+ await page.getByRole('complementary', { name: '第 2 段笔记', exact: true }).waitFor(); await settle();
+ assert.equal(await layout(), 'side');
+ metrics.side = await geometry();
+ assert.equal(metrics.side.text, 756);
+ assert.equal(metrics.side.notes, 280);
+ await toggle.click(); await settle();
+ assert.equal(await layout(), 'off'); assert.equal((await geometry()).text, metrics.side.text);
+ await toggle.click(); await settle();
+ await page.setViewportSize({ width: 1280, height: 900 }); await settle();
+ assert.equal(await layout(), 'split'); metrics.split = await geometry();
+ assert.ok(Math.abs(metrics.split.notes / metrics.split.passage - .25) < .001);
+ await page.getByRole('button', { name: '全屏', exact: true }).click(); await settle();
+ assert.equal(await layout(), 'side');
+ await page.getByRole('button', { name: '退出全屏', exact: true }).click(); await settle();
+ assert.equal(await layout(), 'split');
+ // Reflow preserves the same visible source paragraph when notes are toggled.
+ const anchor = page.locator('[data-lens-index="2"] .reading-group-source .focus-markdown > p').nth(3);
+ await anchor.evaluate(e => { const pane=document.querySelector('.focus-stream'); pane.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-100})); pane.scrollTop+=e.getBoundingClientRect().top-pane.getBoundingClientRect().top-pane.clientHeight*.1; }); await settle();
+ const anchorTop = await anchor.evaluate(e=>e.getBoundingClientRect().top);
+ await toggle.click(); await settle();
+ assert.ok(Math.abs(await anchor.evaluate(e=>e.getBoundingClientRect().top)-anchorTop)<2);
+ await toggle.click(); await settle();
+ assert.ok(Math.abs(await anchor.evaluate(e=>e.getBoundingClientRect().top)-anchorTop)<2);
+ await page.getByRole('button', { name: '收起', exact: true }).click();
+ const firstNotes = page.getByRole('complementary', { name: '第 1 段笔记', exact: true });
+ await firstNotes.getByRole('button', { name: '就这段讨论', exact: true }).click(); await settle();
+ assert.match(await page.locator('.focus-reference').innerText(), /引用第 1 段/);
+ assert.equal(await page.locator('#focus-question').evaluate(e => e === document.activeElement), true);
+ await page.locator('#focus-question').fill('解释第一段的数据复用');
+ await page.getByRole('button', { name: '发送', exact: true }).click(); await settle();
+ assert.equal(await page.evaluate(() => window.notesCalls[0].receipt.chunkId), 'chunk-1');
+ assert.match(await page.locator('[data-lens-index="2"] .reading-group-discussion').innerText(), /仍留在阅读流/);
+ assert.equal(await firstNotes.getByText('仍留在阅读流中的讨论回复。').count(), 0);
+ const body = firstNotes.locator('.reading-group-notes__body');
+ metrics.longNotes = await body.evaluate(e => ({ height: e.clientHeight, total: e.scrollHeight }));
+ assert.ok(metrics.longNotes.total > metrics.longNotes.height);
+ await body.evaluate(e => e.scrollTop = 60);
+ assert.ok(await body.evaluate(e => e.scrollTop > 0));
+ for (const [width, height] of [[1600,1000], [1440,900], [1280,800], [1024,768], [720,900], [390,844]]) {
+  await page.setViewportSize({ width, height }); await settle();
+  await page.locator('.focus-stream').evaluate(e => { e.dispatchEvent(new WheelEvent('wheel', {bubbles:true,deltaY:-100})); e.scrollTop = 100; e.dispatchEvent(new Event('scroll', {bubbles:true})); }); await settle();
+  const dock = page.getByRole('navigation', { name: '阅读功能控制区' });
+  await dock.getByRole('button', { name: /^回到最新/ }).waitFor();
+  const bounds = await dock.evaluate(e => {
+   const main = document.querySelector('.focus-stream').getBoundingClientRect();
+   return { top: e.getBoundingClientRect().top, mainBottom: main.bottom, width: e.clientWidth, scrollWidth: e.scrollWidth,
+    buttonsFit: [...e.querySelectorAll('button')].every(b => { const r=b.getBoundingClientRect(); return r.left>=0 && r.right<=innerWidth && r.bottom<=innerHeight; }) };
+  });
+  assert.ok(bounds.top >= bounds.mainBottom - 1, JSON.stringify(bounds));
+  assert.ok(bounds.buttonsFit && bounds.scrollWidth <= bounds.width + 1, JSON.stringify({width,bounds}));
+  assert.equal(await toggle.isVisible(), true);
+  assert.equal(await page.getByRole('button', {name:'新会话',exact:true}).count(), 0);
+  metrics[width] = { layout: await layout(), geometry: await geometry(), dock: bounds };
+  assert.ok(await page.locator('.focus-stream').evaluate(e => e.scrollWidth <= e.clientWidth + 1));
+  await page.screenshot({ path: path.join(out, `${width}-light.png`) });
+ }
+ await page.getByRole('button', { name: '关闭回到最新提示' }).click();
+ assert.equal(await page.getByRole('button', { name: /^回到最新/ }).count(), 0);
+ await page.setViewportSize({width:1440,height:900});
+ await page.evaluate(() => document.documentElement.dataset.theme='dark'); await settle();
+ await page.screenshot({path:path.join(out,'1440-dark.png')});
+ await toggle.click(); await page.reload(); await settle();
+ assert.equal(await toggle.getAttribute('aria-pressed'),'false');
+ await page.emulateMedia({reducedMotion:'reduce'}); await toggle.click(); await settle();
+ assert.equal(await page.locator('.reading-lens').evaluate(e=>getComputedStyle(e).transitionDuration),'0s');
+ assert.deepEqual(errors, []);
+ fs.writeFileSync(path.join(out,'metrics.json'),JSON.stringify(metrics,null,2));
+ console.log('PASS: side/split notes, normal/fullscreen, paragraph discussion, bounded scrolling, dock notices, 390–1600px, persistence and reduced motion.');
+} finally { await browser.close(); fs.rmSync(fixture,{recursive:true,force:true}); }

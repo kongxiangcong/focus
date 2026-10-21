@@ -1,5 +1,7 @@
+import { AttachedNotes } from "./AttachedNotes";
+import { projectSourceNotes } from "./note-projection";
 import { AssetInstanceContext } from "./asset-context";
-import { PanelLeft, Pin, Plus, Expand, Collapse, ArrowRight, ArrowUp, StopSquare, ChevronDown, Widen, Close } from "./ReaderIcons";
+import { PanelLeft, Pin, Expand, Collapse, ArrowRight, ArrowUp, StopSquare, ChevronDown, Widen, Close } from "./ReaderIcons";
 import { createReaderId, cursorReceipt, type ReaderChunk, type ReaderAttachment, type ReaderHost, type ReadingWindow,
   type ReaderHostResult, type SendReaderMessageInput, type ContinueReadingInput, type SourceNote, type ReadingProgressEntry } from "@focus/reader-contracts";
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -32,19 +34,16 @@ function TimelineEvent({ identity, fresh, current, streaming, children }: { iden
 /** Presentation projection; input order defines the current session. */
 export function groupReadingDiscussion<C extends { chunkId: string }>(
   entries: readonly ({ kind: "reading"; chunk: C } | { kind: "message"; messageId: string })[],
-  keys: readonly string[], messages: readonly { messageId: string; reference?: { chunkId: string | null } | null }[], attached: boolean,
+  keys: readonly string[],
 ) {
   const groups: { id: string; chunk: C | null; indexes: number[] }[] = [];
-  const latest = new Map<string, typeof groups[number]>();
-  const references = new Map(messages.map(m => [m.messageId, m.reference?.chunkId]));
   entries.forEach((entry, index) => {
     if (entry.kind === "reading") {
       const group = { id: keys[index], chunk: entry.chunk, indexes: [index] };
-      groups.push(group); latest.set(entry.chunk.chunkId, group);
+      groups.push(group);
     } else {
       if (!groups.length) groups.push({ id: "leading-discussion", chunk: null, indexes: [] });
-      const owner = attached ? latest.get(references.get(entry.messageId) ?? "") : undefined;
-      (owner ?? groups[groups.length - 1]).indexes.push(index);
+      groups[groups.length - 1].indexes.push(index);
     }
   });
   return groups;
@@ -52,8 +51,8 @@ export function groupReadingDiscussion<C extends { chunkId: string }>(
 
 export function FocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange }: FocusReaderProps) {
   const mist = appearance === "mist";
-  const [attachDiscussion, setAttachDiscussion] = useState(() => {
-    try { return localStorage.getItem("focus.attachDiscussion") === "true"; } catch { return false; }
+  const [attachNotes, setAttachNotes] = useState(() => {
+    try { localStorage.removeItem("focus.attachDiscussion"); return localStorage.getItem("focus.attachNotes") !== "false"; } catch { return true; }
   });
   const [preferredMeasure, setPreferredMeasure] = useState<ReadingMeasure>(() => {
     try { return readReadingMeasure(localStorage, readingFontSizes[fontSize]); } catch { return "standard"; }
@@ -83,6 +82,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const [readerShift, setReaderShift] = useState(0);
   const [availableWidth, setAvailableWidth] = useState(0);
   const [readingWidth, setReadingWidth] = useState(0);
+  const [readingHeight, setReadingHeight] = useState(0);
   const measure = effectiveReadingMeasure(preferredMeasure, readingFontSizes[fontSize], availableWidth);
   const columnWidth = measureWidth(measure, readingFontSizes[fontSize]);
   const measureFits = (id: ReadingMeasure) => !availableWidth || measureWidth(id, readingFontSizes[fontSize]) + readingLayout.padding <= availableWidth;
@@ -290,11 +290,10 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const entries = [...ordered, ...(view?.timeline ? (view.conversation ?? []).filter(m => !ordered.some(e => e.kind === "message" && e.messageId === m.messageId)).map(m => ({ kind: "message" as const, messageId: m.messageId })) : [])];
   const eventKeys = entries.map((e, index) => e.kind === "reading" ? ("eventId" in e && typeof e.eventId === "string" ? e.eventId : undefined) ?? `${chunkKey(e.chunk)}:${index}` : e.messageId);
   const eventScope = `${sourceId}:${view?.discussionId ?? view?.sessionId}`;
-  const discussionAttached = mist && attachDiscussion && readingWidth >= 1240 && !sideMode && !showStructure;
-  const attachTitle = !attachDiscussion ? "将讨论吸附到原文右侧" : sideMode
-    ? "吸附已开启；资料打开时暂停，关闭资料后自动恢复" : readingWidth < 1240
-    ? "吸附已开启；阅读区不足 1240px，宽度恢复后自动吸附" : "吸附已开启；点击恢复阅读流";
-  const paragraphGroups = groupReadingDiscussion(entries, eventKeys, view?.conversation ?? [], discussionAttached);
+  const notesOpen = mist && attachNotes && !showStructure;
+  const notesLayout = !notesOpen ? "off" : readingWidth >= columnWidth + readingLayout.padding + readingLayout.noteGap + readingLayout.noteWidth ? "side" : "split";
+  const paragraphGroups = groupReadingDiscussion(entries, eventKeys);
+  const projectedNotes = projectSourceNotes(view?.sourceNotes ?? [], paragraphGroups);
   const readingGroups = paragraphGroups.filter(group => group.chunk !== null);
   const lens = useReadingLens(eventScope, readingGroups.map(group => group.id), mist && visible && !showStructure);
   const lensIndex = Math.max(0, readingGroups.findIndex(group => group.id === lens.activeId));
@@ -326,7 +325,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
     observer?.observe(root); observer?.observe(column);
     return () => observer?.disconnect();
-  }, [sideMode, mist, columnWidth]);
+  }, [sideMode, mist, columnWidth, notesLayout]);
   function preserveReading(change: () => void) {
     scrolling.controller.current?.hold();
     change();
@@ -367,6 +366,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     if (!pane || !mist) return;
     let previousWidth = 0;
     const measure = () => {
+      setReadingHeight(pane.clientHeight);
       setAvailableWidth((layout.current?.clientWidth ?? pane.offsetWidth) - (pane.offsetWidth - pane.clientWidth));
       if (pane.clientWidth === previousWidth) return;
       scrolling.controller.current?.hold();
@@ -381,7 +381,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   useLayoutEffect(() => {
     scrolling.controller.current?.sizeSpacer();
     scrolling.controller.current?.restore();
-  }, [discussionAttached]);
+  }, [notesLayout]);
   useLayoutEffect(() => {
     const control = scrolling.controller.current;
     const target = stream.current?.querySelector<HTMLElement>('[data-current-output="true"]');
@@ -609,13 +609,26 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       else composer.current?.focus({ preventScroll: true });
     });
   }
+  const navigationNotices = !showStructure && <div className="reader-navigation-notices" aria-label="阅读导航提示">
+    {reviewChunk && !reviewNoticeDismissed && <p className="focus-review-banner">正在回看第 {reviewChunk.index} 段 · 正式位置未改变 <button onClick={() => { if (frontier) review(frontier); }}>返回当前阅读</button><button aria-label="关闭回看提示" onClick={() => setReviewNoticeDismissed(true)}><Close /></button></p>}
+    {lensReview && progressNoticeDismissed !== `${eventScope}:${lens.activeId}` && <span className="reader-scroll-notice"><button type="button" onClick={() => {
+        const group = [...readingGroups].reverse().find(item => item.chunk && frontier && chunkKey(item.chunk) === chunkKey(frontier));
+        const target = Array.from(lens.document.current?.querySelectorAll<HTMLElement>("[data-lens-group]") ?? []).find(el => el.dataset.lensGroup === group?.id);
+        if (group && target && stream.current) {
+          lens.focus(group.id);
+          scrolling.controller.current?.jump(target);
+        }
+      }}>回到进度</button><button aria-label="关闭回到进度提示" onClick={() => setProgressNoticeDismissed(`${eventScope}:${lens.activeId}`)}><Close /></button></span>}
+        {scrolling.back && <span className="reader-scroll-notice"><button onClick={() => scrolling.controller.current?.goBack()}>↩ 返回刚才位置</button><button aria-label="关闭返回位置提示" onClick={() => scrolling.controller.current?.dismissBack()}><Close /></button></span>}
+        {scrolling.latest && (readingGroups.length > 1 || !!view?.conversation.length) && <span className="reader-scroll-notice"><button onClick={() => scrolling.controller.current?.toLatest()}>{active ? "回答生成中 · " : ""}回到最新 ↓</button><button aria-label="关闭回到最新提示" onClick={() => scrolling.controller.current?.dismissLatest()}><Close /></button></span>}
+  </div>;
   const continueLabel = view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total) ? "已读完" : (view?.sessionFresh && view.readingStarted && frontier?.index === frontier?.total) || (!view?.sessionFresh && displayed?.index === displayed?.total && !reviewChunk) ? "完成本篇" : operation === "下一段" ? "打开中…" : "继续";
-  return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-measure={measure} data-discussion-attached={discussionAttached} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && structureOpen) {
+  return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-measure={measure} data-notes-layout={notesLayout} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && structureOpen) {
       setStructureOpen(false); layout.current?.querySelector<HTMLButtonElement>(".reader-location-badge")?.focus({ preventScroll: true });
     } else if (event.key === "Escape" && sideMode && !(event.target as HTMLElement).closest("dialog")) {
     preserveReading(() => setSideMode(null)); event.currentTarget.querySelector<HTMLButtonElement>(mist ? ".reader-side-toggle" : ".reader-figures-toggle")?.focus({ preventScroll: true });
   } }} data-materials-open={mist && materialsOpen && !showStructure} data-side-open={!!sideMode && !showStructure} className={`focus-reader reader-split${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}
-    style={{ "--reader-column": `calc(${readingMeasures.find(m => m.id === measure)!.characters} * var(--reader-reading-size))`, "--reader-available-width": availableWidth ? `${availableWidth}px` : "100%", "--reader-shift": `${readerShift}px`, "--reader-reading-size": `${readingFontSizes[fontSize]}px`, "--reader-text-share": `${textShare}fr`, "--reader-side-share": `${100 - textShare}fr` } as CSSProperties}>
+    style={{ "--reader-column": `calc(${readingMeasures.find(m => m.id === measure)!.characters} * var(--reader-reading-size))`, "--reader-notes-width": `${readingLayout.noteWidth}px`, "--reader-notes-gap": `${readingLayout.noteGap}px`, "--reader-notes-max-height": readingHeight ? `${Math.max(80, readingHeight - 28)}px` : "60dvh", "--reader-available-width": availableWidth ? `${availableWidth}px` : "100%", "--reader-shift": `${readerShift}px`, "--reader-reading-size": `${readingFontSizes[fontSize]}px`, "--reader-text-share": `${textShare}fr`, "--reader-side-share": `${100 - textShare}fr` } as CSSProperties}>
     {!mist && <header className="focus-header">
       <span className="focus-brand">FOCUS<span>.</span></span>
       <button className="focus-title" title={view?.source.title} onClick={() => setPanel("materials")}>{view?.source.sourceId ? view.source.title : "阅读工作台"}</button>
@@ -655,7 +668,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         {view?.source.sourceId && view.sourceNotes && <details className="focus-source-notes"><summary>笔记 · {view.sourceNotes.filter(note => !note.deleted).length}</summary>
           {noteError && <p role="alert">{noteError}</p>}
           {view.sourceNotes.length === 0 ? <p>明确说“记下来”后，笔记会保存在这篇材料下。</p> :
-            <ol>{view.sourceNotes.filter(note => !note.deleted || note.canUndo).map(note => <li key={note.noteId}>
+            <ol>{view.sourceNotes.filter(note => !note.deleted || note.canUndo).map(note => <li key={note.noteId} data-source-note-id={note.noteId}>
               {editingNoteId === note.noteId ? <div><textarea aria-label="编辑笔记" value={editDraft} onChange={event => setEditDraft(event.target.value)} />
                 {noteConflict && <p>已保存版本：{noteConflict.content}</p>}
                 {noteConflict ? <button disabled={!editDraft.trim()} onClick={() => void changeNote(note, "edit", noteConflict.revision)}>重新提交</button> :
@@ -698,9 +711,9 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         </aside>
         </section>
     <main className="focus-stream" ref={stream} aria-label="阅读与对话" tabIndex={0}
-      onWheel={e => scrolling.controller.current?.userIntent(e.deltaY < 0)} onTouchStart={pauseFollow}
-      onKeyDown={e => { if (["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "].includes(e.key)) scrolling.controller.current?.userIntent(["PageUp", "Home", "ArrowUp"].includes(e.key)); }}
-      onMouseUp={readSelection} onKeyUp={readSelection} onScroll={() => { setSelection(null); locateVisibleChunk(); scrolling.controller.current?.onScroll(); }}>
+      onWheel={e => { if (!(e.target as HTMLElement).closest(".reading-group-notes")) scrolling.controller.current?.userIntent(e.deltaY < 0); }} onTouchStart={e => { if (!(e.target as HTMLElement).closest(".reading-group-notes")) pauseFollow(); }}
+      onKeyDown={e => { if (!(e.target as HTMLElement).closest(".reading-group-notes") && ["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "].includes(e.key)) scrolling.controller.current?.userIntent(["PageUp", "Home", "ArrowUp"].includes(e.key)); }}
+      onMouseUp={readSelection} onKeyUp={readSelection} onScroll={e => { if (e.target !== e.currentTarget) return; setSelection(null); locateVisibleChunk(); scrolling.controller.current?.onScroll(); }}>
       {!mist && readingLocation}
       <div className="focus-content">
         {showStructure && view && (host.getArticleOverview ? <ArticleOverviewPanel host={host} sourceId={sourceId} title={view.source.title} view={view}
@@ -712,7 +725,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         <div hidden={showStructure} className={mist ? "reading-lens-document" : undefined} ref={lens.document}>
         {mist && <div ref={lens.surface} className="reading-lens" data-review={lensReview} data-lens-active={lens.activeId ?? undefined} hidden={!lens.activeId} aria-hidden="true" />}
         {!view && <p role="status">{connection ? "暂时无法连接" : "正在打开…"}</p>}
-        {reviewChunk && !reviewNoticeDismissed && <p className="focus-review-banner">正在回看第 {reviewChunk.index} 段 · 正式位置未改变 <button onClick={() => { if (frontier) review(frontier); }}>返回当前阅读</button><button aria-label="关闭回看提示" onClick={() => setReviewNoticeDismissed(true)}><Close /></button></p>}
+
         {view && displayEmpty && <section className="focus-start">
           <span className="focus-start__label" aria-hidden="true">▤</span>
           <h1>{view.readingUnavailable ? view.source.title : view.source.sourceId ? `讨论 ${view.source.title}` : "打开一份材料"}</h1>
@@ -727,7 +740,8 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
           return <div key={`${eventScope}:${group.id}`} className={mist ? "reading-lens-group" : undefined}
             data-reading-group={group.chunk ? group.id : undefined} data-lens-group={mist && group.chunk ? group.id : undefined} data-lens-index={group.chunk?.index}
             data-state={mist && group.chunk ? state : undefined} data-review={mist && group.id === lens.activeId && lensReview}>
-          {([false, true] as const).map(discussion => <div key={String(discussion)} className={discussion ? "reading-group-discussion" : "reading-group-source"}>
+          {([false, true] as const).filter(discussion => !discussion || group.indexes.some(index => entries[index].kind === "message")).map(discussion => <div key={String(discussion)} className={discussion ? "reading-group-discussion" : "reading-group-passage"}>
+          <div className={discussion ? undefined : "reading-group-source"}>
           {group.indexes.filter(index => (entries[index].kind === "message") === discussion).map(index => {
           const e = entries[index];
           const message = e.kind === "message" ? view?.conversation.find(m => m.messageId === e.messageId) : null;
@@ -736,8 +750,20 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
           const identity = eventKeys[index];
           return <TimelineEvent key={`${eventScope}:${identity}`} identity={identity} current={index === focusedIndex} fresh={committedEvents.current?.scope === eventScope && !committedEvents.current.ids.has(identity)} streaming={active && message?.role === "assistant" && message.messageId === view?.conversation.at(-1)?.messageId}>{content}</TimelineEvent>;
           })}
-          {discussion && discussionAttached && group.chunk && state === "focus" && group.indexes.length === 1 &&
-            <button className="reading-group-ask" disabled={blocked} onClick={() => preserveReading(() => referenceChunk(group.chunk!))}>＋ 就这段提问</button>}
+          </div>
+          {!discussion && notesOpen && group.chunk && <AttachedNotes chunk={group.chunk} notes={projectedNotes.get(group.id) ?? []}
+            onDiscuss={() => preserveReading(() => referenceChunk(group.chunk!))}
+            onOpenNote={note => preserveReading(() => {
+              setSideMode("notes");
+              if (!note.deleted) { setEditingNoteId(note.noteId); setEditDraft(note.content); setEditBaseRevision(note.revision); setNoteConflict(null); setNoteError(""); }
+              requestAnimationFrame(() => {
+                const list = layout.current?.querySelector<HTMLDetailsElement>(".focus-source-notes");
+                if (list) list.open = true;
+                const item = Array.from(list?.querySelectorAll<HTMLElement>("[data-source-note-id]") ?? []).find(el => el.dataset.sourceNoteId === note.noteId);
+                item?.scrollIntoView({ block: "nearest" });
+                item?.querySelector<HTMLElement>("textarea, button")?.focus({ preventScroll: true });
+              });
+            })} />}
           </div>)}
           </div>;
         })}
@@ -747,10 +773,8 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       <div ref={scrolling.end} aria-hidden="true" />
       <div ref={scrolling.spacer} aria-hidden="true" style={{ height: 128, overflowAnchor: "none" }} />
     </main>
-      {!showStructure && (scrolling.back || (scrolling.latest && (readingGroups.length > 1 || !!view?.conversation.length))) && <div className="focus-new-content">
-        {scrolling.back && <span className="reader-scroll-notice"><button onClick={() => scrolling.controller.current?.goBack()}>↩ 返回刚才位置</button><button aria-label="关闭返回位置提示" onClick={() => scrolling.controller.current?.dismissBack()}><Close /></button></span>}
-        {scrolling.latest && (readingGroups.length > 1 || !!view?.conversation.length) && <span className="reader-scroll-notice"><button onClick={() => scrolling.controller.current?.toLatest()}>{active ? "回答生成中 · " : ""}回到最新 ↓</button><button aria-label="关闭回到最新提示" onClick={() => scrolling.controller.current?.dismissLatest()}><Close /></button></span>}
-      </div>}
+      {!mist && navigationNotices}
+
     <div className="focus-bottom" hidden={showStructure} data-empty={mist && collapsed && !composerFeedback} role={mist ? "complementary" : undefined} aria-label={mist ? "阅读助手" : undefined}>
       <div className="focus-composer-wrap">
         <div className="focus-composer-notices">
@@ -794,17 +818,9 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       </div>
     </div>
     {mist && <nav className="mist-reading-actions" aria-label="阅读功能控制区">
-      <button className="reader-side-toggle" aria-controls="reader-side-space" aria-expanded={!!sideMode} onClick={() => preserveReading(() => setSideMode(sideMode ? null : sourceFigures.length ? "figures" : materialTab ?? "notes"))}><PanelLeft /><span className="mist-action-label">{sideMode ? "收起资料" : "资料"}</span></button>
-
-      {readingLocation}
-      {lensReview && progressNoticeDismissed !== `${eventScope}:${lens.activeId}` && <span className="reader-scroll-notice"><button type="button" onClick={() => {
-        const group = [...readingGroups].reverse().find(item => item.chunk && frontier && chunkKey(item.chunk) === chunkKey(frontier));
-        const target = Array.from(lens.document.current?.querySelectorAll<HTMLElement>("[data-lens-group]") ?? []).find(el => el.dataset.lensGroup === group?.id);
-        if (group && target && stream.current) {
-          lens.focus(group.id);
-          scrolling.controller.current?.jump(target);
-        }
-      }}>回到进度</button><button aria-label="关闭回到进度提示" onClick={() => setProgressNoticeDismissed(`${eventScope}:${lens.activeId}`)}><Close /></button></span>}
+      <div className="reader-dock-context">{readingLocation}{navigationNotices}</div>
+      <div className="reader-dock-tools">
+      <button className="reader-side-toggle" aria-label={sideMode ? "收起资料" : "资料"} title={sideMode ? "收起资料" : "资料"} aria-controls="reader-side-space" aria-expanded={!!sideMode} onClick={() => preserveReading(() => setSideMode(sideMode ? null : sourceFigures.length ? "figures" : materialTab ?? "notes"))}><PanelLeft /><span className="mist-action-label">{sideMode ? "收起资料" : "资料"}</span></button>
       <div className="reader-width-control" ref={widthControl} onKeyDown={event => {
         if (event.key === "Escape") { event.stopPropagation(); setWidthOpen(false); widthControl.current?.querySelector("button")?.focus(); }
       }}>
@@ -824,17 +840,17 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         </div>}
 
       </div>
-      <button className="reader-attach-toggle" aria-pressed={attachDiscussion} title={attachTitle} onClick={() => preserveReading(() => {
-        const next = !attachDiscussion; setAttachDiscussion(next);
-        try { localStorage.setItem("focus.attachDiscussion", String(next)); } catch { /* In-memory fallback. */ }
-      })}><Pin /><span className="mist-action-label">吸附讨论</span></button>
-      <button aria-label="新会话" className="reader-new-session" disabled={!host.newSession || !view || blocked} onClick={reset}><Plus /><span className="mist-action-label">新会话</span></button>
+      <button className="reader-attach-toggle" aria-pressed={attachNotes} title={attachNotes ? "隐藏段落笔记" : "显示段落笔记"} onClick={() => preserveReading(() => {
+        const next = !attachNotes; setAttachNotes(next);
+        try { localStorage.setItem("focus.attachNotes", String(next)); } catch { /* In-memory fallback. */ }
+      })}><Pin /><span className="mist-action-label">笔记</span></button>
       <button className="reader-fullscreen-toggle" aria-label={fullscreen ? "退出全屏" : "全屏"} aria-pressed={fullscreen} onClick={() => onFullscreenChange?.(!fullscreen)}>{fullscreen ? <Collapse /> : <Expand />}<span className="mist-action-label">{fullscreen ? "退出全屏" : "全屏"}</span></button>
       <button type="button" className="mist-composer-toggle" aria-expanded={!collapsed} aria-controls="focus-composer-form" onClick={() => toggleComposer(!collapsed)}><ChevronDown />{collapsed ? "提问" : "收起"}{collapsed && draft && <span aria-hidden="true" className="mist-composer-toggle__draft" />}</button>
       {collapsed && active && host.stop && <button className="focus-reader__stop" onClick={() => void perform("停止", () => host.stop!())}><StopSquare />停止</button>}
       {view?.status !== "completed" && <button className="focus-reader__continue" aria-label={continueLabel} disabled={showStructure || blocked || (!frontier && !reviewChunk)}
         onClick={() => { follow.current = true; view?.sessionFresh ? (view.readingStarted && frontier?.index === frontier?.total ? finishFresh() : freshContinue()) : displayed?.index === displayed?.total && !reviewChunk ? finish() : next(); }}>
-        {continueLabel === "继续" ? `继续 · 第 ${view?.sessionFresh ? view.readingStarted ? (frontier?.index ?? 0) + 1 : frontier?.index ?? 1 : (displayed?.index ?? 0) + 1} 段` : continueLabel}<ArrowRight /></button>}
+        {continueLabel === "继续" ? <>继续<span className="reader-continue-detail"> · 第 {view?.sessionFresh ? view.readingStarted ? (frontier?.index ?? 0) + 1 : frontier?.index ?? 1 : (displayed?.index ?? 0) + 1} 段</span></> : continueLabel}<ArrowRight /></button>}
+      </div>
       {blocked && <span className="mist-reading-actions__status">{active ? "请等待回答完成，或停止此问答" : `${operation}中`}</span>}
     </nav>}
 

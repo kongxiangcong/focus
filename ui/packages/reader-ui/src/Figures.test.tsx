@@ -81,7 +81,7 @@ it('opens unread figures without navigation or rebinding the question, and share
   expect(screen.getByRole('navigation',{name:'图片目录'}).querySelector('[aria-current=true]')).toHaveTextContent('图 9');
   expect(host.continueReading).not.toHaveBeenCalled();
   expect(screen.getByRole('textbox')).toHaveValue('original draft');
-  fireEvent.click(screen.getByRole('button',{name:'笔记'}));
+  fireEvent.click(within(screen.getByRole('group', {name:'资料分类'})).getByRole('button',{name:'笔记'}));
   expect(screen.getByRole('region',{name:'阅读资料侧栏'})).toHaveAttribute('data-side-placement','left');
   expect(screen.queryByRole('img',{name:future.caption})).not.toBeInTheDocument();
   expect(screen.getByRole('complementary',{name:'阅读资料'})).toBeVisible();

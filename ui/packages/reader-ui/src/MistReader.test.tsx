@@ -156,7 +156,7 @@ it("shows immediate feedback and locks task-changing actions through startup and
   fireEvent.click(screen.getByRole("button", { name: "继续" }));
   expect(screen.getByRole("status")).toHaveTextContent("正在打开下一段");
   expect(screen.getByRole("textbox")).toBeDisabled();
-  expect(screen.getByRole("button", { name: "新会话" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "新会话" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "打开中…" }));
   expect(host.continueReading).toHaveBeenCalledTimes(1);
   await act(async () => resolve(readerSuccess(running)));
@@ -227,7 +227,7 @@ it("places image/notes toggle and fullscreen in the Mist function row", async ()
   render(<FocusReader host={host} appearance="mist" fullscreen={false} onFullscreenChange={toggle} />);
   await screen.findByRole("heading", { name: "Method" });
   const actions = screen.getByRole("navigation", { name: "阅读功能控制区" });
-  expect(actions).toHaveTextContent("新会话");
+  expect(within(actions).queryByRole("button", { name: "新会话" })).not.toBeInTheDocument();
   expect(actions).toHaveTextContent("继续");
   expect(within(actions).queryByRole("button", { name: "收起资料" })).not.toBeInTheDocument();
   expect(actions).toHaveTextContent("资料");

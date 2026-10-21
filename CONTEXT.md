@@ -133,7 +133,7 @@ _Avoid_: Chat history, plan row, learner record
 _Avoid_: Transcript, discussion log, assessment result, cognitive evidence
 
 **Attached Notes（吸附笔记）**:
-将 Source 级 Reading Notes 按 Source Anchor 投影到当前已加载 Reading Chunk 旁的展示形态。宽屏使用旁注，空间不足时使用原文与讨论之间的内联笔记块；不改变笔记归属或 Reading Cursor。FOCUS Discussion 始终保留在阅读流中。
+将 Source 级 Reading Notes 按 Source Anchor 投影到当前已加载 Reading Chunk 旁的展示形态。界面入口名为“笔记”。空间充足时使用旁注，空间不足时在阅读段内按正文 3/4、笔记 1/4 分栏；不改变笔记归属或 Reading Cursor。FOCUS Discussion 始终保留在阅读流中。
 _Avoid_: Chunk-owned notes, attached discussion, second note store
 
 **FOCUS Discussion**:
