@@ -341,3 +341,25 @@ it("keeps inline send with a screen-reader keyboard hint and ignores composing E
   fireEvent.keyDown(textbox, { key: "Enter" });
   await waitFor(() => expect(host.sendMessage).toHaveBeenCalledTimes(1));
 });
+
+it("adjusts reading width live from the dock and remembers it without advancing", async () => {
+  localStorage.removeItem("focus.standardWidth"); localStorage.removeItem("focus.readingWidth");
+  const host = setup();
+  await screen.findByRole("heading", { name: "Method" });
+  fireEvent.click(screen.getByRole("button", { name: "宽幅" }));
+  const slider = screen.getByRole("slider", { name: /阅读段宽度/ });
+  expect(slider).toHaveValue("1040");
+  fireEvent.change(slider, { target: { value: "1280" } });
+  expect(document.querySelector<HTMLElement>(".focus-reader")!.style.getPropertyValue("--reader-column")).toBe("1280px");
+  expect(localStorage.getItem("focus.readingWidth")).toBe("1280");
+  fireEvent.keyDown(slider, { key: "Escape" });
+  expect(screen.queryByRole("slider")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "宽幅" })).toHaveFocus();
+  cleanup(); render(<FocusReader host={host} appearance="mist" />);
+  fireEvent.click(screen.getByRole("button", { name: "宽幅" }));
+  expect(screen.getByRole("slider", { name: /阅读段宽度/ })).toHaveValue("1280");
+  fireEvent.click(screen.getByRole("button", { name: "标准" }));
+  expect(screen.getByRole("slider", { name: /阅读段宽度/ })).toHaveValue("1040");
+  expect(host.continueReading).not.toHaveBeenCalled();
+  localStorage.removeItem("focus.readingWidth");
+});

@@ -881,31 +881,11 @@ it("opens parse problems without invoking reading and preserves double-click pri
 });
 
 
-it("previews, restores and persists the standard reading width", async () => {
-  const { host, container } = setup();
-  await screen.findByRole("heading", { name: "A Paper" });
-  fireEvent.click(screen.getByRole("link", { name: "设置" }));
-  const width = () => screen.getByRole("slider", { name: "标准阅读宽度" });
-  expect(width()).toHaveValue("1040");
-  fireEvent.change(width(), { target: { value: "1200" } });
-  expect(container.querySelector<HTMLElement>(".focus-reader")!.style.getPropertyValue("--reader-column")).toBe("1200px");
-  expect(localStorage.getItem("focus.standardWidth")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "还原外观" }));
-  expect(width()).toHaveValue("1040");
-  fireEvent.change(width(), { target: { value: "1200" } });
-  fireEvent.click(screen.getByRole("button", { name: "保存外观" }));
-  expect(localStorage.getItem("focus.standardWidth")).toBe("1200");
-  cleanup(); render(<WorkspaceApp host={host} />);
-  expect(width()).toHaveValue("1200");
-});
-
-it("ignores a nonnumeric saved standard width", () => {
-  localStorage.setItem("focus.standardWidth", "invalid");
-  history.replaceState(null, "", "/settings");
+it("keeps reading width out of workspace settings", async () => {
   setup();
-  expect(screen.getByRole("slider", { name: "标准阅读宽度" })).toHaveValue("1040");
+  fireEvent.click(screen.getByRole("link", { name: "设置" }));
+  expect(screen.queryByRole("slider", { name: "标准阅读宽度" })).not.toBeInTheDocument();
 });
-
 
 it.each(["列表显示", "卡片显示"])("opens a structure preview from %s and restores library context without starting reading", async display => {
   const getArticleOverview = vi.fn(async () => readerSuccess({ sourceId: "a-paper", title: "A Paper", status: "ready" as const,

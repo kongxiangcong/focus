@@ -19,12 +19,6 @@ function readFont(): FontSize {
   try { const value = localStorage.getItem("focus.fontSize"); return fontOptions.some(([key]) => key === value) ? value as FontSize : "standard"; }
   catch { return "standard"; }
 }
-function readStandardWidth(): number {
-  try {
-    const value = Number(localStorage.getItem("focus.standardWidth") ?? 1040);
-    return Number.isFinite(value) ? Math.max(720, Math.min(1440, Math.round(value / 40) * 40)) : 1040;
-  } catch { return 1040; }
-}
 function routeFromLocation(): Route { return ["/library", "/reading", "/settings"].includes(location.pathname) ? location.pathname as Route : "/library"; }
 
 const preparationSteps: Record<string, string> = {
@@ -52,7 +46,6 @@ const blogRetryLabel: Record<BlogArtifactName, string> = {
 export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [route, setRoute] = useState<Route>(routeFromLocation);
   const [fontSize, setFontSize] = useState<FontSize>(readFont);
-  const [standardWidth, setStandardWidth] = useState(readStandardWidth);
   const [readingFont, setReadingFont] = useState<ReadingFont>(readReadingFont);
   const [brightness, setBrightness] = useState(() => { try { return Math.max(85, Math.min(110, Number(localStorage.getItem("focus.brightness") ?? 100) || 100)); } catch { return 100; } });
   const [theme, setTheme] = useState<Theme>(() => readPreference("focus.theme", ["light", "dark", "system"], "system"));
@@ -61,7 +54,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [navCollapsed, setNavCollapsed] = useState(() => readPreference("focus.navigation", ["expanded", "collapsed"], "expanded") === "collapsed");
   const [appearanceFeedback, setAppearanceFeedback] = useState("");
   const [moreSource, setMoreSource] = useState<string | null>(null);
-  const savedAppearance = useRef({ fontSize, standardWidth, brightness, readingFont, theme, density, reducedMotion });
+  const savedAppearance = useRef({ fontSize, brightness, readingFont, theme, density, reducedMotion });
   useEffect(() => {
     applyAppearance(theme, density, reducedMotion);
     const media = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
@@ -132,11 +125,11 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   function saveAppearance() {
     try {
-      const changes = { "focus.standardWidth": String(standardWidth), "focus.fontSize": fontSize, "focus.brightness": String(brightness), "focus.readingFont": readingFont, "focus.theme": theme, "focus.density": density, "focus.reducedMotion": String(reducedMotion) };
+      const changes = { "focus.fontSize": fontSize, "focus.brightness": String(brightness), "focus.readingFont": readingFont, "focus.theme": theme, "focus.density": density, "focus.reducedMotion": String(reducedMotion) };
       const old = Object.keys(changes).map(key => [key, localStorage.getItem(key)] as const);
       try { for (const [key, value] of Object.entries(changes)) localStorage.setItem(key, value); }
       catch (e) { for (const [key, value] of old) { if (value !== null) localStorage.setItem(key, value); else localStorage.removeItem(key); } throw e; }
-      savedAppearance.current = { fontSize, standardWidth, brightness, readingFont, theme, density, reducedMotion }; return true;
+      savedAppearance.current = { fontSize, brightness, readingFont, theme, density, reducedMotion }; return true;
     } catch { return false; }
   }
   useEffect(() => {
@@ -151,7 +144,6 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     return () => document.removeEventListener("pointerdown", close);
   }, [moreSource]);
   function cancelAppearance() {
-    setStandardWidth(savedAppearance.current.standardWidth);
     setFontSize(savedAppearance.current.fontSize); setBrightness(savedAppearance.current.brightness);
     setReadingFont(savedAppearance.current.readingFont); setTheme(savedAppearance.current.theme);
     setDensity(savedAppearance.current.density); setReducedMotion(savedAppearance.current.reducedMotion);
@@ -598,7 +590,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     {route === "/reading" && readingFullscreen && <button type="button" className="reading-fullscreen-exit"
       aria-label="关闭全屏模式" title="退出全屏" onClick={() => setReadingFullscreen(false)}>×</button>}
     <div className="workspace-reading" hidden={route !== "/reading"}>
-      <FocusReader host={host} appearance="mist" standardWidth={standardWidth} fontSize={fontSize} visible={route === "/reading"} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
+      <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
     {route === "/library" && <LibraryPage {...{ scoped, statusFilter, setStatusFilter, sourcesFailed, refresh, taskInbox, taskBatches, statusText, itemStatusText, continueInbox, controlBatch, sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, setConfirm, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} onTasks={() => setTaskDetails(true)} />}
     {route === "/settings" && <main className="settings-page">
       <WorkspaceSelection />
@@ -611,8 +603,6 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <div className="settings-row"><label htmlFor="focus-density">界面密度</label><select id="focus-density" value={density} onChange={e => setDensity(e.target.value as Density)}><option value="compact">紧凑</option><option value="comfortable">舒适</option></select></div>
       <div className="settings-row"><label htmlFor="brightness">亮度</label><input id="brightness" type="range" min="85" max="110" value={brightness} aria-valuetext={`${brightness}%`} onChange={e => { setBrightness(Number(e.target.value)); }} /><output htmlFor="brightness">{brightness}%</output></div>
       <div className="settings-row"><label htmlFor="font-size">字号</label><input id="font-size" type="range" min="0" max="3" step="1" value={fontOptions.findIndex(([key]) => key === fontSize)} aria-valuetext={fontOptions.find(([key]) => key === fontSize)?.[1]} onChange={e => { const value = fontOptions[Number(e.target.value)][0]; setFontSize(value); }} /><output htmlFor="font-size">{readingFontSizes[fontSize]}px</output></div>
-      <div className="settings-row"><label htmlFor="standard-width">标准阅读宽度</label><input id="standard-width" type="range" min="720" max="1440" step="40" value={standardWidth} aria-valuetext={`${standardWidth} 像素`} aria-describedby="standard-width-hint" onChange={e => setStandardWidth(Number(e.target.value))} /><output htmlFor="standard-width">{standardWidth}px</output></div>
-      <p id="standard-width-hint" className="appearance-hint">标准阅读与功能／对话区使用此宽度；空间不足时自动适配。宽幅阅读仍使用全部可用空间。</p>
       <div className="settings-row"><label htmlFor="reading-font">正文字体</label><select id="reading-font" value={readingFont} onChange={e => setReadingFont(e.target.value as ReadingFont)}>
         {readingFonts.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}
       </select></div>
