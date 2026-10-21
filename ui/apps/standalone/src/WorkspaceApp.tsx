@@ -50,7 +50,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [theme, setTheme] = useState<Theme>(() => readPreference("focus.theme", ["light", "dark", "system"], "system"));
   const [reducedMotion, setReducedMotion] = useState(() => readPreference("focus.reducedMotion", ["true", "false"], "false") === "true");
   const [density, setDensity] = useState<Density>(() => readPreference("focus.density", ["compact", "comfortable"], "compact"));
-  const [navCollapsed, setNavCollapsed] = useState(() => readPreference("focus.navigation", ["expanded", "collapsed"], "expanded") === "collapsed");
+  const [navCollapsed, setNavCollapsed] = useState(() => readPreference("focus.navigation", ["expanded", "collapsed"], globalThis.matchMedia?.("(max-width: 1180px)").matches ? "collapsed" : "expanded") === "collapsed");
   const [appearanceFeedback, setAppearanceFeedback] = useState("");
   const [moreSource, setMoreSource] = useState<string | null>(null);
   const savedAppearance = useRef({ fontSize, readingFont, theme, density, reducedMotion });

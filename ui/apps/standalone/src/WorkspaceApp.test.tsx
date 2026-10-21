@@ -909,3 +909,21 @@ it.each(["列表显示", "卡片显示"])("opens a structure preview from %s and
   fireEvent(again, new Event("cancel", { bubbles: true, cancelable: true }));
   expect(screen.queryByRole("dialog", { name: "文章结构预览" })).not.toBeInTheDocument();
 });
+
+
+it("allows narrow-screen navigation to expand and retains the explicit choice", async () => {
+  const original = window.matchMedia;
+  window.matchMedia = vi.fn(query => ({ matches: query === "(max-width: 1180px)", media: query, onchange: null,
+    addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() })) as typeof window.matchMedia;
+  try {
+    const { container } = setup();
+    const toggle = screen.getByRole("button", { name: "展开导航" });
+    expect(container.querySelector(".workspace-app")).toHaveAttribute("data-nav-collapsed", "true");
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "收起导航" })).toHaveAttribute("aria-expanded", "true");
+    expect(container.querySelector(".workspace-app")).toHaveAttribute("data-nav-collapsed", "false");
+    expect(localStorage.getItem("focus.navigation")).toBe("expanded");
+    fireEvent.click(screen.getByRole("button", { name: "收起导航" }));
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+  } finally { window.matchMedia = original; }
+});
