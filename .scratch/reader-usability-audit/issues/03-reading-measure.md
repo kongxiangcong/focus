@@ -1,6 +1,6 @@
 # 03 行宽四挡位替换滑块
 
-Status: claimed
+Status: needs-info
 Blocked by: —
 Covers: spec §3.3，问题 P3
 
@@ -57,3 +57,12 @@ Covers: spec §3.3，问题 P3
 
 ## Comments
 - 2026-10-21 SOURCE/PASS：已核对以上代码位置。待记录红/绿结果与截图。
+
+- 文件：typography.ts/.test.ts、FocusReader.tsx、focus-tokens.css、mist-reader.css、MistReader/ArticleStructure 测试；reading_measure_browser.mjs、reading_width_browser.mjs、reading_standard_settings_browser.mjs。
+- 红灯：typography 新行为 3 FAIL；绿灯：typecheck PASS、reader:test PASS（106+154）、reader:build PASS。
+- Browser PASS：四视口×浅深色，四挡禁用计算、键盘 Esc 焦点归还、刷新保留偏好、放大后恢复原挡位；引用取消请求仍 receipt:null；抽屉不缩正文与窄屏堆叠。Chromium 153.0.8010.0；截图 `evidence/03/*.png` 已检查宽/窄与主题。
+- 旧断言按 spec 改为字数挡位、禁用边界与偏好恢复；原 width slider/standard 让列行为已被取代，不再断言旧行为。讨论吸附相关断言归07，四栏旧入口脚本归11。
+- 一并删除 data-reading-width 死选择器（§3.3）；04 将核对并修复平移计算。旁注占宽参数已预留在 effectiveReadingMeasure，07 接入实际 Attached Notes。
+- 问题修复：顶层 popover 原先窄屏左越界，加入 clamp 后 PASS；不支持 Popover API 时可显示普通弹层。未修改主题及旧工具栏缩略规则（10范围）。
+
+- 最终复验：reading_attachment_browser.mjs 的旧 1040/604.8 断言改为当前选定行宽及现有讨论栏最小宽度；保留全部锚点、焦点、sticky、减少动效和控制台断言。几何/交互断言 PASS，脚本整体 FAIL：最后控制台检查发现字体 CSP 与 404，独立记录工单13，不删除或过滤断言。由于 §6 未全绿，撤回 resolved，等待该范围外问题分诊；四挡本身的独立矩阵仍 PASS。

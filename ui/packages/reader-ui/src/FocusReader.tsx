@@ -5,7 +5,7 @@ import { createReaderId, cursorReceipt, type ReaderChunk, type ReaderAttachment,
 import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentControls } from "./AgentControls";
 import { ReadingChunk, ReaderConversation, chunkKey } from "./ReadingChunk";
-import { readingFontSizes } from "./typography";
+import { readingFontSizes, readingMeasures, readingLayout, readReadingMeasure, effectiveReadingMeasure, measureWidth, type ReadingMeasure } from "./typography";
 import "./reader-shell.css";
 import "./mist-reader.css";
 import "./reader-figures.css";
@@ -20,7 +20,7 @@ import { chunkFigures, figureChunk, extractFigures, figureNumber, imageIdentity,
 type DraftReference = ReaderChunk & { excerpt?: string };
 type Upload = { id: string; file: File; state: "uploading" | "ready" | "failed"; attachment?: ReaderAttachment; error?: string };
 type Failure = { message: string; label: string; retry: () => void };
-export interface FocusReaderProps { host: ReaderHost; appearance?: "mist" | "conversation"; standardWidth?: number; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
+export interface FocusReaderProps { host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
 
 // Capture entry eligibility only on mount, never on streaming updates.
 function TimelineEvent({ identity, fresh, current, streaming, children }: { identity: string; fresh: boolean; current: boolean; streaming?: boolean; children: ReactNode }) {
@@ -50,20 +50,30 @@ export function groupReadingDiscussion<C extends { chunkId: string }>(
   return groups;
 }
 
-export function FocusReader({ host, appearance = "conversation", standardWidth = 1040, fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange }: FocusReaderProps) {
+export function FocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange }: FocusReaderProps) {
   const mist = appearance === "mist";
   const [attachDiscussion, setAttachDiscussion] = useState(() => {
     try { return localStorage.getItem("focus.attachDiscussion") === "true"; } catch { return false; }
   });
-  const [columnWidth, setColumnWidth] = useState(() => {
-    try {
-      const saved = localStorage.getItem("focus.readingWidth") ?? localStorage.getItem("focus.standardWidth");
-      const value = saved === null ? standardWidth : Number(saved);
-      return Number.isFinite(value) ? Math.max(640, Math.min(1440, value)) : 1040;
-    } catch { return standardWidth; }
+  const [preferredMeasure, setPreferredMeasure] = useState<ReadingMeasure>(() => {
+    try { return readReadingMeasure(localStorage, readingFontSizes[fontSize]); } catch { return "standard"; }
   });
   const [widthOpen, setWidthOpen] = useState(false);
   const widthControl = useRef<HTMLDivElement>(null);
+  const widthPanel = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!widthOpen || !widthPanel.current || !widthControl.current) return;
+    const panel = widthPanel.current;
+    const position = () => {
+      const box = widthControl.current!.getBoundingClientRect();
+      panel.style.setProperty("--measure-bottom", `${window.innerHeight - box.top}px`);
+      panel.style.setProperty("--measure-right", `${window.innerWidth - box.right}px`);
+    };
+    position();
+    if (panel.showPopover) panel.showPopover(); else panel.removeAttribute("popover");
+    window.addEventListener("resize", position); window.addEventListener("scroll", position, true);
+    return () => { window.removeEventListener("resize", position); window.removeEventListener("scroll", position, true); };
+  }, [widthOpen]);
   useEffect(() => {
     if (!widthOpen) return;
     const close = (event: PointerEvent) => { if (!widthControl.current?.contains(event.target as Node)) setWidthOpen(false); };
@@ -73,6 +83,14 @@ export function FocusReader({ host, appearance = "conversation", standardWidth =
   const [readerShift, setReaderShift] = useState(0);
   const [availableWidth, setAvailableWidth] = useState(0);
   const [readingWidth, setReadingWidth] = useState(0);
+  const measure = effectiveReadingMeasure(preferredMeasure, readingFontSizes[fontSize], availableWidth);
+  const columnWidth = measureWidth(measure, readingFontSizes[fontSize]);
+  const measureFits = (id: ReadingMeasure) => !availableWidth || measureWidth(id, readingFontSizes[fontSize]) + readingLayout.padding <= availableWidth;
+  function selectMeasure(id: ReadingMeasure) {
+    if (!measureFits(id) || preferredMeasure === id) return;
+    preserveReading(() => setPreferredMeasure(id));
+    try { localStorage.setItem("focus.readingMeasure", id); } catch { /* In-memory preference. */ }
+  }
   const [collapsed, setCollapsed] = useState(false);
   const [structureOpen, setStructureOpen] = useState(false);
   const [reviewNoticeDismissed, setReviewNoticeDismissed] = useState(false);
@@ -590,12 +608,12 @@ export function FocusReader({ host, appearance = "conversation", standardWidth =
     });
   }
   const continueLabel = view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total) ? "已读完" : (view?.sessionFresh && view.readingStarted && frontier?.index === frontier?.total) || (!view?.sessionFresh && displayed?.index === displayed?.total && !reviewChunk) ? "完成本篇" : operation === "下一段" ? "打开中…" : "继续";
-  return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-width="standard" data-discussion-attached={discussionAttached} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && structureOpen) {
+  return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-measure={measure} data-discussion-attached={discussionAttached} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && structureOpen) {
       setStructureOpen(false); layout.current?.querySelector<HTMLButtonElement>(".reader-location-badge")?.focus({ preventScroll: true });
     } else if (event.key === "Escape" && sideMode && !(event.target as HTMLElement).closest("dialog")) {
     preserveReading(() => setSideMode(null)); event.currentTarget.querySelector<HTMLButtonElement>(mist ? ".reader-side-toggle" : ".reader-figures-toggle")?.focus({ preventScroll: true });
   } }} data-materials-open={mist && materialsOpen && !showStructure} data-side-open={!!sideMode && !showStructure} className={`focus-reader reader-split${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}
-    style={{ "--reader-column": `${columnWidth}px`, "--reader-available-width": availableWidth ? `${availableWidth}px` : "100%", "--reader-shift": `${readerShift}px`, "--reader-reading-size": `${readingFontSizes[fontSize]}px`, "--reader-text-share": `${textShare}fr`, "--reader-side-share": `${100 - textShare}fr` } as CSSProperties}>
+    style={{ "--reader-column": `calc(${readingMeasures.find(m => m.id === measure)!.characters} * var(--reader-reading-size))`, "--reader-available-width": availableWidth ? `${availableWidth}px` : "100%", "--reader-shift": `${readerShift}px`, "--reader-reading-size": `${readingFontSizes[fontSize]}px`, "--reader-text-share": `${textShare}fr`, "--reader-side-share": `${100 - textShare}fr` } as CSSProperties}>
     {!mist && <header className="focus-header">
       <span className="focus-brand">FOCUS<span>.</span></span>
       <button className="focus-title" title={view?.source.title} onClick={() => setPanel("materials")}>{view?.source.sourceId ? view.source.title : "阅读工作台"}</button>
@@ -788,19 +806,21 @@ export function FocusReader({ host, appearance = "conversation", standardWidth =
       <div className="reader-width-control" ref={widthControl} onKeyDown={event => {
         if (event.key === "Escape") { event.stopPropagation(); setWidthOpen(false); widthControl.current?.querySelector("button")?.focus(); }
       }}>
-        <button className="reader-width-toggle" aria-label="宽幅" aria-expanded={widthOpen} aria-controls="reader-width-panel" onClick={() => setWidthOpen(!widthOpen)}><Widen /><span className="mist-action-label">宽幅</span></button>
-        {widthOpen && <div id="reader-width-panel" className="reader-width-panel" role="group" aria-label="阅读宽度">
-          <label htmlFor="reader-width">阅读段宽度 <output>{columnWidth}px</output></label>
-          <input autoFocus id="reader-width" type="range" min="640" max="1440" step="20" value={columnWidth} aria-valuetext={columnWidth === 1040 ? "标准，1040 像素" : `${columnWidth} 像素`} onChange={event => {
-            const value = Number(event.target.value);
-            preserveReading(() => setColumnWidth(value));
-            try { localStorage.setItem("focus.readingWidth", String(value)); } catch { /* In-memory preference. */ }
-          }} />
-          <div className="reader-width-labels"><span>窄</span><button onClick={() => {
-            preserveReading(() => setColumnWidth(1040));
-            try { localStorage.setItem("focus.readingWidth", "1040"); } catch { /* In-memory preference. */ }
-          }}>标准</button><span>宽</span></div>
+        <button className="reader-width-toggle" aria-label="行宽" title="行宽" aria-expanded={widthOpen} aria-controls="reader-width-panel" onClick={() => setWidthOpen(!widthOpen)}><Widen /><span className="mist-action-label">行宽</span></button>
+        {widthOpen && <div ref={widthPanel} popover="manual" id="reader-width-panel" className="reader-width-panel" role="radiogroup" aria-label="阅读行宽" onKeyDown={event => {
+          if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+          event.preventDefault();
+          const options = readingMeasures.filter(m => measureFits(m.id));
+          if (!options.length) return;
+          const index = options.findIndex(m => m.id === measure);
+          const next = options[(index + (event.key === "ArrowRight" ? 1 : options.length - 1)) % options.length];
+          selectMeasure(next.id); widthControl.current?.querySelector<HTMLButtonElement>(`[data-measure="${next.id}"]`)?.focus();
+        }}>
+          {readingMeasures.map(item => <button key={item.id} role="radio" data-measure={item.id} aria-checked={measure === item.id}
+            disabled={!measureFits(item.id)} title={measureFits(item.id) ? `每行约 ${item.characters} 字` : "窗口宽度不足"}
+            tabIndex={measure === item.id ? 0 : -1} autoFocus={measure === item.id} onClick={() => selectMeasure(item.id)}>{item.label}</button>)}
         </div>}
+
       </div>
       <button className="reader-attach-toggle" aria-pressed={attachDiscussion} title={attachTitle} onClick={() => preserveReading(() => {
         const next = !attachDiscussion; setAttachDiscussion(next);

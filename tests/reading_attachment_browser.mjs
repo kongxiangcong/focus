@@ -7,6 +7,7 @@ const browser=await chromium.launch({headless:true,executablePath:process.env.FO
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 page.setDefaultTimeout(60000);
 const out=process.env.FOCUS_BROWSER_OUTPUT || '/tmp/focus-reader-redesign/shots/step6'; fs.mkdirSync(out,{recursive:true});
+// Until ticket 07 replaces discussion attachment, retain its geometry/scroll invariants at the selected character measure.
 const metrics={}, errors=[];page.on('pageerror',e=>errors.push(e.message));
 page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
 const wait=()=>page.waitForTimeout(850);
@@ -20,18 +21,19 @@ try {
  assert.equal(await button.getAttribute('aria-pressed'),'false');
  // The workbench may reserve navigation width; fullscreen exposes the 1440px reading area.
  await page.getByRole('button',{name:'全屏',exact:true}).click();await wait();
+ const baseWidth=await width();
  await page.locator('.focus-stream').evaluate(p=>{p.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-1}));p.scrollTop+=400;});await wait();
  const anchor=page.locator('[data-lens-index="2"] .focus-markdown > p').filter({hasText:'Paragraph 8:'}).first();
  const top=()=>anchor.evaluate(e=>e.getBoundingClientRect().top);
- for(const mode of ['on','off','onAgain']) {const before=await top();await button.click();await wait();metrics[mode]={error:(await top())-before,width:await width()};assert.ok(Math.abs(metrics[mode].error)<=2,JSON.stringify(metrics));assert.ok(Math.abs(metrics[mode].width-(mode === "off" ? 1040 : 604.8))<1);}
+ for(const mode of ['on','off','onAgain']) {const before=await top();await button.click();await wait();metrics[mode]={error:(await top())-before,width:await width()};assert.ok(Math.abs(metrics[mode].error)<=2,JSON.stringify(metrics));assert.ok(Math.abs(metrics[mode].width-(mode === "off" ? baseWidth : Math.min((baseWidth-32)*.6,baseWidth-32-300)))<1,JSON.stringify({baseWidth,metrics}));}
  assert.equal(await attached(),'true');
  metrics.sticky=await page.locator('[data-lens-index="2"] .reading-group-discussion').evaluate(e=>e.getBoundingClientRect().top-document.querySelector('.focus-stream').getBoundingClientRect().top);
  assert.ok(Math.abs(metrics.sticky-14)<=1,JSON.stringify(metrics));
  if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${out}/1440-sticky.png`});
  await page.getByRole('button',{name:'＋ 就这段提问',exact:true}).click();await wait();assert.match(await page.locator('.focus-reference').innerText(),/引用第 2 段/);assert.equal(await page.locator('#focus-question').evaluate(e=>e===document.activeElement),true);
- await page.locator('.reader-side-toggle').click();await wait();assert.equal(await attached(),'false');assert.match(await button.getAttribute('title'),/资料/);assert.ok(Math.abs(await width()-await page.locator(".focus-stream").evaluate(e=>Math.min(1040,e.clientWidth-48)))<1);
+ await page.locator('.reader-side-toggle').click();await wait();assert.equal(await attached(),'false');assert.match(await button.getAttribute('title'),/资料/);assert.ok(Math.abs(await width()-await page.locator(".focus-stream").evaluate((e,limit)=>Math.min(limit,e.clientWidth-48),baseWidth))<1);
  await page.locator('.reader-side-toggle').click();await wait();assert.equal(await attached(),'true');
- await page.setViewportSize({width:1100,height:1000});await wait();assert.equal(await attached(),'false');assert.equal(await button.getAttribute('aria-pressed'),'true');assert.match(await button.getAttribute('title'),/1240/);assert.ok(Math.abs(await width()-await page.locator(".focus-stream").evaluate(e=>Math.min(1040,e.clientWidth-48)))<1);
+ await page.setViewportSize({width:1100,height:1000});await wait();assert.equal(await attached(),'false');assert.equal(await button.getAttribute('aria-pressed'),'true');assert.match(await button.getAttribute('title'),/1240/);assert.ok(Math.abs(await width()-await page.locator(".focus-stream").evaluate((e,limit)=>Math.min(limit,e.clientWidth-48),baseWidth))<1);
  await page.setViewportSize({width:1440,height:1000});await wait();assert.equal(await attached(),'true');
  await page.reload();await wait();assert.equal(await button.getAttribute('aria-pressed'),'true');
  if(await attached()!=='true') {await page.getByRole('button',{name:'全屏',exact:true}).click();await wait();}
