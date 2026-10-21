@@ -363,3 +363,17 @@ it("adjusts reading width live from the dock and remembers it without advancing"
   expect(host.continueReading).not.toHaveBeenCalled();
   localStorage.removeItem("focus.readingWidth");
 });
+
+
+it("shows the completed document without a Continue button", async () => {
+  const last = { ...current, chunkId: "chunk-002", index: 2, sourceMarkdown: "Final paragraph." };
+  const completed: ReadingWindow = { ...first, status: "completed", current: null, history: [current, last],
+    timeline: [{ kind: "reading", chunk: current }, { kind: "reading", chunk: last }] };
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(completed)),
+    continueReading: vi.fn(), sendMessage: vi.fn() };
+  render(<FocusReader host={host} appearance="mist" />);
+  await screen.findByText("Final paragraph.");
+  expect(screen.getByText("Original paragraph.")).toBeInTheDocument();
+  expect(document.querySelector(".focus-reader__continue")).toBeNull();
+  expect(host.continueReading).not.toHaveBeenCalled();
+});

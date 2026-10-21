@@ -251,6 +251,22 @@ class HostService:
                                       if (e['kind'] == 'message' and e['messageId'] in visible_ids)
                                       or (e['kind'] == 'reading' and self.state['displayReading'] and e['chunk']['sourceId'] == note_source
                                           and (not e.get('discussionId') or e['discussionId'] == discussion_id))]
+            # Completed reading is a full-document projection, not another reading event.
+            # Keep real discussion/review events and insert only missing current-plan chunks.
+            if window['status'] == 'completed' and self.state['displayReading']:
+                present = {(e['chunk']['sourceId'], e['chunk']['planId'], e['chunk']['chunkId'])
+                           for e in window['timeline'] if e['kind'] == 'reading'}
+                for chunk in window['history']:
+                    key = tuple(chunk[k] for k in ('sourceId', 'planId', 'chunkId'))
+                    if key in present:
+                        continue
+                    index = next((i for i, e in enumerate(window['timeline'])
+                                  if e['kind'] == 'reading' and e['chunk']['planId'] == chunk['planId']
+                                  and e['chunk']['sourceId'] == chunk['sourceId']
+                                  and e['chunk']['index'] > chunk['index']), len(window['timeline']))
+                    window['timeline'].insert(index, {'kind': 'reading', 'chunk': chunk,
+                        'eventId': 'completed:' + ':'.join(key)})
+                    present.add(key)
             window['conversation'] = json.loads(json.dumps(messages))
             window['sourceNotes'] = self.source_notes.list(note_source, include_deleted=True) if note_source else []
             window['readingProgress'] = self.progress_core.list(note_source) if note_source else []

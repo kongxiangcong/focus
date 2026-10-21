@@ -262,11 +262,11 @@ export function FocusReader({ host, appearance = "conversation", standardWidth =
     return aNumber.localeCompare(bNumber, undefined, { numeric: true });
   });
   const ordered = view?.timeline ?? [
-    ...(displayed ? [{ kind: "reading" as const, chunk: displayed }] : []),
+    ...(view?.status === "completed" && !view.sessionFresh ? view.history.map(chunk => ({ kind: "reading" as const, chunk })) : displayed ? [{ kind: "reading" as const, chunk: displayed }] : []),
     ...(view?.conversation ?? []).map(message => ({ kind: "message" as const, messageId: message.messageId })),
   ];
   const entries = [...ordered, ...(view?.timeline ? (view.conversation ?? []).filter(m => !ordered.some(e => e.kind === "message" && e.messageId === m.messageId)).map(m => ({ kind: "message" as const, messageId: m.messageId })) : [])];
-  const eventKeys = entries.map((e, index) => e.kind === "reading" ? ("eventId" in e ? e.eventId : undefined) ?? `${chunkKey(e.chunk)}:${index}` : e.messageId);
+  const eventKeys = entries.map((e, index) => e.kind === "reading" ? ("eventId" in e && typeof e.eventId === "string" ? e.eventId : undefined) ?? `${chunkKey(e.chunk)}:${index}` : e.messageId);
   const eventScope = `${sourceId}:${view?.discussionId ?? view?.sessionId}`;
   const discussionAttached = mist && attachDiscussion && readingWidth >= 1240 && !sideMode && !showStructure;
   const attachTitle = !attachDiscussion ? "将讨论吸附到原文右侧" : sideMode
@@ -766,7 +766,7 @@ export function FocusReader({ host, appearance = "conversation", standardWidth =
           </form>
         </div>
         </div>
-        {!mist && current && !reviewChunk && <div className="focus-next"><button disabled={blocked} onClick={current.index === current.total ? finish : next}>{current.index === current.total ? "完成本篇" : operation === "下一段" ? "正在打开…" : "下一段 →"}</button></div>}
+        {!mist && view?.status !== "completed" && current && !reviewChunk && <div className="focus-next"><button disabled={blocked} onClick={current.index === current.total ? finish : next}>{current.index === current.total ? "完成本篇" : operation === "下一段" ? "正在打开…" : "下一段 →"}</button></div>}
       </div>
     </div>
     {mist && <nav className="mist-reading-actions" aria-label="阅读功能控制区">
@@ -806,9 +806,9 @@ export function FocusReader({ host, appearance = "conversation", standardWidth =
       <button className="reader-fullscreen-toggle" aria-label={fullscreen ? "退出全屏" : "全屏"} aria-pressed={fullscreen} onClick={() => onFullscreenChange?.(!fullscreen)}>{fullscreen ? <Collapse /> : <Expand />}<span className="mist-action-label">{fullscreen ? "退出全屏" : "全屏"}</span></button>
       <button type="button" className="mist-composer-toggle" aria-expanded={!collapsed} aria-controls="focus-composer-form" onClick={() => toggleComposer(!collapsed)}><ChevronDown />{collapsed ? "提问" : "收起"}{collapsed && draft && <span aria-hidden="true" className="mist-composer-toggle__draft" />}</button>
       {collapsed && active && host.stop && <button className="focus-reader__stop" onClick={() => void perform("停止", () => host.stop!())}><StopSquare />停止</button>}
-      <button className="focus-reader__continue" aria-label={continueLabel} disabled={showStructure || blocked || (!frontier && !reviewChunk) || (view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total))}
+      {view?.status !== "completed" && <button className="focus-reader__continue" aria-label={continueLabel} disabled={showStructure || blocked || (!frontier && !reviewChunk)}
         onClick={() => { follow.current = true; view?.sessionFresh ? (view.readingStarted && frontier?.index === frontier?.total ? finishFresh() : freshContinue()) : displayed?.index === displayed?.total && !reviewChunk ? finish() : next(); }}>
-        {continueLabel === "继续" ? `继续 · 第 ${view?.sessionFresh ? view.readingStarted ? (frontier?.index ?? 0) + 1 : frontier?.index ?? 1 : (displayed?.index ?? 0) + 1} 段` : continueLabel}<ArrowRight /></button>
+        {continueLabel === "继续" ? `继续 · 第 ${view?.sessionFresh ? view.readingStarted ? (frontier?.index ?? 0) + 1 : frontier?.index ?? 1 : (displayed?.index ?? 0) + 1} 段` : continueLabel}<ArrowRight /></button>}
       {blocked && <span className="mist-reading-actions__status">{active ? "请等待回答完成，或停止此问答" : `${operation}中`}</span>}
     </nav>}
 

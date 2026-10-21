@@ -174,7 +174,7 @@ _Avoid_: Public fixture, reusable project asset, user profile
 _Avoid_: Understanding score, per-Topic progress copy
 
 **Reading Review**:
-对已读 Reading Chunk 的回看，可围绕所查看内容提问或继续打开下一段；在已读范围内不改变 Reading Cursor、不重复补记，也不改变完成状态。最后一段已完成时继续明确禁用。
+对已读 Reading Chunk 的回看，可围绕所查看内容提问或继续打开下一段；在已读范围内不改变 Reading Cursor、不重复补记，也不改变完成状态。已完成来源打开时展示全部段落并隐藏继续按钮；新会话仍先清空显示，显式重新打开来源后恢复全文。
 _Avoid_: Second cursor, unread preview, reread from start
 
 **Reading Preparation**:

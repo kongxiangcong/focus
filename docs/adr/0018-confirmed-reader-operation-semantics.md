@@ -35,3 +35,11 @@ Design references: Apple HIG [Layout](https://developer.apple.com/design/human-i
 - Send the expected attempt with dismissal. A stale Close cannot hide a newer attempt. Explicit preparation/resume creates a new attempt whose state can be shown again; dismissal never starts a retry. Retain a Prepare Reading entry, including when a previous ready Plan remains usable.
 - Display timed-out preparation as “准备超时”, with Retry and Close. Preserve a typed timeout marker for new failures; recognize persisted legacy timeout diagnostics in projection. A closed/cancelled candidate connection is separate from elapsed deadline.
 - Persist failure in the Close request restores the card and reports that the Close was not saved. No silent retry.
+
+## 2026-10-21 completed-source review
+
+The user's revised requirement supersedes the completed-source Continue rule above:
+explicitly opening a completed Source displays every saved Chunk and hides Continue.
+Missing Chunks are projected without writing reading events, progress or the Cursor;
+existing discussion/review events and notes remain intact. New Session still clears
+its display until the reader explicitly opens the Source again.

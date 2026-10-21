@@ -96,6 +96,32 @@ class OverviewTests(unittest.TestCase):
         self.assertTrue(started['readingStarted']); self.assertEqual(1, started['current']['index'])
         before = self.state()
         self.prepare(); self.assertEqual(before, self.state()); self.assertEqual(1,self.runtime.structure_calls)
+    def test_completed_reopen_projects_all_chunks_without_cursor_or_event_writes(self):
+        self.prepare()
+        h = self.host
+        window = h.open_prepared_reading(self.sid, request_id=uuid.uuid4().hex)
+        def payload(window):
+            chunk = window['navigationCurrent']
+            return {'requestId': uuid.uuid4().hex, 'receipt': {
+                **{k: chunk[k] for k in ('sourceId', 'planId', 'chunkId')},
+                'readingRevision': window['readingRevision']}}
+        window = h.continue_cached({**payload(window), 'beginBody': True})
+        while window['navigationCurrent']['index'] < window['navigationCurrent']['total']:
+            window = h.continue_cached(payload(window))
+        window = h.finish_reading(payload(window))
+        h.new_session({'sessionId': window['sessionId']})
+        self.assertEqual([], h.snapshot()['timeline'])  # New session still clears the display.
+        window = h.open_prepared_reading(self.sid, request_id=uuid.uuid4().hex)
+        before = self.state()
+        events = json.dumps(h.state['timeline'])
+        for _ in range(2):
+            window = h.snapshot()
+            self.assertEqual('completed', window['status'])
+            self.assertEqual([1, 2, 3], [e['chunk']['index'] for e in window['timeline'] if e['kind'] == 'reading'])
+            self.assertIsNone(window['navigationCurrent'])
+        self.assertEqual(before, self.state())
+        self.assertEqual(events, json.dumps(h.state['timeline']))
+
     def test_existing_chinese_plan_tree_is_reused_for_guide(self):
         original = self.runtime.plan
         def chinese_plan(**kwargs):
