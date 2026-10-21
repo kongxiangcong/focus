@@ -1,6 +1,6 @@
 # 10 可发现性、功能区、确认与选区
 
-Status: ready-for-agent
+Status: needs-info
 Blocked by: 03, 07
 Covers: spec §3.8，问题 P7、P8、P10、P11
 
@@ -47,3 +47,7 @@ Covers: spec §3.8，问题 P7、P8、P10、P11
 
 ## Comments
 - 2026-10-21 SOURCE/PASS：已核对以上代码位置。待记录红/绿结果与截图。
+
+- 2026-10-21：未开始实施，NOT_RUN。按本任务“所有依赖resolved才能选取”的门禁，06缺真实Knowledge Base验收，并经07/08传递阻塞。请先补齐真实Knowledge Base副本；解除依赖后继续按最小编号执行。未用已实现但未验收替代resolved。
+
+- 最终复验补充：03因受影响吸附脚本控制台检查失败撤回resolved，记录于13；相关依赖继续阻塞。当前未实施项不计为通过，详见spec交付记录。

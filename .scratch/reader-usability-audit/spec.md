@@ -1,6 +1,6 @@
 # 阅读界面可用性修复：问题、方案与实施
 
-Status: ready-for-agent
+Status: needs-info
 Branch base: `feat/article-structure-guide`（审计时 HEAD `61095a8`）
 范围：生产阅读页（`appearance="mist"`）及其所需的 Host 笔记接口。主要代码：`ui/packages/reader-ui/src/`、`ui/packages/reader-contracts/src/index.ts`、`ui/apps/standalone/src/adapters/`、`host/`。
 
@@ -186,3 +186,85 @@ Branch base: `feat/article-structure-guide`（审计时 HEAD `61095a8`）
 - 涉及界面的工单：`pnpm reader:build` 后运行对应的 `tests/*.mjs` 浏览器脚本（环境变量 `FOCUS_PLAYWRIGHT_MODULE`、`FOCUS_CHROMIUM_EXECUTABLE`、`FOCUS_BROWSER_PORT`，见 `docs/design/reading-width-validation.md`）。行为改变的旧脚本（`reading_width_browser.mjs`、`reading_attachment_browser.mjs`、`reading_standard_settings_browser.mjs`、`reader_figures_browser.mjs`）同步更新，不得删除断言了事。
 - 视口矩阵：1600×1000、1280×800、1024×768、390×844（触屏模拟），浅色与深色。
 - 真实数据回归：在知识库**副本**上起隔离 Host（`--workspace <副本> --bind 127.0.0.1 --port <空闲端口>`），打开带图的 Paper Source，确认缩略图、放大图、抽屉图片全部为 200，且 `naturalWidth > 0`。
+
+
+## 交付记录
+
+2026-10-21，**部分实施，尚未完成验收**。简报见 [brief.md](brief.md)。保持 Integrate / visual_policy: preserve；未改变 §1 决定或 §5 红线。基于拉取时最新 PR #24 的 `feat/article-structure-guide`，基线 `9f183cd`。所有提交仅在本地，没有 push。
+
+### 工单与提交
+
+| 工单 | 当前状态 | 实施 commit |
+| --- | --- | --- |
+| 01 | needs-info | 1440bf1 |
+| 02 | needs-info | — |
+| 03 | needs-info | 084e1f6 |
+| 04 | resolved | 8958431 |
+| 05 | resolved | b9b314b |
+| 06 | needs-info | 98fbeab |
+| 07 | needs-info | — |
+| 08 | needs-info | — |
+| 09 | needs-info | — |
+| 10 | needs-info | — |
+| 11 | needs-info | — |
+| 12 | needs-triage | — |
+| 13 | needs-triage | — |
+
+01 图片地址、03 四挡行宽、04 抽屉平移、05 领域文档、06 直接创建 Reading Note 的 Host/合同/适配器已实施。01/06 缺真实 Knowledge Base 验收；03 专项通过，但最终吸附脚本控制台检查失败，因此撤回 resolved。04/05 自身范围验证通过；04 与未来 Attached Notes 的实际组合仍由07验证。02、07–11 未开发，按依赖必须等待前置工单 resolved。
+
+12/13 为开发中新发现的验证基础设施/运行错误，needs-triage，未擅自修改范围外代码。12 已在基线复现；13 尚未证明是基线问题。
+
+### §2 问题最终结论
+
+PASS 只表示下列已列明范围；NOT_RUN 不等于通过。未实施的目标标记 FAIL，并注明没有运行目标验收。
+
+| 问题 | 结论 | 证据与边界 |
+| --- | --- | --- |
+| P1 图片 instance | NOT_RUN | 单元与合成隔离 Host 的 thumbnail/viewer/gallery HTTP 200、naturalWidth > 0 均 PASS；真实带图 Paper Source 尚无数据可测，见01与 asset 日志。 |
+| P2 正文图片 | FAIL | 02被01阻塞，正文图/缩略图去重与 contain 尚未实现；目标验收 NOT_RUN。 |
+| P3 行宽 | FAIL | 四挡、迁移、禁用、偏好恢复、键盘及矩阵专项 PASS；受影响吸附脚本最终控制台检查 FAIL，见03/13。 |
+| P4 Attached Notes | FAIL | 07未实施，仍是旧 Discussion attachment；目标验收 NOT_RUN。 |
+| P5 Reading Note 输入 | FAIL | 06直接创建 API/合同/幂等/冲突测试 PASS，真实数据 NOT_RUN；08 NoteEditor、四个入口及09列表未实施。 |
+| P6 抽屉不缩正文 | PASS | 04 单元及四视口×双主题浏览器验证，开合宽度不变；未来 Attached Notes 组合只有纯函数覆盖，需07补实测。 |
+| P7 段落操作可发现性 | FAIL | 10未实施，目标验收 NOT_RUN。 |
+| P8 功能区密度 | FAIL | 10未实施，目标验收 NOT_RUN。 |
+| P9 列表命名/锚点 | FAIL | 09未实施，目标验收 NOT_RUN。 |
+| P10 确认方式 | FAIL | 10未实施，目标验收 NOT_RUN。 |
+| P11 选区工具 | FAIL | 10未实施，目标验收 NOT_RUN。 |
+
+### 干净构建与最终命令
+
+删除 standalone dist 后运行下表；其后仅调整浏览器脚本的旧行宽断言与记录文件，生产代码未再变化。日志在 `evidence/logs/`。浏览器启动命令的环境和隔离 fixture 说明见 [validation/environment.md](validation/environment.md)。所有浏览器使用新起合成 Host；未连接或修改任何真实服务与知识库。
+
+| 检查 | 结果 | 日志 |
+| --- | --- | --- |
+| `pnpm reader:typecheck` | PASS | focus-final-typecheck.log |
+| `pnpm reader:test` | PASS，107 + 156 = 263 项 | focus-final-test.log |
+| `pnpm reader:build` | PASS，有构建 chunk 大小提示 | focus-final-build-current.log |
+| `.venv/bin/python -m unittest tests.test_direct_source_notes tests.test_article_overview` | PASS，15项 | focus-final-python.log |
+| `.venv/bin/python -m unittest tests.test_web_host` | FAIL，测试导入问题；补 PYTHONPATH 后还依赖已删 CLI | focus-final-web-host.log；12 |
+| `tests/reading_width_browser.mjs`（调用 measure 矩阵并保留 Source Anchor 取消检查） | PASS | focus-final-reading_width_browser.log |
+| `tests/reading_standard_settings_browser.mjs` | PASS | focus-final-reading_standard_settings_browser.log |
+| `tests/reader_drawer_translation_browser.mjs` | PASS | focus-final-reader_drawer_translation_browser.log |
+| `tests/reader_asset_instance_browser.mjs` | PASS，仅合成数据 | focus-final-reader_asset_instance_browser.log |
+| `tests/reader_figures_browser.mjs` | PASS，现有图入口回归；不代表02完成 | focus-final-reader_figures_browser.log |
+| `tests/reading_attachment_browser.mjs` | FAIL，几何/锚点/焦点/减少动效检查已过，最后字体 CSP/404 错误断言失败 | focus-final-reading_attachment_browser.log；13 |
+| 真实 Knowledge Base 副本上的图片、Reading Note 回归 | NOT_RUN，无可复制的真实知识库 | 01/06 |
+| 尚未实施功能的全量 §5/§6 验收 | NOT_RUN | 07–11 |
+
+### 视口矩阵截图
+
+以下三个目录各有 8 张截图；390×844 使用触屏模拟。截图为合成数据的可重复证据，不代表真实数据门禁通过。
+
+- `evidence/final-reader_asset_instance_browser/`
+- `evidence/final-reading_width_browser/`
+- `evidence/final-reader_drawer_translation_browser/`
+
+每个目录的文件名：`1600-1000-light.png`、`1600-1000-dark.png`、`1280-800-light.png`、`1280-800-dark.png`、`1024-768-light.png`、`1024-768-dark.png`、`390-844-light.png`、`390-844-dark.png`。附加旧场景截图见 `evidence/final-reader_figures_browser/`、`evidence/final-reading_attachment_browser/`；后者不是通过证据。已目视检查宽/窄屏与浅/深主题代表截图，几何和溢出边界由矩阵脚本断言。
+
+### 未完成项与续做入口
+
+1. 请提供可访问的真实 Knowledge Base 路径或副本，包含带图 Paper Source 与有效 Reading Plan/Chunk Bundle。然后按用户要求 `cp -a` 到 `/tmp/<目录>/kb`，用独立 hostdata、空闲端口和新 Host 打印的口令验证01/06。现有真实数据和运行服务保持不动。
+2. 12的旧测试 fixture 与13的控制台错误需要分诊。没有通过屏蔽断言或放宽安全策略制造绿灯；03目前为 needs-info。
+3. 前置验证通过后按最小可执行编号继续02、07、08、09、10、11，逐张先红后绿、独立提交；不允许把“代码已写”视为 resolved。
+4. 目前不能宣称 spec 全部修复或 §6 全通过，也没有将未实现功能列作已交付。

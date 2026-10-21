@@ -1,6 +1,6 @@
 # 02 正文缩小图、标签与比例
 
-Status: ready-for-agent
+Status: needs-info
 Blocked by: 01
 Covers: spec §3.2，问题 P2
 
@@ -53,3 +53,5 @@ Covers: spec §3.2，问题 P2
 
 ## Comments
 - 2026-10-21 SOURCE/PASS：已核对以上代码位置。待记录红/绿结果与截图。
+
+- 2026-10-21：未开始实施，NOT_RUN。按本任务“所有依赖resolved才能选取”的门禁，01缺真实Knowledge Base验收。请先补齐真实Knowledge Base副本；解除依赖后继续按最小编号执行。未用已实现但未验收替代resolved。
