@@ -1,4 +1,4 @@
-import { Children, memo, type ComponentProps, type ReactNode } from "react";
+import { Children, memo, useContext, type ComponentProps, type ReactNode } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -6,7 +6,8 @@ import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import "katex/dist/katex.min.css";
-import { scanFigures, type Figure, type FigureNode } from "./figures";
+import { AssetInstanceContext } from "./asset-context";
+import { imageUrl, scanFigures, type Figure, type FigureNode } from "./figures";
 import { normalizeMathMarkdown } from "./math-markdown";
 
 const components: Components = {
@@ -64,6 +65,7 @@ function CellContent({ children }: { children: ReactNode }) {
 export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, figures, onFigure, inlineFigures = false }: {
   text: string; sourceId?: string; figures?: readonly Figure[]; onFigure?: (figure: Figure) => void; inlineFigures?: boolean;
 }) {
+  const instanceId = useContext(AssetInstanceContext);
   const markdown = normalizeMathMarkdown(text);
   function markFigures() {
     return (tree: FigureNode) => {
@@ -79,9 +81,7 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
       const figure = (node as FigureNode | undefined)?.data?.readerFigure;
       return figure && onFigure ? <button className="reader-figure-link" onClick={() => onFigure(figure)}>查看{figure.label}</button> : <img src={src} alt={alt ?? ""} loading="lazy" />;
     } }} urlTransform={(url, key) => {
-      if (sourceId && key === "src" && !/^(?:[a-z]+:|\/)/i.test(url)) {
-        return `/reader/assets/${encodeURIComponent(sourceId)}/${url}`;
-      }
+      if (sourceId && key === "src") return imageUrl(url, sourceId, instanceId);
       return defaultUrlTransform(url);
     }}>{markdown}</Markdown></div>;
 });

@@ -14,11 +14,18 @@ export const figureNumber = /(?:图|fig(?:ure)?\.?)\s*[-.:：]?\s*(\d+[a-z]?)(?!
 const captionHeading = /^\s*(?:图|fig(?:ure)?\.?|table|tab\.?|表|equation|formula|公式)\s*[-.:：]?\s*\d+/i;
 const necessaryCaption = /^\s*(?:table|tab\.?|表|equation|formula|公式)(?:\s*[-.:：]?\s*\d+|\s*$)/i;
 function decode(value: string) { try { return decodeURIComponent(value); } catch { return value; } }
-export function imageUrl(src: string, sourceId: string) {
+export function withAssetInstance(url: string, instanceId?: string) {
+  if (!instanceId || !/^\/reader\/(?:assets|historical-assets)\//.test(url)) return url;
+  const parsed = new URL(url, "https://focus.invalid");
+  if (parsed.searchParams.has("instance")) return url;
+  const hashAt = url.indexOf("#"), path = hashAt < 0 ? url : url.slice(0, hashAt);
+  return `${path}${path.includes("?") ? "&" : "?"}instance=${encodeURIComponent(instanceId)}${hashAt < 0 ? "" : url.slice(hashAt)}`;
+}
+export function imageUrl(src: string, sourceId: string, instanceId?: string) {
   const value = src.trim().replace(/\\/g, "/");
-  if (/^(?:https?:|\/)/i.test(value)) return value;
+  if (/^(?:https?:|\/)/i.test(value)) return withAssetInstance(value, instanceId);
   if (/^[a-z]+:/i.test(value)) return "";
-  return `/reader/assets/${encodeURIComponent(sourceId)}/${value.replace(/^\.\//, "")}`;
+  return withAssetInstance(`/reader/assets/${encodeURIComponent(sourceId)}/${value.replace(/^\.\//, "")}`, instanceId);
 }
 export function imageIdentity(src: string, sourceId: string) {
   const resolved = imageUrl(src, sourceId);
@@ -94,6 +101,7 @@ export function mergeFigures(sourceId: string, ...lists: readonly (readonly Read
     // First list owns order and language; supplementary metadata only fills gaps.
     if (!old) map.set(id, { ...image, src: imageUrl(image.src, sourceId), id, sourceId, label: "" });
     else if ((!old.caption || /^(?:figure|image|img|图片|插图)$/i.test(old.caption) || !figureNumber.test(old.caption) && figureNumber.test(image.caption)) && image.caption) old.caption = image.caption;
+    if (old && !new URL(old.src, "https://focus.invalid").searchParams.has("instance") && new URL(imageUrl(image.src, sourceId), "https://focus.invalid").searchParams.has("instance")) old.src = imageUrl(image.src, sourceId);
   }
   return [...map.values()].map(f => ({ ...f, label: f.caption.match(figureNumber) ? `图 ${f.caption.match(figureNumber)![1]}` : `插图 ${decode(new URL(f.src, "https://focus.invalid").pathname.split("/").at(-1)!)}` }));
 }

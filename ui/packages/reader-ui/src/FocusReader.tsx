@@ -1,3 +1,4 @@
+import { AssetInstanceContext } from "./asset-context";
 import { PanelLeft, Pin, Plus, Expand, Collapse, ArrowRight, ArrowUp, StopSquare, ChevronDown, Widen, Close } from "./ReaderIcons";
 import { createReaderId, cursorReceipt, type ReaderChunk, type ReaderAttachment, type ReaderHost, type ReadingWindow,
   type ReaderHostResult, type SendReaderMessageInput, type ContinueReadingInput, type SourceNote, type ReadingProgressEntry } from "@focus/reader-contracts";
@@ -589,7 +590,7 @@ export function FocusReader({ host, appearance = "conversation", standardWidth =
     });
   }
   const continueLabel = view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total) ? "已读完" : (view?.sessionFresh && view.readingStarted && frontier?.index === frontier?.total) || (!view?.sessionFresh && displayed?.index === displayed?.total && !reviewChunk) ? "完成本篇" : operation === "下一段" ? "打开中…" : "继续";
-  return <div ref={layout} data-reading-width="standard" data-discussion-attached={discussionAttached} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && structureOpen) {
+  return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-width="standard" data-discussion-attached={discussionAttached} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && structureOpen) {
       setStructureOpen(false); layout.current?.querySelector<HTMLButtonElement>(".reader-location-badge")?.focus({ preventScroll: true });
     } else if (event.key === "Escape" && sideMode && !(event.target as HTMLElement).closest("dialog")) {
     preserveReading(() => setSideMode(null)); event.currentTarget.querySelector<HTMLButtonElement>(mist ? ".reader-side-toggle" : ".reader-figures-toggle")?.focus({ preventScroll: true });
@@ -833,5 +834,5 @@ export function FocusReader({ host, appearance = "conversation", standardWidth =
       }) : <p>打开材料后显示。</p>}</nav>}
       {renderedPanel === "settings" && <label><input type="checkbox" checked={largeText} onChange={e => setLargeText(e.target.checked)} /> 使用较大正文字号</label>}
     </dialog>
-  </div>;
+  </div></AssetInstanceContext.Provider>;
 }

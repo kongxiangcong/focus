@@ -1,5 +1,7 @@
+import { AssetInstanceContext } from "./asset-context";
+import { withAssetInstance } from "./figures";
 import type { ReaderChunk, ReaderImage, ReaderMessage } from "@focus/reader-contracts";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent";
 import { chunkFigures, imageIdentity, type Figure } from "./figures";
 
@@ -7,6 +9,7 @@ export const chunkKey = (c: { sourceId: string; planId: string; chunkId: string 
 
 export function ReadingChunk({ chunk, onReference, onFigure, onZoom, onLanguage }: { chunk: ReaderChunk; onReference: (chunk: ReaderChunk) => void;
   onZoom?: (figure: Figure, origin: HTMLElement) => void; onFigure?: (figure: Figure) => void; onLanguage?: (chunk: ReaderChunk, original: boolean) => void }) {
+  const instanceId = useContext(AssetInstanceContext);
   const [original, setOriginal] = useState(false);
   const translated = chunk.translation !== null && !original;
   const preparing = !original && chunk.presentationStatus === "translation-required" && chunk.translation === null;
@@ -19,11 +22,11 @@ export function ReadingChunk({ chunk, onReference, onFigure, onZoom, onLanguage 
     <h2>{chunk.sectionPath.at(-1)}</h2>
     {preparing ? <p role="status">译文尚未准备完成，请打开材料继续准备。</p> : <MarkdownContent text={text} sourceId={chunk.sourceId} figures={figures} onFigure={onFigure} />}
     {!preparing && onFigure && <div className="reader-thumbnail-strip">{figures.map(f => <div className="reader-thumbnail" key={f.id}>
-      <button aria-label={`放大${f.label}`} onClick={e => onZoom?.(f, e.currentTarget)}><img src={f.src} alt={f.caption || f.label} width={92} height={58} loading="lazy" /></button>
+      <button aria-label={`放大${f.label}`} onClick={e => onZoom?.(f, e.currentTarget)}><img src={withAssetInstance(f.src, instanceId)} alt={f.caption || f.label} width={92} height={58} loading="lazy" /></button>
       <div><strong>{f.label}</strong><p title={f.caption}>{f.caption}</p><button onClick={() => onFigure(f)}>在资料栏固定</button></div>
     </div>)}</div>}
     {!preparing && !onFigure && chunk.images.filter(i => !text.includes(i.src) && !text.includes(decodeURIComponent(i.src.split('/').at(-1)!))).map(i =>
-      <figure key={i.src}><img src={i.src} alt={i.caption} loading="lazy" /><figcaption>{i.caption}</figcaption></figure>)}
+      <figure key={i.src}><img src={withAssetInstance(i.src, instanceId)} alt={i.caption} loading="lazy" /><figcaption>{i.caption}</figcaption></figure>)}
     <footer><button onClick={() => onReference(chunk)}>引用提问</button></footer>
   </article>;
 }
@@ -54,6 +57,7 @@ export function ReaderConversation({ messages, chunks = [], figures = [], figure
   onSaveNote?: (message: ReaderMessage, chunk?: ReaderChunk) => void;
   sourceFigures?: readonly Figure[]; onFigure?: (figure: Figure) => void;
 }) {
+  const instanceId = useContext(AssetInstanceContext);
   return <>{messages.map(message => {
     const reference = chunks.find(c => c.sourceId === (message.reference?.sourceId ?? message.sourceId) && c.chunkId === (message.reference?.chunkId ?? message.chunkId));
     const excerpt = message.content.startsWith("> ") ? message.content.split("\n\n")[0].replace(/^> /gm, "") : (reference?.translation ?? reference?.sourceMarkdown ?? "").replace(/[#*`]/g, "").split(/[。！？\n]/).find(s => s.trim() && !s.includes("!["))?.slice(0, 100) ?? "";
@@ -64,8 +68,8 @@ export function ReaderConversation({ messages, chunks = [], figures = [], figure
       figures={sourceFigures} onFigure={onZoom ? f => onZoom(f, document.activeElement as HTMLElement) : onFigure} inlineFigures />
     {referencedFigures(message, chunks, figures, figureSourceId).map(image => {
       const figure = sourceFigures.find(f => f.id === imageIdentity(image.src, message.sourceId ?? message.reference?.sourceId ?? ""));
-      return onFigure && figure ? <button className="reader-answer-thumbnail" aria-label={`放大${figure.label}`} key={figure.id} onClick={e => onZoom ? onZoom(figure, e.currentTarget) : onFigure(figure)}><img src={figure.src} alt={figure.caption || figure.label} loading="lazy" /><span>{figure.label}</span></button> : <figure key={image.src} className="focus-referenced-figure">
-      <img src={image.src} alt={image.caption} loading="lazy" /><figcaption>{image.caption}</figcaption>
+      return onFigure && figure ? <button className="reader-answer-thumbnail" aria-label={`放大${figure.label}`} key={figure.id} onClick={e => onZoom ? onZoom(figure, e.currentTarget) : onFigure(figure)}><img src={withAssetInstance(figure.src, instanceId)} alt={figure.caption || figure.label} loading="lazy" /><span>{figure.label}</span></button> : <figure key={image.src} className="focus-referenced-figure">
+      <img src={withAssetInstance(image.src, instanceId)} alt={image.caption} loading="lazy" /><figcaption>{image.caption}</figcaption>
     </figure>;
     })}
     {message.role === "assistant" && (streaming ? <span className="reader-stream-block" aria-label="回答生成中" /> : <footer className="reader-answer-actions"><button onClick={() => onSaveNote?.(message, reference)}>存为笔记</button><button onClick={() => void navigator.clipboard?.writeText(message.content)}>复制</button>{reference && <button onClick={() => onJump?.(reference)}>回看第 {reference.index} 段</button>}</footer>)}
