@@ -151,7 +151,7 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
     <p>{checked && checked.backend === input.backend && (!input.model || checked.checkedModel === input.model) ? '当前模型已验证（仅本次最小请求）。' : '当前模型尚未验证。'}</p>
     {login?.authUrl && <p><a href={login.authUrl} target="_blank" rel="noopener noreferrer">打开浏览器授权</a>
       <button type="button" disabled={loginBusy} onClick={() => void loginOperation("login-cancel")}>取消登录</button></p>}
-    {!onDraft && <div className="backend-setup__actions">
+    {!onDraft && <div className="backend-setup__actions backend-setup__save-actions">
     <button type="button" className="workspace-primary" disabled={checking || loginBusy || !!login || configuration?.busy }
       onClick={() => void save()}>保存并应用</button>
     <button type="button" disabled={checking || loginBusy || !!login} onClick={() => {
