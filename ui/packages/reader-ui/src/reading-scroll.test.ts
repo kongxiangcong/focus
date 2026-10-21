@@ -72,3 +72,16 @@ it('dismisses each notice without moving or resuming follow, including streaming
   control.userIntent(true); expect(notify).toHaveBeenLastCalledWith(true, true);
   control.dispose();
 });
+
+it('does not advertise a latest destination already visible in the viewport', () => {
+  const { pane, control, notify } = fixture();
+  pane.scrollTop = 1200;
+  control.userIntent(true);
+  expect(notify).toHaveBeenLastCalledWith(false, false);
+  control.contentChanged();
+  expect(notify).toHaveBeenLastCalledWith(false, false);
+  pane.scrollTop = 100;
+  control.contentChanged();
+  expect(notify).toHaveBeenLastCalledWith(true, false);
+  control.dispose();
+});

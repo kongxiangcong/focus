@@ -31,7 +31,7 @@ export class ReadingScroll {
   private notice = { latest: false, back: false };
   private emit = (latest: boolean, back: boolean) => {
     this.notice = { latest, back };
-    this.notify(latest && !this.latestDismissed, back && !this.backDismissed);
+    this.notify(latest && !this.latestDismissed && !this.atLatest(), back && !this.backDismissed);
   };
   dismissLatest = () => { this.latestDismissed = true; this.emit(this.notice.latest, this.notice.back); };
   dismissBack = () => { this.backDismissed = true; this.emit(this.notice.latest, this.notice.back); };
@@ -149,7 +149,8 @@ export function useReadingScroll(pane: RefObject<HTMLElement | null>, follow: Re
   const controller = useRef<ReadingScroll | null>(null);
   const [state, setState] = useState({ latest: false, back: false });
   useLayoutEffect(() => {
-    if (!pane.current || !end.current || !spacer.current || !enabled) return;
+    setState({ latest: false, back: false });
+    if (!pane.current || !end.current || !spacer.current || !enabled) { controller.current = null; return; }
     const scroll = new ReadingScroll(pane.current, end.current, spacer.current, follow,
       (latest, back) => setState(old => old.latest === latest && old.back === back ? old : { latest, back }));
     controller.current = scroll; setState({ latest: false, back: false }); scroll.start();

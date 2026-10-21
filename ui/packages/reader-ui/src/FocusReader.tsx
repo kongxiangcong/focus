@@ -726,9 +726,9 @@ export function FocusReader({ host, appearance = "conversation", standardWidth =
       <div ref={scrolling.end} aria-hidden="true" />
       <div ref={scrolling.spacer} aria-hidden="true" style={{ height: 128, overflowAnchor: "none" }} />
     </main>
-      {(scrolling.latest || scrolling.back) && <div className="focus-new-content">
+      {!showStructure && (scrolling.back || (scrolling.latest && (readingGroups.length > 1 || !!view?.conversation.length))) && <div className="focus-new-content">
         {scrolling.back && <span className="reader-scroll-notice"><button onClick={() => scrolling.controller.current?.goBack()}>↩ 返回刚才位置</button><button aria-label="关闭返回位置提示" onClick={() => scrolling.controller.current?.dismissBack()}><Close /></button></span>}
-        {scrolling.latest && <span className="reader-scroll-notice"><button onClick={() => scrolling.controller.current?.toLatest()}>{active ? "回答生成中 · " : ""}回到最新 ↓</button><button aria-label="关闭回到最新提示" onClick={() => scrolling.controller.current?.dismissLatest()}><Close /></button></span>}
+        {scrolling.latest && (readingGroups.length > 1 || !!view?.conversation.length) && <span className="reader-scroll-notice"><button onClick={() => scrolling.controller.current?.toLatest()}>{active ? "回答生成中 · " : ""}回到最新 ↓</button><button aria-label="关闭回到最新提示" onClick={() => scrolling.controller.current?.dismissLatest()}><Close /></button></span>}
       </div>}
     <div className="focus-bottom" hidden={showStructure} data-empty={mist && collapsed && !composerFeedback} role={mist ? "complementary" : undefined} aria-label={mist ? "阅读助手" : undefined}>
       <div className="focus-composer-wrap">

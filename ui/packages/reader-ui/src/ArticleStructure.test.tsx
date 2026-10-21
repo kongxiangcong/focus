@@ -34,6 +34,9 @@ it("shows the structure before body text and explicitly starts without advancing
   render(<FocusReader host={host} appearance="mist" />);
   await screen.findByRole("region", { name: "文章结构" });
   expect(screen.queryByText("First body paragraph.")).not.toBeInTheDocument();
+  fireEvent.touchStart(screen.getByRole("main", { name: "阅读与对话" }));
+  fireEvent.wheel(screen.getByRole("main", { name: "阅读与对话" }), { deltaY: -100 });
+  expect(screen.queryByRole("button", { name: /回到最新/ })).not.toBeInTheDocument();
   expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /结果/ })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "进入正文" }));

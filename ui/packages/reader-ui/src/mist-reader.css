@@ -151,8 +151,7 @@
 .focus-agent__approval input { max-width:100%; padding:8px; border:1px solid var(--reader-line); border-radius:var(--reader-radius); }
 .focus-agent__approval button[aria-pressed=true] { background:var(--reader-selected); border-color:var(--reader-line-strong); }
 .focus-new-content { position:absolute; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%);
-  background:var(--reader-popover) !important; border:1px solid var(--reader-line) !important;
-  box-shadow:var(--reader-shadow); white-space:nowrap; font-size:12px !important; }
+  background:transparent; border:0; box-shadow:none; white-space:nowrap; font-size:12px; }
 
 /* Materials drawer: left overlay, never reflows the reading column. */
 .focus-reader.reader-split.focus-mist,
@@ -275,7 +274,7 @@
 /* Float inside the reading grid area, above the controls and composer. */
 .focus-mist .focus-new-content { grid-column:1 / 2; grid-row:1 / 2; bottom:16px; z-index:6; display:flex; gap:6px; max-width:calc(100% - 24px); flex-wrap:wrap; justify-content:center; }
 .focus-new-content .reader-scroll-notice { background:var(--reader-action); color:var(--reader-on-action); border-radius:var(--reader-pill); }
-.focus-new-content .reader-scroll-notice button { background:transparent; color:inherit; }
+.focus-new-content .reader-scroll-notice button { background:transparent; color:inherit; border:0; box-shadow:none; }
 
 /* Manual attachment preserves source nodes and their measure. */
 .focus-mist .reading-group-source, .focus-mist .reading-group-discussion { min-width:0; }
