@@ -74,6 +74,8 @@ export function FocusReader({ host, appearance = "conversation", standardWidth =
   const [readingWidth, setReadingWidth] = useState(0);
   const [collapsed, setCollapsed] = useState(false);
   const [structureOpen, setStructureOpen] = useState(false);
+  const [reviewNoticeDismissed, setReviewNoticeDismissed] = useState(false);
+  const [progressNoticeDismissed, setProgressNoticeDismissed] = useState<string | null>(null);
   const [viewportChunk, setViewportChunk] = useState<ReaderChunk | null>(null);
   const [view, setView] = useState<ReadingWindow | null>(null);
   const paintedTimingRuns = useRef(new Set<string>());
@@ -246,6 +248,7 @@ export function FocusReader({ host, appearance = "conversation", standardWidth =
   }, [showStructure]);
   useEffect(() => { setStructureOpen(false); }, [view?.source.sourceId, frontier?.planId, view?.resetVersion]);
   useEffect(() => { setViewportChunk(null); }, [view?.source.sourceId, view?.readingRevision, reviewChunk, view?.sessionId]);
+  useEffect(() => { setReviewNoticeDismissed(false); }, [reviewChunk, view?.source.sourceId, view?.sessionId]);
   const sourceId = view?.source.sourceId ?? "";
   const protectedImages = new Set(chunks.flatMap(c => [...extractFigures(c.sourceMarkdown, c.sourceId).protectedIds]));
   const allFigures = mergeFigures(sourceId, (view?.figures ?? []).filter(f => !protectedImages.has(imageIdentity(f.src, sourceId))),
@@ -688,7 +691,7 @@ export function FocusReader({ host, appearance = "conversation", standardWidth =
         <div hidden={showStructure} className={mist ? "reading-lens-document" : undefined} ref={lens.document}>
         {mist && <div ref={lens.surface} className="reading-lens" data-review={lensReview} data-lens-active={lens.activeId ?? undefined} hidden={!lens.activeId} aria-hidden="true" />}
         {!view && <p role="status">{connection ? "暂时无法连接" : "正在打开…"}</p>}
-        {reviewChunk && <p className="focus-review-banner">正在回看第 {reviewChunk.index} 段 · 正式位置未改变 <button onClick={() => { if (frontier) review(frontier); }}>返回当前阅读</button></p>}
+        {reviewChunk && !reviewNoticeDismissed && <p className="focus-review-banner">正在回看第 {reviewChunk.index} 段 · 正式位置未改变 <button onClick={() => { if (frontier) review(frontier); }}>返回当前阅读</button><button aria-label="关闭回看提示" onClick={() => setReviewNoticeDismissed(true)}><Close /></button></p>}
         {view && displayEmpty && <section className="focus-start">
           <span className="focus-start__label" aria-hidden="true">▤</span>
           <h1>{view.readingUnavailable ? view.source.title : view.source.sourceId ? `讨论 ${view.source.title}` : "打开一份材料"}</h1>
@@ -724,8 +727,8 @@ export function FocusReader({ host, appearance = "conversation", standardWidth =
       <div ref={scrolling.spacer} aria-hidden="true" style={{ height: 128, overflowAnchor: "none" }} />
     </main>
       {(scrolling.latest || scrolling.back) && <div className="focus-new-content">
-        {scrolling.back && <button onClick={() => scrolling.controller.current?.goBack()}>↩ 返回刚才位置</button>}
-        {scrolling.latest && <button onClick={() => scrolling.controller.current?.toLatest()}>{active ? "回答生成中 · " : ""}回到最新 ↓</button>}
+        {scrolling.back && <span className="reader-scroll-notice"><button onClick={() => scrolling.controller.current?.goBack()}>↩ 返回刚才位置</button><button aria-label="关闭返回位置提示" onClick={() => scrolling.controller.current?.dismissBack()}><Close /></button></span>}
+        {scrolling.latest && <span className="reader-scroll-notice"><button onClick={() => scrolling.controller.current?.toLatest()}>{active ? "回答生成中 · " : ""}回到最新 ↓</button><button aria-label="关闭回到最新提示" onClick={() => scrolling.controller.current?.dismissLatest()}><Close /></button></span>}
       </div>}
     <div className="focus-bottom" hidden={showStructure} data-empty={mist && collapsed && !composerFeedback} role={mist ? "complementary" : undefined} aria-label={mist ? "阅读助手" : undefined}>
       <div className="focus-composer-wrap">
@@ -773,14 +776,14 @@ export function FocusReader({ host, appearance = "conversation", standardWidth =
       <button className="reader-side-toggle" aria-controls="reader-side-space" aria-expanded={!!sideMode} onClick={() => preserveReading(() => setSideMode(sideMode ? null : sourceFigures.length ? "figures" : materialTab ?? "notes"))}><PanelLeft /><span className="mist-action-label">{sideMode ? "收起资料" : "资料"}</span></button>
 
       {readingLocation}
-      {lensReview && <button type="button" onClick={() => {
+      {lensReview && progressNoticeDismissed !== `${eventScope}:${lens.activeId}` && <span className="reader-scroll-notice"><button type="button" onClick={() => {
         const group = [...readingGroups].reverse().find(item => item.chunk && frontier && chunkKey(item.chunk) === chunkKey(frontier));
         const target = Array.from(lens.document.current?.querySelectorAll<HTMLElement>("[data-lens-group]") ?? []).find(el => el.dataset.lensGroup === group?.id);
         if (group && target && stream.current) {
           lens.focus(group.id);
           scrolling.controller.current?.jump(target);
         }
-      }}>回到进度</button>}
+      }}>回到进度</button><button aria-label="关闭回到进度提示" onClick={() => setProgressNoticeDismissed(`${eventScope}:${lens.activeId}`)}><Close /></button></span>}
       <div className="reader-width-control" ref={widthControl} onKeyDown={event => {
         if (event.key === "Escape") { event.stopPropagation(); setWidthOpen(false); widthControl.current?.querySelector("button")?.focus(); }
       }}>

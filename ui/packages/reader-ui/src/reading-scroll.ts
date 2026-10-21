@@ -26,6 +26,15 @@ export class ReadingScroll {
   private heldUntil = 0;
   private returnTo: number | null = null;
   private lastScroll = 0;
+  private latestDismissed = false;
+  private backDismissed = false;
+  private notice = { latest: false, back: false };
+  private emit = (latest: boolean, back: boolean) => {
+    this.notice = { latest, back };
+    this.notify(latest && !this.latestDismissed, back && !this.backDismissed);
+  };
+  dismissLatest = () => { this.latestDismissed = true; this.emit(this.notice.latest, this.notice.back); };
+  dismissBack = () => { this.backDismissed = true; this.emit(this.notice.latest, this.notice.back); };
   constructor(readonly pane: HTMLElement, readonly end: HTMLElement, readonly spacer: HTMLElement,
     readonly follow: { current: boolean }, private notify: (latest: boolean, back: boolean) => void) {}
 
@@ -35,7 +44,7 @@ export class ReadingScroll {
     return live ? layoutTop(this.pane, live) + live.offsetHeight : layoutTop(this.pane, this.end);
   };
   atLatest = () => this.latestBottom() - this.pane.scrollTop - this.pane.clientHeight <= 48;
-  contentChanged = () => { if (!this.follow.current) this.notify(true, this.returnTo !== null); };
+  contentChanged = () => { if (!this.follow.current) this.emit(true, this.returnTo !== null); };
   sizeSpacer = () => {
     const last = this.pane.querySelectorAll<HTMLElement>('[data-reading-group]');
     const bottom = layoutTop(this.pane, this.end);
@@ -76,19 +85,22 @@ export class ReadingScroll {
     this.animation = requestAnimationFrame(step);
   };
   land = (el: HTMLElement) => {
-    this.heldUntil = 0; this.returnTo = null; this.follow.current = true; this.notify(false, false);
+    this.latestDismissed = false; this.backDismissed = false;
+    this.heldUntil = 0; this.returnTo = null; this.follow.current = true; this.emit(false, false);
     this.animateTo(layoutTop(this.pane, el) - startLine(this.pane));
   };
   jump = (el: HTMLElement) => {
+    this.backDismissed = false;
     this.heldUntil = 0; this.returnTo = this.pane.scrollTop; this.follow.current = false;
-    this.notify(false, true); this.animateTo(layoutTop(this.pane, el) - startLine(this.pane) - 40);
+    this.emit(false, true); this.animateTo(layoutTop(this.pane, el) - startLine(this.pane) - 40);
   };
   goBack = () => {
     if (this.returnTo === null) return;
-    const top = this.returnTo; this.returnTo = null; this.notify(false, false); this.animateTo(top);
+    const top = this.returnTo; this.returnTo = null; this.emit(false, false); this.animateTo(top);
   };
   toLatest = () => {
-    this.heldUntil = 0; this.returnTo = null; this.follow.current = true; this.notify(false, false);
+    this.latestDismissed = false; this.backDismissed = false;
+    this.heldUntil = 0; this.returnTo = null; this.follow.current = true; this.emit(false, false);
     this.animateTo(this.latestBottom() - this.pane.clientHeight + 24);
   };
   reveal = (el: HTMLElement) => {
@@ -97,18 +109,18 @@ export class ReadingScroll {
   };
   userIntent = (up: boolean) => {
     this.cancel(); this.heldUntil = 0;
-    if (up) { this.follow.current = false; this.notify(true, this.returnTo !== null); }
+    if (up) { this.latestDismissed = false; this.follow.current = false; this.emit(true, this.returnTo !== null); }
     this.lastScroll = this.pane.scrollTop;
   };
   onScroll = () => {
     if (performance.now() < this.heldUntil) return;
     if (this.animation === null && !this.atLatest()) {
       this.follow.current = false;
-      if (this.streaming) this.notify(true, this.returnTo !== null);
+      if (this.streaming) this.emit(true, this.returnTo !== null);
     }
     // An upward gesture near the bottom must not re-enable follow via its own scroll event.
     if (this.animation === null && this.pane.scrollTop > this.lastScroll && this.atLatest()) {
-      this.follow.current = true; this.notify(false, this.returnTo !== null);
+      this.follow.current = true; this.emit(false, this.returnTo !== null);
     }
     this.lastScroll = this.pane.scrollTop;
     this.capture();

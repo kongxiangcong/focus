@@ -116,7 +116,7 @@ describe("Agent Reader", () => {
     update({ ...running, revision: 4, conversation: [{ ...running.conversation[0], content: "新增内容" }] });
     expect(pane.scrollTop).toBe(150);
     document.documentElement.dataset.reducedMotion = 'true';
-    fireEvent.click(screen.getByRole("button", { name: /回到最新/ }));
+    fireEvent.click(screen.getByRole("button", { name: /回到最新 ↓$/ }));
     expect(pane.scrollTop).toBe(1324);
     delete document.documentElement.dataset.reducedMotion;
   });

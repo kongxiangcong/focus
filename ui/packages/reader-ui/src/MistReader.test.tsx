@@ -377,3 +377,19 @@ it("shows the completed document without a Continue button", async () => {
   expect(document.querySelector(".focus-reader__continue")).toBeNull();
   expect(host.continueReading).not.toHaveBeenCalled();
 });
+
+
+it("closes the latest-position prompt without invoking reading actions", async () => {
+  const host = setup();
+  await screen.findByRole("heading", { name: "Method" });
+  const pane = document.querySelector<HTMLElement>(".focus-stream")!;
+  fireEvent.wheel(pane, { deltaY: -100 });
+  const close = screen.getByRole("button", { name: "关闭回到最新提示" });
+  const top = pane.scrollTop;
+  fireEvent.click(close);
+  expect(screen.queryByRole("button", { name: "关闭回到最新提示" })).not.toBeInTheDocument();
+  expect(pane.scrollTop).toBe(top);
+  expect(host.continueReading).not.toHaveBeenCalled();
+  fireEvent.wheel(pane, { deltaY: -100 });
+  expect(screen.getByRole("button", { name: "关闭回到最新提示" })).toBeInTheDocument();
+});

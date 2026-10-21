@@ -274,7 +274,8 @@
 
 /* Float inside the reading grid area, above the controls and composer. */
 .focus-mist .focus-new-content { grid-column:1 / 2; grid-row:1 / 2; bottom:16px; z-index:6; display:flex; gap:6px; max-width:calc(100% - 24px); flex-wrap:wrap; justify-content:center; }
-.focus-new-content button:last-child { background:var(--reader-action); color:var(--reader-on-action); }
+.focus-new-content .reader-scroll-notice { background:var(--reader-action); color:var(--reader-on-action); border-radius:var(--reader-pill); }
+.focus-new-content .reader-scroll-notice button { background:transparent; color:inherit; }
 
 /* Manual attachment preserves source nodes and their measure. */
 .focus-mist .reading-group-source, .focus-mist .reading-group-discussion { min-width:0; }
@@ -355,3 +356,11 @@
 .reader-width-panel label, .reader-width-labels { display:flex; justify-content:space-between; align-items:center; font-size:13px; }
 .reader-width-panel input { width:100%; margin:12px 0; accent-color:var(--reader-action); }
 .reader-width-labels button { padding:4px 10px; }
+
+.reader-scroll-notice { display:inline-flex; align-items:center; max-width:100%; }
+.reader-scroll-notice button { min-height:36px; }
+.reader-scroll-notice button[aria-label^="关闭"], .focus-review-banner button[aria-label^="关闭"] { flex:none; width:36px; padding:8px; }
+.reader-scroll-notice svg, .focus-review-banner svg { width:16px; height:16px; }
+@media(pointer:coarse) {
+  .reader-scroll-notice button, .focus-review-banner button[aria-label^="关闭"] { min-height:44px; min-width:44px; }
+}
