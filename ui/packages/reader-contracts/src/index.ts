@@ -134,7 +134,14 @@ export interface ReadingStructureNode {
   sourceLines: readonly [number, number];
 }
 
+export interface ArticleOverview {
+  sourceId: string; title: string; status: "missing" | "running" | "ready" | "failed" | "interrupted" | "cancelled" | "stale";
+  planId?: string; bundle?: string; chunksRevision?: string; version?: string; revision?: string;
+  error?: string | null; guide?: string; structure?: readonly ReadingStructureNode[]; chunkNodes?: readonly string[];
+}
+
 export interface ReadingWindow {
+  articleOverview?: ArticleOverview;
   structure?: readonly ReadingStructureNode[];
   structureIntro?: boolean;
   workspace?: { workspaceId: string; instanceId: string; path: string };
@@ -417,6 +424,8 @@ export interface ReaderHost {
   clearSource?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   replanSource?(sourceId: string, requestId?: string): Promise<ReaderHostResult<ReadingWindow>>;
   rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  getArticleOverview?(sourceId: string): Promise<ReaderHostResult<ArticleOverview>>;
+  prepareArticleOverview?(sourceId: string, requestId: string): Promise<ReaderHostResult<ArticleOverview>>;
   openSource?(sourceId: string, requestId?: string): Promise<ReaderHostResult<ReadingWindow>>;
   activateReadingCandidate?(sourceId: string, planId: string, readingRevision: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   dismissPreparation?(sourceId: string, attempt: string): Promise<ReaderHostResult<ReadingWindow>>;

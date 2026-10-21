@@ -96,6 +96,10 @@ Reading Plan 中以原文章节和顺序为基础的层级结构，以简短标�
 首次打开已准备的 Reading Plan 时呈现的文章骨架。读者明确进入正文后才开始第一段阅读；查看骨架不推进阅读位置，也不生成阅读进度记录。
 _Avoid_: Reading Chunk, Reading Progress Entry
 
+**Article Overview（文章结构与导读）**:
+Reading Plan 的派生展示资产，由中文 Article Structure 和与其对应的简短文章导读组成。知识库独立预览与首次正式阅读共用同一份内容，按“标题、中文骨架、导读”的顺序显示。资产绑定 Source、Plan、原文版本与段落版本；准备和预览不选择或推进 Reading Cursor，不生成阅读记录。旧 Plan 按用户请求补齐，不改写已保存的段落、译文或进度。
+_Avoid_: Reading Chunk, Reading Blog, independent progress cursor
+
 **Reading Chunk**:
 Reading Plan 中一个稳定、连续、可整体展示的原文单元。
 _Avoid_: Lesson, checkpoint, mastery node

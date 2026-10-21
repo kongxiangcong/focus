@@ -11,6 +11,7 @@ import "./reader-figures.css";
 import { FigurePanel, FigureViewer, type ViewerRequest } from "./FigurePanel";
 import { useReadingScroll } from "./reading-scroll";
 import { useReadingLens } from "./reading-lens";
+import { ArticleOverviewPanel } from "./ArticleOverviewPanel";
 import { ArticleStructure } from "./ArticleStructure";
 import "./article-structure.css";
 import { chunkFigures, figureChunk, extractFigures, figureNumber, imageIdentity, mergeFigures, type Figure } from "./figures";
@@ -666,9 +667,12 @@ export function FocusReader({ host, appearance = "conversation", standardWidth =
       onMouseUp={readSelection} onKeyUp={readSelection} onScroll={() => { setSelection(null); locateVisibleChunk(); scrolling.controller.current?.onScroll(); }}>
       {!mist && readingLocation}
       <div className="focus-content">
-        {showStructure && view && <ArticleStructure view={view} currentChunkId={view.structureIntro ? undefined : structureChunkId} blocked={blocked}
+        {showStructure && view && (host.getArticleOverview ? <ArticleOverviewPanel host={host} sourceId={sourceId} title={view.source.title} view={view}
+          currentChunkId={view.structureIntro ? undefined : structureChunkId} blocked={blocked}
           onReview={id => { const chunk = chunks.find(c => c.chunkId === id); if (chunk) { setStructureOpen(false); review(chunk); } }}
-          onBody={() => { if (view.structureIntro) freshContinue(); else setStructureOpen(false); }} />}
+          onBody={() => { if (view.structureIntro) freshContinue(); else setStructureOpen(false); }} /> : <ArticleStructure view={view} currentChunkId={view.structureIntro ? undefined : structureChunkId} blocked={blocked}
+          onReview={id => { const chunk = chunks.find(c => c.chunkId === id); if (chunk) { setStructureOpen(false); review(chunk); } }}
+          onBody={() => { if (view.structureIntro) freshContinue(); else setStructureOpen(false); }} />)}
         <div hidden={showStructure} className={mist ? "reading-lens-document" : undefined} ref={lens.document}>
         {mist && <div ref={lens.surface} className="reading-lens" data-review={lensReview} data-lens-active={lens.activeId ?? undefined} hidden={!lens.activeId} aria-hidden="true" />}
         {!view && <p role="status">{connection ? "暂时无法连接" : "正在打开…"}</p>}

@@ -336,6 +336,12 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, {'ok': True, 'value': result})
                     return
                 raise ValueError('Unknown Reading Preparation operation')
+            if len(parts) == 2 and parts[1] == 'overview' and method in ('GET', 'POST'):
+                with service.lock:
+                    result = (service.article_overview(source_id) if method == 'GET' else
+                              service.prepare_article_overview(source_id, request_id=self._body().get('requestId')))
+                self._send(200, {'ok': True, 'value': result})
+                return
             if method == 'GET' and len(parts) == 4 and parts[1] == 'historical' and parts[3] == 'content':
                 target = service.core.historical_content(source_id, parts[2])
                 self._send(200, target.read_bytes(), content_type='text/markdown; charset=utf-8')

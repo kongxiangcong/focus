@@ -156,6 +156,7 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
 .library-source-status[data-tone=success] progress::-webkit-progress-value { background:var(--reader-success); }
 .library-source-status[data-tone=success] progress::-moz-progress-bar { background:var(--reader-success); }
 .library-source-artifacts { display:flex; flex-wrap:wrap; gap:var(--reader-gap-sm); align-items:center; font-size:var(--reader-ui-size); color:var(--reader-secondary); font-variant-numeric:tabular-nums; }
+.library-source-artifacts > button { font-size:inherit; white-space:nowrap; gap:var(--reader-gap-xs); }
 .library-source-artifacts > span { display:inline-flex; align-items:center; gap:var(--reader-gap-xs); }
 .workspace-app .library-source-primary { color:var(--reader-accent-ink); border-color:transparent; white-space:nowrap; }
 .library-source-more { position:relative; justify-self:end; }
@@ -295,7 +296,7 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
 @media(max-width:1180px) {
   .library-source-row { grid-template-columns:auto minmax(0,1fr) minmax(0,calc(var(--reader-control-h) * 5)) auto auto; }
   .library-source-row[data-ordered=true] { grid-template-columns:auto auto minmax(0,1fr) minmax(0,calc(var(--reader-control-h) * 5)) auto auto; }
-  .library-source-row .library-source-artifacts { display:none; }
+  .library-source-row .library-source-artifacts { display:flex; grid-column:2 / -1; grid-row:2; }
 }
 @media(max-width:760px) {
   .workspace-app[data-route="/library"] .library-page { padding:0; container-type:normal; }
@@ -311,8 +312,9 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
   .library-toolbar .workspace-header-actions { gap:var(--reader-gap-xs); }
   .library-toolbar .workspace-task-toggle { max-width:calc(var(--reader-gap-lg) * 5); padding-inline:var(--reader-gap-xs); }
   .library-toolbar .workspace-task-toggle > span:not([aria-hidden]) { overflow:hidden; text-overflow:ellipsis; }
-  .library-source-row { grid-template-columns:auto minmax(0,1fr) auto; grid-template-areas:"kind main more" "state state action"; gap:var(--reader-gap-xs); }
-  .library-source-row[data-ordered=true] { grid-template-columns:auto auto minmax(0,1fr) auto; grid-template-areas:"ordinal kind main more" "ordinal state state action"; }
+  .library-source-row { grid-template-columns:auto minmax(0,1fr) auto; grid-template-areas:"kind main more" "state state action" "artifacts artifacts artifacts"; gap:var(--reader-gap-xs); }
+  .library-source-row[data-ordered=true] { grid-template-columns:auto auto minmax(0,1fr) auto; grid-template-areas:"ordinal kind main more" "ordinal state state action" "ordinal artifacts artifacts artifacts"; }
+  .library-source-row > .library-source-artifacts { grid-area:artifacts; }
   .library-source-row > .source-badge { grid-area:kind; }
   .library-source-row > .library-source-main { grid-area:main; }
   .library-source-row > .library-source-status { grid-area:state; }

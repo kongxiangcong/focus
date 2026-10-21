@@ -13,7 +13,7 @@ function blogStatus(overrides: Partial<BlogStatus> = {}, artifacts: Partial<Reco
     warnings: [], error: null, ...overrides,
   };
 }
-function setup(initialInbox: readonly IngestionItem[] = [], initialWindow: ReadingWindow = empty) {
+function setup(initialInbox: readonly IngestionItem[] = [], initialWindow: ReadingWindow = empty, overrides: Partial<ReaderHost> = {}) {
   const staged: IngestionItem = { itemId: "item-1", fileName: "test.pdf", status: "awaiting_confirmation", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["mineru"] };
   const confirmed: IngestionItem = { ...staged, status: "confirmed", confirmation: { services: ["mineru"], purpose: "register source", scope: "ingestion" } };
   const processing: IngestionItem = { ...staged, status: "processing" };
@@ -44,6 +44,7 @@ function setup(initialInbox: readonly IngestionItem[] = [], initialWindow: Readi
     cancelBlog: vi.fn(async () => readerSuccess(blogStatus({ runStatus: "cancelled" }))),
     blogUrl: (id: string) => `/library/sources/${id}/blog/html`,
   };
+  Object.assign(host, overrides);
   return { host, ...render(<WorkspaceApp host={host} />) };
 }
 beforeEach(() => {
@@ -342,9 +343,9 @@ it("generates a blog from the source card and shows the three sub-statuses", asy
   fireEvent.click(await screen.findByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "生成博客" }));
   await waitFor(() => expect(host.generateBlog).toHaveBeenCalledWith("a-paper", expect.any(String)));
-  expect(await screen.findByText("带读博客")).toBeInTheDocument();
+  expect(await within(screen.getByRole("complementary", { name: "来源详情" })).findByText("带读博客")).toBeInTheDocument();
   expect(screen.queryByText("价值分析")).not.toBeInTheDocument();
-  expect(screen.getByText("带读博客")).toBeInTheDocument();
+  expect(within(screen.getByRole("complementary", { name: "来源详情" })).getByText("带读博客")).toBeInTheDocument();
   expect(screen.getByText("HTML")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "打开博客" })).toBeEnabled();
   expect(screen.getByRole("button", { name: "重新生成" })).toBeEnabled();
@@ -429,7 +430,7 @@ it("keeps rows compact, opens the inspector, and persists card display", async (
   const app = setup();
   const title = await screen.findByRole("button", { name: "A Paper" });
   const row = title.closest("article")!;
-  expect(within(row).getAllByRole("button").map(button => button.getAttribute("aria-label") ?? button.textContent)).toEqual(["A Paper", "继续阅读", "更多"]);
+  expect(within(row).getAllByRole("button").map(button => button.getAttribute("aria-label") ?? button.textContent)).toEqual(["A Paper", "文章结构", "博客：博客状态未载入", "继续阅读", "更多"]);
   expect(screen.queryByRole("button", { name: "管理来源" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "打开博客" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "列表显示" })).toHaveAttribute("aria-pressed", "true");
@@ -445,7 +446,7 @@ it("keeps rows compact, opens the inspector, and persists card display", async (
   expect(card.parentElement).toHaveAttribute("data-view", "cards");
   fireEvent.click(screen.getByRole("button", { name: "关闭详情" }));
   expect(screen.queryByRole("complementary", { name: "来源详情" })).not.toBeInTheDocument();
-  expect(within(card).getAllByRole("button")).toHaveLength(3);
+  expect(within(card).getAllByRole("button")).toHaveLength(5);
   fireEvent.click(within(card).getByRole("button", { name: "继续阅读" }));
   await waitFor(() => expect(app.host.openSource).toHaveBeenCalledWith("a-paper", expect.any(String)));
   app.unmount(); setup();
@@ -903,4 +904,30 @@ it("ignores a nonnumeric saved standard width", () => {
   history.replaceState(null, "", "/settings");
   setup();
   expect(screen.getByRole("slider", { name: "标准阅读宽度" })).toHaveValue("1040");
+});
+
+
+it.each(["列表显示", "卡片显示"])("opens a structure preview from %s and restores library context without starting reading", async display => {
+  const getArticleOverview = vi.fn(async () => readerSuccess({ sourceId: "a-paper", title: "A Paper", status: "ready" as const,
+    revision: "v1", guide: "作者先指出等待数据的问题，再提出改进办法，最后用模型分析检验效果。",
+    structure: [{ id: "root", parentId: null, title: "问题与验证", description: "说明方法成立的条件。", sourceLines: [1, 4] as const }], chunkNodes: ["root"] }));
+  const { host, container } = setup([], empty, { getArticleOverview });
+  await screen.findByRole("button", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: display }));
+  fireEvent.change(screen.getByRole("searchbox", { name: "搜索材料" }), { target: { value: "Paper" } });
+  const scroller=container.querySelector<HTMLElement>(".library-sources")!;
+  scroller.scrollTop=240;
+  const trigger=screen.getByRole("button", { name: "文章结构" });
+  trigger.focus(); fireEvent.click(trigger);
+  const dialog=await screen.findByRole("dialog", { name: "文章结构预览" });
+  await within(dialog).findByRole("heading", { name: "文章导读" });
+  expect(host.openSource).not.toHaveBeenCalled(); expect(host.continueReading).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "关闭文章结构" }));
+  expect(screen.queryByRole("dialog", { name: "文章结构预览" })).not.toBeInTheDocument();
+  expect(screen.getByRole("searchbox", { name: "搜索材料" })).toHaveValue("Paper");
+  expect(scroller.scrollTop).toBe(240); expect(trigger).toHaveFocus();
+  fireEvent.click(trigger);
+  const again=await screen.findByRole("dialog", { name: "文章结构预览" });
+  fireEvent(again, new Event("cancel", { bubbles: true, cancelable: true }));
+  expect(screen.queryByRole("dialog", { name: "文章结构预览" })).not.toBeInTheDocument();
 });

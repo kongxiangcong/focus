@@ -3,3 +3,5 @@ export { AgentControls } from "./AgentControls";
 export { TaskProgress } from "./TaskProgress";
 export type { FocusReaderProps } from "./FocusReader";
 export { readingFontSizes } from "./typography";
+
+export { ArticleOverviewPanel } from "./ArticleOverviewPanel";

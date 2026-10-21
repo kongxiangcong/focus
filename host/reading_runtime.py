@@ -49,6 +49,7 @@ class AgentReadingRuntime:
             'each node has ONLY id, parent_id (null for roots), title (short Chinese, preferably 2-12 characters, at most 32), '
             'description (one concise Chinese sentence explaining its logical role, at most 160 characters), '
             'source_lines (inclusive original line range). Use original section hierarchy and order, not a generic template. '
+            'Retain major levels, not every tiny subsection; keep the author argument order. '
             'For untitled passages infer concise headings from the actual text. Sibling ranges must not overlap; '
             'children must fit within parent ranges. chunk_nodes is an array of node ids in chunk order, one per chunk; '
             'the assigned node must fully contain the chunk range. Every node must contain assigned chunks or descendants. '
@@ -73,6 +74,28 @@ class AgentReadingRuntime:
             'Do not create chunks containing only a section heading; combine with the related content. '
             'Line-number prefixes are annotations, not source text.',
             {'source_id': source_id, 'ranges': numbered, 'context': context})
+
+    def overview_structure(self, *, source_id, ranges, chunks, feedback=None):
+        return self._candidate('根据全文原文先确定精简的中文文章骨架。Return {nodes, chunk_nodes}. '
+            '保留作者主要层级和论证顺序，不罗列细碎小节，不强套背景/方法/实验模板。'
+            '标题自然准确，必须含中文；专有名词和缩写可保留，不能直接展示整句英文章节标题。'
+            '每个 node 只含 id, parent_id (根为 null), title (最多32字), description (简短中文逻辑作用，最多160字), '
+            'source_lines (原文行号闭区间)。父在子前，兄弟区间不重叠，子区间包含于父。'
+            'chunk_nodes 按给定 chunks 顺序为每段绑定一个完全包含它行范围的节点；每节点必须包含段落或子节点。'
+            '不可修改 chunks；允许将细碎段落归并到主要章节。根据 feedback 修正校验错误。',
+            {'source_id': source_id, 'ranges': ranges, 'chunks': chunks, 'feedback': feedback})
+
+    def overview_guide(self, *, source_id, ranges, structure, feedback=None):
+        return self._candidate('基于全文和已确定的中文骨架，返回一个 JSON 字符串作为文章导读正文。'
+            '通常300–400字，最多500字（仅正文，不计空白）；不凑字数，不生硬截断。'
+            '大白话、连贯短段落，面向未读正文的人。顺着作者的论证走，从直觉走到真正成立、真正能用：'
+            '原来哪里卡住→作者想到什么→需要跨过哪些难点→怎样解决→证据支持到什么程度。'
+            '优先解释为什么接下来要讲这一部分，遵循骨架主要顺序，提到章节名称时沿用骨架中文名称。'
+            '不要机械逐节复述，不重复骨架，不堆公式、术语、实验数字和贡献口号，不强制故事或类比。'
+            '说明性例子不能冒充实验；非工程文章按其论证方式表达。严格区分设想、推导、仿真、建模和实际测量。'
+            '芯片表征与系统部署评估不能统称整机实测；固定计算逻辑改变内存配置不等于与现成GPU整机实测竞赛。'
+            '不把目标当成果，不宣称所有模型受益或普遍胜出。只依据原文，不凭标题编造。根据 feedback 修订。',
+            {'source_id': source_id, 'ranges': ranges, 'structure': structure, 'feedback': feedback})
 
     def translate(self, *, source_id, chunk, context, glossary, neighbors, issue):
         value = self._candidate('Translate foreign text in this chunk into fluent Chinese using the full-source '
