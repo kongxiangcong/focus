@@ -27,11 +27,11 @@ class BackendOnboardingTests(unittest.TestCase):
         setup = BackendSetup()
         with test_directory() as root:
             binary = root / 'runtime.exe'; binary.touch()
-            credentials = root / '.env'; credentials.write_text('DEEPSEEK_API_KEY=fixture-one\n')
+            credentials = root / '.env'; credentials.write_text('DEEPSEEK_API_KEY=fixture-one\n', encoding="utf-8")
             payload = {'backend': 'deepseek', 'runtimePath': str(binary), 'credentialFile': str(credentials)}
             environment = setup.environment_id(payload, setup.inspect(payload))
             setup.connections[environment] = 'verified'
-            credentials.write_text('DEEPSEEK_API_KEY=fixture-two\n')
+            credentials.write_text('DEEPSEEK_API_KEY=fixture-two\n', encoding="utf-8")
             with patch.object(setup, 'discover', side_effect=AssertionError('unverified environment')):
                 result = setup.models(payload)
             self.assertEqual('failed', result['status'])

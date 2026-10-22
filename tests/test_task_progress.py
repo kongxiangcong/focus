@@ -11,6 +11,7 @@ class TaskProgressTests(unittest.TestCase):
     setUp = test_web_host.WebHostTests.setUp
     tearDown = test_web_host.WebHostTests.tearDown
     finish = test_web_host.WebHostTests.finish
+    start = test_web_host.WebHostTests.start
 
     def test_observed_events_update_stage_without_moving_cursor(self):
         state = (self.workspace / 'state.json').read_bytes()
@@ -24,16 +25,15 @@ class TaskProgressTests(unittest.TestCase):
         self.assertEqual(state, (self.workspace / 'state.json').read_bytes())
         self.host.state['run']['status'] = 'completed'
 
-    def test_failed_verification_never_publishes_completed(self):
+    def test_failed_turn_never_publishes_completed(self):
         seen = []
         changed = self.host.changed
         def observe():
             seen.append(self.host.state['run']['status'])
             changed()
         with patch.object(self.host, 'changed', side_effect=observe), patch.object(
-                self.host, '_verify_library_task', side_effect=ValueError('verification failed')):
-            self.host.start({'requestId': 'verify-progress', 'receipt': None, 'content': 'test'},
-                library_task={'kind': 'read', 'sourceId': 'fixture-paper'})
+                self.host, '_build_backend', side_effect=ValueError('verification failed')):
+            self.start(content='test')
             self.finish()
         self.assertNotIn('completed', seen)
         run = self.host.snapshot()['agent']['run']

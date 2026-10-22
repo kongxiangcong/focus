@@ -97,11 +97,26 @@ class ReadingFixture:
                 json.dumps({"chunk_id": chunk["chunk_id"], "translation": None, "notes": []}),
                 encoding="utf-8",
             )
+        from core.article_blog import bundle_fingerprint
+
+        (plan / "provenance.json").write_text(
+            json.dumps(
+                {
+                    "source_id": "fixture-paper",
+                    "bundle": bundle_fingerprint(bundle),
+                    "method": "reading-v2",
+                    "context_revision": "fixture-context",
+                    "runtime": {"adapter": "fixture"},
+                }
+            ),
+            encoding="utf-8",
+        )
         (workspace / "state.json").write_text(
             json.dumps(
                 {
                     "current_source_id": "fixture-paper",
                     "current_topic_id": None,
+                    "reading_revision": 0,
                     "sources": {"fixture-paper": {"current_plan_id": "plan-001", "current_chunk_id": "chunk-001"}},
                 }
             ),
@@ -113,6 +128,60 @@ class ReadingFixture:
         path = self.root / name
         path.write_text(value, encoding="utf-8")
         return path
+
+    def seal_preparation(self, workspace: Path, *, source_id: str = "fixture-paper", plan_id: str = "plan-001") -> dict:
+        """Write the ready certificate a real checked preparation would leave behind."""
+        from core.article_blog import bundle_fingerprint
+        from core.reading_application import ReadingCore, _digest
+        from core.reading_workspace import _read_chunk_records, _read_glossary
+
+        source_root = workspace / "sources" / source_id
+        root = source_root / "reading" / "plans" / plan_id
+        chunks = _read_chunk_records(root / "chunks.jsonl")
+        bundle = bundle_fingerprint(source_root / "parser-bundle")
+        certificate = {
+            "bundle": bundle,
+            "plan_id": plan_id,
+            "context_revision": "fixture-context",
+            "glossary_revision": _digest(_read_glossary(root / "glossary.tsv")),
+            "plan_revision": _digest(chunks),
+        }
+        certificate["content_revision"] = ReadingCore(
+            workspace, writer_id="fixture"
+        )._content_revision(source_id, certificate)
+        run = {
+            "run_id": uuid.uuid4().hex,
+            "request_id": uuid.uuid4().hex,
+            "attempt": uuid.uuid4().hex,
+            "writer_id": "fixture",
+            "source_id": source_id,
+            "bundle": bundle,
+            "plan_id": plan_id,
+            "method": "reading-v2",
+            "runtime": {"adapter": "fixture"},
+            "status": "ready",
+            "step": "ready",
+            "error": None,
+            "timed_out": False,
+            "context": {"structure": "Method, Runtime, Results", "terms": [], "symbols": [], "references": []},
+            "context_revision": "fixture-context",
+            "glossary_revision": certificate["glossary_revision"],
+            "plan_revision": certificate["plan_revision"],
+            "check": {
+                "passed": True,
+                "issues": {},
+                "coverage": [chunk["chunk_id"] for chunk in chunks],
+                "content_revision": certificate["content_revision"],
+            },
+            "ready_plans": {plan_id: certificate},
+            "requests": {},
+            "repair_rounds": 0,
+            "transport_retries": 0,
+        }
+        (source_root / "reading" / "preparation.json").write_text(
+            json.dumps(run, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        return run
 
     @staticmethod
     def core(workspace: Path):

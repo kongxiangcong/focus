@@ -83,7 +83,7 @@ class StructureEntryTests(unittest.TestCase):
 
     def test_new_structure_is_saved_and_readiness_covers_its_content(self):
         plan = self.workspace / 'sources/fixture-paper/reading/plans/plan-001'
-        chunks = [json.loads(line) for line in (plan / 'chunks.jsonl').read_text().splitlines()]
+        chunks = [json.loads(line) for line in (plan / 'chunks.jsonl').read_text(encoding="utf-8").splitlines()]
         draft = {'chunks': [{k: c[k] for k in ('section_path', 'source_lines', 'images')} for c in chunks], 'glossary': []}
         self.host.reading_app.runtime = stage4.PlanningRuntime(draft)
         self.host.prepare_reading('fixture-paper', request_id=uuid.uuid4().hex, rebuild=True)

@@ -88,17 +88,17 @@ class ConfirmedUXTests(unittest.TestCase):
         other = self.workspace / 'sources/other-paper'
         import shutil
         shutil.copytree(self.workspace / 'sources/fixture-paper', other)
-        source = json.loads((other / 'source.yaml').read_text())
+        source = json.loads((other / 'source.yaml').read_text(encoding="utf-8"))
         source['source_id'] = 'other-paper'
-        (other / 'source.yaml').write_text(json.dumps(source))
+        (other / 'source.yaml').write_text(json.dumps(source), encoding="utf-8")
         state_path = self.workspace / 'state.json'
-        state = json.loads(state_path.read_text())
+        state = json.loads(state_path.read_text(encoding="utf-8"))
         state['sources']['other-paper'] = {'current_plan_id': 'plan-001', 'current_chunk_id': 'chunk-002', 'reading_started': True, 'reading_pass': 1}
-        state_path.write_text(json.dumps(state))
+        state_path.write_text(json.dumps(state), encoding="utf-8")
         before = self.host.snapshot()['current']
         self.host.clear_source('other-paper', {'confirmed': True, 'resetReading': True, 'requestId': uuid.uuid4().hex})
         self.assertEqual(before, self.host.snapshot()['current'])
-        self.assertEqual('chunk-001', json.loads(state_path.read_text())['sources']['other-paper']['current_chunk_id'])
+        self.assertEqual('chunk-001', json.loads(state_path.read_text(encoding="utf-8"))['sources']['other-paper']['current_chunk_id'])
 
     def test_T9_completed_review_continue_remains_completed(self):
         self.advance(); self.advance()

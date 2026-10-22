@@ -136,7 +136,7 @@ class HostService:
             raise BackendError(f'未知 Agent 后端 {backend!r}；可选：{", ".join(sorted(BACKENDS))}')
         if not self.state['timeline'] and self.state['displayReading']:
             window = self.core.window()
-            selection = json.loads((self.workspace / 'state.json').read_text()).get('sources', {}).get(window['source']['sourceId'], {}) if (self.workspace / 'state.json').is_file() else {}
+            selection = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8")).get('sources', {}).get(window['source']['sourceId'], {}) if (self.workspace / 'state.json').is_file() else {}
             for c in ([*window['history'], *([window['current']] if window['current'] else [])] if selection.get('reading_started') else []):
                 self._append_reading({k: c[k] for k in ('sourceId', 'planId', 'chunkId')})
             if selection.get('reading_started') and window['current']:
@@ -165,7 +165,7 @@ class HostService:
     def changed(self):
         if self.state['displayReading']:
             current = self._safe_state()
-            selected = json.loads((self.workspace / 'state.json').read_text()).get('sources', {}).get(current.get('source_id'), {}) if (self.workspace / 'state.json').is_file() else {}
+            selected = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8")).get('sources', {}).get(current.get('source_id'), {}) if (self.workspace / 'state.json').is_file() else {}
             if current.get('chunk_id') and selected.get('reading_started'):
                 receipt = {'sourceId': current['source_id'], 'planId': current['plan_id'], 'chunkId': current['chunk_id']}
                 marker = [receipt, self.core.window().get('readingRevision'), self.state['sessionId']]
@@ -206,7 +206,7 @@ class HostService:
             window['configuration'] = self.configuration_status()
             window['sessionFresh'] = not self.state['displayReading']
             window['navigationCurrent'] = window['current']
-            selected_state = json.loads((self.workspace / 'state.json').read_text()) if (self.workspace / 'state.json').is_file() else {}
+            selected_state = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8")) if (self.workspace / 'state.json').is_file() else {}
             window['readingStarted'] = bool(selected_state.get('sources', {}).get(note_source, {}).get('reading_started'))
             window['structureIntro'] = bool(window.get('structure') and window['navigationCurrent'] and not window['readingStarted'])
             if note_source and window.get('structure'):
@@ -323,7 +323,7 @@ class HostService:
             if not item.get('deleted') and item['status'] not in ('completed', 'awaiting_confirmation'):
                 add('ingestion', item['item_id'], item['status'], '正在解析 ' + item['file_name'] if item['status'] in ('processing', 'confirmed') else '解析待处理 · ' + item['file_name'], (item.get('error') or {}).get('message'), item)
         state_path = self.workspace / 'state.json'
-        state = json.loads(state_path.read_text()) if state_path.is_file() else {}
+        state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
         for entry in state.get('reading_progress', {}).values():
             if not entry['deleted'] and entry['status'] in ('pending', 'generating', 'failed', 'interrupted'):
                 attempts = [receipt.get('result', {}).get('attempt')
@@ -974,10 +974,10 @@ class HostService:
                 raise ValueError('Continue 不保存旧 Chunk Notes；请使用 Source Notes。')
             receipt = payload.get('receipt') or {}
             newly_committed = self.reading_request_result(payload.get('requestId')) is None
-            selected = json.loads((self.workspace / 'state.json').read_text())['sources'].get(receipt.get('sourceId'), {})
+            selected = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8"))['sources'].get(receipt.get('sourceId'), {})
             previous_operation = self.reading_request_result(payload.get('requestId'))
             if payload.get('beginBody') or not selected.get('reading_started') or (previous_operation and previous_operation.get('operation') == 'start'):
-                state = json.loads((self.workspace / 'state.json').read_text())
+                state = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8"))
                 if newly_committed and (state.get('current_source_id') != receipt.get('sourceId') or selected.get('current_plan_id') != receipt.get('planId') or selected.get('current_chunk_id') != receipt.get('chunkId') or state.get('reading_revision', 0) != receipt.get('readingRevision')):
                     raise WorkspaceError('cursor_changed', '阅读位置已改变，请刷新后重试。')
                 result = self.reading_app.core.start_body(source_id=receipt.get('sourceId'),

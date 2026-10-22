@@ -1,7 +1,5 @@
 """Source IDs retain their registered spelling across Core and Host boundaries."""
-import json
 import unittest
-from unittest.mock import patch
 
 import test_source_library_topic
 import test_web_host
@@ -44,15 +42,14 @@ class SourceIdContractTests(unittest.TestCase):
                 status = self.core.preparation_status(source_id=sid)
                 for chunk_id in status['pending']:
                     args = dict(source_id=sid, plan_id=status['plan_id'], chunk_id=chunk_id)
-                    self.assertEqual(sid, bridge.tool('prepare_chunk', json.dumps(args))['source_id'])
-                    bridge.tool('prepare_translation', json.dumps({**args, 'translation': '准备译文'}))
+                    self.assertEqual(sid, self.core.preparation_chunk(**args)['source_id'])
+                    self.core.save_prepared_translation(**args, translation='准备译文')
                 self.assertTrue(self.core.preparation_status(source_id=sid)['ready'])
                 self.assertEqual(state, (self.workspace / 'state.json').read_bytes())
                 self.core.switch_source(sid)
                 current = self.core.get_current_chunk()
                 self.assertEqual(sid, current['source_id'])
-                receipt = dict(sourceId=sid, planId=current['plan_id'], chunkId=current['chunk_id'])
-                self.assertEqual('准备译文', bridge.reference(receipt)['translation'])
+                self.assertEqual('准备译文', current['translation'])
                 self.assertEqual(sid, self.core.read_source_range(source_id=sid, start=1, end=3)['source_id'])
                 topic = f'topic-{index}'
                 self.library.attach(sid, topic_title='Topic', topic_id=topic)
@@ -135,29 +132,29 @@ class SourceIdHostTests(unittest.TestCase):
                 fixture.library.register(bundle, source_kind='paper_pdf', title=name.strip(), short_name=name, identity=f'paper:upload-{index}')
                 fixture._map(sid)
                 fixture.library.attach(sid, topic_title='Upload Topic')
-                bridge = self.host.core
-
-                class PreparingDouble(test_web_host.ProtocolDouble):
-                    def request(self, method, params, timeout=60):
-                        if method == 'turn/start':
-                            status = bridge.tool('preparation', json.dumps({'source_id': sid}))
-                            for chunk_id in status['pending']:
-                                args = dict(source_id=sid, plan_id=status['plan_id'], chunk_id=chunk_id)
-                                bridge.tool('prepare_chunk', json.dumps(args))
-                                bridge.tool('prepare_translation', json.dumps({**args, 'translation': '上传准备译文'}))
-                        return super().request(method, params, timeout)
-
-                with patch('host.backends.codex.AppServer', side_effect=PreparingDouble):
-                    self.host.library_read(sid)
-                    self.finish()
-                self.assertEqual('completed', self.host.state['run']['status'])
+                status = self.host.core.core.preparation_status(source_id=sid)
+                for chunk_id in status['pending']:
+                    self.host.core.core.save_prepared_translation(
+                        source_id=sid, plan_id=status['plan_id'], chunk_id=chunk_id,
+                        translation='上传准备译文')
+                self.fixture.seal_preparation(self.workspace, source_id=sid, plan_id=status['plan_id'])
+                self.host.library_read(sid)
+                self.finish()
+                self.assertTrue(self.host.reading_app.status(sid)['selected_ready'])
                 self.assertIn(sid, next(t for t in self.host.library_topics() if t['topicId'] == 'upload-topic')['sourceIds'])
-                current = self.host.snapshot()['current']
+                view = self.host.snapshot()
+                current = view['navigationCurrent']
                 self.assertEqual(sid, current['sourceId'])
-                receipt = {k: current[k] for k in ('sourceId', 'planId', 'chunkId')}
-                self.host.start({'requestId': f'question-{index}', 'receipt': receipt, 'content': '解释这段'})
+                receipt = {**{k: current[k] for k in ('sourceId', 'planId', 'chunkId')},
+                           'readingRevision': view['readingRevision']}
+                self.host.start({'requestId': f'question-{index}', 'sourceId': sid,
+                                 'receipt': None, 'content': '解释这段'})
                 self.finish()
                 self.assertEqual('completed', self.host.state['run']['status'])
+                began = self.host.continue_cached({'beginBody': True, 'receipt': receipt,
+                                                   'requestId': f'begin-request-{index}'})
+                receipt = {**{k: began['navigationCurrent'][k] for k in ('sourceId', 'planId', 'chunkId')},
+                           'readingRevision': began['readingRevision']}
                 self.host.continue_cached({'requestId': f'continue-{index}', 'receipt': receipt})
                 self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])
                 self.assertTrue((self.workspace / 'sources' / sid).is_dir())

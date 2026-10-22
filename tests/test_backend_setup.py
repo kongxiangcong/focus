@@ -217,7 +217,7 @@ class BackendSetupTests(unittest.TestCase):
         import ctypes
         kernel = ctypes.WinDLL('kernel32', use_last_error=True)
         kernel.OpenProcess.restype = ctypes.c_void_p
-        handle = kernel.OpenProcess(0x00100000, False, int(pid_file.read_text()))
+        handle = kernel.OpenProcess(0x00100000, False, int(pid_file.read_text(encoding="utf-8")))
         if handle:
             try:
                 self.assertEqual(0, kernel.WaitForSingleObject(ctypes.c_void_p(handle), 5000))

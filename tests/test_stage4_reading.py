@@ -155,7 +155,7 @@ class Stage4PreparationTests(unittest.TestCase):
         replayed = self.host.open_prepared_reading("fixture-paper", request_id=open_id)
         self.assertEqual(opened["readingOperation"], replayed["readingOperation"])
         self.assertEqual(opened["readingOperation"]["reading_revision"],
-                         json.loads((self.workspace / "state.json").read_text()).get("reading_revision", 0))
+                         json.loads((self.workspace / "state.json").read_text(encoding="utf-8")).get("reading_revision", 0))
 
     def test_cancel_fences_late_translation_and_manual_resume_reuses_context(self):
         self.host.close()
@@ -220,7 +220,7 @@ class Stage4PreparationTests(unittest.TestCase):
         self.assertEqual(2, self.runtime.calls.count("plan"))
         self.assertIn("invalid", self.runtime.feedback["validation_error"])
         self.assertEqual(original, chunks_path.read_bytes())
-        self.assertEqual("plan-001", json.loads((self.workspace / "state.json").read_text())["sources"]["fixture-paper"]["current_plan_id"])
+        self.assertEqual("plan-001", json.loads((self.workspace / "state.json").read_text(encoding="utf-8"))["sources"]["fixture-paper"]["current_plan_id"])
         self.runtime.draft = {"chunks": [], "glossary": []}
         self.runtime.calls.clear()
         self.host.prepare_reading("fixture-paper", request_id=uuid.uuid4().hex, rebuild=True)
@@ -315,7 +315,7 @@ class Stage4PreparationTests(unittest.TestCase):
             connection.request("GET", "/reader/window")
             prepared = json.load(connection.getresponse())["value"]
             self.assertTrue(prepared["preparations"]["fixture-paper"]["ready"])
-            self.assertFalse(json.loads((self.workspace / "state.json").read_text())["sources"]["fixture-paper"].get("reading_started", False))
+            self.assertFalse(json.loads((self.workspace / "state.json").read_text(encoding="utf-8"))["sources"]["fixture-paper"].get("reading_started", False))
             connection.request("POST", path, body=json.dumps({"requestId": uuid.uuid4().hex}),
                                headers={"Content-Type": "application/json"})
             opened = json.load(connection.getresponse())["value"]
@@ -420,11 +420,11 @@ class Stage4PreparationTests(unittest.TestCase):
         self.host.reading_workers["fixture-paper"].join(3)
         status = self.host.snapshot()["preparations"]["fixture-paper"]
         self.assertEqual("commit_conflict", status["status"])
-        record = json.loads((self.workspace / "sources/fixture-paper/reading/plans/plan-001/records/chunk-001.json").read_text())
+        record = json.loads((self.workspace / "sources/fixture-paper/reading/plans/plan-001/records/chunk-001.json").read_text(encoding="utf-8"))
         self.assertIsNone(record["translation"])
         conflicts = list((self.workspace / "sources/fixture-paper/reading/conflicts").glob("*.json"))
         self.assertEqual(1, len(conflicts))
-        self.assertEqual("reading_glossary_changed", json.loads(conflicts[0].read_text())["reason"])
+        self.assertEqual("reading_glossary_changed", json.loads(conflicts[0].read_text(encoding="utf-8"))["reason"])
 
     def test_reference_exclusion_cannot_hide_following_appendix(self):
         self._assert_reference_exclusion("References", "[1] Citation.")
@@ -440,7 +440,7 @@ class Stage4PreparationTests(unittest.TestCase):
         content = self.workspace / "sources/fixture-paper/parser-bundle/content.md"
         content.write_text(f"# X\n\n## Body\nA method.\n![Architecture](images/image-001.png)\nFigure 1: Architecture.\n## {heading}\n{entry}\n## Appendix\nThe derivation.\n", encoding="utf-8")
         state_path = self.workspace / "state.json"
-        state = json.loads(state_path.read_text())
+        state = json.loads(state_path.read_text(encoding="utf-8"))
         state["sources"]["fixture-paper"].update(current_plan_id=None, current_chunk_id=None)
         state_path.write_text(json.dumps(state), encoding="utf-8")
         draft = {"chunks": [
@@ -452,7 +452,7 @@ class Stage4PreparationTests(unittest.TestCase):
         self.host.prepare_reading("fixture-paper", request_id=uuid.uuid4().hex)
         self.host.reading_workers["fixture-paper"].join(3)
         self.assertTrue(self.host.snapshot()["preparations"]["fixture-paper"]["ready"])
-        provenance = json.loads((self.workspace / "sources/fixture-paper/reading/plans/plan-002/provenance.json").read_text())
+        provenance = json.loads((self.workspace / "sources/fixture-paper/reading/plans/plan-002/provenance.json").read_text(encoding="utf-8"))
         self.assertEqual([[7, 8]], provenance["excluded_ranges"])
         self.runtime.draft = {"chunks": [
             {"section_path": ["X", "Body"], "source_lines": [1, 10], "images": ["images/image-001.png"]}],

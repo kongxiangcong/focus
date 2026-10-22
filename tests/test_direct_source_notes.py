@@ -26,7 +26,7 @@ class DirectSourceNoteTests(unittest.TestCase):
         self.runtime = Runtime()
         self.host = HostService(self.root/'kb', self.root/'hostdata', reading_runtime=self.runtime, settings_path=self.root/'settings.json')
         article = self.root/'article.md'
-        article.write_text('# 数据搬运\n计算必须等待数据。\n## Method\n提前搬运，双缓冲轮换，需要同步。\n## Evaluation\n只做模型分析，真实设备仍待验证。\n')
+        article.write_text('# 数据搬运\n计算必须等待数据。\n## Method\n提前搬运，双缓冲轮换，需要同步。\n## Evaluation\n只做模型分析，真实设备仍待验证。\n', encoding="utf-8")
         self.source = import_markdown(self.host.workspace, article, short_name='direct-note')['source_id']
         self.host.prepare_article_overview(self.source, request_id=uuid.uuid4().hex)
         self.host.reading_workers[self.source].join(8)
@@ -63,7 +63,7 @@ class DirectSourceNoteTests(unittest.TestCase):
         self.assertEqual([],self.host.source_notes.list(self.source))
     def test_changed_bundle_can_be_saved_as_whole_source(self):
         path=self.host.workspace/'sources'/self.source/'parser-bundle/content.md'
-        path.write_text(path.read_text()+'\n新增段落。\n')
+        path.write_text(path.read_text(encoding="utf-8")+'\n新增段落。\n', encoding="utf-8")
         with self.assertRaises(WorkspaceError) as caught: self.save()
         self.assertEqual('note_bundle_changed',caught.exception.error_id)
         self.assertIsNone(self.save(chunk=None,quote=None)['noteOperation']['note']['anchor'])
@@ -79,7 +79,7 @@ class DirectSourceNoteTests(unittest.TestCase):
             two=self.host.core.plan_bundle(self.source,self.chunk['planId'])
         self.assertEqual(one,two);self.assertEqual(1,len(reads))
         path=self.host.workspace/'sources'/self.source/'reading/plans'/self.chunk['planId']/'provenance.json'
-        data=json.loads(path.read_text());data['bundle']='different-version';path.write_text(json.dumps(data))
+        data=json.loads(path.read_text(encoding="utf-8"));data['bundle']='different-version';path.write_text(json.dumps(data), encoding="utf-8")
         self.assertEqual('different-version',self.host.core.plan_bundle(self.source,self.chunk['planId']))
     def test_direct_note_reuses_edit_delete_undo_and_clear_semantics(self):
         note=self.save()['noteOperation']['note']
@@ -114,7 +114,7 @@ class DirectSourceNoteTests(unittest.TestCase):
             self.assertEqual(401,post(self.payload,False)[0])
             self.assertEqual(400,post(self.payload,bound=False)[0])
             status,body=post(self.payload);self.assertEqual(201,status);self.assertTrue(body['ok'])
-            path=self.host.workspace/'sources'/self.source/'parser-bundle/content.md';path.write_text(path.read_text()+'\n变化。\n')
+            path=self.host.workspace/'sources'/self.source/'parser-bundle/content.md';path.write_text(path.read_text(encoding="utf-8")+'\n变化。\n', encoding="utf-8")
             status,body=post({**self.payload,'requestId':uuid.uuid4().hex})
             self.assertEqual(409,status);self.assertEqual('note_bundle_changed',body['error']['code'])
         finally:server.shutdown();server.server_close();thread.join()

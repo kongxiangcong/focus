@@ -71,7 +71,7 @@ class ManagementTests(unittest.TestCase):
     def test_topic_delete_write_failure_preserves_relationship_and_current_topic(self):
         sid = self.source()
         state_path = self.root / 'knowledge-base/state.json'
-        state = json.loads(state_path.read_text())
+        state = json.loads(state_path.read_text(encoding="utf-8"))
         state['current_topic_id'] = 'systems'
         state_path.write_text(json.dumps(state), encoding='utf-8')
         from core.source_library import SourceLibrary
@@ -79,9 +79,9 @@ class ManagementTests(unittest.TestCase):
             with self.assertRaises(OSError):
                 SourceLibrary(self.root / 'knowledge-base').delete_topic('systems')
         self.assertEqual([sid], self.request('GET', '/library/topics')[0]['sourceIds'])
-        self.assertEqual('systems', json.loads(state_path.read_text())['current_topic_id'])
+        self.assertEqual('systems', json.loads(state_path.read_text(encoding="utf-8"))['current_topic_id'])
         self.request('POST', '/library/topics/systems/delete', {})
-        self.assertIsNone(json.loads(state_path.read_text())['current_topic_id'])
+        self.assertIsNone(json.loads(state_path.read_text(encoding="utf-8"))['current_topic_id'])
         self.assertEqual(1, len(self.request('GET', '/library/sources')))
 
     def test_topic_order_and_detach_failure_restore_current_reference(self):
@@ -97,7 +97,7 @@ class ManagementTests(unittest.TestCase):
         self.assertEqual([second, first], self.request('GET', '/library/topics')[0]['sourceIds'])
         self.request('POST', '/library/topics/systems/reorder', {'sourceIds': [first]}, expected_status=400)
         state_path = self.root / 'knowledge-base/state.json'
-        state = json.loads(state_path.read_text())
+        state = json.loads(state_path.read_text(encoding="utf-8"))
         state['current_topic_id'], state['current_source_id'] = 'systems', first
         state_path.write_text(json.dumps(state), encoding='utf-8')
         from core import source_library
@@ -111,7 +111,7 @@ class ManagementTests(unittest.TestCase):
         with patch('core.source_library._write_document', side_effect=fail_second):
             with self.assertRaises(OSError):
                 source_library.SourceLibrary(self.root / 'knowledge-base').detach('systems', first)
-        self.assertEqual('systems', json.loads(state_path.read_text())['current_topic_id'])
+        self.assertEqual('systems', json.loads(state_path.read_text(encoding="utf-8"))['current_topic_id'])
         self.assertEqual([second, first], self.request('GET', '/library/topics')[0]['sourceIds'])
 
     def test_management_rejects_active_blog(self):

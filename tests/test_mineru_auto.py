@@ -40,7 +40,7 @@ class FakeRemote:
         self.started += 1
         checkpoint({"reference_kind": "batch_id", "reference_id": "batch1"})
         Path(candidate).mkdir(parents=True, exist_ok=True)
-        (Path(candidate) / "metadata.json").write_text("{}")
+        (Path(candidate) / "metadata.json").write_text("{}", encoding="utf-8")
         return {"batch_id": "batch1"}
 
 
