@@ -14,6 +14,8 @@
 
 - [03 讨论笔记显示位置](issues/03-dialogue-note-placement.md#answer)：Host 引用无证据锚点时保存 placement，笔记迁移/重放/编辑撤销/版本失效行为通过；65 项回归与真实库副本的受控 Runtime HTTP 验收通过，不宣称外部模型效果。
 
+- [04 Host 标注接口](issues/04-host-highlights-sentence-api.md#answer)：重点 HTTP 创建/删除/撤销/请求查询、句子备注、快照与错误码落地；43 项规定测试和 39 项笔记/讨论回归通过，兼容旧请求 digest，并清除残留操作快照。均为隔离合成 Host/Core 证据。
+
 ## Fog
 
 功能与浏览器验收以 [13](issues/13-acceptance.md) 为准。
