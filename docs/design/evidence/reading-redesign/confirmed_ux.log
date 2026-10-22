@@ -1,6 +1,0 @@
-ISOLATED SERVER READY
-HTTP 404 http://127.0.0.1:8789/reader/workspace {"ok": false, "error": {"code": "invalid-request", "message": "Unknown route", "retryable": false}}
-{"results":["T3/T4/T6 stream order, manual scroll and anchored draft","T5 history Continue does not roll back progress","T7/T26 new session / refresh / next 9","T16 note edit/delete/undo and progress edit/delete preserve cursor","T16/T21 sidebar toggle and narrow viewport / extra font","T9 complete terminal state","T8/U6 confirmed reset clears progress and next opens first","T5 review reaches frontier then advances exactly once","UI task history hidden by default, single disclosure, heading alignment","UI blog top-layer close hit target and Escape at desktop/narrow widths"],"errors":[]}
-HTTP 404 http://127.0.0.1:8789/reader/workspace 
-HTTP 404 http://127.0.0.1:8789/reader/workspace 
-HTTP 404 http://127.0.0.1:8789/reader/workspace 
