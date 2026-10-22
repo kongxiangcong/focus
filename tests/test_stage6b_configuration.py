@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 from unittest.mock import patch
 
-import test_focus_read
+import reading_fixture
 from test_stage6b_workflows import HarnessHistory, CodexHistory, HarnessCandidates, HarnessBlog, CodexCandidates
 from workspace_fixture import HostService
 from host.server import Server
@@ -15,7 +15,7 @@ import test_stage5_ingestion as single
 
 class ConfigurationTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = test_focus_read.FocusReadTests()
+        self.fixture = reading_fixture.ReadingFixture()
         self.fixture.setUp()
         self.workspace = self.fixture._workspace()[0]
         self.settings = self.fixture.root / 'user-settings.json'

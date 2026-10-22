@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import test_focus_read
+import reading_fixture
 from core.source_notes import SourceNotes
 from core.reading_workspace import WorkspaceCore, WorkspaceError
 from core.source_library import SourceLibrary
@@ -11,7 +11,7 @@ from core.source_library import SourceLibrary
 
 class SourceNotesTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = test_focus_read.FocusReadTests()
+        self.fixture = reading_fixture.ReadingFixture()
         self.fixture.setUp()
         self.workspace = self.fixture._workspace()[0]
         self.notes = SourceNotes(self.workspace)

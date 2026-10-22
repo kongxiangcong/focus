@@ -100,24 +100,17 @@ class PreparedReadingTests(unittest.TestCase):
         self.assertEqual(initial, (self.workspace / 'state.json').read_bytes())
         self.assertFalse(json.loads(initial)['sources']['fixture-paper'].get('reading_started', False))
 
-    def test_cli_prepares_arbitrary_chunk_without_starting_reading(self):
-        import subprocess
-        import sys
-        from pathlib import Path
-        script = Path(__file__).resolve().parents[1] / '.agents/skills/focus-map/scripts/focus_map.py'
-        base = [sys.executable, '-X', 'utf8', str(script), 'prepare', '--workspace', str(self.workspace), '--source-id', 'fixture-paper']
+    def test_preparation_of_arbitrary_chunk_never_starts_reading(self):
+        from core import WorkspaceCore
+        core = WorkspaceCore(self.workspace)
         state = (self.workspace / 'state.json').read_bytes()
-        blocked = subprocess.run(base, text=True, capture_output=True)
-        self.assertEqual(1, blocked.returncode)
-        self.assertIn('workspace_busy', blocked.stderr)
-        self.host.close()
-        status = json.loads(subprocess.check_output(base, text=True))
+        status = core.preparation_status(source_id='fixture-paper')
         self.assertEqual(3, status['total'])
-        command = base + ['--plan-id', 'plan-001', '--chunk-id', 'chunk-003']
-        chunk = json.loads(subprocess.check_output(command, text=True))
+        chunk = core.preparation_chunk(source_id='fixture-paper', plan_id='plan-001', chunk_id='chunk-003')
         self.assertEqual('translation_required', chunk['status'])
-        result = subprocess.run(command + ['--translation-stdin'], input='第三段译文', text=True, capture_output=True, check=True)
-        self.assertEqual(1, json.loads(result.stdout)['completed'])
+        result = core.save_prepared_translation(
+            source_id='fixture-paper', plan_id='plan-001', chunk_id='chunk-003', translation='第三段译文')
+        self.assertEqual(1, result['completed'])
         self.assertEqual(state, (self.workspace / 'state.json').read_bytes())
 
     def test_topic_selection_does_not_auto_advance_into_another_source(self):

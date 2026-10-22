@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import test_focus_read
+import reading_fixture
 from host.core_bridge import CoreBridge
 from workspace_fixture import HostService
 from host.server import Server
@@ -84,7 +84,7 @@ def first_thread_call(instance):
 
 class WebHostTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = test_focus_read.FocusReadTests()
+        self.fixture = reading_fixture.ReadingFixture()
         self.fixture.setUp()
         self.workspace = self.fixture._workspace()[0]
         self.data = self.fixture.root / 'host'

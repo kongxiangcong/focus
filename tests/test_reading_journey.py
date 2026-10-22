@@ -1,35 +1,16 @@
+"""End-to-end Reading journey through the deterministic Core API."""
 from __future__ import annotations
 
-import contextlib
-import importlib.util
-import io
 import json
 import shutil
 import unittest
 import uuid
 from pathlib import Path
-from unittest import mock
+
+from core import WorkspaceCore, WorkspaceError
 
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def load_module(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(module)
-    return module
-
-
-FOCUS_MAP = load_module(
-    "journey_focus_map",
-    ROOT / ".agents" / "skills" / "focus-map" / "scripts" / "focus_map.py",
-)
-FOCUS_READ = load_module(
-    "journey_focus_read",
-    ROOT / ".agents" / "skills" / "focus-read" / "scripts" / "focus_read.py",
-)
 
 
 class ReadingJourneyTests(unittest.TestCase):
@@ -76,157 +57,82 @@ class ReadingJourneyTests(unittest.TestCase):
         from core.workspace_lifecycle import WorkspaceLease
         publish_workspace(workspace)
         self.lease = WorkspaceLease(workspace)
-        draft = json.dumps(
+        draft = {
+            "chunks": [
                 {
-                    "chunks": [
-                        {
-                            "section_path": ["Journey Paper", "Compile Time"],
-                            "source_lines": [1, 5],
-                            "images": [],
-                        },
-                        {
-                            "section_path": ["Journey Paper", "Runtime"],
-                            "source_lines": [6, 8],
-                            "images": [],
-                        },
-                        {
-                            "section_path": ["Journey Paper", "Result"],
-                            "source_lines": [9, 10],
-                            "images": [],
-                        },
-                    ],
-                    "glossary": [["relocation", "重定位"], ["loader", "加载器"]],
+                    "section_path": ["Journey Paper", "Compile Time"],
+                    "source_lines": [1, 5],
+                    "images": [],
                 },
-                ensure_ascii=False,
-        )
+                {
+                    "section_path": ["Journey Paper", "Runtime"],
+                    "source_lines": [6, 8],
+                    "images": [],
+                },
+                {
+                    "section_path": ["Journey Paper", "Result"],
+                    "source_lines": [9, 10],
+                    "images": [],
+                },
+            ],
+            "glossary": [["relocation", "重定位"], ["loader", "加载器"]],
+        }
         return workspace, source_root, draft
-
-    @staticmethod
-    def _run(module, args, stdin: str = ""):
-        stdout = io.StringIO()
-        stderr = io.StringIO()
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr), mock.patch("sys.stdin", io.StringIO(stdin)):
-            code = module.main(args)
-        return code, json.loads(stdout.getvalue() or stderr.getvalue())
 
     def test_map_read_question_search_note_continue_and_restore_share_one_cursor(self):
         workspace, source_root, draft = self._workspace()
-        code, mapped = self._run(
-            FOCUS_MAP,
-            [
-                "map",
-                "--workspace",
-                str(workspace),
-                "--source-id",
-                "journey-paper",
-            ],
-            draft,
-        )
-        self.assertEqual(0, code)
+        core = WorkspaceCore(workspace)
+
+        mapped = core.map_reading_plan("journey-paper", draft=draft)
         self.assertEqual(("plan-001", "chunk-001"), (mapped["plan_id"], mapped["chunk_id"]))
 
-        code, current = self._run(FOCUS_READ, ["current", "--workspace", str(workspace)])
-        self.assertEqual(0, code)
+        current = core.get_current_chunk()
         self.assertEqual("translation_required", current["status"])
         self.assertEqual([{"source": "relocation", "translation": "重定位"}], current["relevant_glossary"])
 
-        translation = self.root / "translation.txt"
-        translation.write_text("编译器生成重定位元数据。", encoding="utf-8")
-        code, _ = self._run(
-            FOCUS_READ,
-            [
-                "retranslate",
-                "--workspace",
-                str(workspace),
-                "--expected-plan-id",
-                "plan-001",
-                "--expected-chunk-id",
-                "chunk-001",
-                "--translation-file",
-                str(translation),
-            ],
+        core.retranslate_current_chunk(
+            expected_plan_id="plan-001",
+            expected_chunk_id="chunk-001",
+            translation="编译器生成重定位元数据。",
         )
-        self.assertEqual(0, code)
 
         state_before_questions = (workspace / "state.json").read_bytes()
-        code, matches = self._run(
-            FOCUS_READ,
-            ["search", "--workspace", str(workspace), "--query", "final address", "--limit", "2"],
-        )
-        self.assertEqual(0, code)
+        matches = core.search_source(query="final address", limit=2)
         self.assertTrue(matches["matches"])
         selected = matches["matches"][0]["source_lines"]
-        code, evidence = self._run(
-            FOCUS_READ,
-            [
-                "read-range",
-                "--workspace",
-                str(workspace),
-                "--start",
-                str(selected[0]),
-                "--end",
-                str(selected[1]),
-            ],
-        )
-        self.assertEqual(0, code)
+        evidence = core.read_source_range(start=selected[0], end=selected[1])
         self.assertIn("final address", evidence["source_text"])
         self.assertEqual(state_before_questions, (workspace / "state.json").read_bytes())
 
-        note = self.root / "clarification.txt"
-        note.write_text("编译器保留重定位信息，加载器在运行前解析最终地址。", encoding="utf-8")
-        code, saved = self._run(
-            FOCUS_READ,
-            [
-                "append-note",
-                "--workspace",
-                str(workspace),
-                "--expected-plan-id",
-                "plan-001",
-                "--expected-chunk-id",
-                "chunk-001",
-                "--kind",
-                "clarification",
-                "--origin",
-                "dialogue",
-                "--content-file",
-                str(note),
-            ],
+        saved = core.append_note(
+            expected_plan_id="plan-001",
+            expected_chunk_id="chunk-001",
+            kind="clarification",
+            origin="dialogue",
+            content="编译器保留重定位信息，加载器在运行前解析最终地址。",
         )
-        self.assertEqual(0, code)
         self.assertEqual("note_saved", saved["status"])
 
         chunks_path = source_root / "reading" / "plans" / "plan-001" / "chunks.jsonl"
         chunks_before_continue = chunks_path.read_bytes()
-        code, advanced = self._run(
-            FOCUS_READ,
-            [
-                "continue",
-                "--workspace",
-                str(workspace),
-                "--expected-plan-id",
-                "plan-001",
-                "--expected-chunk-id",
-                "chunk-001",
-            ],
-        )
-        self.assertEqual(0, code)
+        advanced = core.continue_reading(expected_plan_id="plan-001", expected_chunk_id="chunk-001")
         self.assertEqual(("continued", "chunk-002"), (advanced["status"], advanced["chunk_id"]))
         self.assertEqual(chunks_before_continue, chunks_path.read_bytes())
 
-        code, restored = self._run(FOCUS_READ, ["state", "--workspace", str(workspace)])
-        self.assertEqual(0, code)
+        restored = core.get_reading_state()
         self.assertEqual(("plan-001", "chunk-002"), (restored["plan_id"], restored["chunk_id"]))
-        code, next_chunk = self._run(FOCUS_READ, ["current", "--workspace", str(workspace)])
-        self.assertEqual(0, code)
+        next_chunk = core.get_current_chunk()
         self.assertEqual("translation_required", next_chunk["status"])
         self.assertNotIn("notes", next_chunk)
         self.assertNotIn("编译器保留重定位信息", json.dumps(next_chunk, ensure_ascii=False))
 
     def test_read_requires_plan_but_never_creates_a_parallel_session(self):
         workspace, source_root, _ = self._workspace()
-        code, error = self._run(FOCUS_READ, ["state", "--workspace", str(workspace)])
-        self.assertEqual(1, code)
-        self.assertEqual("reading_plan_missing", error["error_id"])
+
+        with self.assertRaises(WorkspaceError) as caught:
+            WorkspaceCore(workspace).get_reading_state()
+
+        self.assertEqual("reading_plan_missing", caught.exception.error_id)
         self.assertFalse((source_root / "reading").exists())
 
 

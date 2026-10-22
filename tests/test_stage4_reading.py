@@ -7,7 +7,7 @@ import threading
 import unittest
 import uuid
 
-import test_focus_read
+import reading_fixture
 from workspace_fixture import HostService
 from host.server import Server
 from core.reading_workspace import WorkspaceError, _reading_plan_records, _source_heading_paths
@@ -121,7 +121,7 @@ class TransientRuntime(ReadingRuntimeDouble):
 
 class Stage4PreparationTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = test_focus_read.FocusReadTests()
+        self.fixture = reading_fixture.ReadingFixture()
         self.fixture.setUp()
         self.workspace = self.fixture._workspace()[0]
         self.runtime = ReadingRuntimeDouble()
@@ -502,7 +502,7 @@ class Stage4PreparationTests(unittest.TestCase):
 
 class Stage4NavigationTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = test_focus_read.FocusReadTests()
+        self.fixture = reading_fixture.ReadingFixture()
         self.fixture.setUp()
         self.workspace = self.fixture._workspace()[0]
         self.runtime = ReadingRuntimeDouble()
@@ -736,7 +736,7 @@ class QuestionRuntime:
 
 class Stage4DiscussionIntegrationTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = test_focus_read.FocusReadTests()
+        self.fixture = reading_fixture.ReadingFixture()
         self.fixture.setUp()
         self.workspace = self.fixture._workspace()[0]
         self.question_runtimes = []

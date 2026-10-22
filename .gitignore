@@ -26,6 +26,9 @@ external
 .scratch/
 tmp/
 
+# Local agent-tool state that is not part of the project.
+.workbuddy/
+
 # Python environments, caches and build products.
 .venv/
 venv/

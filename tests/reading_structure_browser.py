@@ -6,12 +6,12 @@ from pathlib import Path
 
 repo = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(repo), str(repo / 'tests'), str(repo / '.agents')]
-from test_focus_read import FocusReadTests
+from reading_fixture import ReadingFixture
 from test_stage4_reading import PlanningRuntime, with_structure
 from workspace_fixture import HostService
 from host.server import Server
 
-fixture = FocusReadTests()
+fixture = ReadingFixture()
 fixture.setUp()
 workspace, source, plan = fixture._workspace()
 chunks = [json.loads(line) for line in (plan / 'chunks.jsonl').read_text().splitlines()]

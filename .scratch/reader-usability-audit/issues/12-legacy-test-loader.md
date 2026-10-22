@@ -1,12 +1,19 @@
 # 12 Host 测试仍导入已删除 CLI
 
-Status: needs-triage
+Status: done（2026-10-22）
+
+## 处理结果
+- 删除 `focus-map` / `focus-read` 两个已退役 CLI 的残留引用，不再恢复脚本。
+- 新增 `tests/reading_fixture.py`：只构建 Workspace 数据，不经过任何 CLI。
+- 原 CLI 测试改为直接调用 `core.WorkspaceCore`：`tests/test_reading_core.py`、`tests/test_reading_plan.py`、`tests/test_reading_journey.py`、`tests/test_article_reading_journey.py`、`tests/test_prepared_reading.py`。
+- 其余 10 个测试模块与两个浏览器脚本改用共享 fixture。
+- 规范命令现在可以收集全部测试；原先受影响的 18 个模块从 67 failed / 121 passed 变为 58 failed / 130 passed，零回退（既有 58 项失败与本工单无关）。
 Blocked by: —
 Covers: spec §6，验证基础设施
 
 ## 目标
 修复现有 Python 测试 fixture 对删除文件的导入。
-## 现状
+## 现状（修复前）
 `tests/test_focus_read.py:26` 导入不存在的 `.agents/skills/focus-read/scripts/focus_read.py`；`tests/test_web_host.py:17` 依赖该模块。
 ## 实施步骤
 独立审查旧 CLI 测试的保留范围，抽取可复用 workspace fixture；不在 UI 工单中顺手修复。

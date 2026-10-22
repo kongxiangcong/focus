@@ -24,8 +24,6 @@ def load_module(name: str, path: Path):
 
 
 ARTICLE = load_module("journey_article", ROOT / ".agents/skills/article-parser/scripts/article_parser.py")
-FOCUS_MAP = load_module("journey_article_map", ROOT / ".agents/skills/focus-map/scripts/focus_map.py")
-FOCUS_READ = load_module("journey_article_read", ROOT / ".agents/skills/focus-read/scripts/focus_read.py")
 ARTICLE_BLOG = load_module("journey_article_blog", ROOT / "methods" / "article-blog" / "scripts" / "article2blog.py")
 
 
@@ -94,14 +92,10 @@ class ArticleReadingJourneyTests(unittest.TestCase):
                 ensure_ascii=False,
         )
 
-        code, mapped = self._run(
-            FOCUS_MAP,
-            ["map", "--workspace", str(workspace), "--source-id", source_id],
-            stdin=draft,
-        )
-        self.assertEqual((0, "plan-001"), (code, mapped["plan_id"]))
         from core import WorkspaceCore
         core = WorkspaceCore(workspace)
+        mapped = core.map_reading_plan(source_id, draft=json.loads(draft))
+        self.assertEqual("plan-001", mapped["plan_id"])
         current = core.reading_window()["current"]
         self.assertEqual("source_ready", current["status"])
         self.assertIn("第一段解释统一读写路径", current["source_text"])
