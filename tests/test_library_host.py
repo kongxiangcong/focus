@@ -31,8 +31,12 @@ class LibraryHostTests(unittest.TestCase):
         root = self.workspace / 'sources/fixture-paper'
         records = {str(p): p.read_bytes() for p in (root / 'reading/plans').rglob('*') if p.is_file()}
         core.continue_reading(expected_plan_id='plan-001', expected_chunk_id='chunk-001')
-        self.host.library_read('fixture-paper', reread=True)
-        self.assertEqual('chunk-001', self.host.snapshot()['current']['chunkId'])
+        view = self.host.snapshot()
+        receipt = {**{k: view['navigationCurrent'][k] for k in ('sourceId', 'planId', 'chunkId')},
+                   'readingRevision': view['readingRevision']}
+        self.host.reread_reading({'receipt': {**receipt, 'chunkId': 'chunk-002'},
+                                  'requestId': 'reread-library-test'})
+        self.assertEqual('chunk-001', self.host.snapshot()['navigationCurrent']['chunkId'])
         self.assertEqual(records, {str(p): p.read_bytes() for p in (root / 'reading/plans').rglob('*') if p.is_file()})
 
     def test_delete_detaches_topics_and_clears_timeline(self):

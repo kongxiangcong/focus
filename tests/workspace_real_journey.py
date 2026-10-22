@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / '.agents'), str(ROOT / 'tests')]
-import test_focus_read
+import reading_fixture
 from workspace_fixture import HostService
 from host.workbench import Workbench
 from host.backend_setup import BackendSetup
@@ -36,7 +36,7 @@ def wait(worker, timeout=900):
 for backend, selected in (('codex', os.getenv('FOCUS_REAL_CODEX_MODEL', 'gpt-5.6-sol')), ('deepseek', 'deepseek-flash')):
     if os.getenv('FOCUS_REAL_BACKENDS') and backend not in os.environ['FOCUS_REAL_BACKENDS'].split(','):
         continue
-    fixture = test_focus_read.FocusReadTests(); fixture.setUp()
+    fixture = reading_fixture.ReadingFixture(); fixture.setUp()
     host = app = None
     result = results[backend] = {'model': selected, 'stages': {}}
     try:

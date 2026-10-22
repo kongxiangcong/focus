@@ -20,10 +20,6 @@ def activity_label(activity):
             return '解析材料'
         if 'core.library_import' in command:
             return '整理入库材料'
-        if 'focus_map.py' in command:
-            return '规划阅读'
-        if 'focus_read.py' in command:
-            return '处理阅读内容'
         return '执行操作'
     return {'reasoning': '思考中', 'fileChange': '保存文件',
             'mcpToolCall': '调用工具', 'dynamicToolCall': '调用工具',

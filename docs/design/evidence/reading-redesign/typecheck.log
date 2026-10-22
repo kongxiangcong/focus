@@ -1,8 +1,0 @@
-$ pnpm --recursive --if-present typecheck
-Scope: 4 of 5 workspace projects
-ui/packages/reader-contracts typecheck$ tsc -p tsconfig.json
-ui/packages/reader-contracts typecheck: Done
-ui/packages/reader-ui typecheck$ tsc -p tsconfig.json
-ui/packages/reader-ui typecheck: Done
-ui/apps/standalone typecheck$ tsc -p tsconfig.json
-ui/apps/standalone typecheck: Done

@@ -69,7 +69,7 @@ class OverviewTests(unittest.TestCase):
         self.host = HostService(self.root/'workspace', self.root/'host', reading_runtime=self.runtime,
                                 settings_path=self.root/'settings.json')
         article = self.root/'article.md'
-        article.write_text('# 数据搬运\n计算必须等待数据。\n## Method\n提前搬运，双缓冲轮换，需要同步。\n## Evaluation\n只做模型分析，真实设备仍待验证。\n')
+        article.write_text('# 数据搬运\n计算必须等待数据。\n## Method\n提前搬运，双缓冲轮换，需要同步。\n## Evaluation\n只做模型分析，真实设备仍待验证。\n', encoding="utf-8")
         self.sid = import_markdown(self.host.workspace, article, short_name='overview-test')['source_id']
     def tearDown(self):
         self.runtime.release.set(); self.host.close(); self.tmp.cleanup()
@@ -188,12 +188,12 @@ class OverviewTests(unittest.TestCase):
     def test_stale_corrupt_asset_and_language_validation(self):
         self.prepare()
         root,chunks,_=ArticleOverview(self.host.workspace, self.host.reading_app).target(self.sid)
-        p=root/'overview.json'; data=json.loads(p.read_text()); data['chunksRevision']='wrong'; p.write_text(json.dumps(data))
+        p=root/'overview.json'; data=json.loads(p.read_text(encoding="utf-8")); data['chunksRevision']='wrong'; p.write_text(json.dumps(data), encoding="utf-8")
         self.assertEqual('stale',self.host.article_overview(self.sid)['status'])
-        self.prepare(); data=json.loads(p.read_text()); data['structure']['nodes'][0]['title']='Introduction'; p.write_text(json.dumps(data))
+        self.prepare(); data=json.loads(p.read_text(encoding="utf-8")); data['structure']['nodes'][0]['title']='Introduction'; p.write_text(json.dumps(data), encoding="utf-8")
         self.assertEqual('failed',self.host.article_overview(self.sid)['status'])
         with self.assertRaises(WorkspaceError): validate_chinese_structure(data['structure'], chunks)
         with self.assertRaises(WorkspaceError): validate_guide('文'*501)
-        p.write_text('{'); self.assertEqual('failed',self.host.article_overview(self.sid)['status'])
+        p.write_text('{', encoding="utf-8"); self.assertEqual('failed',self.host.article_overview(self.sid)['status'])
 
 if __name__ == '__main__': unittest.main()

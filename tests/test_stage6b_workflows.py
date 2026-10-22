@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import test_focus_read
+import reading_fixture
 from workspace_fixture import HostService
 
 
@@ -149,7 +149,7 @@ class CodexCandidates(CodexHistory):
 
 class SharedWorkflowTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = test_focus_read.FocusReadTests()
+        self.fixture = reading_fixture.ReadingFixture()
         self.fixture.setUp()
         self.workspace = self.fixture._workspace()[0]
         self.host = None
@@ -283,16 +283,16 @@ class SharedWorkflowTests(unittest.TestCase):
     def test_deepseek_prepares_full_source_without_moving_cursor(self):
         with patch('deepseek_harness.DeepSeekHarness', HarnessCandidates), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'fixture-only'}):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek')
-            before = self.host.snapshot()['current']
+            before = self.host.snapshot()['navigationCurrent']
             self.host.prepare_reading('fixture-paper', request_id=uuid.uuid4().hex)
             self.host.reading_workers['fixture-paper'].join(10)
             prepared = self.host.snapshot()['preparations']['fixture-paper']
             self.assertTrue(prepared['ready'], prepared)
-            after = self.host.snapshot()['current']
+            after = self.host.snapshot()['navigationCurrent']
             self.assertEqual({k: before[k] for k in ('sourceId', 'planId', 'chunkId')},
                              {k: after[k] for k in ('sourceId', 'planId', 'chunkId')})
             self.host.open_prepared_reading('fixture-paper', request_id=uuid.uuid4().hex)
-            self.assertEqual('chunk-001', self.host.snapshot()['current']['chunkId'])
+            self.assertEqual('chunk-001', self.host.snapshot()['navigationCurrent']['chunkId'])
 
             before = self.host.snapshot()
             fresh = self.host.new_session({'sessionId': before['sessionId']})
@@ -305,7 +305,7 @@ class SharedWorkflowTests(unittest.TestCase):
             self.host.reading_workers['fixture-paper'].join(10)
             self.assertTrue(self.host.snapshot()['preparations']['fixture-paper']['ready'])
             self.host.open_prepared_reading('fixture-paper', request_id=uuid.uuid4().hex)
-            self.assertEqual('chunk-001', self.host.snapshot()['current']['chunkId'])
+            self.assertEqual('chunk-001', self.host.snapshot()['navigationCurrent']['chunkId'])
 
     def test_codex_blog_publishes_through_same_candidate_contract(self):
         from test_blog_application import png_bytes
@@ -403,6 +403,8 @@ class SharedWorkflowTests(unittest.TestCase):
                 text = ('说明' * 350 + '例子叫量子香蕉') if index == 0 else '继续讨论第' + str(index) + '段'
                 self.host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': text})
                 self.host.worker.join(5)
+                if self.host._summary_worker:
+                    self.host._summary_worker.join(5)
             self.assertGreaterEqual(len(HarnessHistory.summaries), 2)
             self.assertIn('量子香蕉', HarnessHistory.summaries[0]['messages'][0]['content'])
             self.assertIn('量子香蕉', HarnessHistory.summaries[-1]['previousSummary'])

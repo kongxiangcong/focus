@@ -2,27 +2,27 @@ import sys, json, shutil, uuid, threading, time, queue, tempfile, subprocess, os
 from pathlib import Path
 repo = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(repo), str(repo/'tests'), str(repo/'.agents')]
-from test_focus_read import FocusReadTests
+from reading_fixture import ReadingFixture
 from test_stage4_reading import ReadingRuntimeDouble, QuestionRuntime
 from test_blog_host import ControlledBlogRuntime, ParserDouble
 from workspace_fixture import HostService
 from host.server import Server
-fixture=FocusReadTests();fixture.setUp();workspace,source,plan=fixture._workspace()
+fixture=ReadingFixture();fixture.setUp();workspace,source,plan=fixture._workspace()
 root=Path(tempfile.mkdtemp(prefix='focus-browser-'))
 shutil.copytree(workspace,root/'knowledge-base',dirs_exist_ok=True);fixture.tearDown()
 workspace=root/'knowledge-base';source=workspace/'sources/fixture-paper';plan=source/'reading/plans/plan-001'
-metadata=json.loads((source/'source.yaml').read_text())
+metadata=json.loads((source/'source.yaml').read_text(encoding="utf-8"))
 metadata['title']='A very long research material title for compact toolbar layout ' * 5
-(source/'source.yaml').write_text(json.dumps(metadata))
+(source/'source.yaml').write_text(json.dumps(metadata), encoding="utf-8")
 lines=[];chunks=[]
 for i in range(1,10):
     lines.extend([f'## Section {i}', f'Paragraph {i}: source evidence and readable material.'])
     chunks.append({'chunk_id': f'chunk-{i:03}', 'index':i, 'section_path':[f'Section {i}'], 'source_lines':[i*2-1,i*2], 'images':[]})
 shutil.rmtree(source/'parser-bundle/images');(source/'parser-bundle/images').mkdir()
-(source/'parser-bundle/content.md').write_text('\n'.join(lines)+'\n')
-(plan/'chunks.jsonl').write_text(''.join(json.dumps(c)+'\n' for c in chunks));(plan/'glossary.tsv').write_text('')
+(source/'parser-bundle/content.md').write_text('\n'.join(lines)+'\n', encoding="utf-8")
+(plan/'chunks.jsonl').write_text(''.join(json.dumps(c)+'\n' for c in chunks), encoding="utf-8");(plan/'glossary.tsv').write_text('', encoding="utf-8")
 for c in chunks:
- (plan/'records'/f"{c['chunk_id']}.json").write_text(json.dumps({'chunk_id':c['chunk_id'],'translation':None,'notes':[]}))
+ (plan/'records'/f"{c['chunk_id']}.json").write_text(json.dumps({'chunk_id':c['chunk_id'],'translation':None,'notes':[]}), encoding="utf-8")
 figure_translations = {}
 if os.environ.get('FOCUS_BROWSER_FIGURES') == '1':
  from reader_figures_fixture import configure

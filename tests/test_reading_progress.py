@@ -4,7 +4,7 @@ import threading
 import unittest
 import uuid
 
-import test_focus_read
+import reading_fixture
 from workspace_fixture import HostService
 from core.reading_progress import ReadingProgress
 from test_stage4_reading import ReadingRuntimeDouble, PlanningRuntime
@@ -33,7 +33,7 @@ class ProgressRuntime:
 
 class ReadingProgressTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = test_focus_read.FocusReadTests()
+        self.fixture = reading_fixture.ReadingFixture()
         self.fixture.setUp()
         self.workspace = self.fixture._workspace()[0]
         self.runtime = ProgressRuntime()

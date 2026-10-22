@@ -37,7 +37,7 @@ class SnapshotTests(unittest.TestCase):
     def test_windows_path_rejected(self):
         self.assertEqual(inspect_file(self.root, 'C:\\private\\file.md')['status'], 'FAIL')
     def test_external_symlink_rejected(self):
-        outside = self.root.parent/'outside.md'; outside.write_text('outside')
+        outside = self.root.parent/'outside.md'; outside.write_text('outside', encoding="utf-8")
         (self.root/'alias.md').symlink_to(outside)
         self.assertEqual(inspect_file(self.root, 'alias.md')['status'], 'FAIL')
     def test_internal_symlink_can_be_hashed(self):
@@ -50,7 +50,7 @@ class SnapshotTests(unittest.TestCase):
         (self.root/'font.ttf').write_bytes(b'font')
         self.assertEqual(inspect_file(self.root, 'font.ttf')['status'], 'FAIL')
     def test_environment_file_rejected(self):
-        (self.root/'.env.txt').write_text('not for audit')
+        (self.root/'.env.txt').write_text('not for audit', encoding="utf-8")
         self.assertEqual(inspect_file(self.root, '.env.txt')['status'], 'FAIL')
     def test_binary_disguised_as_text_rejected(self):
         (self.root/'bad.md').write_bytes(b'hello\0world')
@@ -60,10 +60,10 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(inspect_file(self.root, 'large.md')['status'], 'FAIL')
     def test_dirty_content_changes_hash(self):
         before = inspect_file(self.root, 'README.md')['sha256']
-        (self.root/'README.md').write_text('different')
+        (self.root/'README.md').write_text('different', encoding="utf-8")
         self.assertNotEqual(before, inspect_file(self.root, 'README.md')['sha256'])
     def test_declared_files_only(self):
-        (self.root/'not-used.md').write_text('not requested')
+        (self.root/'not-used.md').write_text('not requested', encoding="utf-8")
         r=collect(self.root, ['README.md', 'README.md'])
         self.assertEqual([f['path'] for f in r['files']], ['README.md'])
     def test_collection_does_not_write_files(self):
@@ -97,24 +97,24 @@ class GitIdentityTests(unittest.TestCase):
         self.git(root,'add','README.md');self.git(root,'-c','commit.gpgsign=false','commit','-qm','fixture')
     def test_parent_git_head_is_not_reference_head(self):
         self.init(self.parent)
-        (self.parent/'README.md').write_text('product');self.commit(self.parent)
+        (self.parent/'README.md').write_text('product', encoding="utf-8");self.commit(self.parent)
         reference=self.parent/'external/ref';reference.mkdir(parents=True)
-        (reference/'README.md').write_text('reference')
+        (reference/'README.md').write_text('reference', encoding="utf-8")
         vcs=collect(reference,['README.md'])['vcs']
         self.assertEqual(vcs['kind'],'directory_snapshot')
         self.assertIsNone(vcs['own_head'])
         self.assertEqual(Path(vcs['enclosing_git_root']),self.parent)
     def test_own_clean_and_dirty_repository(self):
         ref=self.parent/'reference';ref.mkdir();self.init(ref)
-        (ref/'README.md').write_text('reference');self.commit(ref)
+        (ref/'README.md').write_text('reference', encoding="utf-8");self.commit(ref)
         first=collect(ref,['README.md']);self.assertFalse(first['vcs']['dirty'])
         self.assertEqual(first['vcs']['own_head'],self.git(ref,'rev-parse','HEAD'))
-        (ref/'README.md').write_text('changed')
+        (ref/'README.md').write_text('changed', encoding="utf-8")
         second=collect(ref,['README.md']);self.assertTrue(second['vcs']['dirty'])
         self.assertEqual(first['vcs']['own_head'],second['vcs']['own_head'])
         self.assertNotEqual(first['files'][0]['sha256'],second['files'][0]['sha256'])
     def test_unborn_repository_has_no_head(self):
-        self.init(self.parent);(self.parent/'README.md').write_text('new')
+        self.init(self.parent);(self.parent/'README.md').write_text('new', encoding="utf-8")
         vcs=collect(self.parent,['README.md'])['vcs']
         self.assertEqual(vcs['kind'],'git_repository');self.assertIsNone(vcs['own_head'])
         self.assertTrue(vcs['dirty'])

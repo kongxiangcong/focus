@@ -1,45 +1,20 @@
+"""Installing and reusing Reading Plans through the deterministic Core API.
+
+Formerly exercised through the retired `focus-map` skill CLI; the same
+`core.WorkspaceCore.map_reading_plan` call now runs directly.
+"""
 from __future__ import annotations
 
-import contextlib
-import importlib
-import importlib.util
-import io
 import json
-import shutil
 import unittest
-import uuid
 from pathlib import Path
 from unittest import mock
 
-
-ROOT = Path(__file__).resolve().parents[1]
-
-
-def load_module(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(module)
-    return module
+import reading_fixture
+from core import reading_workspace
 
 
-FOCUS_MAP = load_module(
-    "focus_map_cli",
-    ROOT / ".agents" / "skills" / "focus-map" / "scripts" / "focus_map.py",
-)
-WORKSPACE_CORE = importlib.import_module("core.reading_workspace")
-
-
-class FocusMapTests(unittest.TestCase):
-    def setUp(self):
-        test_runs = ROOT / "tmp" / "test-runs"
-        test_runs.mkdir(parents=True, exist_ok=True)
-        self.root = test_runs / f"focus-map-{uuid.uuid4().hex}"
-        self.root.mkdir()
-
-    def tearDown(self):
-        shutil.rmtree(self.root)
-
+class ReadingPlanTests(reading_fixture.ReadingFixture, unittest.TestCase):
     def _workspace(self):
         workspace = self.root / "workspace"
         source_root = workspace / "sources" / "Fixture-paper"
@@ -86,43 +61,36 @@ class FocusMapTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        from workspace_fixture import publish_workspace
-        publish_workspace(workspace)
         return workspace, source_root
 
-    def _draft(self, chunks=None):
-        return json.dumps(
+    def _draft(self, chunks=None) -> dict:
+        return {
+            "chunks": chunks
+            or [
+                {"section_path": ["Fixture Paper", "Method"], "source_lines": [1, 5], "images": []},
+                {"section_path": ["Fixture Paper", "Method"], "source_lines": [6, 8], "images": []},
+                {"section_path": ["Fixture Paper", "Method"], "source_lines": [9, 13], "images": []},
                 {
-                    "chunks": chunks
-                    or [
-                        {"section_path": ["Fixture Paper", "Method"], "source_lines": [1, 5], "images": []},
-                        {"section_path": ["Fixture Paper", "Method"], "source_lines": [6, 8], "images": []},
-                        {"section_path": ["Fixture Paper", "Method"], "source_lines": [9, 13], "images": []},
-                        {
-                            "section_path": ["Fixture Paper", "Method"],
-                            "source_lines": [14, 16],
-                            "images": ["images/image-001.png"],
-                        },
-                        {"section_path": ["Fixture Paper", "Results"], "source_lines": [17, 18], "images": []},
-                    ],
-                    "glossary": [["array", "阵列"], ["source order", "源顺序"]],
+                    "section_path": ["Fixture Paper", "Method"],
+                    "source_lines": [14, 16],
+                    "images": ["images/image-001.png"],
                 },
-                ensure_ascii=False,
-        )
+                {"section_path": ["Fixture Paper", "Results"], "source_lines": [17, 18], "images": []},
+            ],
+            "glossary": [["array", "阵列"], ["source order", "源顺序"]],
+        }
 
-    def _map(self, workspace: Path, *extra: str, draft: str = ""):
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout), mock.patch("sys.stdin", io.StringIO(draft)):
-            result = FOCUS_MAP.main(
-                ["map", "--workspace", str(workspace), "--source-id", "Fixture-paper", *extra]
-            )
-        return result, json.loads(stdout.getvalue())
+    def _map(self, workspace: Path, *, draft=None, reinitialize: bool = False):
+        return self.core(workspace).map_reading_plan(
+            "Fixture-paper",
+            draft=draft,
+            reinitialize=reinitialize,
+        )
 
     def test_map_installs_fixed_chunks_records_glossary_and_cursor_state(self):
         workspace, source_root = self._workspace()
-        result, response = self._map(workspace, draft=self._draft())
+        response = self._map(workspace, draft=self._draft())
 
-        self.assertEqual(0, result)
         self.assertEqual(("plan-001", "chunk-001"), (response["plan_id"], response["chunk_id"]))
         plan = source_root / "reading" / "plans" / "plan-001"
         chunks = [json.loads(line) for line in (plan / "chunks.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -146,9 +114,8 @@ class FocusMapTests(unittest.TestCase):
         state["sources"]["Fixture-paper"]["current_chunk_id"] = "chunk-003"
         state_path.write_text(json.dumps(state), encoding="utf-8")
 
-        result, response = self._map(workspace)
+        response = self._map(workspace)
 
-        self.assertEqual(0, result)
         self.assertTrue(response["reused"])
         self.assertEqual("chunk-003", response["chunk_id"])
         self.assertEqual(["plan-001"], [path.name for path in (source_root / "reading" / "plans").iterdir()])
@@ -171,13 +138,8 @@ class FocusMapTests(unittest.TestCase):
         )
         old_snapshot = {path.relative_to(old_plan): path.read_bytes() for path in old_plan.rglob("*") if path.is_file()}
 
-        result, response = self._map(
-            workspace,
-            "--reinitialize",
-            draft=self._draft(),
-        )
+        response = self._map(workspace, draft=self._draft(), reinitialize=True)
 
-        self.assertEqual(0, result)
         self.assertEqual("plan-002", response["plan_id"])
         self.assertTrue(response["reinitialized"])
         self.assertEqual(
@@ -195,29 +157,17 @@ class FocusMapTests(unittest.TestCase):
         state_before = (workspace / "state.json").read_bytes()
         old_plan = source_root / "reading" / "plans" / "plan-001"
         old_before = {path.relative_to(old_plan): path.read_bytes() for path in old_plan.rglob("*") if path.is_file()}
-
-        original = WORKSPACE_CORE._write_document
+        original = reading_workspace._write_document
 
         def fail_state(path, value):
             if path.name == "state.json":
                 raise OSError("controlled failure")
             return original(path, value)
 
-        stderr = io.StringIO()
-        with mock.patch.object(WORKSPACE_CORE, "_write_document", side_effect=fail_state):
-            with contextlib.redirect_stderr(stderr), mock.patch("sys.stdin", io.StringIO(self._draft())):
-                result = FOCUS_MAP.main(
-                    [
-                        "map",
-                        "--workspace",
-                        str(workspace),
-                        "--source-id",
-                        "Fixture-paper",
-                        "--reinitialize",
-                    ]
-                )
+        with mock.patch.object(reading_workspace, "_write_document", side_effect=fail_state):
+            with self.assertRaises(OSError):
+                self._map(workspace, draft=self._draft(), reinitialize=True)
 
-        self.assertEqual(1, result)
         self.assertEqual(state_before, (workspace / "state.json").read_bytes())
         self.assertEqual(["plan-001"], sorted(path.name for path in old_plan.parent.iterdir()))
         self.assertEqual(old_before, {path.relative_to(old_plan): path.read_bytes() for path in old_plan.rglob("*") if path.is_file()})
@@ -233,20 +183,11 @@ class FocusMapTests(unittest.TestCase):
                 "images": ["images/image-001.png"],
             },
         ]
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr), mock.patch("sys.stdin", io.StringIO(self._draft(split_table))):
-            result = FOCUS_MAP.main(
-                [
-                    "map",
-                    "--workspace",
-                    str(workspace),
-                    "--source-id",
-                    "Fixture-paper",
-                ]
-            )
 
-        self.assertEqual(1, result)
-        self.assertEqual("reading_plan_invalid", json.loads(stderr.getvalue())["error_id"])
+        with self.assertRaises(reading_workspace.WorkspaceError) as caught:
+            self._map(workspace, draft=self._draft(split_table))
+
+        self.assertEqual("reading_plan_invalid", caught.exception.error_id)
         self.assertEqual(before, (workspace / "state.json").read_bytes())
         self.assertFalse((source_root / "reading" / "plans").exists())
 
@@ -261,15 +202,11 @@ class FocusMapTests(unittest.TestCase):
             "".join(json.dumps(chunk, ensure_ascii=False) + "\n" for chunk in chunks),
             encoding="utf-8",
         )
-        stderr = io.StringIO()
 
-        with contextlib.redirect_stderr(stderr):
-            result = FOCUS_MAP.main(
-                ["map", "--workspace", str(workspace), "--source-id", "Fixture-paper"]
-            )
+        with self.assertRaises(reading_workspace.WorkspaceError) as caught:
+            self._map(workspace)
 
-        self.assertEqual(1, result)
-        self.assertEqual("reading_plan_invalid", json.loads(stderr.getvalue())["error_id"])
+        self.assertEqual("reading_plan_invalid", caught.exception.error_id)
         self.assertEqual(["plan-001"], [path.name for path in chunks_path.parent.parent.iterdir()])
 
 

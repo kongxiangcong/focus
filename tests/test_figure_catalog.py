@@ -30,12 +30,12 @@ class FigureCatalogTests(unittest.TestCase):
 
     def test_bridge_cache_tracks_content_and_preserves_bundle_bytes(self):
         content = self.bundle/'content.md'
-        content.write_text('![one](images/one.png)\nFigure 1. First')
+        content.write_text('![one](images/one.png)\nFigure 1. First', encoding="utf-8")
         bridge = CoreBridge(Path(self.temp.name))
         before = {str(p):p.read_bytes() for p in self.bundle.rglob('*') if p.is_file()}
         self.assertEqual(bridge.figure_catalog('demo-paper')[0]['src'], '/reader/assets/demo-paper/images/one.png')
         self.assertEqual(before, {str(p):p.read_bytes() for p in self.bundle.rglob('*') if p.is_file()})
-        content.write_text('<figure><img src="images/two.png"><figcaption>Figure 2. New</figcaption></figure>')
+        content.write_text('<figure><img src="images/two.png"><figcaption>Figure 2. New</figcaption></figure>', encoding="utf-8")
         self.assertEqual(bridge.figure_catalog('demo-paper')[0]['caption'], 'Figure 2. New')
 
     def test_rasterized_tables_and_equations_are_not_gallery_figures(self):

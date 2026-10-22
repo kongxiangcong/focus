@@ -6,7 +6,7 @@ import threading
 import unittest
 from pathlib import Path
 
-import test_focus_read
+import reading_fixture
 from core.source_library import SourceLibrary
 from core.reading_workspace import _read_document, _write_document
 from core.reading_workspace import WorkspaceError
@@ -63,7 +63,7 @@ class DiscussionTests(unittest.TestCase):
                 scope = self.host.discussion_app.bind(source_id='fixture-paper', request_id='note-intent-test', content=content)
                 self.assertEqual(expected, scope['saveIntent'])
     def setUp(self):
-        self.fixture = test_focus_read.FocusReadTests()
+        self.fixture = reading_fixture.ReadingFixture()
         self.fixture.setUp()
         self.workspace = self.fixture._workspace()[0]
         old = self.workspace / 'sources' / 'fixture-paper'

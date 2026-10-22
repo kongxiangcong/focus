@@ -30,8 +30,8 @@ def configure(workspace, source, plan):
         translations[index] = '\n'.join(body).replace('Figure 1. Full architecture caption with compute, memory and data movement.', '图 1：完整架构图注，包含计算、存储与数据搬运。')\
             .replace('Figure 2. First image in this chunk.', '图 2：本段第一张图片。').replace('Figure 3. Second tall image in this chunk.', '图 3：本段第二张纵向图片。')\
             .replace('Figure 4. An unread chunk figure.', '图 4：尚未阅读段落中的图片。').replace('Figure 5. Full HTML image caption.', '图 5：完整 HTML 图片图注。')
-    (source/'parser-bundle/content.md').write_text('\n'.join(lines)+'\n')
-    (plan/'chunks.jsonl').write_text(''.join(json.dumps(c)+'\n' for c in chunks))
+    (source/'parser-bundle/content.md').write_text('\n'.join(lines)+'\n', encoding="utf-8")
+    (plan/'chunks.jsonl').write_text(''.join(json.dumps(c)+'\n' for c in chunks), encoding="utf-8")
     images = source/'parser-bundle/images'
     for i in range(1, 8):
         size = (900, 1800) if i == 3 else (2400, 1600) if i <= 5 else (680, 110) if i == 6 else (250, 50)
@@ -42,8 +42,8 @@ def configure(workspace, source, plan):
         image.save(images/f'image-{i:03}.png')
     second = workspace/'sources/second-paper'
     shutil.copytree(source,second)
-    metadata=json.loads((second/'source.yaml').read_text());metadata.update(source_id='second-paper',title='Second source for figure isolation',short_name='second',identity='fixture:second')
-    (second/'source.yaml').write_text(json.dumps(metadata))
-    state=json.loads((workspace/'state.json').read_text());state['sources']['second-paper']={'current_plan_id':'plan-001','current_chunk_id':'chunk-001'}
-    (workspace/'state.json').write_text(json.dumps(state))
+    metadata=json.loads((second/'source.yaml').read_text(encoding="utf-8"));metadata.update(source_id='second-paper',title='Second source for figure isolation',short_name='second',identity='fixture:second')
+    (second/'source.yaml').write_text(json.dumps(metadata), encoding="utf-8")
+    state=json.loads((workspace/'state.json').read_text(encoding="utf-8"));state['sources']['second-paper']={'current_plan_id':'plan-001','current_chunk_id':'chunk-001'}
+    (workspace/'state.json').write_text(json.dumps(state), encoding="utf-8")
     return translations

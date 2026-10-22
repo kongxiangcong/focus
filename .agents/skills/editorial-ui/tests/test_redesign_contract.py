@@ -10,19 +10,19 @@ from validate_skill import markdown_link_errors
 
 class WorkflowTests(unittest.TestCase):
     def test_six_ordered_workflow_steps(self):
-        text = (ROOT/'SKILL.md').read_text()
+        text = (ROOT/'SKILL.md').read_text(encoding="utf-8")
         self.assertEqual(re.findall(r'^### (\d+)\.', text, re.M), list('123456'))
         steps = re.split(r'^### \d+\.', text, flags=re.M)[1:]
         self.assertTrue(all('**Done:**' in step for step in steps))
 
     def test_mode_routes_are_explicit(self):
-        text = (ROOT/'SKILL.md').read_text()
+        text = (ROOT/'SKILL.md').read_text(encoding="utf-8")
         rows = [line.split('|')[1].strip() for line in text.split('## Workflow', 1)[0].splitlines() if line.startswith('|')]
         for mode in ('Review', 'Standalone', 'Integrate + preserve', 'Integrate + redesign'):
             self.assertEqual(rows.count(mode), 1)
 
     def test_reference_table_has_conditions_and_existing_targets(self):
-        text = (ROOT/'SKILL.md').read_text()
+        text = (ROOT/'SKILL.md').read_text(encoding="utf-8")
         table = text.split('## Rules to consult during implementation', 1)[1]
         rows = [line for line in table.splitlines() if line.startswith('|') and '](' in line]
         self.assertGreaterEqual(len(rows), 8)
@@ -33,7 +33,7 @@ class WorkflowTests(unittest.TestCase):
 
     def test_brief_is_shared_by_workflow_redesign_and_delivery(self):
         for file in ['SKILL.md', 'references/product-redesign.md', 'references/delivery-template.md']:
-            self.assertIn('brief-schema.md)', (ROOT/file).read_text())
+            self.assertIn('brief-schema.md)', (ROOT/file).read_text(encoding="utf-8"))
 
     def test_local_links_and_anchors_resolve(self):
         self.assertEqual(markdown_link_errors(ROOT), [])
@@ -41,16 +41,16 @@ class WorkflowTests(unittest.TestCase):
     def test_link_checker_catches_missing_target_anchor_and_escape(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root/'a.md').write_text('[valid](b.md#good-heading) [missing](no.md) [bad anchor](b.md#bad) [escape](../outside.md)')
-            (root/'b.md').write_text('# Good heading\n')
+            (root/'a.md').write_text('[valid](b.md#good-heading) [missing](no.md) [bad anchor](b.md#bad) [escape](../outside.md)', encoding="utf-8")
+            (root/'b.md').write_text('# Good heading\n', encoding="utf-8")
             errors = markdown_link_errors(root)
             self.assertEqual(len(errors), 3)
             self.assertTrue(any('missing anchor' in e for e in errors))
-            (root/'a.md').write_text('[valid](b.md#good-heading)')
+            (root/'a.md').write_text('[valid](b.md#good-heading)', encoding="utf-8")
             self.assertEqual(markdown_link_errors(root), [])
 
     def test_execution_entry_excludes_release_work(self):
-        text = (ROOT/'SKILL.md').read_text()
+        text = (ROOT/'SKILL.md').read_text(encoding="utf-8")
         self.assertIn('(MAINTAINING.md)', text)
         for path in ['validation', 'history', 'SHA256SUMS.txt', 'README.md']:
             self.assertFalse((ROOT/path).exists())

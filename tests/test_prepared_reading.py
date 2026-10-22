@@ -9,6 +9,7 @@ from core.reading_workspace import WorkspaceError
 
 
 class PreparedReadingTests(unittest.TestCase):
+    start_reading = False
     setUp = test_web_host.WebHostTests.setUp
     tearDown = test_web_host.WebHostTests.tearDown
     finish = test_web_host.WebHostTests.finish
@@ -35,7 +36,7 @@ class PreparedReadingTests(unittest.TestCase):
 
     def test_chinese_paper_is_ready_without_translations(self):
         path = self.workspace / 'sources/fixture-paper/parser-bundle/metadata.json'
-        meta = json.loads(path.read_text()); meta['language'] = 'zh'; path.write_text(json.dumps(meta))
+        meta = json.loads(path.read_text(encoding="utf-8")); meta['language'] = 'zh'; path.write_text(json.dumps(meta), encoding="utf-8")
         core = self.host.core.core
         self.assertTrue(core.preparation_status(source_id='fixture-paper')['ready'])
         self.assertEqual('source_ready', core.get_current_chunk()['status'])
@@ -47,9 +48,9 @@ class PreparedReadingTests(unittest.TestCase):
 
     def test_mixed_plan_requires_only_foreign_chunks(self):
         path = self.workspace / 'sources/fixture-paper/reading/plans/plan-001/chunks.jsonl'
-        chunks = [json.loads(line) for line in path.read_text().splitlines()]
+        chunks = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
         chunks[0]['language'] = 'zh'; chunks[1]['language'] = 'en'; chunks[2]['language'] = 'mixed'
-        path.write_text('\n'.join(json.dumps(c) for c in chunks)+'\n')
+        path.write_text('\n'.join(json.dumps(c) for c in chunks)+'\n', encoding="utf-8")
         self.assertEqual(['chunk-002', 'chunk-003'], self.host.core.core.preparation_status(source_id='fixture-paper')['pending'])
         self.assertEqual('source-ready', self.host.snapshot()['navigationCurrent']['presentationStatus'])
         self.prepare_all()
@@ -67,7 +68,7 @@ class PreparedReadingTests(unittest.TestCase):
             from host.core_bridge import SourceLibrary
             SourceLibrary(self.workspace).restart_reading('fixture-paper')
         self.assertEqual('chunk-001', self.host.snapshot()['navigationCurrent']['chunkId'])
-        record = json.loads((self.workspace / 'sources/fixture-paper/reading/plans/plan-001/records/chunk-001.json').read_text())
+        record = json.loads((self.workspace / 'sources/fixture-paper/reading/plans/plan-001/records/chunk-001.json').read_text(encoding="utf-8"))
         self.assertEqual('保留笔记', record['notes'][0]['content'])
         self.assertEqual('已准备的译文', record['translation'])
         self.assertEqual([], ProtocolDouble.instances)
@@ -85,7 +86,7 @@ class PreparedReadingTests(unittest.TestCase):
         self.prepare_all()
         path = self.workspace / 'sources/fixture-paper/reading/plans/plan-001'
         before = {str(p): p.read_bytes() for p in path.rglob('*') if p.is_file()}
-        with patch('host.service.check_backend', return_value='test'):
+        with patch.object(self.host, '_run_reading_preparation'):
             self.host.library_read('fixture-paper', replan=True)
         self.host.reading_workers['fixture-paper'].join(3)
         self.assertEqual(before, {str(p): p.read_bytes() for p in path.rglob('*') if p.is_file()})
@@ -98,26 +99,18 @@ class PreparedReadingTests(unittest.TestCase):
         self.host.reading_workers['fixture-paper'].join(3)
         self.assertEqual('failed', self.host.snapshot()['preparations']['fixture-paper']['status'])
         self.assertEqual(initial, (self.workspace / 'state.json').read_bytes())
-        self.assertFalse(json.loads(initial)['sources']['fixture-paper'].get('reading_started', False))
 
-    def test_cli_prepares_arbitrary_chunk_without_starting_reading(self):
-        import subprocess
-        import sys
-        from pathlib import Path
-        script = Path(__file__).resolve().parents[1] / '.agents/skills/focus-map/scripts/focus_map.py'
-        base = [sys.executable, '-X', 'utf8', str(script), 'prepare', '--workspace', str(self.workspace), '--source-id', 'fixture-paper']
+    def test_preparation_of_arbitrary_chunk_never_starts_reading(self):
+        from core import WorkspaceCore
+        core = WorkspaceCore(self.workspace)
         state = (self.workspace / 'state.json').read_bytes()
-        blocked = subprocess.run(base, text=True, capture_output=True)
-        self.assertEqual(1, blocked.returncode)
-        self.assertIn('workspace_busy', blocked.stderr)
-        self.host.close()
-        status = json.loads(subprocess.check_output(base, text=True))
+        status = core.preparation_status(source_id='fixture-paper')
         self.assertEqual(3, status['total'])
-        command = base + ['--plan-id', 'plan-001', '--chunk-id', 'chunk-003']
-        chunk = json.loads(subprocess.check_output(command, text=True))
+        chunk = core.preparation_chunk(source_id='fixture-paper', plan_id='plan-001', chunk_id='chunk-003')
         self.assertEqual('translation_required', chunk['status'])
-        result = subprocess.run(command + ['--translation-stdin'], input='第三段译文', text=True, capture_output=True, check=True)
-        self.assertEqual(1, json.loads(result.stdout)['completed'])
+        result = core.save_prepared_translation(
+            source_id='fixture-paper', plan_id='plan-001', chunk_id='chunk-003', translation='第三段译文')
+        self.assertEqual(1, result['completed'])
         self.assertEqual(state, (self.workspace / 'state.json').read_bytes())
 
     def test_topic_selection_does_not_auto_advance_into_another_source(self):
@@ -127,11 +120,11 @@ class PreparedReadingTests(unittest.TestCase):
         second = self.workspace / 'sources/second-paper'
         shutil.copytree(source, second)
         path = second / 'source.yaml'
-        metadata = json.loads(path.read_text()); metadata['source_id'] = 'second-paper'; metadata['identity'] = 'fixture:second'
-        path.write_text(json.dumps(metadata))
+        metadata = json.loads(path.read_text(encoding="utf-8")); metadata['source_id'] = 'second-paper'; metadata['identity'] = 'fixture:second'
+        path.write_text(json.dumps(metadata), encoding="utf-8")
         path = self.workspace / 'state.json'
-        state = json.loads(path.read_text()); state['sources']['second-paper'] = dict(state['sources']['fixture-paper'])
-        path.write_text(json.dumps(state))
+        state = json.loads(path.read_text(encoding="utf-8")); state['sources']['second-paper'] = dict(state['sources']['fixture-paper'])
+        path.write_text(json.dumps(state), encoding="utf-8")
         library = SourceLibrary(self.workspace)
         library.attach('fixture-paper', topic_title='Test', topic_id='test-topic')
         library.attach('second-paper', topic_title='Test', topic_id='test-topic')

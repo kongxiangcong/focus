@@ -5,7 +5,7 @@ import threading
 from pathlib import Path
 from unittest.mock import patch
 
-import test_focus_read
+import reading_fixture
 from test_stage6b_workflows import HarnessHistory, CodexHistory, HarnessCandidates, HarnessBlog, CodexCandidates
 from workspace_fixture import HostService
 from host.server import Server
@@ -15,7 +15,7 @@ import test_stage5_ingestion as single
 
 class ConfigurationTests(unittest.TestCase):
     def setUp(self):
-        self.fixture = test_focus_read.FocusReadTests()
+        self.fixture = reading_fixture.ReadingFixture()
         self.fixture.setUp()
         self.workspace = self.fixture._workspace()[0]
         self.settings = self.fixture.root / 'user-settings.json'
@@ -121,16 +121,21 @@ class ConfigurationTests(unittest.TestCase):
         self.host.prepare_reading('fixture-paper', request_id=uuid.uuid4().hex)
         self.host.reading_workers['fixture-paper'].join(5)
         view = self.host.open_prepared_reading('fixture-paper', request_id=uuid.uuid4().hex)
+        current = view['navigationCurrent']
+        receipt = {'sourceId': current['sourceId'], 'planId': current['planId'],
+                   'chunkId': current['chunkId'], 'readingRevision': view['readingRevision']}
         with patch('host.backends.codex.AppServer', CodexHistory):
             self.host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': '量子香蕉',
-                             'receipt': {'sourceId': 'fixture-paper', 'planId': view['current']['planId'],
-                                         'chunkId': view['current']['chunkId']}})
+                             'receipt': receipt})
             self.host.worker.join(5)
         self.host.save_configuration({'backend': 'deepseek'})
+        began = self.host.continue_cached({'beginBody': True, 'receipt': receipt,
+                                           'requestId': uuid.uuid4().hex})
+        current = began['navigationCurrent']
+        receipt = {'sourceId': current['sourceId'], 'planId': current['planId'],
+                   'chunkId': current['chunkId'], 'readingRevision': began['readingRevision']}
         request_id = uuid.uuid4().hex
-        self.host.continue_cached({'requestId': request_id, 'receipt': {
-            'sourceId': 'fixture-paper', 'planId': view['current']['planId'],
-            'chunkId': view['current']['chunkId'], 'readingRevision': view['readingRevision']}})
+        self.host.continue_cached({'requestId': request_id, 'receipt': receipt})
         self.assertTrue(runtime.entered.wait(3))
         try:
             with self.assertRaisesRegex(ValueError, '任务运行中'):

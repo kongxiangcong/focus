@@ -29,7 +29,7 @@ class WorkspacePortabilityTests(unittest.TestCase):
             host = HostService(root / 'workspace', None)
             evidence = host.workspace / 'sources/paper/parser-bundle/mineru/model_output.json'
             evidence.parent.mkdir(parents=True)
-            evidence.write_text('[{"type":"text","content":"source evidence"}]')
+            evidence.write_text('[{"type":"text","content":"source evidence"}]', encoding="utf-8")
             before = evidence.read_bytes()
             host.close()
             reopened = HostService(root / 'workspace', None)
@@ -66,7 +66,7 @@ class WorkspacePortabilityTests(unittest.TestCase):
     def test_supported_cli_entry_rejects_unversioned_layout_without_writing(self):
         from core.workspace_lifecycle import open_command_workspace
         with test_directory() as root:
-            (root / 'state.json').write_text('{}')
+            (root / 'state.json').write_text('{}', encoding="utf-8")
             before = {p.name: p.read_bytes() for p in root.iterdir()}
             with self.assertRaises(WorkspaceError):
                 open_command_workspace(root)
@@ -141,7 +141,7 @@ class WorkspacePortabilityTests(unittest.TestCase):
     def test_incompatible_format_does_not_create_lock_or_business_store(self):
         with test_directory() as root:
             (root / 'focus-workspace.json').write_text(json.dumps({'workspaceId': str(uuid.uuid4()),
-                'formatVersion': 99, 'minimumReader': 99, 'minimumWriter': 99}))
+                'formatVersion': 99, 'minimumReader': 99, 'minimumWriter': 99}), encoding="utf-8")
             with self.assertRaises(WorkspaceError):
                 HostService(root, root / 'machine')
             self.assertEqual(['focus-workspace.json'], [p.name for p in root.iterdir()])
@@ -168,7 +168,7 @@ class WorkspacePortabilityTests(unittest.TestCase):
     def test_old_directory_rejected_before_any_write(self):
         with test_directory() as directory:
             workspace = Path(directory)
-            (workspace / 'state.json').write_text('{}')
+            (workspace / 'state.json').write_text('{}', encoding="utf-8")
             before = {p.name: p.read_bytes() for p in workspace.iterdir()}
             with self.assertRaises(WorkspaceError):
                 HostService(workspace, workspace.parent / 'unused-host')

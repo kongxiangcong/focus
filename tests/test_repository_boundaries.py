@@ -110,6 +110,17 @@ class RepositoryBoundaryTests(unittest.TestCase):
                     ".agents/core/ingestion.py",
                     ".agents/core/article_blog.py",
                     ".agents/core/reading_application.py",
+                    # Local and cloud MinerU evidence binds Bundle bytes.
+                    ".agents/core/local_mineru.py",
+                    ".agents/core/mineru.py",
+                    # Parser identity binds the published Source to its original.
+                    ".agents/skills/article-parser/scripts/article_parser.py",
+                    # Editorial reference auditing fingerprints inspected files.
+                    ".agents/skills/editorial-ui/scripts/audit_reference.py",
+                    ".agents/skills/editorial-ui/scripts/build_starters.py",
+                    ".agents/skills/editorial-ui/tests/test_reference_audit.py",
+                    # The clear test fingerprints workspace files to prove no mutation.
+                    "tests/test_status_clear_host.py",
                 }:
                     python_matches = [m for m in python_matches if m.group(0).lower() not in {"hashlib", "sha256"}]
                 if retired.search(content) or python_matches:

@@ -29,9 +29,9 @@ class WorkspaceBindingTests(unittest.TestCase):
                 create_workspace(target)
                 active = target / 'sources/active/keep.txt'
                 active.parent.mkdir(parents=True)
-                active.write_text('Another source must survive')
+                active.write_text('Another source must survive', encoding="utf-8")
                 (target / 'state.json').write_text(json.dumps({'current_source_id': None, 'sources': {},
-                    'deleted_sources': {'removed': {'pending_cleanup': True, 'cleanup_paths': [relative]}}}))
+                    'deleted_sources': {'removed': {'pending_cleanup': True, 'cleanup_paths': [relative]}}}), encoding="utf-8")
                 before = {str(p.relative_to(target)): p.read_bytes() for p in target.rglob('*') if p.is_file()}
                 with self.assertRaises(WorkspaceError):
                     app.bind({'mode': 'import', 'path': str(target)})
@@ -76,7 +76,7 @@ class WorkspaceBindingTests(unittest.TestCase):
                 create_workspace(target)
                 broken = target / filename
                 broken.parent.mkdir(parents=True, exist_ok=True)
-                broken.write_text(content)
+                broken.write_text(content, encoding="utf-8")
                 before = {str(p.relative_to(target)): p.read_bytes() for p in target.rglob('*') if p.is_file()}
                 with self.assertRaises(WorkspaceError):
                     app.bind({'mode': 'import', 'path': str(target)})

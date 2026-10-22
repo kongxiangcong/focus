@@ -6,7 +6,7 @@
 
 第 1 步记录位于 `D:/tmp/focus-reader-redesign/evidence/step1/`：typecheck/build 通过，reader-ui 67 项、standalone 90 项通过。最终 typecheck/build 通过，reader-ui 86 项、standalone 90 项通过（新增 19 项，包含先前第 4–6 步的测试）。构建的 >500 kB 提示在基线已存在。
 
-浏览器结果及测量见本目录 `evidence/reading-redesign/`。完整截图和录屏保留在 `D:/tmp/focus-reader-redesign/shots/step9/`（Windows 下本任务的 `/tmp` 为 `D:/tmp`）。`matrix.json` 为 4 宽度 × 2 主题 × 2 动态偏好 × 2 全屏状态的逐项清单；PNG 为静态布局，WEBM 包含资料和定位器开合。
+浏览器结果及测量见本目录 `evidence/reading-redesign/`，只保留结构化 JSON；原始命令日志是一次性产物，与本地 `.scratch` 逐字节重复，不随文档发布。完整截图和录屏保留在 `D:/tmp/focus-reader-redesign/shots/step9/`（Windows 下本任务的 `/tmp` 为 `D:/tmp`）。`matrix.json` 为 4 宽度 × 2 主题 × 2 动态偏好 × 2 全屏状态的逐项清单；PNG 为静态布局，WEBM 包含资料和定位器开合。
 
 ## 逐条验收：规范 §4–§7
 
@@ -93,4 +93,4 @@
 
 未验证：真实中文输入法、真实触屏、forced-colors/高对比度、Firefox/Safari、真实 Runtime 生成内容与真实私人长文、真实系统剪贴板权限失败路径。非 Chromium 的 Custom Highlight 降级已在 Chromium 移除 API 的条件下验证，不等于其他浏览器实测。
 
-统一发布分支为 `codex/cds-ui-motion-theme`，包含阅读页实现、规范、原型、editorial-ui 技能安装、focus-map/focus-read 技能删除以及 external 忽略规则。重复的实现分支不再维护。`evidence/reading-redesign/changed-files.txt` 记录实施提交的变更统计；完整 PR 范围还包含此前准备提交及后续规范、发布说明修改。
+统一发布分支为 `codex/cds-ui-motion-theme`，包含阅读页实现、规范、原型、editorial-ui 技能安装、focus-map/focus-read 技能删除以及 external 忽略规则。重复的实现分支不再维护。实施提交的变更统计由 git 历史保存，本目录只发布可独立阅读的结构化证据；完整 PR 范围还包含此前准备提交及后续规范、发布说明修改。
