@@ -57,7 +57,12 @@ BLOG_STATUSES = frozenset(
 )
 
 
-PLACEHOLDERS = ("待补", "TODO", "TBD", "<your-", "问题 1：……", "贡献 1：")
+PLACEHOLDERS = ("待补", "TODO", "TBD", "<your-", "问题 1：……")
+EMPTY_CONTRIBUTION = re.compile(
+    r"^[ \t]*(?:#{1,6}[ \t]+|[-*+][ \t]+)?(?:\*\*)?"
+    r"(贡献[ \t]+\d+[：:])(?:\*\*)?[ \t]*[….]*[ \t]*$",
+    re.MULTILINE,
+)
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg", ".jp2"}
 
 #: Minimum Reading Blog length; below this the article cannot be a 细读长文.
@@ -515,6 +520,8 @@ def validate_blog_candidate(
     blog_text = _read_text(blog_dir / "blog.md")
     placeholders = sorted(
         {item for item in PLACEHOLDERS if item in evidence_text or item in blog_text}
+        | set(EMPTY_CONTRIBUTION.findall(evidence_text))
+        | set(EMPTY_CONTRIBUTION.findall(blog_text))
     )
     if placeholders:
         errors.append("Unresolved placeholders: " + ", ".join(placeholders))

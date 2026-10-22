@@ -291,6 +291,20 @@ class BlogApplicationTests(unittest.TestCase):
 
     # ------------------------------------------------------------------ T05
 
+    def test_completed_contribution_labels_are_published(self):
+        runtime = RecordingRuntime(files={
+            "blog.md": READING_BLOG_BODY + "\n### 贡献 1：减少重复工具调用\n",
+            "evidence/evidence-map.md": EVIDENCE_BODY + "\n贡献 1：吞吐改进来自减少重复开销。\n",
+        })
+        app = self._app(runtime)
+        source_root, _ = self._registered_paper()
+
+        result = app.generate("Fixture-paper", request_id="req-1", authorized_by="manual_trigger")
+
+        self.assertEqual("completed", result["outcome"]["status"])
+        self.assertIn("贡献 1：", (source_root / "blog" / "blog.md").read_text(encoding="utf-8"))
+        self.assertTrue((source_root / "blog" / "index.html").is_file())
+
     def test_runtime_claiming_success_with_an_invalid_candidate_is_not_published(self):
         runtime = RecordingRuntime(body="# 太短\n\n只有一句话。\n")
         app = self._app(runtime)

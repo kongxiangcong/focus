@@ -326,6 +326,31 @@ class BlogValidatorTests(unittest.TestCase):
         (self.blog / "assets" / "image-001.png").write_bytes(png_bytes())
         (self.blog / "blog.md").write_text(blog_body, encoding="utf-8")
 
+    def test_completed_contribution_labels_are_not_placeholders(self):
+        for filename in ("blog.md", "evidence/evidence-map.md"):
+            for label in ("贡献 1：融合工具调用，减少重复开销。", "### 贡献 1：融合工具调用"):
+                with self.subTest(filename=filename, label=label):
+                    self._fill()
+                    target = self.blog / filename
+                    target.write_text(target.read_text(encoding="utf-8") + "\n" + label + "\n", encoding="utf-8")
+
+                    checked = validate_blog_candidate(self.blog, bundle=self.bundle)
+
+                    self.assertTrue(checked["ok"], checked["errors"])
+
+    def test_unfilled_placeholders_still_fail_in_both_artifacts(self):
+        for filename in ("blog.md", "evidence/evidence-map.md"):
+            for label in ("贡献 1：", "贡献 1：……", "### 贡献 1：...", "TODO", "待补", "TBD", "<your-title>", "问题 1：……"):
+                with self.subTest(filename=filename, label=label):
+                    self._fill()
+                    target = self.blog / filename
+                    target.write_text(target.read_text(encoding="utf-8") + "\n" + label + "\n", encoding="utf-8")
+
+                    checked = validate_blog_candidate(self.blog, bundle=self.bundle)
+
+                    self.assertFalse(checked["ok"])
+                    self.assertTrue(any("Unresolved placeholders" in error for error in checked["errors"]), checked["errors"])
+
     # ------------------------------------------------------------------- T15
 
     def test_an_image_that_does_not_decode_fails_and_names_the_file(self):
