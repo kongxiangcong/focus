@@ -103,6 +103,7 @@ class DiscussionTests(unittest.TestCase):
         notes = self.host.snapshot()['sourceNotes']
         self.assertEqual(1, len(notes))
         self.assertEqual('An example and conclusion.', notes[0]['content'])
+        self.assertIsNone(notes[0]['placement'])
         self.assertEqual('completed', self.host.snapshot()['agent']['run']['status'])
         self.host.start({'requestId': 'request-1234', 'sourceId': 'fixture-paper',
                          'sessionId': selected['sessionId'], 'receipt': None, 'content': '请记下来'})
@@ -110,6 +111,54 @@ class DiscussionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.host.start({'requestId': 'request-1234', 'sourceId': 'fixture-paper',
                              'sessionId': selected['sessionId'], 'receipt': None, 'content': '改成另一条，记下来'})
+
+    def test_referenced_discussion_note_has_display_placement_without_evidence(self):
+        selected = self.host.select_discussion_source('fixture-paper')
+        payload = {'requestId': 'placement-host-save', 'sourceId': 'fixture-paper',
+                   'sessionId': selected['sessionId'], 'content': '记一下',
+                   'receipt': {'sourceId': 'fixture-paper', 'planId': 'plan-001', 'chunkId': 'chunk-001'}}
+        self.host.start(payload)
+        self.host.worker.join(3)
+        note = self.host.snapshot()['sourceNotes'][0]
+        self.assertIsNone(note['anchor'])
+        self.assertEqual({'sourceId': 'fixture-paper', 'bundle': note['bundle'],
+                          'sourceLines': [1, 6]}, note['placement'])
+        self.host.start(payload)
+        self.assertEqual([note], self.host.snapshot()['sourceNotes'])
+
+    def test_evidence_anchor_has_priority_over_discussion_placement(self):
+        app = self.host.discussion_app
+        scope = app.bind(source_id='fixture-paper', request_id='anchored-reference', content='记一下')
+        scope['reference'] = self.host.core.reference(
+            {'sourceId': 'fixture-paper', 'planId': 'plan-001', 'chunkId': 'chunk-001'})
+        anchor = {'sourceId': 'fixture-paper', 'bundle': scope['bundle'], 'sourceLines': [4, 4],
+                  'quote': 'The alias address keeps source order.'}
+        note = app.candidate(scope, 'source_note', {'content': 'A source claim.', 'kind': 'conclusion',
+            'origin': 'dialogue', 'evidence_role': 'source_claim', 'anchor': anchor})['note']
+        self.assertEqual(anchor, note['anchor'])
+        self.assertIsNone(note['placement'])
+
+    def test_historical_reference_is_rejected_and_cannot_create_placement(self):
+        app = self.host.discussion_app
+        scope = app.bind(source_id='fixture-paper', request_id='historical-reference', content='记一下')
+        scope['reference'] = self.host.core.reference(
+            {'sourceId': 'fixture-paper', 'planId': 'plan-001', 'chunkId': 'chunk-001'})
+        path = self.workspace / 'sources' / 'fixture-paper' / 'parser-bundle' / 'content.md'
+        path.write_text(path.read_text(encoding='utf-8') + '\nNew source.\n', encoding='utf-8')
+        with self.assertRaises(WorkspaceError) as caught:
+            app.candidate(scope, 'source_note', {'content': 'Old context.', 'kind': 'thought',
+                'origin': 'dialogue', 'evidence_role': 'explanation'})
+        self.assertEqual('source_bundle_changed', caught.exception.error_id)
+        self.assertEqual([], app.notes.list('fixture-paper'))
+
+    def test_model_cannot_supply_placement_or_sentence(self):
+        app = self.host.discussion_app
+        scope = app.bind(source_id='fixture-paper', request_id='model-position-invalid', content='记一下')
+        for field in ('placement', 'sentence'):
+            with self.subTest(field=field), self.assertRaises(WorkspaceError) as caught:
+                app.candidate(scope, 'source_note', {'content': 'Candidate.', 'kind': 'thought',
+                    'origin': 'dialogue', 'evidence_role': 'explanation', field: {}})
+            self.assertEqual('note_invalid', caught.exception.error_id)
 
     def test_host_runtime_note_intent_scope_and_denial(self):
         selected = self.host.select_discussion_source('fixture-paper')
