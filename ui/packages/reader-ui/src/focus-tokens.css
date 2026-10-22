@@ -39,6 +39,26 @@
   --reader-mark-soft:rgba(232,178,62,.14);
   --reader-mark-strong:#c28a1e;
   --reader-mark-ink:#8a5d0c;
+  /* Reading Highlight and sentence Reading Note presentation (ADR 0033). */
+  --reader-anno-highlight:rgba(247,206,70,.50);
+  --reader-anno-highlight-strong:#d6a514;
+  --reader-anno-line:rgba(163,43,49,.80);
+  --reader-anno-pending-line:var(--reader-faint);
+  --reader-anno-bulb-bg:#fffaf0;
+  --reader-anno-bulb-bg-hover:#fff2d6;
+  --reader-anno-bulb-border:rgba(194,138,30,.45);
+  --reader-anno-bulb-ink:var(--reader-mark-strong);
+  --reader-anno-bubble:#1d2125;
+  --reader-anno-on-bubble:#f8f7f4;
+  --reader-anno-hl-icon:#f7ce46;
+  --reader-anno-note-icon:#f0a3a6;
+  --reader-anno-card-gap:8px;
+  --reader-anno-card-offset:6px;
+  --reader-anno-narrow-rail:200px;
+  --reader-anno-pulse:rgba(45,95,127,.22);
+  --reader-anno-saved:rgba(247,206,70,.7);
+  --reader-anno-bubble-selected:rgba(247,206,70,.18);
+  --reader-anno-bubble-muted:rgba(248,247,244,.75);
   /* Actions and status (status colours retain ADR 0025 values) */
   --reader-action:#1d2125;
   --reader-on-action:#f8f7f4;
@@ -77,6 +97,7 @@
   --reader-ease-out:cubic-bezier(.22,.8,.24,1);
   --reader-ease-inout:cubic-bezier(.45,0,.2,1);
   --reader-ease-in:cubic-bezier(.4,0,1,1);
+  --reader-ease-pop:cubic-bezier(.34,1.5,.64,1);
   --reader-ease-snap:var(--reader-ease-out);
   /* Elevation */
   --reader-shadow:0 0 0 1px rgba(29,33,37,.07),0 1px 2px rgba(29,33,37,.04),0 12px 32px -18px rgba(29,33,37,.22);
@@ -134,6 +155,26 @@
   --reader-mark-soft:rgba(217,164,65,.12);
   --reader-mark-strong:#d9a441;
   --reader-mark-ink:#e6bd6c;
+  /* Reading Highlight and sentence Reading Note presentation (ADR 0033). */
+  --reader-anno-highlight:rgba(230,190,60,.30);
+  --reader-anno-highlight-strong:#d9a441;
+  --reader-anno-line:rgba(255,157,157,.80);
+  --reader-anno-pending-line:var(--reader-faint);
+  --reader-anno-bulb-bg:#2a2620;
+  --reader-anno-bulb-bg-hover:#353024;
+  --reader-anno-bulb-border:rgba(217,164,65,.45);
+  --reader-anno-bulb-ink:var(--reader-mark-strong);
+  --reader-anno-bubble:#33383e;
+  --reader-anno-on-bubble:#f8f7f4;
+  --reader-anno-hl-icon:#f7ce46;
+  --reader-anno-note-icon:#f0a3a6;
+  --reader-anno-card-gap:8px;
+  --reader-anno-card-offset:6px;
+  --reader-anno-narrow-rail:200px;
+  --reader-anno-pulse:rgba(141,184,214,.22);
+  --reader-anno-saved:rgba(230,190,60,.7);
+  --reader-anno-bubble-selected:rgba(247,206,70,.18);
+  --reader-anno-bubble-muted:rgba(248,247,244,.75);
   --reader-action:#e8e6e1;
   --reader-on-action:#151719;
   --reader-danger:#ff9d9d;
