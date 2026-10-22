@@ -18,17 +18,17 @@
 .reader-anno.is-linked, .reader-anno:focus-visible { background-color: var(--reader-accent-soft); outline: none; }
 .reader-anno-nb { white-space: nowrap; }
 .reader-anno-bulb-anchor { position: relative; display: inline-block; width: 0; height: 0; }
-.reader-anno-bulb {
-  position: absolute; left: 1px; bottom: .78em; width: 17px; height: 17px; padding: 0;
+.reader-anno-bulb, .focus-reader button.reader-anno-bulb {
+  position: absolute; left: 1px; bottom: .78em; width: 17px; height: 17px; min-width:0; min-height:0; padding: 0;
   display: grid; place-items: center;
   border: 1px solid var(--reader-anno-bulb-border); border-radius: 9px 9px 9px 3px;
   background: var(--reader-anno-bulb-bg); color: var(--reader-anno-bulb-ink);
   box-shadow: 0 1px 2px rgba(29,33,37,.10); cursor: pointer; transform-origin: 0 100%;
 }
-.reader-anno-bulb::after { content: ""; position: absolute; inset: -7px; }      /* 31px 命中区 */
-@media (pointer: coarse) { .reader-anno-bulb::after { inset: -13px; } }        /* 43px 命中区 */
+.reader-anno-bulb::after { content: ""; position: absolute; inset: -8px; }      /* 31px 命中区 */
+@media (pointer: coarse) { .reader-anno-bulb::after { inset: -14px; } }        /* 43px 命中区 */
 .reader-anno-bulb svg { width: 11px; height: 11px; }
-.reader-anno-bulb:hover { background: var(--reader-anno-bulb-bg-hover); }
+.reader-anno-bulb:hover, .focus-reader button.reader-anno-bulb:hover { background: var(--reader-anno-bulb-bg-hover); }
 
 .reader-anno.is-new-hl { animation:reader-anno-hl-in var(--reader-duration-travel) var(--reader-ease-out) both; }
 .reader-anno.is-new-note { animation:reader-anno-ul-in var(--reader-duration-travel) var(--reader-ease-out) both; }
@@ -58,16 +58,17 @@
 .reader-anno-card.is-saved { animation:reader-anno-settle var(--reader-duration-move) var(--reader-ease-out); }
 @keyframes reader-anno-settle { from { box-shadow:0 0 0 2px var(--reader-anno-saved),var(--reader-shadow); } }
 
-.reader-anno-icon-btn { display:inline-grid; place-items:center; width:24px; height:24px; padding:0; border:0; border-radius:6px; background:transparent; color:var(--reader-ink-2); cursor:pointer; }
-.reader-anno-icon-btn:hover { background:var(--reader-hover); color:var(--reader-ink); }
-.reader-anno-icon-btn.danger:hover { color:var(--reader-danger); }
+.reader-anno-icon-btn, .focus-reader button.reader-anno-icon-btn { display:inline-grid; place-items:center; width:24px; height:24px; min-width:0; min-height:0; padding:0; border:0; border-radius:6px; background:transparent; color:var(--reader-ink-2); cursor:pointer; }
+.reader-anno-icon-btn:hover, .focus-reader button.reader-anno-icon-btn:hover { background:var(--reader-hover); color:var(--reader-ink); }
+.reader-anno-icon-btn.danger:hover, .focus-reader button.reader-anno-icon-btn.danger:hover { color:var(--reader-danger); }
 .reader-anno-icon-btn svg { width:14px; height:14px; }
-.reader-anno-ghost { display:inline-flex; align-items:center; gap:4px; height:26px; padding:0 8px; border:0; border-radius:var(--reader-radius); background:transparent; color:var(--reader-ink-2); font-size:12px; cursor:pointer; }
-.reader-anno-ghost:hover { background:var(--reader-hover); color:var(--reader-ink); }
-.reader-anno-ghost.danger:hover { color:var(--reader-danger); }
+.reader-anno-ghost, .focus-reader button.reader-anno-ghost { display:inline-flex; align-items:center; gap:4px; height:26px; min-height:0; padding:0 8px; border:0; border-radius:var(--reader-radius); background:transparent; color:var(--reader-ink-2); font:12px var(--reader-ui); cursor:pointer; }
+.reader-anno-ghost:hover, .focus-reader button.reader-anno-ghost:hover { background:var(--reader-hover); color:var(--reader-ink); }
+.reader-anno-ghost.danger:hover, .focus-reader button.reader-anno-ghost.danger:hover { color:var(--reader-danger); }
 .reader-anno-ghost svg { width:13px; height:13px; }
-.reader-anno-primary { height:26px; padding:0 12px; border:0; border-radius:var(--reader-radius); background:var(--reader-action); color:var(--reader-on-action); font-size:12px; cursor:pointer; }
-.reader-anno-primary:disabled { opacity:.35; cursor:default; }
+.reader-anno-primary, .focus-reader button.reader-anno-primary { height:26px; min-height:0; padding:0 12px; border:0; border-radius:var(--reader-radius); background:var(--reader-action); color:var(--reader-on-action); font:12px var(--reader-ui); cursor:pointer; }
+.focus-reader button.reader-anno-primary:hover:not(:disabled) { background:var(--reader-action); }
+.reader-anno-primary:disabled, .focus-reader button.reader-anno-primary:disabled { opacity:.35; cursor:default; }
 
 /* Paragraph (global) notes */
 .reader-chunk-notes { margin-top:14px; padding-top:10px; border-top:1px dashed var(--reader-line-strong); font:12.5px/1.65 var(--reader-ui); }
@@ -108,8 +109,8 @@
 .reader-anno-editor__bar small { flex:1; color:var(--reader-faint); font-size:11px; }
 
 .reader-anno-kinds { display:flex; gap:2px; margin-bottom:6px; }
-.reader-anno-kinds button { height:22px; padding:0 8px; border:0; border-radius:999px; background:transparent; color:var(--reader-ink-2); font-size:11.5px; cursor:pointer; }
-.reader-anno-kinds button[aria-checked=true] { background:var(--reader-ink); color:var(--reader-on-action); }
+.reader-anno-kinds button, .focus-reader .reader-anno-kinds button { height:22px; min-height:0; padding:0 8px; border:0; border-radius:999px; background:transparent; color:var(--reader-ink-2); font-size:11.5px; cursor:pointer; }
+.reader-anno-kinds button[aria-checked=true], .focus-reader .reader-anno-kinds button[aria-checked=true] { background:var(--reader-ink); color:var(--reader-on-action); }
 .reader-chunk-notes .reader-anno-editor, .reader-chunk-notes-fold .reader-anno-editor { margin:6px 0; }
 
 /* Floating layer */
@@ -118,12 +119,12 @@
   box-shadow:var(--reader-shadow-popover); animation:reader-anno-pop-in var(--reader-duration-quick) var(--reader-ease-out); }
 .reader-anno-bubble[data-side=above] { transform-origin:var(--arrow-x) 100%; }
 .reader-anno-bubble[data-side=below] { transform-origin:var(--arrow-x) 0; }
-.reader-anno-bubble button { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 10px; border:0; border-radius:7px; background:transparent; color:inherit; font:13px var(--reader-ui); cursor:pointer; white-space:nowrap; }
-.reader-anno-bubble button:hover, .reader-anno-bubble button:focus-visible { background:rgba(255,255,255,.13); outline:none; }
+.reader-anno-bubble button, .focus-reader .reader-anno-bubble button { display:inline-flex; align-items:center; gap:6px; height:30px; min-height:0; padding:0 10px; border:0; border-radius:7px; background:transparent; color:inherit; font:13px var(--reader-ui); cursor:pointer; white-space:nowrap; }
+.reader-anno-bubble button:hover, .reader-anno-bubble button:focus-visible, .focus-reader .reader-anno-bubble button:hover, .focus-reader .reader-anno-bubble button:focus-visible { background:rgba(255,255,255,.13); outline:none; }
 .reader-anno-bubble button svg { width:15px; height:15px; }
 .reader-anno-bubble .reader-anno-icon--hl { color:var(--reader-anno-hl-icon); }
 .reader-anno-bubble .reader-anno-icon--note { color:var(--reader-anno-note-icon); }
-.reader-anno-bubble button[aria-pressed=true] { background:var(--reader-anno-bubble-selected); }
+.reader-anno-bubble button[aria-pressed=true], .focus-reader .reader-anno-bubble button[aria-pressed=true] { background:var(--reader-anno-bubble-selected); }
 .reader-anno-bubble .reader-anno-bubble__sep { width:1px; margin:6px 2px; background:rgba(255,255,255,.18); }
 .reader-anno-bubble__msg { padding:0 10px; align-self:center; color:var(--reader-anno-bubble-muted); font-size:12px; }
 .reader-anno-float::before { content:""; position:absolute; left:calc(var(--arrow-x) - 5px); width:10px; height:10px; transform:rotate(45deg); background:inherit; }
@@ -145,11 +146,11 @@
 .reader-anno-toast { position:fixed; left:50%; bottom:28px; z-index:60; display:flex; align-items:center; gap:10px; padding:6px 6px 6px 14px; border-radius:10px;
   max-width:calc(100vw - 16px); background:var(--reader-anno-bubble); color:var(--reader-anno-on-bubble); box-shadow:var(--reader-shadow-popover); transform:translateX(-50%);
   font:13px/1.5 var(--reader-ui); animation:reader-anno-toast-in var(--reader-duration-move) var(--reader-ease-out); }
-.reader-anno-toast button { height:26px; padding:0 10px; border:0; border-radius:7px; background:rgba(255,255,255,.12); color:inherit; font:inherit; cursor:pointer; }
-.reader-anno-toast button:hover { background:rgba(255,255,255,.2); }
+.reader-anno-toast button, .focus-reader .reader-anno-toast button { height:26px; min-height:0; padding:0 10px; border:0; border-radius:7px; background:rgba(255,255,255,.12); color:inherit; font:inherit; cursor:pointer; }
+.reader-anno-toast button:hover, .focus-reader .reader-anno-toast button:hover { background:rgba(255,255,255,.2); }
 @keyframes reader-anno-toast-in { from { opacity:0; transform:translate(-50%,8px); } }
 
-.reader-anno-bulb {
+.reader-anno-bulb, .focus-reader button.reader-anno-bulb {
   transition: opacity var(--reader-duration-move) var(--reader-ease-out) var(--bulb-delay,0s), transform var(--reader-duration-move) var(--reader-ease-out) var(--bulb-delay,0s), visibility 0s var(--bulb-delay,0s);
 }
 .reader-anno-bulb.is-new { animation:reader-anno-bulb-pop var(--reader-duration-travel) var(--reader-ease-pop) 320ms both; }

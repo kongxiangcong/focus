@@ -53,3 +53,9 @@ pnpm reader:build
 已实现浅/深色批注 token、原型组件样式、700 字重、八类基础动效及浮层/折叠/灯泡样式；同时处理系统与应用减少动效设置。原有作者 mark 与 AttachedNotes 样式保留。
 
 验证：reader-annotations-css.test.ts 4 项通过；直接调用现有 Vite 执行与 reader:build 相同的 standalone 生产构建通过（397 modules）。pnpm 在独立 worktree 触发依赖自动安装并遇到 sandbox symlink 权限，改用共享既有依赖与直接 CLI；浏览器计算样式/截图由工单 13 验收。
+
+### 控件级联复核
+
+Chrome 1600px 与触屏 390px 临时组件夹具确认：通用 button reset 与移动端 min-height 会覆盖批注控件；已加强批注控件选择器并恢复原型尺寸、颜色与 UI 字体。灯泡 17×17、气泡 30px、操作图标 24px、主/ghost 按钮 26px、类型按钮 22px；焦点边框 2px 可见，高亮字重 700。4 项静态 CSS 检查继续通过。计算样式证据：[07-control-styles.json](../evidence/07-control-styles.json)。
+
+- 实测命中区修正：17px 灯泡的 1px 边框使绝对定位包含块仅 15px，原 inset -7/-13 的实际伪元素为 29/41px。将 fine/coarse inset 改为 -8/-14，Chrome 确认实际 31/43px；同步更新 spec §7.2。

@@ -403,11 +403,13 @@ buildMarks(text: string, located: Located[], layer: AnnotationLayer): { marks: R
   background: var(--reader-anno-bulb-bg); color: var(--reader-anno-bulb-ink);
   box-shadow: 0 1px 2px rgba(29,33,37,.10); cursor: pointer; transform-origin: 0 100%;
 }
-.reader-anno-bulb::after { content: ""; position: absolute; inset: -7px; }      /* 31px 命中区 */
-@media (pointer: coarse) { .reader-anno-bulb::after { inset: -13px; } }        /* 43px 命中区 */
+.reader-anno-bulb::after { content: ""; position: absolute; inset: -8px; }      /* 31px 命中区 */
+@media (pointer: coarse) { .reader-anno-bulb::after { inset: -14px; } }        /* 43px 命中区 */
 .reader-anno-bulb svg { width: 11px; height: 11px; }
 .reader-anno-bulb:hover { background: var(--reader-anno-bulb-bg-hover); }
 ```
+
+命中区实测修正（2026-10-23）：17px border-box 灯泡含两侧 1px 边框，伪元素的绝对定位包含块宽为 15px。为达到 31px / 43px 实际命中区，inset 分别取 -8px / -14px（原 -7px / -13px 仅为 29px / 41px）。
 
 其余（卡片、气泡、浮层、小段笔记、折叠行、toast）按 `prototype.html` 中同名样式移植，映射如下，数值不变，颜色换成上表 token：
 
