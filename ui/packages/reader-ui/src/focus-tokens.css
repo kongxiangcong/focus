@@ -39,7 +39,7 @@
   --reader-mark-soft:rgba(232,178,62,.14);
   --reader-mark-strong:#c28a1e;
   --reader-mark-ink:#8a5d0c;
-  /* Reading Highlight and sentence Reading Note presentation (ADR 0032). */
+  /* Reading Highlight and sentence Reading Note presentation (ADR 0033). */
   --reader-anno-highlight:rgba(247,206,70,.50);
   --reader-anno-highlight-strong:#d6a514;
   --reader-anno-line:rgba(163,43,49,.80);
@@ -155,7 +155,7 @@
   --reader-mark-soft:rgba(217,164,65,.12);
   --reader-mark-strong:#d9a441;
   --reader-mark-ink:#e6bd6c;
-  /* Reading Highlight and sentence Reading Note presentation (ADR 0032). */
+  /* Reading Highlight and sentence Reading Note presentation (ADR 0033). */
   --reader-anno-highlight:rgba(230,190,60,.30);
   --reader-anno-highlight-strong:#d9a441;
   --reader-anno-line:rgba(255,157,157,.80);
