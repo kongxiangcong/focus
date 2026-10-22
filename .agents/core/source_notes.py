@@ -207,8 +207,12 @@ class SourceNotes:
             raise WorkspaceError("note_sentence_invalid", "A sentence note requires a Source anchor")
         payload = {"sourceId": source_id, "bundle": bundle, "intentId": intent_id,
                    "content": content, "kind": kind, "origin": origin,
-                   "evidenceRole": evidence_role, "anchor": anchor,
-                   "placement": placement, "sentence": sentence}
+                   "evidenceRole": evidence_role, "anchor": anchor}
+        # Absent optional fields retain the identity of pre-annotation request receipts.
+        if placement is not None:
+            payload["placement"] = placement
+        if sentence is not None:
+            payload["sentence"] = sentence
         digest = _payload_identity(payload)
         with _LOCK, closing(self._connect(source_id)) as db, db:
             db.execute("BEGIN IMMEDIATE")

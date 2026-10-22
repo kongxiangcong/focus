@@ -31,6 +31,7 @@ from .candidates import CandidateTurns
 from .configuration import UserSettings, DEFAULT_MODELS, normalize
 from core.workspace_lifecycle import WorkspaceLease, create_workspace
 from core.source_management import SourceManagement
+from core.source_notes import check_sentence
 
 #: The Workbench offers one retry entry per artifact, named by granularity.
 BLOG_ARTIFACT_LABELS = {'reading_blog': '重新生成带读博客', 'html': '重新生成 HTML'}
@@ -71,6 +72,7 @@ class HostService:
         writer_id = self.lease.instance_id
         self.discussion_app = DiscussionApplication(self.workspace, writer_id=writer_id)
         self.source_notes = self.discussion_app.notes
+        self.source_highlights = self.discussion_app.highlights
         self.source_clear = SourceClear(self.store, self.source_notes)
         self.source_clear.recover()
         self.source_management = SourceManagement(self.workspace, self.store)
@@ -268,9 +270,11 @@ class HostService:
                     present.add(key)
             window['conversation'] = json.loads(json.dumps(messages))
             window['sourceNotes'] = self.source_notes.list(note_source, include_deleted=True) if note_source else []
+            window['sourceHighlights'] = self.source_highlights.list(note_source, include_deleted=True) if note_source else []
             window['readingProgress'] = self.progress_core.list(note_source) if note_source else []
             window['noteFeedback'] = self.state.get('noteFeedback') if note_source and (self.state.get('noteFeedback') or {}).get('sourceId') == note_source else None
             window['noteOperation'] = self.state.get('noteOperation') if note_source and (self.state.get('noteOperation') or {}).get('sourceId') == note_source else None
+            window['highlightOperation'] = self.state.get('highlightOperation') if note_source and (self.state.get('highlightOperation') or {}).get('sourceId') == note_source else None
             window['blog'] = self._blog_summary()
             preparations = {}
             for path in (self.workspace / 'sources').glob('*/reading/preparation.json'):
@@ -527,6 +531,14 @@ class HostService:
                 raise ValueError('笔记类型或来源不正确。')
             bundle = self.source_notes.bundle_version(source_id)
             chunk, anchor = payload.get('chunk'), None
+            sentence = payload.get('sentence')
+            if sentence is not None:
+                if chunk is None:
+                    raise WorkspaceError('note_sentence_invalid', '句子备注需要段落引用')
+                if payload.get('quote') is not None:
+                    raise ValueError('笔记段落引用不正确。')
+                if kind != 'thought' or origin != 'user':
+                    raise ValueError('笔记类型或来源不正确。')
             if chunk is not None:
                 if not isinstance(chunk, dict) or set(chunk) != {'planId', 'chunkId'}:
                     raise ValueError('笔记段落引用不正确。')
@@ -534,12 +546,16 @@ class HostService:
                     raise WorkspaceError('note_bundle_changed', '这段原文已更新，可改存为整篇笔记')
                 reference = self.core.reference({'sourceId': source_id, **chunk})
                 anchor = {'sourceId': source_id, 'bundle': bundle, 'sourceLines': reference['sourceLines']}
+                if sentence is not None:
+                    sentence = check_sentence(sentence, plan_id=chunk['planId'], chunk_id=chunk['chunkId'],
+                        has_translation=bool(reference.get('translation')), code='note_sentence_invalid')
                 if payload.get('quote') is not None:
                     anchor['quote'] = payload['quote']
             request_id = payload.get('requestId')
             result = self.source_notes.save(source_id, bundle=bundle, request_id=request_id, intent_id=request_id,
                 content=payload.get('content'), kind=kind, origin=origin,
-                evidence_role='unresolved_question' if kind == 'question' else 'explanation', anchor=anchor)
+                evidence_role='unresolved_question' if kind == 'question' else 'explanation', anchor=anchor,
+                sentence=sentence)
             self.state['noteOperation'] = {'sourceId': source_id, **result}
             self.changed()
             return self.snapshot()
@@ -560,6 +576,50 @@ class HostService:
     def source_note_request(self, source_id, request_id):
         with self.lock:
             return self.source_notes.result(source_id, request_id)
+
+    def source_highlight_create(self, source_id, payload):
+        with self.lock:
+            self.source_clear.recover()
+            selected = self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']
+            if source_id != selected:
+                raise ValueError('讨论材料已改变，请刷新后重试。')
+            if not isinstance(payload, dict) or set(payload) != {'requestId', 'chunk', 'layer', 'range', 'quote'}:
+                raise ValueError('标注参数不正确。')
+            chunk = payload['chunk']
+            if not isinstance(chunk, dict) or set(chunk) != {'planId', 'chunkId'}:
+                raise ValueError('标注参数不正确。')
+            generation = self.source_notes.generation(source_id)
+            plan_bundle = self.core.plan_bundle(source_id, chunk['planId'])
+            if plan_bundle != self.source_notes.bundle_version(source_id):
+                raise WorkspaceError('highlight_bundle_changed', '这段原文已更新，标注未保存')
+            reference = self.core.reference({'sourceId': source_id, **chunk})
+            locator = check_sentence({key: payload[key] for key in ('layer', 'range', 'quote')},
+                plan_id=chunk['planId'], chunk_id=chunk['chunkId'],
+                has_translation=bool(reference.get('translation')), code='highlight_invalid')
+            result = self.source_highlights.save(source_id, request_id=payload['requestId'],
+                plan_bundle=plan_bundle, chunk_lines=reference['sourceLines'], locator=locator,
+                expected_generation=generation)
+            self.state['highlightOperation'] = {'sourceId': source_id, **result}
+            self.changed()
+            return self.snapshot()
+
+    def source_highlight_request(self, source_id, request_id):
+        with self.lock:
+            return self.source_highlights.result(source_id, request_id)
+
+    def source_highlight_change(self, source_id, highlight_id, operation, payload):
+        with self.lock:
+            self.source_clear.recover()
+            selected = self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']
+            if source_id != selected:
+                raise ValueError('讨论材料已改变，请刷新后重试。')
+            if not isinstance(payload, dict) or set(payload) != {'requestId', 'expectedRevision'}:
+                raise ValueError('标注参数不正确。')
+            result = self.source_highlights.change(source_id, highlight_id=highlight_id,
+                request_id=payload['requestId'], expected_revision=payload['expectedRevision'], operation=operation)
+            self.state['highlightOperation'] = {'sourceId': source_id, **result}
+            self.changed()
+            return self.snapshot()
 
     def library_topics(self):
         from .core_bridge import SourceLibrary
@@ -1167,7 +1227,7 @@ class HostService:
                 message['reference'] = None
                 message['sourceDeleted'] = True
         state['requests'] = {k: v for k, v in state['requests'].items() if not references(v)}
-        for key in ('noteFeedback', 'noteOperation', 'run'):
+        for key in ('noteFeedback', 'noteOperation', 'highlightOperation', 'run'):
             if references(state.get(key)):
                 state[key] = None
         if state != before:

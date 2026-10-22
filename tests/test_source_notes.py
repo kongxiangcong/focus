@@ -2,7 +2,10 @@
 import shutil
 import sqlite3
 import tempfile
+import json
+import sqlite3
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 import reading_fixture
@@ -35,6 +38,30 @@ class SourceNotesTests(unittest.TestCase):
         second = self.save("request-5678")
         self.assertNotEqual(first["note"]["noteId"], second["note"]["noteId"])
         self.assertEqual(2, len(SourceNotes(self.workspace).list(self.source)))
+
+    def test_pre_annotation_request_receipt_replays_after_schema_upgrade(self):
+        root = self.workspace / 'sources' / self.source / 'notes'
+        root.mkdir()
+        legacy_note = {'noteId': 'a' * 32, 'sourceId': self.source, 'revision': 1,
+                       'content': 'An example and conclusion.', 'kind': 'conclusion', 'origin': 'dialogue',
+                       'bundle': self.bundle, 'anchor': None, 'evidenceRole': 'explanation',
+                       'deleted': False, 'canUndo': True, 'sourceUpdated': False, 'referenceStatus': 'current'}
+        receipt = {'status': 'saved', 'note': legacy_note}
+        payload = {'sourceId': self.source, 'bundle': self.bundle, 'intentId': 'intent-12345',
+                   'content': 'An example and conclusion.', 'kind': 'conclusion', 'origin': 'dialogue',
+                   'evidenceRole': 'explanation', 'anchor': None}
+        with closing(sqlite3.connect(root / 'notes.sqlite3')) as db, db:
+            db.execute('CREATE TABLE notes (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, '
+                       'content TEXT NOT NULL, kind TEXT NOT NULL, origin TEXT NOT NULL, '
+                       'bundle TEXT NOT NULL, anchor TEXT, evidence_role TEXT NOT NULL, deleted INTEGER NOT NULL, undo TEXT)')
+            db.execute('INSERT INTO notes VALUES (?, 1, ?, ?, ?, ?, NULL, ?, 0, ?)',
+                       (legacy_note['noteId'], legacy_note['content'], 'conclusion', 'dialogue', self.bundle,
+                        'explanation', json.dumps({'operation': 'create'})))
+            db.execute('CREATE TABLE requests (id TEXT PRIMARY KEY, digest TEXT, result TEXT, cancelled INTEGER NOT NULL DEFAULT 0)')
+            db.execute('INSERT INTO requests VALUES (?, ?, ?, 0)',
+                       ('request-1234', json.dumps(payload, ensure_ascii=False, sort_keys=True), json.dumps(receipt)))
+        self.assertEqual(receipt, self.save())
+        self.assertEqual([legacy_note['noteId']], [note['noteId'] for note in self.notes.list(self.source)])
 
     def test_sentence_note_survives_edit_and_has_immutable_sentence_identity(self):
         sentence = {'planId': 'plan-001', 'chunkId': 'chunk-001', 'layer': 'source',
