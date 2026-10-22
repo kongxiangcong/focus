@@ -36,6 +36,26 @@ class SourceNotesTests(unittest.TestCase):
         self.assertNotEqual(first["note"]["noteId"], second["note"]["noteId"])
         self.assertEqual(2, len(SourceNotes(self.workspace).list(self.source)))
 
+    def test_sentence_note_survives_edit_and_has_immutable_sentence_identity(self):
+        sentence = {'planId': 'plan-001', 'chunkId': 'chunk-001', 'layer': 'source',
+                    'range': {'start': 0, 'end': 5},
+                    'quote': {'exact': 'Hello', 'prefix': '', 'suffix': ''}}
+        anchor = {'sourceId': self.source, 'bundle': self.bundle, 'sourceLines': [1, 6]}
+        created = self.save(sentence=sentence, anchor=anchor)['note']
+        self.assertEqual(sentence, created['sentence'])
+        self.assertIsNone(self.save('plain-note-123')['note']['sentence'])
+        edited = self.notes.change(self.source, note_id=created['noteId'], request_id='sentence-edit',
+            expected_revision=1, operation='edit', content='Edited remark')['note']
+        self.assertEqual('Edited remark', edited['content'])
+        self.assertEqual(sentence, edited['sentence'])
+        with self.assertRaises(WorkspaceError) as caught:
+            self.save('sentence-no-anchor', sentence=sentence)
+        self.assertEqual('note_sentence_invalid', caught.exception.error_id)
+        changed = {**sentence, 'range': {'start': 1, 'end': 6}}
+        with self.assertRaises(WorkspaceError) as caught:
+            self.save(sentence=changed, anchor=anchor)
+        self.assertEqual('note_request_conflict', caught.exception.error_id)
+
     def test_changed_payload_and_cancelled_request_rejected(self):
         self.save()
         with self.assertRaises(WorkspaceError) as caught:

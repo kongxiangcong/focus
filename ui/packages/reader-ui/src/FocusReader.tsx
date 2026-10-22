@@ -10,6 +10,7 @@ import { ReadingChunk, ReaderConversation, chunkKey } from "./ReadingChunk";
 import { readingFontSizes, readingMeasures, readingLayout, readReadingMeasure, effectiveReadingMeasure, measureWidth, drawerTranslation, type ReadingMeasure } from "./typography";
 import "./reader-shell.css";
 import "./mist-reader.css";
+import "./reader-annotations.css";
 import "./reader-figures.css";
 import { FigurePanel, FigureViewer, type ViewerRequest } from "./FigurePanel";
 import { useReadingScroll } from "./reading-scroll";

@@ -30,6 +30,27 @@ def _payload_identity(value: dict) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
+def check_sentence(value, *, plan_id: str, chunk_id: str, has_translation: bool, code: str) -> dict:
+    """Validate a rendered sentence selection and bind its Plan/Chunk identity."""
+    if not isinstance(value, dict) or set(value) != {"layer", "range", "quote"}:
+        raise WorkspaceError(code, "Sentence locator is invalid")
+    layer, span, quote = value["layer"], value["range"], value["quote"]
+    if layer not in ("source", "translation") or (layer == "translation" and not has_translation):
+        raise WorkspaceError(code, "Sentence layer is unavailable")
+    if (not isinstance(span, dict) or set(span) != {"start", "end"}
+            or any(type(span[k]) is not int for k in ("start", "end"))
+            or not 0 <= span["start"] < span["end"] or span["end"] - span["start"] > 2000):
+        raise WorkspaceError(code, "Sentence range is invalid")
+    if (not isinstance(quote, dict) or set(quote) != {"exact", "prefix", "suffix"}
+            or any(not isinstance(quote[k], str) for k in ("exact", "prefix", "suffix"))
+            or not 1 <= len(quote["exact"]) <= 2000
+            or len(quote["prefix"]) > 64 or len(quote["suffix"]) > 64):
+        raise WorkspaceError(code, "Sentence quote is invalid")
+    return {"planId": plan_id, "chunkId": chunk_id, "layer": layer,
+            "range": {"start": span["start"], "end": span["end"]},
+            "quote": {key: quote[key] for key in ("exact", "prefix", "suffix")}}
+
+
 class SourceNotes:
     """Canonical note write and query boundary for one registered Source."""
 
@@ -49,6 +70,13 @@ class SourceNotes:
         _validate_parser_bundle(bundle)
         return bundle_fingerprint(bundle)
 
+    @staticmethod
+    def _ensure_column(db: sqlite3.Connection, name: str) -> None:
+        if name not in {"placement", "sentence"}:
+            raise ValueError("Unsupported note column")
+        if name not in {row["name"] for row in db.execute("PRAGMA table_info(notes)")}:
+            db.execute(f"ALTER TABLE notes ADD COLUMN {name} TEXT")
+
     def _connect(self, source_id: str) -> sqlite3.Connection:
         root = self._root(source_id) / "notes"
         root.mkdir(parents=True, exist_ok=True)
@@ -63,14 +91,13 @@ class SourceNotes:
         db.execute("CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, digest TEXT, "
                    "result TEXT, cancelled INTEGER NOT NULL DEFAULT 0)")
         db.execute("CREATE TABLE IF NOT EXISTS clears (id TEXT PRIMARY KEY)")
+        self._ensure_column(db, "sentence")
+        db.execute("CREATE TABLE IF NOT EXISTS highlights (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, "
+                   "bundle TEXT NOT NULL, plan_id TEXT NOT NULL, chunk_id TEXT NOT NULL, "
+                   "source_start INTEGER NOT NULL, source_end INTEGER NOT NULL, layer TEXT NOT NULL, "
+                   "range_start INTEGER NOT NULL, range_end INTEGER NOT NULL, quote TEXT NOT NULL, "
+                   "deleted INTEGER NOT NULL, undo TEXT)")
         return db
-
-    @staticmethod
-    def _ensure_column(db: sqlite3.Connection, name: str) -> None:
-        if name not in {"placement", "sentence"}:
-            raise ValueError("Unsupported note column")
-        if name not in {row["name"] for row in db.execute("PRAGMA table_info(notes)")}:
-            db.execute(f"ALTER TABLE notes ADD COLUMN {name} TEXT")
 
     def generation(self, source_id: str) -> int:
         with _LOCK, closing(self._connect(source_id)) as db:
@@ -85,6 +112,7 @@ class SourceNotes:
             if db.execute("SELECT 1 FROM clears WHERE id=?", (request_id,)).fetchone():
                 return
             db.execute("DELETE FROM notes")
+            db.execute("DELETE FROM highlights")
             db.execute("UPDATE requests SET digest=NULL, result=NULL, cancelled=1")
             db.execute("INSERT INTO clears VALUES (?)", (request_id,))
         with closing(self._connect(source_id)) as db:
@@ -129,6 +157,7 @@ class SourceNotes:
                 "content": row["content"], "kind": row["kind"], "origin": row["origin"],
                 "bundle": row["bundle"], "anchor": anchor, "placement": placement,
                 "evidenceRole": row["evidence_role"],
+                "sentence": json.loads(row["sentence"]) if row["sentence"] else None,
                 "deleted": bool(row["deleted"]),
                 "canUndo": row["undo"] is not None,
                 "sourceUpdated": updated,
@@ -165,6 +194,7 @@ class SourceNotes:
     def save(self, source_id: str, *, bundle: str, request_id: str, intent_id: str,
              content: str, kind: str, origin: str, evidence_role: str,
              anchor: dict | None = None, placement: dict | None = None,
+             sentence: dict | None = None,
              expected_generation: int | None = None) -> dict:
         """Commit a candidate only with the Host's bound explicit user intent."""
         self._check_request(request_id)
@@ -173,9 +203,12 @@ class SourceNotes:
             raise WorkspaceError("note_invalid", "Note candidate is invalid")
         if evidence_role == "source_claim" and anchor is None:
             raise WorkspaceError("note_anchor_required", "A Source claim requires a Source anchor")
+        if sentence is not None and anchor is None:
+            raise WorkspaceError("note_sentence_invalid", "A sentence note requires a Source anchor")
         payload = {"sourceId": source_id, "bundle": bundle, "intentId": intent_id,
                    "content": content, "kind": kind, "origin": origin,
-                   "evidenceRole": evidence_role, "anchor": anchor, "placement": placement}
+                   "evidenceRole": evidence_role, "anchor": anchor,
+                   "placement": placement, "sentence": sentence}
         digest = _payload_identity(payload)
         with _LOCK, closing(self._connect(source_id)) as db, db:
             db.execute("BEGIN IMMEDIATE")
@@ -194,10 +227,12 @@ class SourceNotes:
             encoded_anchor = self._anchor(source_id, bundle, anchor)
             encoded_placement = self._placement(source_id, bundle, placement)
             note_id = uuid.uuid4().hex
-            db.execute("INSERT INTO notes (id, revision, content, kind, origin, bundle, anchor, evidence_role, deleted, undo, placement) "
-                       "VALUES(?, 1, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+            db.execute("INSERT INTO notes(id, revision, content, kind, origin, bundle, anchor, "
+                       "evidence_role, deleted, undo, sentence, placement) VALUES(?, 1, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)",
                        (note_id, content.strip(), kind, origin, bundle, encoded_anchor, evidence_role,
-                        json.dumps({"operation": "create"}), encoded_placement))
+                        json.dumps({"operation": "create"}),
+                        json.dumps(sentence, ensure_ascii=False, sort_keys=True) if sentence is not None else None,
+                        encoded_placement))
             row = db.execute("SELECT * FROM notes WHERE id=?", (note_id,)).fetchone()
             result = {"status": "saved", "note": self._public(row, source_id, current)}
             db.execute("INSERT INTO requests VALUES(?, ?, ?, 0)", (request_id, digest, json.dumps(result, ensure_ascii=False)))

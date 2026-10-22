@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .reading_workspace import WorkspaceCore, WorkspaceError
 from .source_notes import SourceNotes
+from .source_highlights import SourceHighlights
 
 
 _SAVE = re.compile(r"记下来|记一下|记下|记录(?:下来|为笔记)?|保存(?:为)?(?:一条|一份|个)?(?:简短|简明|新的|短)?笔记|存为笔记|save (?:this )?note|remember this", re.I)
@@ -24,6 +25,7 @@ class DiscussionApplication:
     def __init__(self, workspace: Path, *, writer_id: str = "local-core"):
         self.core = WorkspaceCore(Path(workspace))
         self.notes = SourceNotes(Path(workspace), writer_id=writer_id)
+        self.highlights = SourceHighlights(self.notes)
 
     @staticmethod
     def method() -> str:
