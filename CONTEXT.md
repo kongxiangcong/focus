@@ -129,11 +129,24 @@ _Avoid_: Topic-owned plan, duplicated progress, tag browsing
 _Avoid_: Chat history, plan row, learner record
 
 **Reading Note**:
-用户明确要求记录后保留的 Source 级精简笔记，脱离原始对话仍可理解，通常以例子和总结后的结论表达，也可包含理解链、澄清的概念或待解的问题；不依附某个 Topic 或 Reading Plan。可按 Source Anchor 显示在对应 Reading Chunk 旁（吸附笔记），但不属于 Chunk 或 Plan；可由用户直接手写，或从讨论回答中确认保存。
+用户明确要求记录后保留的 Source 级精简笔记，脱离原始对话仍可理解，通常以例子和总结后的结论表达，也可包含理解链、澄清的概念或待解的问题；不依附某个 Topic 或 Reading Plan。可带 Source Anchor 或 Placement，显示在对应 Reading Chunk 旁，但不属于 Chunk 或 Plan；Placement 只决定显示位置，不表示原文支持。可由用户直接手写，或从讨论回答中确认保存。
+可带 Sentence Locator（`sentence`），这样的笔记称为“句子备注”，记录“句子 + 备注”：`content` 是备注文字，原句在 `sentence.quote.exact`；只能由用户在正文直接创建，类型固定为“想法”。任何以纯文本显示笔记的地方均以“「原句」+ 备注”呈现。界面称“备注”（句子备注）、“小段笔记”（投影到段且无 `sentence`）或“整篇笔记”（无位置）。
 _Avoid_: Transcript, discussion log, assessment result, cognitive evidence
 
+**Sentence Locator（句子定位）**:
+指向某 Parser Bundle 版本下某 Reading Chunk 的一个显示层（原文或译文）中的字符区间，并保存原句引文（exact/prefix/suffix），供 Plan 重建或译文变化后重新定位；Reading Highlight 与句子备注共用。它不要求是 content.md 原文子串，不作为来源证据。
+_Avoid_: Source Anchor, evidence anchor, reading position
+
+**Reading Highlight（重点）**:
+属于 Source 的独立记录，只持有一个 Sentence Locator，没有文字内容；可创建、删除、撤销，不可编辑。它不进入笔记列表、不推进 Reading Cursor；清除讨论与笔记、重置阅读时与 Reading Note 一起清除。界面称“重点”。
+_Avoid_: Reading Note, author highlight, progress entry
+
+**Placement（显示位置）**:
+Reading Note 的可选显示位置，形状同 Source Anchor 但不含 quote；讨论绑定了段落引用而模型未提供证据锚点时由 Host 填写。它仅决定 Attached Notes 的显示位置，不声称原文支持笔记内容；投影使用 `anchor ?? placement`。
+_Avoid_: Source Anchor, evidence, note ownership
+
 **Attached Notes（吸附笔记）**:
-将 Source 级 Reading Notes 按 Source Anchor 投影到当前已加载 Reading Chunk 旁的展示形态。界面入口名为“笔记”。空间充足时使用旁注，空间不足时在阅读段内按正文 3/4、笔记 1/4 分栏；不改变笔记归属或 Reading Cursor。FOCUS Discussion 始终保留在阅读流中。
+将 Source 级 Reading Notes 展示在当前已加载 Reading Chunk 旁的形态，界面入口名为“笔记”。小段笔记按 `anchor ?? placement` 投影并排除句子备注；句子备注以卡片形式跟随句子显示，Reading Highlight 不进入吸附栏。空间充足时使用旁注，空间不足时使用分栏或堆叠布局；关闭吸附时句子备注回到句内灯泡，小段笔记折叠在段末。不改变笔记归属或 Reading Cursor，FOCUS Discussion 始终保留在阅读流中。
 _Avoid_: Chunk-owned notes, attached discussion, second note store
 
 **FOCUS Discussion**:
@@ -141,14 +154,14 @@ _Avoid_: Chunk-owned notes, attached discussion, second note store
 _Avoid_: Backend-specific chat, native Runtime Session, Reading Note, reading checkpoint
 
 **Clear Source Discussion and Notes**:
-用户确认后清除一份 Reading Source 的全部 FOCUS Discussions、派生讨论摘要和 Reading Notes，并使关联运行上下文失效。它保留 Reading Plan、Reading Cursor、Blog Output 和 Reading Progress Entries，不等于删除来源。
+用户确认后清除一份 Reading Source 的全部 FOCUS Discussions、派生讨论摘要、Reading Notes（含句子备注）和 Reading Highlights，并使关联运行上下文失效。它保留 Reading Plan、Reading Cursor、Blog Output 和 Reading Progress Entries，不等于删除来源。
 _Avoid_: Delete Source, reset reading progress, clear one Backend chat
 
 **Reset Source Reading（重新阅读）**:
-用户明确确认后，清除目标 Source 的讨论、派生摘要、显式笔记及恢复副本、全部阅读记录及其修改请求副本；将所选 Plan 的 Cursor 初始化到第一段但标记未开始。原件、Parser Bundle、Plan、译文、Blog、Topic 和其他 Source 保留。使用持久清除日志向前恢复；活动写者必须停止并等待，或明确阻止重置。知识库与阅读完成页均使用此操作。
+用户明确确认后，清除目标 Source 的讨论、派生摘要、显式笔记（含句子备注）、Reading Highlights 及其恢复副本、全部阅读记录及其修改请求副本；将所选 Plan 的 Cursor 初始化到第一段但标记未开始。原件、Parser Bundle、Plan、译文、Blog、Topic 和其他 Source 保留。使用持久清除日志向前恢复；活动写者必须停止并等待，或明确阻止重置。知识库与阅读完成页均使用此操作。
 
 **Fresh Reading Session（新会话）**:
-仅清空当前显示，创建新的讨论身份；资产、已读前沿和旧讨论事件保留。清屏跨刷新持久化，第一次继续从正式前沿打开下一段；回看不改变此起点。
+仅清空当前显示，创建新的讨论身份；资产（包括 Reading Highlights 与句子备注）、已读前沿和旧讨论事件保留。清屏跨刷新持久化，第一次继续从正式前沿打开下一段；回看不改变此起点。
 
 **Reading Timeline**:
 按出现次序保存阅读窗口、用户问题和回复；每次阅读出现具有独立事件身份，并绑定 Source、Plan 和 Discussion。问题草稿保留起草时的引用，只有用户明确更改引用才跟随新段落。

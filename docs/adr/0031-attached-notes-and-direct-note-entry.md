@@ -6,6 +6,8 @@ status: accepted
 
 2026-10-21：按 reader-usability-audit/spec.md §1 D1、D2、D5 和 §3.4/§3.6，取代 ADR 0026 的 Discussion attachment 部分。其余现行布局与输入决定保持。
 
+2026-10-22：展示部分与投影来源由 [ADR 0033](0033-reading-annotations-and-chunk-notes.md) 修订。
+
 Reading Note 仍属于 Source，不属于 Reading Chunk、Reading Plan 或 FOCUS Discussion。用户可直接手写，也可从讨论回答预填后确认保存；直接创建不经过 AI，不进入讨论历史、不推进 Reading Cursor 或生成 Reading Progress Entry。
 
 Attached Notes 只按相同 Parser Bundle 版本及 Source Anchor 行范围重叠投影到当前已加载的 Reading Chunk。每条笔记最多投影一次，优先最大重叠行数，平局取最小段序号。无锚点、旧 Bundle、未加载的笔记仍在资料的笔记页可见。旧版本锚点不能被悄悄重新绑定。
