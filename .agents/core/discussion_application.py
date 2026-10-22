@@ -72,9 +72,14 @@ class DiscussionApplication:
                 raise WorkspaceError("note_intent_missing", "Save authorization could not be confirmed for this request")
             if set(arguments) - {"content", "kind", "origin", "anchor", "evidence_role"}:
                 raise WorkspaceError("note_invalid", "Unexpected note candidate fields")
+            placement = None
+            reference = scope.get("reference")
+            if "anchor" not in arguments and reference and reference.get("bundleVersion") == bundle == self.notes.bundle_version(source_id):
+                placement = {"sourceId": source_id, "bundle": bundle,
+                             "sourceLines": list(reference["sourceLines"])}
             return self.notes.save(source_id, bundle=bundle, request_id=scope["requestId"],
                                    expected_generation=scope.get('generation', 0),
-                                   intent_id=scope["requestId"], **arguments)
+                                   intent_id=scope["requestId"], placement=placement, **arguments)
         raise WorkspaceError("source_scope_invalid", "This discussion cannot call that tool")
 
     def cancel(self, scope: dict) -> dict:
