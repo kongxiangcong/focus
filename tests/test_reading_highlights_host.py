@@ -94,6 +94,31 @@ class ReadingHighlightHostTests(unittest.TestCase):
         self.assertEqual('explanation', note['evidenceRole'])
         self.assertIsNone(note['placement'])
 
+    def test_overlap_create_and_undo_are_explicit_conflicts_without_mutating_durable_state(self):
+        created = self.request(self.path, self.highlight_payload)[1]['value']['sourceHighlights'][0]
+        status, rejected = self.request(self.path, {**self.highlight_payload, 'requestId': uuid.uuid4().hex})
+        self.assertEqual(409, status, rejected)
+        self.assertEqual('highlight_overlap', rejected['error']['code'])
+        self.assertFalse(rejected['error']['retryable'])
+        self.assertEqual([created], self.host.snapshot()['sourceHighlights'])
+        path = self.path + '/' + created['highlightId']
+        deleted = self.request(path + '/delete', {'requestId': uuid.uuid4().hex, 'expectedRevision': 1})[1]['value']['sourceHighlights'][0]
+        payload = {key: value for key, value in self.payload.items() if key != 'quote'}
+        payload['sentence'] = {**self.selection, 'range': {'start': 2, 'end': 9}}
+        self.assertEqual(201, self.request(f'/library/sources/{self.source}/notes', payload)[0])
+        snapshot = self.host.snapshot()
+        request_id = uuid.uuid4().hex
+        status, rejected = self.request(path + '/undo', {'requestId': request_id, 'expectedRevision': 2})
+        self.assertEqual(409, status, rejected)
+        self.assertEqual('highlight_overlap', rejected['error']['code'])
+        self.assertEqual(snapshot['sourceHighlights'], self.host.snapshot()['sourceHighlights'])
+        self.assertEqual([deleted], self.host.snapshot()['sourceHighlights'])
+        self.assertEqual(snapshot['sourceNotes'], self.host.snapshot()['sourceNotes'])
+        self.assertIsNone(self.request(self.path + '/requests/' + request_id)[1]['value'])
+        status, rejected = self.request(f'/library/sources/{self.source}/notes', {**payload, 'requestId': uuid.uuid4().hex})
+        self.assertEqual(409, status, rejected)
+        self.assertEqual('note_sentence_overlap', rejected['error']['code'])
+
     def test_validation_conflicts_bundle_drift_and_not_found_have_stable_http_errors(self):
         invalid_payloads = [[], {}, {**self.highlight_payload, 'extra': True},
                             {**self.highlight_payload, 'chunk': {}},

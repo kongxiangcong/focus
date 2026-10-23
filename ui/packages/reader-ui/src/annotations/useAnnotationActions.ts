@@ -18,6 +18,7 @@ interface Overlay { epoch: number; write: Write; highlight?: ReadingHighlight; n
 interface JournalEntry { scope: string; write: Write }
 const JOURNAL_KEY = "focus.annotationRequests";
 const id = () => createReaderId().replaceAll("-", "");
+const occupancyFailure = (result: ReaderHostResult<unknown>) => !result.ok && ["highlight_overlap", "note_sentence_overlap"].includes(result.error.code);
 
 function journal(): JournalEntry[] {
   try {
@@ -147,8 +148,9 @@ export function useAnnotationActions(options: AnnotationActionOptions) {
     }
     noteFailed(write);
     const bundleChanged = !result.ok && ["highlight_bundle_changed", "note_bundle_changed"].includes(result.error.code);
-    if (bundleChanged) saveJournal(scopeRef.current, write, true);
-    if (!quiet) showToast(bundleChanged ? { message: "这段原文已更新，标注未保存" } : {
+    const occupied = occupancyFailure(result);
+    if (bundleChanged || occupied) saveJournal(scopeRef.current, write, true);
+    if (!quiet) showToast(occupied ? { message: "这处标注已在另一窗口更改，请重新选择" } : bundleChanged ? { message: "这段原文已更新，标注未保存" } : {
       message: write.entity === "highlight" ? "重点未保存" : "备注未保存", actionLabel: "重试", action: () => { void run(write, epoch); },
     }, epoch);
   }
@@ -188,7 +190,7 @@ export function useAnnotationActions(options: AnnotationActionOptions) {
       else failed.push(write);
     });
     if (failed.length) {
-      const retryable = results.some(result => !result.ok && !["highlight_bundle_changed", "note_bundle_changed"].includes(result.error.code));
+      const retryable = results.some(result => !result.ok && !occupancyFailure(result) && !["highlight_bundle_changed", "note_bundle_changed"].includes(result.error.code));
       showToast({ message: restoring ? "部分标注未恢复" : success.length ? "标注只删除了一部分" : "标注未删除",
         ...(retryable ? { actionLabel: "重试", action: () => { void removeOrRestore(failed, success, epoch, restoring); } } : {}) }, epoch);
     } else showToast(restoring ? { message: "已恢复标注" } : { message: "已删除标注", actionLabel: "撤销", action: () => { void removeOrRestore(success, [], epoch, true); } }, epoch);

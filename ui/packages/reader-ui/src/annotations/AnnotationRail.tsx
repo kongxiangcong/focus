@@ -34,7 +34,8 @@ export function AnnotationRail({ marks, linkedKey, onLink, onEdit, onDelete, onS
         const style = getComputedStyle(root), area = grid.getBoundingClientRect().width;
         width = root.dataset.notesLayout === "split" ? area / 4 : area - (parseFloat(style.getPropertyValue("--reader-column")) || area) - (parseFloat(style.getPropertyValue("--reader-notes-gap")) || 32);
       }
-      setStacked(root?.dataset.readingNarrow === "true" || (width > 0 && width < 200));
+      const narrow = parseFloat(getComputedStyle(rail).getPropertyValue("--reader-anno-narrow-rail")) || 0;
+      setStacked(root?.dataset.readingNarrow === "true" || (width > 0 && width < narrow));
     };
     const schedule = () => { if (!stopped && !frame) frame = requestAnimationFrame(measure); };
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(schedule);

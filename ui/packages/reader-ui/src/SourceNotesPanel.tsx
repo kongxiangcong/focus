@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { sentenceNoteText, type ReaderChunk, type SourceNote } from "@focus/reader-contracts";
+import { readingOwner } from "./reading-owner";
 import "./source-notes-panel.css";
 
 interface SourceNotesPanelProps {
@@ -18,21 +19,7 @@ interface SourceNotesPanelProps {
 function sourceNoteChunk(note: SourceNote, chunks: readonly ReaderChunk[]): ReaderChunk | undefined {
   const location = note.anchor ?? note.placement;
   if (!location) return;
-  if (note.sentence) {
-    const exact = chunks.find(chunk => chunk.sourceId === note.sourceId && chunk.bundleVersion === location.bundle &&
-      chunk.planId === note.sentence!.planId && chunk.chunkId === note.sentence!.chunkId);
-    if (exact) return exact;
-  }
-  if (note.sourceUpdated) return;
-  let selected: ReaderChunk | undefined, overlap = 0;
-  for (const chunk of chunks) {
-    if (chunk.sourceId !== note.sourceId || chunk.sourceId !== location.sourceId || chunk.bundleVersion !== location.bundle) continue;
-    const count = Math.min(chunk.sourceLines[1], location.sourceLines[1]) - Math.max(chunk.sourceLines[0], location.sourceLines[0]) + 1;
-    if (count > overlap || (count > 0 && count === overlap && chunk.index < selected!.index)) {
-      selected = chunk; overlap = count;
-    }
-  }
-  return selected;
+  return readingOwner(chunks.map(chunk => ({ chunk })), note.sourceId, location, note.sentence, !note.sourceUpdated)?.chunk ?? undefined;
 }
 
 /** Source-owned notes grouped for the materials drawer; highlights are not notes. */

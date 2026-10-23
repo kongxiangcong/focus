@@ -54,6 +54,7 @@ class SourceHighlights:
             current = self.notes.bundle_version(source_id)
             if plan_bundle != current:
                 raise WorkspaceError("highlight_bundle_changed", "Source Bundle changed")
+            self.notes._check_annotation_overlap(db, plan_bundle, locator, "highlight")
             highlight_id = uuid.uuid4().hex
             db.execute("INSERT INTO highlights VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)",
                        (highlight_id, plan_bundle, locator["planId"], locator["chunkId"],
@@ -98,6 +99,9 @@ class SourceHighlights:
                 else:
                     deleted = int(json.loads(row["undo"])["operation"] == "create")
                     undo = None
+                if not deleted:
+                    self.notes._check_annotation_overlap(db, row["bundle"], current,
+                                                         "highlight", highlight_id)
                 db.execute("UPDATE highlights SET revision=?, deleted=?, undo=? WHERE id=?",
                            (row["revision"] + 1, deleted, undo, highlight_id))
                 updated = db.execute("SELECT * FROM highlights WHERE id=?", (highlight_id,)).fetchone()

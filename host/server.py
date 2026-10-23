@@ -123,6 +123,7 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             error_id = getattr(exc, 'error_id', None)
             annotation_errors = {'note_bundle_changed': 409, 'highlight_bundle_changed': 409,
+                                 'highlight_overlap': 409, 'note_sentence_overlap': 409,
                                  'highlight_request_conflict': 409, 'highlight_invalid': 400,
                                  'note_sentence_invalid': 400, 'highlight_not_found': 404}
             code = error_id if error_id in annotation_errors else 'cursor-changed' if error_id == 'cursor_changed' else 'invalid-request' if isinstance(exc, (ValueError, WorkspaceError)) else 'unavailable'

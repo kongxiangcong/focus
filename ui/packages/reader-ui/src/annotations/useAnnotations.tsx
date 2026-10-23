@@ -178,21 +178,22 @@ export function useAnnotations({ host, view, accept, stream, groups, onReference
   }
   const readSelection = useCallback(() => {
     if (latest.current.float?.kind === "editor") return;
+    const invalidSelection = () => { if (latest.current.float?.kind === "selection") close(); };
     const selection = window.getSelection();
-    if (!selection?.rangeCount || selection.isCollapsed || !selection.toString().trim()) { if (latest.current.float?.kind === "selection") close(); return; }
+    if (!selection?.rangeCount || selection.isCollapsed || !selection.toString().trim()) { invalidSelection(); return; }
     const range = selection.getRangeAt(0), startElement = range.startContainer.nodeType === 1 ? range.startContainer as Element : range.startContainer.parentElement;
     const article = startElement?.closest<HTMLElement>(".focus-reading"), root = startElement?.closest<HTMLElement>(".focus-markdown");
-    if (!article || !root || !stream.current?.contains(article) || !root.contains(range.endContainer)) return;
+    if (!article || !root || !stream.current?.contains(article) || !root.contains(range.endContainer)) { invalidSelection(); return; }
     const group = article.closest<HTMLElement>("[data-reading-group]")?.dataset.readingGroup;
     const chunk = latest.current.groups.find(item => item.id === group)?.chunk;
-    if (!chunk) return;
+    if (!chunk) { invalidSelection(); return; }
     const entry = registry.current.get(group!), layer = article.dataset.annotationLayer === "translation" ? "translation" : "source";
     const value = domAnnotatableText(root).text;
     let start = domOffset(root, range.startContainer, range.startOffset, "start"), end = domOffset(root, range.endContainer, range.endOffset, "end");
-    if (start === null || end === null) return;
+    if (start === null || end === null) { invalidSelection(); return; }
     while (start < end && /\s/.test(value[start])) start++;
     while (end > start && /\s/.test(value[end - 1])) end--;
-    if (start >= end) return;
+    if (start >= end) { invalidSelection(); return; }
     const marks = entry?.layer === layer ? entry.marks : [], containing = marks.find(mark => start! >= mark.start && end! <= mark.end);
     const rect = range.getBoundingClientRect();
     if (containing && !temporary(containing)) { origin.current = markElements(containing.key)[0] ?? null; setFloat({ kind: "annotation", mark: containing, group: group!, rect }); return; }
