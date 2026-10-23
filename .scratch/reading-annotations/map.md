@@ -22,6 +22,8 @@
 
 - [12 资料栏与清除](issues/12-materials-and-clear.md#answer)：资料栏分组显示句子备注与小段/整篇笔记，编辑回调和清除版本围栏已接入；22 项 UI、4 项 fixture、7 项 Host 检查及三项目类型检查、构建与隔离 Chrome 检查通过。
 
+- [08 批注交互](issues/08-selection-bubble-editor.md#answer)：选区/标注气泡、句下备注编辑与查看、乐观写重试/撤销、持久草稿与清除围栏完成；61 项 UI 测试、类型检查及真实 Chrome A1/A2/A3 与编辑框几何通过。物理 IME 手测仍为 NOT_RUN，留在 13 验证缺口。
+
 ## Fog
 
 功能与浏览器验收以 [13](issues/13-acceptance.md) 为准。

@@ -1,4 +1,5 @@
 /* Reading annotations: spec section 7; prototype geometry, product-owned colours. */
+.focus-reader .focus-stream { position:relative; }
 @property --anno-hl-w { syntax:'<percentage>'; inherits:false; initial-value:100%; }
 @property --anno-ul-w { syntax:'<percentage>'; inherits:false; initial-value:100%; }
 
