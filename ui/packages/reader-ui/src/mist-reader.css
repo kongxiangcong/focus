@@ -370,5 +370,4 @@
 .reading-discussion-divider { display: flex; align-items: center; gap: var(--reader-gap); margin: var(--reader-gap-sm) 0; }
 .reading-discussion-divider::before { content: ""; flex: 1; border-top: 1px dashed var(--reader-line); }
 .reading-discussion-divider button { flex: none; background: transparent; border: 0; color: var(--reader-muted); font: inherit; font-size: 12px; padding: var(--reader-gap-xs) 4px; cursor: pointer; }
-.reading-discussion-divider button:focus-visible { outline: 2px solid var(--reader-ink); outline-offset: 2px; }
 .reading-group-discussion > [hidden] { display: none; }

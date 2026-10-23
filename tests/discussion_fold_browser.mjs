@@ -46,15 +46,26 @@ try{
  await buttons().nth(1).evaluate(e=>e.click());await settle();
  const box=await buttons().nth(1).boundingBox(),pane=await page.locator('.focus-stream').boundingBox();assert.ok(box.y>=pane.y&&box.y+box.height<=pane.y+pane.height);
  await page.getByRole('textbox').fill('新问题');await page.getByRole('button',{name:'发送',exact:true}).click();await settle();assert.equal(await buttons().nth(1).getAttribute('aria-expanded'),'true');
- for(const theme of ['light','dark'])for(const width of [1440,390,320]){
+ for(const theme of ['light','dark'])for(const density of ['compact','comfortable'])for(const width of [1440,390,320]){
   await page.setViewportSize({width,height:844});await page.evaluate(t=>document.documentElement.dataset.theme=t,theme);await page.emulateMedia({reducedMotion:'reduce'});
+  await page.evaluate(d=>document.documentElement.dataset.density=d,density);
   await buttons().first().click();await settle();await buttons().first().click();await settle();
+  await page.keyboard.press('Tab');await buttons().first().focus();
+  const focus=await buttons().first().evaluate(e=>{
+   const probe=document.createElement('button');e.closest('.focus-reader').append(probe);probe.focus();
+   const expected=getComputedStyle(probe).outlineColor;probe.remove();e.focus();
+   return {actual:getComputedStyle(e).outlineColor,expected,visible:e.matches(':focus-visible')};
+  });
+  assert.equal(focus.visible,true);assert.equal(focus.actual,focus.expected,'disclosure uses the shared focus token');
+  await page.emulateMedia({contrast:'more'});
+  assert.equal(await buttons().first().evaluate(e=>getComputedStyle(e).outlineWidth),'3px','high-contrast focus is not overridden');
+  await page.emulateMedia({contrast:'no-preference'});
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   assert.equal(await buttons().first().evaluate(e=>getComputedStyle(e.parentElement,'::before').borderTopStyle),'dashed');
   await buttons().first().scrollIntoViewIfNeeded();await settle();
   fs.mkdirSync(path.join(root,'tmp/test-runs/discussion-fold'),{recursive:true});
-  await page.screenshot({path:path.join(root,`tmp/test-runs/discussion-fold/${theme}-${width}.png`)});
+  await page.screenshot({path:path.join(root,`tmp/test-runs/discussion-fold/${theme}-${density}-${width}.png`)});
  }
  const full=page.getByRole('button',{name:'全屏',exact:true});assert.equal(await full.count(),1);await full.click();assert.equal(await page.getByRole('button',{name:'退出全屏',exact:true}).count(),1);await buttons().first().click();await settle();
- assert.deepEqual(errors,[]);console.log(JSON.stringify({browser:browser.version(),passed:['independent/repeated chunk','refresh/session isolation','streaming/stop/no scroll drift','keyboard/hidden tab','long-answer bottom geometry','send expansion','light/dark/320/390/1440/reduced-motion/fullscreen'],errors}));
+ assert.deepEqual(errors,[]);console.log(JSON.stringify({browser:browser.version(),passed:['independent/repeated chunk','refresh/session isolation','streaming/stop/no scroll drift','keyboard/hidden tab','long-answer bottom geometry','send expansion','light/dark/compact/comfortable/320/390/1440/reduced-motion/fullscreen','shared focus token/high contrast'],errors}));
 }finally{await browser.close();fs.rmSync(dir,{recursive:true,force:true})}
