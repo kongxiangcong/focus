@@ -25,7 +25,7 @@ export function ReadingChunk({ chunk, onReference, onFigure, onZoom, onLanguage,
   const annotation = useMemo(() => located || pending || onMarks ? { located: located ?? [], pending, fresh, layer } : undefined, [located, pending, fresh, layer, onMarks]);
   const reportMarks = useCallback((marks: readonly ResolvedMark[], lost: readonly Located[], text: string) => onMarks?.(key, marks, lost, layer, text), [key, layer, onMarks]);
   useEffect(() => { onLayerChange?.(chunk, layer); }, [chunk, layer, onLayerChange]);
-  return <article className="focus-reading focus-reader__chunk" data-chunk-key={chunkKey(chunk)}>
+  return <article className="focus-reading focus-reader__chunk" data-chunk-key={chunkKey(chunk)} data-annotation-layer={layer}>
     <header className="focus-reading__meta"><span>{preparing ? "待准备" : translated ? "译文" : "原文"}</span><span>第 {chunk.index} / {chunk.total} 段</span>
       {chunk.translation !== null && <button aria-pressed={original} onClick={() => { setOriginal(!original); onLanguage?.(chunk, !original); }}>{original ? "查看译文" : "查看原文"}</button>}
     </header>
