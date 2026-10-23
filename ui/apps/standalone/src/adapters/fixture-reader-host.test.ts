@@ -4,6 +4,35 @@ import { describe, expect, it } from "vitest";
 import { FixtureReaderHost } from "./fixture-reader-host";
 
 describe("FixtureReaderHost", () => {
+  it("reports an explicit annotation clear generation and revokes saved recovery receipts", async () => {
+    const host = new FixtureReaderHost();
+    const loaded = await host.getReadingWindow();
+    if (!loaded.ok || !loaded.value.current) throw new Error("fixture did not load");
+    const chunk = loaded.value.current;
+    const selection = { layer: "source" as const, range: { start: 0, end: 7 }, quote: { exact: "Fixture", prefix: "", suffix: "" } };
+    const highlight = { sourceId: chunk.sourceId, requestId: "clear-highlight", chunk: { planId: chunk.planId, chunkId: chunk.chunkId }, ...selection };
+    const note = { sourceId: chunk.sourceId, requestId: "clear-note", content: "Remark", kind: "thought" as const,
+      origin: "user" as const, chunk: highlight.chunk, sentence: selection };
+    expect((await host.createHighlight(highlight)).ok).toBe(true);
+    expect((await host.createSourceNote(note)).ok).toBe(true);
+    const fresh = await host.newSession();
+    if (!fresh.ok) throw new Error("fresh session failed");
+    expect(fresh.value.noteClearVersion).toBe(0);
+    expect(fresh.value.sourceHighlights).toHaveLength(1);
+    const cleared = await host.clearSource(chunk.sourceId, "clear-operation");
+    if (!cleared.ok) throw new Error("clear failed");
+    expect(cleared.value.noteClearVersion).toBe(1);
+    expect(cleared.value.sourceHighlights).toEqual([]);
+    expect(cleared.value.sourceNotes).toEqual([]);
+    expect(cleared.value.highlightOperation).toBeUndefined();
+    expect(cleared.value.noteOperation).toBeUndefined();
+    expect(await host.highlightRequestResult(chunk.sourceId, highlight.requestId)).toEqual({ ok: true, value: { status: "cancelled" } });
+    expect(await host.sourceNoteRequestResult(chunk.sourceId, note.requestId)).toEqual({ ok: true, value: { status: "cancelled" } });
+    expect((await host.createHighlight(highlight)).ok).toBe(false);
+    const replay = await host.clearSource(chunk.sourceId, "clear-operation");
+    if (!replay.ok) throw new Error("clear replay failed");
+    expect(replay.value.noteClearVersion).toBe(1);
+  });
   it("advances only with the current receipt", async () => {
     const host = new FixtureReaderHost();
     const initial = await host.getReadingWindow();

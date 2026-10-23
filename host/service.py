@@ -270,6 +270,7 @@ class HostService:
                     present.add(key)
             window['conversation'] = json.loads(json.dumps(messages))
             window['sourceNotes'] = self.source_notes.list(note_source, include_deleted=True) if note_source else []
+            window['noteClearVersion'] = self.source_notes.generation(note_source) if note_source else 0
             window['sourceHighlights'] = self.source_highlights.list(note_source, include_deleted=True) if note_source else []
             window['readingProgress'] = self.progress_core.list(note_source) if note_source else []
             window['noteFeedback'] = self.state.get('noteFeedback') if note_source and (self.state.get('noteFeedback') or {}).get('sourceId') == note_source else None
