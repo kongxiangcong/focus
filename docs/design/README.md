@@ -19,6 +19,7 @@
 
 ## 验证记录与历史材料
 
+- [阅读批注与小段笔记交付](../../.scratch/reading-annotations/delivery.md)：A1–A17 验收矩阵、合成截图、隔离真实库副本检查及未验证范围。
 - [阅读重设计验收](reading-redesign-acceptance.md)、[功能行验证](reading-dock-polish-validation.md)、[知识库验收](library-redesign-acceptance.md)、[文章结构验收](article-overview-acceptance.md)：各自范围的实施与证据记录，不是新的视觉权威。
 - [focus-cds-ui.md](focus-cds-ui.md)：2026-10-18 迁移记录；其中的旧配色、段落、资料和 Composer 描述已由上述专项决策部分替代。
 - [focus-reader-ui-spec.md](focus-reader-ui-spec.md)：历史统一流规范，已在文件内标明被 ADR 0008 替代；仍适用的渲染／领域能力由当前代码、CONTEXT 和相关 ADR 核对，不从中恢复历史外观。

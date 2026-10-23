@@ -7,12 +7,14 @@ const browser=await chromium.launch({headless:true,executablePath:process.env.FO
 const page=await browser.newPage({viewport:{width:1440,height:1000}});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
 page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-page.on('response',async r=>{if(r.status()<400)return;let body='';try{body=(await r.text()).slice(0,240)}catch{}console.log('HTTP',r.status(),r.url(),body.replace(/\n/g,' '))});
+page.on('response',r=>{if(r.status()>=400)errors.push(`${r.status()} ${r.url()}`)});
 const results=[];
 const api=async()=> (await (await page.request.get(`http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT || '8765'}/reader/window`)).json()).value;
 const latest=async(index)=> {await page.waitForFunction(i=>document.querySelector('.focus-output[data-current-output="true"]')?.textContent.includes(`Section ${i}`),index)};
 const next=async(index)=> {await page.getByRole('button',{name:'继续',exact:true}).click();await latest(index)};
-const enterBody=async()=> {const enter=page.getByRole('button',{name:'进入正文',exact:true});if(await enter.count())await enter.click();};
+const enterBody=async()=> {const enter=page.getByRole('button',{name:'进入正文',exact:true});await enter.waitFor();await enter.click();};
+await page.route('**/reader/workspace',route=>route.fulfill({json:{ok:true,value:{bound:true}}}));
+try {
 await page.goto(`http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT || '8765'}/reading`);
 // A fresh plan opens on the structure overview; entering the body starts chunk 1.
 await page.waitForSelector('.workspace-app');
@@ -36,7 +38,9 @@ for(let i=3;i<=8;i++)await next(i);
 await page.getByRole('button',{name:'当前阅读位置'}).click();await page.getByRole('navigation',{name:'已读段落'}).getByRole('button',{name:/第 3 段/}).click();await latest(3);
 const before=await api();await next(4);view=await api();assert.equal(view.navigationCurrent.index,8);assert.equal(view.readingRevision,before.readingRevision);assert.equal(view.readingProgress.length,before.readingProgress.length);results.push('T5 history Continue does not roll back progress');
 // New session persists blank across reload and resumes 9 from frontier 8.
-await page.getByRole('button',{name:'新会话',exact:true}).click();await page.waitForFunction(()=>document.querySelectorAll('.focus-output').length===0);
+// Mist intentionally omits the session command; exercise its public Host API and observe the live UI.
+assert.equal(await page.getByRole('button',{name:'新会话',exact:true}).count(),0);
+const sessionResponse=await page.request.post(`http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT || '8765'}/reader/session`,{data:{sessionId:(await api()).sessionId}});assert.equal(sessionResponse.ok(),true);await page.waitForFunction(()=>document.querySelectorAll('.focus-output').length===0);
 await page.reload();await page.getByRole('button',{name:'继续',exact:true}).waitFor();assert.equal(await page.locator('.focus-output').count(),0);
 await next(9);view=await api();assert.equal(view.navigationCurrent.index,9);results.push('T7/T26 new session / refresh / next 9');
 // The materials drawer overlays the reading column instead of shrinking it.
@@ -95,14 +99,15 @@ await page.keyboard.press('Escape');
 assert.equal(await page.getByRole('button',{name:'资料',exact:true}).count(),1);
 if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-narrow.png`});results.push('T16/T21 sidebar toggle and narrow viewport / extra font');
 // Finish then review last remains terminal.
-await page.getByRole('button',{name:'完成本篇',exact:true}).click();await page.getByRole('button',{name:'已读完',exact:true}).waitFor();
+await page.getByRole('button',{name:'完成本篇',exact:true}).click();await page.locator('.focus-finished').waitFor();assert.equal((await api()).status,'completed');
 await page.getByRole('button',{name:'当前阅读位置'}).click();await page.getByRole('navigation',{name:'已读段落'}).getByRole('button',{name:/第 9 段/}).click();await latest(9);
-assert.equal(await page.getByRole('button',{name:'已读完',exact:true}).isDisabled(),true);results.push('T9 complete terminal state');
+assert.equal(await page.locator('.focus-reader__continue').count(),0);assert.equal((await api()).status,'completed');results.push('T9 complete terminal state');
 // Reset via Library is confirmed and first Continue opens first, not second.
 await page.getByRole('link',{name:'知识库',exact:true}).click();await page.locator('button[aria-controls="source-details-fixture-paper"]').click();
 assert.equal(await page.getByRole('button',{name:'讨论',exact:true}).count(),0);assert.equal(await page.getByRole('button',{name:'从头阅读',exact:true}).count(),0);
 await page.locator('#source-details-fixture-paper').getByRole('button',{name:'重新阅读',exact:true}).click();await page.getByRole('button',{name:'确认重新阅读',exact:true}).click();
 await page.waitForFunction(()=>!document.querySelector('.workspace-confirm[open]'));
+await page.getByRole('button',{name:'关闭详情',exact:true}).click();
 await page.getByRole('link',{name:'阅读',exact:true}).click();await page.getByRole('button',{name:'进入正文',exact:true}).waitFor();await enterBody();await latest(1);
 view=await api();assert.equal(view.readingProgress.length,0);assert.equal(view.sourceNotes.length,0);assert.equal(view.conversation.length,0);results.push('T8/U6 confirmed reset clears progress and next opens first');
 // Historical browsing reaches the frontier, then advances exactly once.
@@ -135,13 +140,13 @@ await page.locator('button[aria-controls="source-details-fixture-paper"]').waitF
 const toggle=page.getByRole('button',{name:'任务详情',exact:true});
 assert.equal(await toggle.getAttribute('aria-expanded'),'false');
 assert.equal(await page.locator('.library-inbox').count(),0);
-const titleBox=await page.getByRole('heading',{name:'知识库',exact:true}).boundingBox();
+const titleBox=await page.getByRole('heading',{name:/^知识库\s*\d+$/}).boundingBox();
 const toggleBox=await toggle.boundingBox();assert.ok(Math.abs(titleBox.y-toggleBox.y)<12);
 await toggle.click();
 assert.equal(await page.locator('.library-inbox details[open]').count(),0);
 await page.locator('.library-inbox summary').first().click();
-await page.getByText('visual.pdf',{exact:true}).waitFor();
-await toggle.click();assert.equal(await page.locator('.library-inbox').count(),0);
+await page.locator('.library-inbox').getByText('visual.pdf',{exact:true}).waitFor();
+await toggle.click();await page.locator('.library-inbox').waitFor({state:'hidden'});assert.equal(await toggle.getAttribute('aria-expanded'),'false');assert.equal(await page.locator('#workspace-tasks').getAttribute('aria-hidden'),'true');assert.equal(await page.locator('#workspace-tasks').getAttribute('inert'),'');
 if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-library.png`});
 results.push('UI task history hidden by default, single disclosure, heading alignment');
 // A modal uses the browser top layer: the close target must win hit testing.
@@ -163,4 +168,4 @@ for (const viewport of [{width:1440,height:1000},{width:390,height:844}]) {
 }
 results.push('UI blog top-layer close hit target and Escape at desktop/narrow widths');
 assert.deepEqual(errors,[]);
-fs.writeFileSync(`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-browser-results.json`,JSON.stringify({results,errors},null,2));console.log(JSON.stringify({results,errors}));await browser.close();
+fs.writeFileSync(`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-browser-results.json`,JSON.stringify({results,errors},null,2));console.log(JSON.stringify({results,errors}));} finally {await browser.close();}

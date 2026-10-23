@@ -27,11 +27,22 @@ figure_translations = {}
 if os.environ.get('FOCUS_BROWSER_FIGURES') == '1':
  from reader_figures_fixture import configure
  figure_translations = configure(workspace, source, plan)
+from core.article_blog import bundle_fingerprint
+provenance = json.loads((plan/'provenance.json').read_text(encoding='utf-8'))
+provenance['bundle'] = bundle_fingerprint(source/'parser-bundle')
+(plan/'provenance.json').write_text(json.dumps(provenance), encoding='utf-8')
 class Reading(ReadingRuntimeDouble):
  def translate(self, **kwargs):
   if figure_translations: return figure_translations[kwargs['chunk']['index']]
   index=kwargs['chunk']['index'];return f'第 {index} 段译文。'+ ('\n\n'.join(['这是较长的阅读内容，用于验证滚动和大字号下的可读性。']*25) if index==2 else '这是一段供测试阅读、回看与提问的内容。')
  def progress(self, **kwargs): return {'topic': '确定性测试记录'}
+ def overview_structure(self, **kwargs):
+  from core.reading_structure import legacy_structure
+  tree=legacy_structure(kwargs['chunks'])
+  for i,node in enumerate(tree['nodes'],1):
+   node.update(title=f'第{i}节',description='合成文章结构，用于阅读交互验收。')
+  return tree
+ def overview_guide(self, **kwargs): return '这份合成材料用于验证阅读、回看与讨论的交互。各节依次介绍示例内容，阅读时可对照原文检查讨论引用。'
 class Streaming(QuestionRuntime):
  def interrupt(self): self.closed=True;self.events.put({"method":"turn/completed","params":{"status":"interrupted"}})
  def start_turn(self, **kwargs):
@@ -59,6 +70,8 @@ host.source_notes.save('fixture-paper', bundle=host.source_notes.bundle_version(
  request_id='browser-note-001', intent_id='browser-note-intent', content='Browser note before editing',
  kind='conclusion', origin='user', evidence_role='explanation')
 host.prepare_reading('fixture-paper',request_id=uuid.uuid4().hex);host.reading_workers['fixture-paper'].join(5);host.open_prepared_reading('fixture-paper',request_id=uuid.uuid4().hex)
+host.prepare_article_overview('fixture-paper',request_id=uuid.uuid4().hex);host.reading_workers['fixture-paper'].join(10)
+assert host.article_overview('fixture-paper')['status']=='ready',host.article_overview('fixture-paper')
 if figure_translations:
  host.prepare_reading('second-paper',request_id=uuid.uuid4().hex);host.reading_workers['second-paper'].join(5)
 # Published-blog UI fixture; the browser supplies deterministic iframe HTML.
