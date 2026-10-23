@@ -88,6 +88,6 @@ node tests/reading_annotations_browser.mjs
 
 ## Answer
 
-实现与所需自动化验收完成。`pnpm reader:typecheck`、`pnpm reader:test`（192 UI + 168 standalone）、`pnpm reader:build`、三个旧浏览器回归通过；Python 全量 510 项通过、1 项 opt-in SDK 跳过（功能实现根分支证据，无后端产品变更后未重复）。真实库副本的原/译文跨公式标注、讨论显示位置、刷新、吸附切换和清除通过，仅提交脱敏计数；原库不改动。
+实现与所需自动化验收完成。`pnpm reader:typecheck`、`pnpm reader:test`（192 UI + 168 standalone）、`pnpm reader:build`、三个旧浏览器回归通过；Python 全量 510 项（1 项 opt-in SDK 跳过），其余通过（功能实现根分支证据，无后端产品变更后未重复）。真实库副本的原/译文跨公式标注、讨论显示位置、刷新、吸附切换和清除通过，仅提交脱敏计数；原库不改动。
 
 物理中文输入法 **NOT_RUN**：当前环境未做人机系统组字手测，DOM composition 单元通过不等同于物理 IME。交付记录明确保留该验证缺口及其他浏览器/物理触屏未验证范围。原型 SHA256 复核未变，工单、原型和关键合成证据均限定入库。

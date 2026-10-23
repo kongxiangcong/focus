@@ -27,7 +27,7 @@ Recovery and retained state: 写入乐观显示，失败保留草稿并以同一
 | A3 句下编辑、多行保存、查看 | PASS | Chrome 合成浏览器 | 编辑框距最后片段底部 0–20px；Shift+Enter 换行、Enter 保存、灯泡查看 |
 | A4 修改、组合删除、取消重点与撤销 | PASS | Chrome 合成浏览器 | Host 两类记录删除与撤销数量一致；取消重点保留备注 |
 | A5 吸附几何、小段笔记与 placement | PASS | Chrome 实际布局 | 1600×1000、1280×800、1024×768：卡片不重叠，未位移卡片距首行 ≤8px，段末区低于正文/卡片 |
-| A6 句下编辑后飞入卡片 | PASS | Chrome WAAPI + 截图 | [150ms 中间帧](evidence/product/anno-save-flight-1600x1000-light.png)，实际卡片动画存在，600ms 后卡片就位 |
+| A6 句下编辑后飞入卡片 | PASS | Chrome WAAPI + 截图 | [150ms 中间帧](evidence/product/anno-save-flight-1600x1000-light.png)，实际卡片动画存在，动画结束后卡片就位 |
 | A7 关闭吸附与折叠 | PASS | Chrome 合成浏览器 | 900ms 后飞行层为空、灯泡可见、计数与 aria-expanded 正确 |
 | A8 讨论保存反馈 | PASS | Chrome 合成浏览器 | 引用 c3 保存显示“第 3 段”；明确无引用保存显示“已存为整篇笔记” |
 | A9 直接小段笔记与 Bundle 恢复 | PASS | Chrome 合成浏览器 | createSourceNote 带 chunk；注入 bundle_changed 后提供存为整篇 |
@@ -46,7 +46,7 @@ Recovery and retained state: 写入乐观显示，失败保留草稿并以同一
 - `pnpm reader:typecheck`：contracts / reader-ui / standalone 均通过。
 - `pnpm reader:test`：reader-ui 192、standalone 168 项通过。首次高负载运行有一条选区等待失败；完整单 worker 两套均通过。补齐测试 helper 的 pointerUp→mouseUp 实际手势后重跑默认命令通过；业务断言与 timeout 未降低。
 - `pnpm reader:build`：通过；小型 KaTeX 字体输出为同源文件，隔离 Host 生产资源浏览器回归无 CSP console 错误。仍有既有 bundle-size 提示。
-- Python 全量 discover：510 项通过，1 项真实 DeepSeek SDK opt-in 测试跳过（根分支同功能实现，611.089s；13 只改浏览器 fixture 支持代码，未改后端产品逻辑）。
+- Python 全量 discover：510 项（1 项真实 DeepSeek SDK opt-in 测试跳过），其余通过（根分支同功能实现，611.089s；13 只改浏览器 fixture 支持代码，未改后端产品逻辑）。
 - `reading_attachment_browser.mjs`：side / split / stacked、390–1600、普通/全屏、阅读锚点、dock、偏好与减少动效通过。
 - `reading_discussion_browser.mjs`：原文选区引用、引用跳转/悬停、段落回看、笔记保存与只读跳转、控制台门禁通过。
 - `confirmed_ux_browser.mjs`：10 组旧流程通过，覆盖准备/正文/回看/前沿、新会话 SSE 与刷新、完成终态、资料抽屉、重读确认、知识库任务区与顶层模态。Mist 已移除的新会话按钮改由公开 Host API 驱动，仍断言 UI 与持久状态；未恢复旧 UI。
