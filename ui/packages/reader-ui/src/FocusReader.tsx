@@ -1,3 +1,4 @@
+import { discussionFoldKey, useDiscussionFolds } from "./discussion-fold";
 import { AnnotationRail } from "./annotations/AnnotationRail";
 import { projectSourceNotes } from "./note-projection";
 import { useAnnotations } from "./annotations/useAnnotations";
@@ -317,6 +318,9 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const notesOpen = mist && attachNotes && !showStructure;
   const notesLayout = !notesOpen ? "off" : readingWidth >= columnWidth + readingLayout.padding + readingLayout.noteGap + readingLayout.noteWidth ? "side" : "split";
   const paragraphGroups = groupReadingDiscussion(entries, eventKeys);
+  const discussionFolds = useDiscussionFolds();
+  const foldKey = (id: string) => discussionFoldKey(view?.workspace?.workspaceId ?? "default", sourceId,
+    view?.sessionId ?? "", view?.discussionId ?? "", id);
   const annotations = useAnnotations({ host, view, accept: value => preserveReading(() => accept(value)), stream,
     groups: paragraphGroups, onReference: referenceChunk, attached: notesOpen, notesLayout });
   sentenceNoteController.current = annotations;
@@ -451,6 +455,8 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   }
   function send(content = draft, clear = true, includeAttachments = true, explicitReference?: ReaderChunk | null) {
     if (!view || blocked || uploading || !content.trim()) return;
+    const receivingGroup = paragraphGroups.at(-1);
+    if (receivingGroup) discussionFolds.setCollapsed(foldKey(receivingGroup.id), false);
     pendingQuestion.current = view.conversation.filter(m => m.role === "user").at(-1)?.messageId ?? null;
     setDiscussionFocus(displayed ? chunkKey(displayed) : null);
     follow.current = true;
@@ -751,13 +757,23 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
             {(current || view.history.length > 0) && host.resumeReading && <button onClick={resume} disabled={blocked}>恢复阅读</button>}</div>
         </section>}
         {paragraphGroups.map(group => {
+          const folded = !!group.chunk && discussionFolds.collapsed(foldKey(group.id));
+          const discussionId = `discussion-${encodeURIComponent(foldKey(group.id))}`;
+          const generating = active && group.indexes.some(index => entries[index].kind === "message" && entries[index].messageId === view?.conversation.at(-1)?.messageId);
           const groupIndex = readingGroups.findIndex(item => item.id === group.id);
           const state = group.id === lens.activeId ? "focus" : Math.abs(groupIndex - lensIndex) === 1 ? "near" : "far";
           return <div key={`${eventScope}:${group.id}`} className={mist ? "reading-lens-group" : undefined}
             data-reading-group={group.chunk ? group.id : undefined} data-lens-group={mist && group.chunk ? group.id : undefined} data-lens-index={group.chunk?.index}
             data-state={mist && group.chunk ? state : undefined} data-review={mist && group.id === lens.activeId && lensReview}>
           {([false, true] as const).filter(discussion => !discussion || group.indexes.some(index => entries[index].kind === "message")).map(discussion => <div key={String(discussion)} className={discussion ? "reading-group-discussion" : "reading-group-passage"}>
-          <div className={discussion ? undefined : "reading-group-source"}>
+          {discussion && group.chunk && <div className="reading-discussion-divider"><button type="button"
+            aria-expanded={!folded} aria-controls={discussionId} onClick={event => {
+              follow.current = false;
+              scrolling.controller.current?.holdDisclosure(event.currentTarget);
+              event.currentTarget.focus({ preventScroll: true });
+              discussionFolds.setCollapsed(foldKey(group.id), !folded);
+            }}>{folded ? "展开讨论" : "收起讨论"}{generating && <span> · 生成中</span>}</button></div>}
+          <div id={discussion ? discussionId : undefined} hidden={discussion && folded} className={discussion ? undefined : "reading-group-source"}>
           {group.indexes.filter(index => (entries[index].kind === "message") === discussion).map(index => {
           const e = entries[index];
           const message = e.kind === "message" ? view?.conversation.find(m => m.messageId === e.messageId) : null;
@@ -766,7 +782,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
             onReference={referenceChunk} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} onLanguage={(chunk, original) => preserveReading(() => setFigureLanguages(old => ({ ...old, [chunkKey(chunk)]: original })))} /> : message ? <ReaderConversation messages={[message]} chunks={chunks} figures={view?.figures} figureSourceId={sourceId} sourceFigures={sourceFigures} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} streaming={active && message.messageId === view?.conversation.at(-1)?.messageId}
             onJump={jumpReference} onHighlight={highlight} onClearHighlight={() => { if (!highlightTimer.current) clearHighlight(); }} onSaveNote={(reply, chunk) => send(`请把下面的回答记下来：\n\n${reply.content}`, false, false, chunk ?? null)} /> : null;
           const identity = eventKeys[index];
-          return <TimelineEvent key={`${eventScope}:${identity}`} identity={identity} current={index === focusedIndex} fresh={committedEvents.current?.scope === eventScope && !committedEvents.current.ids.has(identity)} streaming={active && message?.role === "assistant" && message.messageId === view?.conversation.at(-1)?.messageId}>{content}</TimelineEvent>;
+          return <TimelineEvent key={`${eventScope}:${identity}`} identity={identity} current={index === focusedIndex} fresh={committedEvents.current?.scope === eventScope && !committedEvents.current.ids.has(identity)} streaming={!folded && active && message?.role === "assistant" && message.messageId === view?.conversation.at(-1)?.messageId}>{content}</TimelineEvent>;
           })}
           </div>
           {!discussion && !notesOpen && group.chunk && <FoldedChunkNotes chunk={group.chunk} notes={projectedNotes.get(group.id) ?? []} host={host}
