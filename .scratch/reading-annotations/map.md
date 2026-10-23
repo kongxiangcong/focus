@@ -30,6 +30,10 @@
 
 - [11 批注动效](issues/11-motion.md#answer)：保存飞入、吸附开关 FLIP/卡片飞行、删除视觉保留及减少动效/堆叠降级完成；51 项动效/样式测试、UI/standalone 类型检查与构建通过。根分支严格 Chrome 复验通过 A1/A2/A3/A4/A5/A6/A7/A8/A9/A10/A12/A13/A14/A17，三 context 零 pageerror/consoleerror/HTTP 错误，证据待 13 整理。
 
+- [13 浏览器验收与交付](issues/13-acceptance.md#answer)：14 个正式 Chrome 场景及三个旧浏览器回归、360 项 UI/standalone 单元、类型检查与构建通过；A11/A15/A16 单元与 Host 证据、真实库副本脱敏结果、5 张产品截图及原型参照归档于 [delivery.md](delivery.md)。物理 IME 未运行，不以 DOM composition 代替。
+
 ## Fog
+
+13 已完成实现及自动化验收，物理中文输入法仍为 NOT_RUN；详见 [交付记录](delivery.md)。独立代码审查与工作树清理由集成任务统一处理。
 
 功能与浏览器验收以 [13](issues/13-acceptance.md) 为准。
