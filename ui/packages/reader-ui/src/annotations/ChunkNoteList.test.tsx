@@ -93,3 +93,26 @@ it("shows pending paragraph content optimistically and reuses its failed request
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() => expect(second.host.createSourceNote).toHaveBeenCalledWith(expect.objectContaining({ requestId: originalId })));
 });
+
+it("keeps edits typed after a paragraph save began when that earlier request succeeds", async () => {
+  const { host } = setup(); let resolve!: (value: ReturnType<typeof readerSuccess<ReadingWindow>>) => void;
+  vi.mocked(host.createSourceNote!).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  fireEvent.click(screen.getByRole("button", { name: "+ 记小段笔记" }));
+  const input = screen.getByRole("textbox", { name: "小段笔记" });
+  fireEvent.change(input, { target: { value: "First captured version" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  fireEvent.change(input, { target: { value: "Newer unsaved draft" } });
+  await act(async () => resolve(readerSuccess(view)));
+  expect(screen.getByRole("textbox", { name: "小段笔记" })).toHaveValue("Newer unsaved draft");
+  expect(JSON.parse(sessionStorage.getItem("focus.chunkNoteDrafts")!)["source:plan-001:chunk-001"].text).toBe("Newer unsaved draft");
+});
+
+it("hides a pending paragraph deletion and restores the entry on failure", async () => {
+  const { host } = setup([note]); let resolve!: (value: ReturnType<typeof readerFailure>) => void;
+  vi.mocked(host.changeSourceNote!).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+  expect(screen.queryByText("A thought")).not.toBeInTheDocument();
+  await act(async () => resolve(readerFailure("unavailable", "暂时无法删除")));
+  expect(screen.getByText("A thought")).toBeInTheDocument();
+  expect(screen.getByRole("alert")).toHaveTextContent("暂时无法删除");
+});

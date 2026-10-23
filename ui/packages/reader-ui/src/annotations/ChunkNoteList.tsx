@@ -27,8 +27,10 @@ export function ChunkNoteList({ chunk, notes, host, onAccept, onToast, freshNote
   const [bundleChanged, setBundleChanged] = useState(false);
   const [conflict, setConflict] = useState<SourceNote | null>(null);
   const [pending, setPending] = useState<{ text: string; noteId?: string } | null>(null), [savedId, setSavedId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<ReadonlySet<string>>(new Set());
   const scope = `${chunk.sourceId}:${chunk.planId}:${chunk.chunkId}:${resetVersion}:${noteClearVersion}`;
   const currentScope = useRef(scope); currentScope.current = scope;
+  const latestEditor = useRef({ editor, text }); latestEditor.current = { editor, text };
   const requestIds = useRef(new Map<string, string>());
   const priorScope = useRef(scope);
   const createDraftKey = `${chunk.sourceId}:${chunk.planId}:${chunk.chunkId}`;
@@ -46,7 +48,7 @@ export function ChunkNoteList({ chunk, notes, host, onAccept, onToast, freshNote
   useEffect(() => { if (createSignal > 0) open(); }, [createSignal]);
   useEffect(() => { onEditingChange?.(editor !== null); }, [!!editor, onEditingChange]);
   useEffect(() => { if (priorScope.current === scope) return; priorScope.current = scope;
-    setEditor(null); setText(""); setBusy(false); setError(""); setBundleChanged(false); setConflict(null); setPending(null); setSavedId(null); requestIds.current.clear(); }, [scope]);
+    setEditor(null); setText(""); setBusy(false); setError(""); setBundleChanged(false); setConflict(null); setPending(null); setSavedId(null); setDeleting(new Set()); requestIds.current.clear(); }, [scope]);
   const requestId = (key: string) => {
     if (!requestIds.current.has(key)) requestIds.current.set(key, createReaderId());
     return requestIds.current.get(key)!;
@@ -75,16 +77,22 @@ export function ChunkNoteList({ chunk, notes, host, onAccept, onToast, freshNote
       setConflict(result.value.noteOperation.current ?? null); setError("笔记已由另一处修改；你的输入仍在，可查看新版后重新提交。"); return;
     }
     const note = result.value.noteOperation?.note;
-    persist(null); setEditor(null); setText(""); setBundleChanged(false);
+    if (storedDrafts()[draftKey]?.text.trim() === content) persist(null);
+    const currentEditor = latestEditor.current.editor;
+    const sameEditor = editing ? currentEditor !== null && currentEditor !== "new" && currentEditor.noteId === editing.noteId : currentEditor === "new";
+    if (sameEditor && latestEditor.current.text.trim() === content) { setEditor(null); setText(""); }
+    setBundleChanged(false);
     if (note) { setSavedId(note.noteId); onSaved?.(note); }
   }
   async function change(note: SourceNote, operation: "delete" | "undo") {
     if (!host.changeSourceNote) return;
     const capturedScope = scope, key = JSON.stringify([note.noteId, note.revision, operation]);
+    if (operation === "delete") setDeleting(previous => new Set([...previous, note.noteId]));
     let result: ReaderHostResult<ReadingWindow>;
     try { result = await host.changeSourceNote(chunk.sourceId, note.noteId, operation, note.revision, requestId(key), undefined); }
     catch (error) { result = readerFailure("unavailable", String(error), true); }
     if (currentScope.current !== capturedScope) return;
+    setDeleting(previous => new Set([...previous].filter(id => id !== note.noteId)));
     if (!result.ok) { setError(result.error.message); onToast?.("小段笔记未更新", { label: "重试", run: () => void change(note, operation) }); return; }
     onAccept(result.value); requestIds.current.delete(key);
     if (result.value.noteOperation?.status === "conflict") { setError("笔记已由另一处修改，请查看当前版本后重试。"); return; }
@@ -93,7 +101,7 @@ export function ChunkNoteList({ chunk, notes, host, onAccept, onToast, freshNote
   }
   return <>
     {!editor && error && <p role="alert">{error}</p>}
-    <ol>{notes.filter(note => !note.deleted && !note.sentence).map(note => <li className={`reader-chunk-notes__item${note.noteId === freshNoteId || note.noteId === savedId ? " is-new" : ""}`} key={note.noteId} data-chunk-note-id={note.noteId}>
+    <ol>{notes.filter(note => !note.deleted && !note.sentence && !deleting.has(note.noteId)).map(note => <li className={`reader-chunk-notes__item${note.noteId === freshNoteId || note.noteId === savedId ? " is-new" : ""}`} key={note.noteId} data-chunk-note-id={note.noteId}>
       <div className="reader-chunk-notes__meta"><span className="reader-chunk-notes__tag">{kinds[note.kind]}</span>{note.origin === "dialogue" && <span className="reader-chunk-notes__tag reader-chunk-notes__tag--dlg">来自讨论</span>}
         {host.changeSourceNote && <span className="reader-chunk-notes__actions"><button className="reader-anno-ghost" onClick={() => edit(note)}>编辑</button><button className="reader-anno-ghost danger" onClick={() => void change(note, "delete")}>删除</button></span>}</div>
       <MarkdownContent text={pending?.noteId === note.noteId ? pending.text : note.content} sourceId={note.sourceId} />
