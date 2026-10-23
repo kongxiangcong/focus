@@ -23,7 +23,7 @@ const view: ReadingWindow = { status: "reading", source: { sourceId: "source", t
   conversation: [{ messageId: "m1", chunkId: "first", role: "assistant", content: "仍在阅读流中的讨论", reference: { sourceId: "source", planId: "plan", chunkId: "first" } }],
   timeline: [{ kind: "reading", chunk }, { kind: "reading", chunk: second }, { kind: "message", messageId: "m1" }] };
 function setup() {
-  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(view)), continueReading: vi.fn(), sendMessage: vi.fn(async () => readerSuccess(view)) };
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(view)), continueReading: vi.fn(), sendMessage: vi.fn(async () => readerSuccess(view)), changeSourceNote: vi.fn() };
   const result = render(<FocusReader host={host} appearance="mist" fullscreen={false} />);
   return { host, ...result };
 }
@@ -35,7 +35,7 @@ it("shows anchored notes without fullscreen or a minimum width and keeps discuss
   expect(first).toHaveTextContent("第一段的笔记");
   expect(first).not.toHaveTextContent("整篇笔记");
   expect(first).not.toHaveTextContent("仍在阅读流中的讨论");
-  expect(screen.getByRole("complementary", { name: "第 2 段笔记" })).toHaveTextContent("本段还没有笔记");
+  expect(screen.getByRole("complementary", { name: "第 2 段笔记" })).toHaveTextContent("本段还没有小段笔记");
   expect(container.querySelector(".focus-reader")).toHaveAttribute("data-notes-layout", "split");
   expect(container.querySelector('[data-lens-index="2"] .reading-group-discussion')).toHaveTextContent("仍在阅读流中的讨论");
   expect(localStorage.getItem("focus.attachDiscussion")).toBeNull();
@@ -72,15 +72,15 @@ it("discusses the chosen historical paragraph while preserving the current readi
   expect(host.continueReading).not.toHaveBeenCalled();
 });
 
-it("opens the matching note editor in materials while keeping paragraph notes available", async () => {
+it("opens the matching paragraph note editor inline while keeping its source available", async () => {
   const { host } = setup();
   const notes = await screen.findByRole("complementary", { name: "第 1 段笔记" });
   fireEvent.click(within(notes).getByRole("button", { name: "编辑" }));
-  const editor = await screen.findByRole("textbox", { name: "编辑笔记" });
+  const editor = await within(notes).findByRole("textbox", { name: "小段笔记" });
   expect(editor).toHaveValue(note.content);
   await waitFor(() => expect(editor).toHaveFocus());
   expect(notes).toBeVisible();
-  expect(screen.getByRole("region", { name: "阅读资料侧栏" })).toBeVisible();
+  expect(notes).toContainElement(editor);
   expect(host.continueReading).not.toHaveBeenCalled();
 });
 

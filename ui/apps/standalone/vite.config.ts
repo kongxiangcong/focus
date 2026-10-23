@@ -3,6 +3,8 @@ import { defineConfig, type ProxyOptions } from "vite";
 
 export default defineConfig({
   plugins: [react()],
+  // Host CSP permits same-origin fonts; keep small KaTeX fonts out of data URLs.
+  build: { assetsInlineLimit: 0 },
   server: {
     proxy: Object.fromEntries(["/reader", "/library/topics", "/library/sources", "/library/inbox", "/library/batches"].map(path => [path, {
       target: "http://127.0.0.1:8765", changeOrigin: true,

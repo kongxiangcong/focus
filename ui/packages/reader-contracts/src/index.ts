@@ -83,6 +83,27 @@ export interface ReaderMessage {
   sourceDeleted?: boolean;
 }
 
+export interface NotePlacement { sourceId: string; bundle: string; sourceLines: readonly [number, number] }
+export type AnnotationLayer = "source" | "translation";
+export interface SentenceQuote { exact: string; prefix: string; suffix: string }
+export interface SentenceInput {
+  layer: AnnotationLayer;
+  range: { start: number; end: number };
+  quote: SentenceQuote;
+}
+export interface SentenceLocator extends SentenceInput { planId: string; chunkId: string }
+export interface ReadingHighlight extends SentenceLocator {
+  highlightId: string; sourceId: string; revision: number; bundle: string;
+  sourceLines: readonly [number, number]; deleted: boolean; canUndo: boolean; sourceUpdated: boolean;
+}
+export interface CreateHighlightInput extends SentenceInput {
+  sourceId: string; requestId: string; chunk: { planId: string; chunkId: string };
+}
+export interface HighlightOperation {
+  sourceId: string; status: "saved" | "changed" | "conflict";
+  operation?: "delete" | "undo"; highlight?: ReadingHighlight; current?: ReadingHighlight;
+}
+
 export interface SourceNote {
   noteId: string;
   sourceId: string;
@@ -93,10 +114,17 @@ export interface SourceNote {
   evidenceRole: "source_claim" | "explanation" | "unresolved_question";
   bundle: string;
   anchor: { sourceId: string; bundle: string; sourceLines: readonly [number, number]; quote?: string } | null;
+  placement?: NotePlacement | null;
+  sentence?: SentenceLocator | null;
   referenceStatus: "current" | "historical" | "unavailable";
   sourceUpdated: boolean;
   deleted: boolean;
   canUndo: boolean;
+}
+
+/** Sentence Reading Notes retain their quoted text in every plain text consumer. */
+export function sentenceNoteText(note: SourceNote): string {
+  return note.sentence ? `「${note.sentence.quote.exact}」\n${note.content}` : note.content;
 }
 
 export interface ReadingProgressEntry {
@@ -164,6 +192,8 @@ export interface ReadingWindow {
   sessionFresh?: boolean;
   readingStarted?: boolean;
   resetVersion?: number;
+  /** Source note/highlight clear generation, including a clear that preserves the reading cursor. */
+  noteClearVersion?: number;
   /** Persistent frontier, also available when a fresh session hides its cards. */
   navigationCurrent?: ReaderChunk | null;
   timeline?: readonly ({ kind: "reading"; chunk: ReaderChunk; eventId?: string } | { kind: "message"; messageId: string })[];
@@ -179,6 +209,8 @@ export interface ReadingWindow {
   /** Blog Output projection per Source id; absent when the Host has no blog surface. */
   blog?: Readonly<Record<string, BlogStatus>>;
   sourceNotes?: readonly SourceNote[];
+  sourceHighlights?: readonly ReadingHighlight[];
+  highlightOperation?: HighlightOperation | null;
   readingProgress?: readonly ReadingProgressEntry[];
   progressOperation?: { status: "saved" | "changed" | "conflict"; entry?: ReadingProgressEntry; current?: ReadingProgressEntry; attempted_content?: string | null } | null;
   noteFeedback?: { sourceId: string; status: "saved" | "failed" } | null;
@@ -283,6 +315,13 @@ export interface SendReaderMessageInput {
 }
 
 export type ReaderFailureCode =
+  | "highlight_overlap"
+  | "note_sentence_overlap"
+  | "highlight_bundle_changed"
+  | "highlight_invalid"
+  | "highlight_request_conflict"
+  | "highlight_not_found"
+  | "note_sentence_invalid"
   | "note_bundle_changed"
   | "cursor-changed"
   | "invalid-request"
@@ -401,9 +440,14 @@ export interface CreateSourceNoteInput {
   origin: "user" | "dialogue";
   chunk?: { planId: string; chunkId: string };
   quote?: string;
+  sentence?: SentenceInput;
 }
 
 export interface ReaderHost {
+  createHighlight?(input: CreateHighlightInput): Promise<ReaderHostResult<ReadingWindow>>;
+  changeHighlight?(sourceId: string, highlightId: string, operation: "delete" | "undo", expectedRevision: number,
+    requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  highlightRequestResult?(sourceId: string, requestId: string): Promise<ReaderHostResult<HighlightOperation | { status: "cancelled" } | null>>;
   createSourceNote?(input: CreateSourceNoteInput): Promise<ReaderHostResult<ReadingWindow>>;
   clearFinishedStatuses?(requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   listTopics?(): Promise<ReaderHostResult<readonly LibraryTopic[]>>;

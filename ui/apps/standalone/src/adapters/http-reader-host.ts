@@ -1,4 +1,4 @@
-import { createReaderId, type CreateSourceNoteInput,
+import { createReaderId, type CreateSourceNoteInput, type CreateHighlightInput, type HighlightOperation,
   type BackendSetupAction, type BackendSetupInput, type BackendSetupResult,
   type BlogRegenerationTarget,
   type BlogStatus,
@@ -91,7 +91,7 @@ function isReadingWindow(value: unknown): value is ReadingWindow {
 }
 
 function isFailureCode(value: unknown): value is ReaderFailureCode {
-  return ["note_bundle_changed", "cursor-changed", "invalid-request", "invalid-response", "unavailable", "unknown"].includes(
+  return ["highlight_overlap", "note_sentence_overlap", "highlight_bundle_changed", "highlight_invalid", "highlight_request_conflict", "highlight_not_found", "note_sentence_invalid", "note_bundle_changed", "cursor-changed", "invalid-request", "invalid-response", "unavailable", "unknown"].includes(
     String(value),
   );
 }
@@ -415,6 +415,29 @@ export class HttpReaderHost implements ReaderHost {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/notes`, {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input),
     });
+  }
+
+  createHighlight({ sourceId, ...input }: CreateHighlightInput): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/highlights`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input),
+    });
+  }
+
+  changeHighlight(sourceId: string, highlightId: string, operation: "delete" | "undo",
+    expectedRevision: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/highlights/${encodeURIComponent(highlightId)}/${operation}`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedRevision, requestId }) });
+  }
+
+  async highlightRequestResult(sourceId: string, requestId: string): Promise<ReaderHostResult<HighlightOperation | { status: "cancelled" } | null>> {
+    try {
+      const response = await this.fetch(`${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/highlights/requests/${encodeURIComponent(requestId)}`, { method: "GET" });
+      const body = await response.json();
+      if (response.ok && body?.ok === true) return { ok: true, value: body.value && body.value.status !== "cancelled" ? { sourceId, ...body.value } : body.value ?? null };
+      return { ok: false, error: { code: isFailureCode(body?.error?.code) ? body.error.code : "invalid-request", message: body?.error?.message ?? "标注请求结果不可用", retryable: false } };
+    } catch (error) {
+      return { ok: false, error: { code: "unavailable", message: String(error), retryable: true } };
+    }
   }
 
   changeSourceNote(sourceId: string, noteId: string, operation: "edit" | "delete" | "undo",

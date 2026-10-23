@@ -1,15 +1,23 @@
-import { AttachedNotes } from "./AttachedNotes";
+import { useLatestNotice } from "./latest-notice";
+import { discussionFoldKey, useDiscussionFolds } from "./discussion-fold";
+import { AnnotationRail } from "./annotations/AnnotationRail";
 import { projectSourceNotes } from "./note-projection";
+import { useAnnotations } from "./annotations/useAnnotations";
+import { useNoteFeedback } from "./annotations/useNoteFeedback";
+import { FoldedChunkNotes } from "./annotations/FoldedChunkNotes";
+import { SourceNotesPanel } from "./SourceNotesPanel";
+import { clearAnnotationDrafts } from "./annotation-draft-reset";
 import { AssetInstanceContext } from "./asset-context";
 import { PanelLeft, Pin, Expand, Collapse, ArrowRight, ArrowUp, StopSquare, ChevronDown, Widen, Close } from "./ReaderIcons";
 import { createReaderId, cursorReceipt, type ReaderChunk, type ReaderAttachment, type ReaderHost, type ReadingWindow,
   type ReaderHostResult, type SendReaderMessageInput, type ContinueReadingInput, type SourceNote, type ReadingProgressEntry } from "@focus/reader-contracts";
-import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentControls } from "./AgentControls";
 import { ReadingChunk, ReaderConversation, chunkKey } from "./ReadingChunk";
 import { readingFontSizes, readingMeasures, readingLayout, readReadingMeasure, effectiveReadingMeasure, measureWidth, drawerTranslation, type ReadingMeasure } from "./typography";
 import "./reader-shell.css";
 import "./mist-reader.css";
+import "./reader-annotations.css";
 import "./reader-figures.css";
 import { FigurePanel, FigureViewer, type ViewerRequest } from "./FigurePanel";
 import { useReadingScroll } from "./reading-scroll";
@@ -54,6 +62,9 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const [attachNotes, setAttachNotes] = useState(() => {
     try { localStorage.removeItem("focus.attachDiscussion"); return localStorage.getItem("focus.attachNotes") !== "false"; } catch { return true; }
   });
+  const [stackedRails, setStackedRails] = useState<Record<string, boolean>>({});
+  const setRailStacked = useCallback((group: string, stacked: boolean) => setStackedRails(previous =>
+    !!previous[group] === stacked ? previous : { ...previous, [group]: stacked }), []);
   const [preferredMeasure, setPreferredMeasure] = useState<ReadingMeasure>(() => {
     try { return readReadingMeasure(localStorage, readingFontSizes[fontSize]); } catch { return "standard"; }
   });
@@ -93,14 +104,11 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   }
   const [collapsed, setCollapsed] = useState(false);
   const [structureOpen, setStructureOpen] = useState(false);
-  const [reviewNoticeDismissed, setReviewNoticeDismissed] = useState(false);
-  const [progressNoticeDismissed, setProgressNoticeDismissed] = useState<string | null>(null);
   const [viewportChunk, setViewportChunk] = useState<ReaderChunk | null>(null);
   const [view, setView] = useState<ReadingWindow | null>(null);
   const paintedTimingRuns = useRef(new Set<string>());
   const [draft, setDraft] = useState("");
   const [uploads, setUploads] = useState<Upload[]>([]);
-  const [selection, setSelection] = useState<{ chunk: ReaderChunk; text: string; x: number; y: number } | null>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [reference, setReference] = useState<DraftReference | null | undefined>(undefined);
   const [sideMode, setSideMode] = useState<"figures" | "notes" | "progress" | "discussion" | null>(null);
@@ -137,6 +145,8 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const [editBaseRevision, setEditBaseRevision] = useState<number | null>(null);
   const [noteError, setNoteError] = useState("");
   const [noteConflict, setNoteConflict] = useState<SourceNote | null>(null);
+  const sentenceNoteController = useRef<{ openEditor: (note: SourceNote) => void; openNote: (note: SourceNote) => void;
+    lostSentenceNoteIds?: ReadonlySet<string> } | null>(null);
   const [editingProgressId, setEditingProgressId] = useState<string | null>(null);
   const [progressDraft, setProgressDraft] = useState("");
   const [progressBaseRevision, setProgressBaseRevision] = useState<number | null>(null);
@@ -157,15 +167,20 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
 
   function clearSessionUI() {
     epoch.current += 1;
-    setDraft(""); setUploads([]); setSelection(null); setViewer(null); setReference(undefined); setReviewChunk(null); setFailure(null); setPanel(null);
+    setDraft(""); setUploads([]); setViewer(null); setReference(undefined); setReviewChunk(null); setFailure(null); setPanel(null);
     setDiscussionFocus(null);
     setEditingNoteId(null); setEditDraft(""); setEditBaseRevision(null); setNoteError(""); setNoteConflict(null);
     setEditingProgressId(null); setProgressDraft(""); setProgressBaseRevision(null); setProgressConflict(null); setProgressError(""); follow.current = true;
   }
   const draftState = useRef({ reference, editingNoteId, editDraft, editBaseRevision, editingProgressId, progressDraft, progressBaseRevision });
+  const acceptedNoteIds = useRef<{ source: string; ids: Set<string> } | null>(null);
   draftState.current = { reference, editingNoteId, editDraft, editBaseRevision, editingProgressId, progressDraft, progressBaseRevision };
   function accept(value: ReadingWindow) {
     if (!alive.current || (value.revision !== undefined && value.revision < revision.current)) return;
+    const priorNotes = acceptedNoteIds.current;
+    if (priorNotes?.source === value.source.sourceId && value.noteFeedback?.status === "saved" &&
+      value.sourceNotes?.some(note => note.origin === "dialogue" && !priorNotes.ids.has(note.noteId))) scrolling.controller.current?.hold();
+    acceptedNoteIds.current = { source: value.source.sourceId, ids: new Set(value.sourceNotes?.map(note => note.noteId) ?? []) };
     const owner = `${value.source.sourceId}:${value.discussionId ?? value.sessionId}`;
     if (draftOwner.current && owner !== draftOwner.current) {
       drafts.current[draftOwner.current] = { text: draftRef.current, reference: draftState.current.reference, noteId: draftState.current.editingNoteId,
@@ -237,18 +252,27 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const resetVersions = useRef<Record<string, number>>((() => {
     try { return JSON.parse(sessionStorage.getItem("focus.draftResetVersions") ?? "{}"); } catch { return {}; }
   })());
+  const noteClearVersions = useRef<Record<string, number>>((() => {
+    try { return JSON.parse(sessionStorage.getItem("focus.noteClearVersions") ?? "{}"); } catch { return {}; }
+  })());
   useEffect(() => {
-    if (!view?.source.sourceId || view.resetVersion === undefined) return;
+    if (!view?.source.sourceId) return;
     const source = view.source.sourceId;
     const previous = resetVersions.current[source];
-    resetVersions.current[source] = view.resetVersion;
+    const previousClear = noteClearVersions.current[source];
+    const resetChanged = view.resetVersion !== undefined && previous !== undefined && previous !== view.resetVersion;
+    const notesCleared = view.noteClearVersion !== undefined && previousClear !== undefined && previousClear !== view.noteClearVersion;
+    if (view.resetVersion !== undefined) resetVersions.current[source] = view.resetVersion;
+    if (view.noteClearVersion !== undefined) noteClearVersions.current[source] = view.noteClearVersion;
     try { sessionStorage.setItem("focus.draftResetVersions", JSON.stringify(resetVersions.current)); } catch { /* memory fallback */ }
-    if (previous !== undefined && previous !== view.resetVersion) {
+    try { sessionStorage.setItem("focus.noteClearVersions", JSON.stringify(noteClearVersions.current)); } catch { /* memory fallback */ }
+    if (resetChanged || notesCleared) {
       for (const key of Object.keys(drafts.current)) if (key.startsWith(`${source}:`)) delete drafts.current[key];
+      clearAnnotationDrafts(source);
       clearSessionUI();
       try { sessionStorage.setItem("focus.drafts", JSON.stringify(drafts.current)); } catch { /* memory fallback */ }
     }
-  }, [view?.source.sourceId, view?.resetVersion]);
+  }, [view?.source.sourceId, view?.resetVersion, view?.noteClearVersion]);
   const current = view?.current ?? null;
   const frontier = view?.navigationCurrent ?? current;
   useEffect(() => { setReviewChunk(null); }, [view?.source.sourceId, view?.readingRevision]);
@@ -267,7 +291,6 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   }, [showStructure]);
   useEffect(() => { setStructureOpen(false); }, [view?.source.sourceId, frontier?.planId, view?.resetVersion]);
   useEffect(() => { setViewportChunk(null); }, [view?.source.sourceId, view?.readingRevision, reviewChunk, view?.sessionId]);
-  useEffect(() => { setReviewNoticeDismissed(false); }, [reviewChunk, view?.source.sourceId, view?.sessionId]);
   const sourceId = view?.source.sourceId ?? "";
   const protectedImages = new Set(chunks.flatMap(c => [...extractFigures(c.sourceMarkdown, c.sourceId).protectedIds]));
   const allFigures = mergeFigures(sourceId, (view?.figures ?? []).filter(f => !protectedImages.has(imageIdentity(f.src, sourceId))),
@@ -289,10 +312,16 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   ];
   const entries = [...ordered, ...(view?.timeline ? (view.conversation ?? []).filter(m => !ordered.some(e => e.kind === "message" && e.messageId === m.messageId)).map(m => ({ kind: "message" as const, messageId: m.messageId })) : [])];
   const eventKeys = entries.map((e, index) => e.kind === "reading" ? ("eventId" in e && typeof e.eventId === "string" ? e.eventId : undefined) ?? `${chunkKey(e.chunk)}:${index}` : e.messageId);
-  const eventScope = `${sourceId}:${view?.discussionId ?? view?.sessionId}`;
+  const eventScope = JSON.stringify([view?.workspace?.workspaceId ?? "default", sourceId, view?.sessionId, view?.discussionId]);
   const notesOpen = mist && attachNotes && !showStructure;
   const notesLayout = !notesOpen ? "off" : readingWidth >= columnWidth + readingLayout.padding + readingLayout.noteGap + readingLayout.noteWidth ? "side" : "split";
   const paragraphGroups = groupReadingDiscussion(entries, eventKeys);
+  const discussionFolds = useDiscussionFolds();
+  const foldKey = (id: string) => discussionFoldKey(view?.workspace?.workspaceId ?? "default", sourceId,
+    view?.sessionId ?? "", view?.discussionId ?? "", id);
+  const annotations = useAnnotations({ host, view, accept: value => preserveReading(() => accept(value)), stream,
+    groups: paragraphGroups, onReference: referenceChunk, attached: notesOpen, notesLayout });
+  sentenceNoteController.current = annotations;
   const projectedNotes = projectSourceNotes(view?.sourceNotes ?? [], paragraphGroups);
   const readingGroups = paragraphGroups.filter(group => group.chunk !== null);
   const lens = useReadingLens(eventScope, readingGroups.map(group => group.id), mist && visible && !showStructure);
@@ -361,6 +390,8 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const reviewLanding = useRef(false);
   const pendingQuestion = useRef<string | null | undefined>(undefined);
   const scrolling = useReadingScroll(stream, follow, eventScope, active, visible && !showStructure);
+  const noteFeedback = useNoteFeedback({ view, groups: paragraphGroups, projected: projectedNotes, stream,
+    onToast: annotations.showToast, onJump: element => scrolling.controller.current?.jump(element) });
   useLayoutEffect(() => {
     const pane = stream.current;
     if (!pane || !mist) return;
@@ -420,17 +451,19 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       if (alive.current && started === epoch.current) setFailure({ message: String(error), label: `重试${label}`, retry: () => void perform(label, task, success) });
     } finally { locked.current = false; if (alive.current) setOperation(""); }
   }
-  function send(content = draft, clear = true, includeAttachments = true, explicitReference?: ReaderChunk) {
+  function send(content = draft, clear = true, includeAttachments = true, explicitReference?: ReaderChunk | null) {
     if (!view || blocked || uploading || !content.trim()) return;
+    const receivingGroup = paragraphGroups.at(-1);
+    if (receivingGroup) discussionFolds.setCollapsed(foldKey(receivingGroup.id), false);
     pendingQuestion.current = view.conversation.filter(m => m.role === "user").at(-1)?.messageId ?? null;
     setDiscussionFocus(displayed ? chunkKey(displayed) : null);
     follow.current = true;
     // undefined uses the reading context; null is an explicitly removed reference.
-    const selected = explicitReference ?? (reference === null ? null : reference ?? reviewChunk ?? displayed);
+    const selected = explicitReference !== undefined ? explicitReference : (reference === null ? null : reference ?? reviewChunk ?? displayed);
     const attachmentIds = (includeAttachments ? uploads : []).flatMap(u => u.attachment ? [u.attachment.attachmentId] : []);
     const sentUploads = (includeAttachments ? uploads : []).filter(u => u.state === "ready").map(u => u.id);
     const input: SendReaderMessageInput = {
-      sessionId: view.sessionId, receipt: selected ? { sourceId: selected.sourceId, planId: selected.planId, chunkId: selected.chunkId } : reference === null ? null : visibleChunks.some(c => current && chunkKey(c) === chunkKey(current)) ? cursorReceipt(view) : null,
+      sessionId: view.sessionId, receipt: selected ? { sourceId: selected.sourceId, planId: selected.planId, chunkId: selected.chunkId } : selected === null ? null : visibleChunks.some(c => current && chunkKey(c) === chunkKey(current)) ? cursorReceipt(view) : null,
       content: clear && reference?.excerpt ? `> ${reference.excerpt.replace(/\n/g, "\n> ")}\n\n${content.trim()}` : content.trim(), attachmentIds,
       sourceId: selected?.sourceId ?? (view.source.sourceId || undefined),
     };
@@ -566,16 +599,12 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     const target = referencedElement(chunk);
     if (target) { scrolling.controller.current?.jump(target); highlight(chunk, excerpt, true); }
   }
-  function readSelection() {
-    const selected = window.getSelection();
-    if (!selected?.rangeCount || selected.isCollapsed || !selected.toString().trim()) { setSelection(null); return; }
-    const range = selected.getRangeAt(0);
-    const element = (range.startContainer.nodeType === Node.ELEMENT_NODE ? range.startContainer : range.startContainer.parentElement) as Element | null;
-    const article = element?.closest<HTMLElement>(".focus-reading");
-    if (!article || !article.contains(range.endContainer) || !element?.closest(".focus-markdown")) { setSelection(null); return; }
-    const chunk = visibleChunks.find(c => chunkKey(c) === article.dataset.chunkKey);
-    const box = range.getBoundingClientRect();
-    if (chunk) setSelection({ chunk, text: selected.toString().trim(), x: Math.max(8, Math.min(innerWidth - 160, box.left)), y: Math.max(8, box.top - 40) });
+  function openSentenceNote(note: SourceNote, edit: boolean, chunk: ReaderChunk) {
+    preserveReading(() => setSideMode(null));
+    const lost = note.sourceUpdated || sentenceNoteController.current?.lostSentenceNoteIds?.has(note.noteId);
+    jumpReference(chunk, lost ? "" : note.sentence?.quote.exact ?? "");
+    if (edit) sentenceNoteController.current?.openEditor(note);
+    else sentenceNoteController.current?.openNote(note);
   }
   function referenceChunk(chunk: ReaderChunk, excerpt?: string) { setReference({ ...chunk, excerpt }); setCollapsed(false); requestAnimationFrame(() => composer.current?.focus({ preventScroll: true })); }
   function review(chunk: ReaderChunk) {
@@ -592,7 +621,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const outline = view?.outline ?? Array.from({ length: current?.total ?? chunks.at(-1)?.total ?? 0 },
     (_, i) => ({ chunkId: `chunk-${String(i + 1).padStart(3, "0")}`, index: i + 1, sectionPath: [] as string[] }));
   const progressEntries = view?.readingProgress ?? [];
-  const locationProgress = mist && lensReview ? <small>回看 {lensChunk!.index} · 进度 {frontier!.index}/{frontier!.total}</small> : <small>{view?.structureIntro ? 0 : locatedChunk?.index ?? frontier?.index ?? current?.index ?? 0} / {view?.outline?.length ?? frontier?.total ?? current?.total ?? 0}</small>;
+  const locationProgress = <small>{view?.structureIntro ? 0 : locatedChunk?.index ?? frontier?.index ?? current?.index ?? 0} / {view?.outline?.length ?? frontier?.total ?? current?.total ?? 0}</small>;
   const locationPath = <span>{showStructure ? "文章结构" : structureTitle || (view?.status === "completed" ? "已完成本篇" : "准备阅读")}</span>;
   const readingLocation = !!(view?.structure?.length || view?.outline?.length || frontier || current) && (mist
     ? <button type="button" className="reader-location-badge" aria-label="当前阅读位置" aria-haspopup="dialog" title={structureTitle} onClick={() => setPanel("contents")}>{locationProgress}{locationPath}</button>
@@ -609,21 +638,36 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       else composer.current?.focus({ preventScroll: true });
     });
   }
+  const reviewing = lensReview || !!(reviewChunk && frontier && reviewChunk.planId === frontier.planId && reviewChunk.index < frontier.index);
+  const latestNotice = useLatestNotice(eventScope, JSON.stringify([frontier?.planId, frontier?.chunkId]),
+    !follow.current && (reviewing || scrolling.back || (scrolling.latest && (readingGroups.length > 1 || !!view?.conversation.length))));
+  function focusNavigationFallback() {
+    (layout.current?.querySelector<HTMLElement>(".reader-location-badge") ?? composer.current ?? stream.current)?.focus({ preventScroll: true });
+  }
   const navigationNotices = !showStructure && <div className="reader-navigation-notices" aria-label="阅读导航提示">
-    {reviewChunk && !reviewNoticeDismissed && <p className="focus-review-banner">正在回看第 {reviewChunk.index} 段 · 正式位置未改变 <button onClick={() => { if (frontier) review(frontier); }}>返回当前阅读</button><button aria-label="关闭回看提示" onClick={() => setReviewNoticeDismissed(true)}><Close /></button></p>}
-    {lensReview && progressNoticeDismissed !== `${eventScope}:${lens.activeId}` && <span className="reader-scroll-notice"><button type="button" onClick={() => {
-        const group = [...readingGroups].reverse().find(item => item.chunk && frontier && chunkKey(item.chunk) === chunkKey(frontier));
-        const target = Array.from(lens.document.current?.querySelectorAll<HTMLElement>("[data-lens-group]") ?? []).find(el => el.dataset.lensGroup === group?.id);
-        if (group && target && stream.current) {
-          lens.focus(group.id);
-          scrolling.controller.current?.jump(target);
-        }
-      }}>回到进度</button><button aria-label="关闭回到进度提示" onClick={() => setProgressNoticeDismissed(`${eventScope}:${lens.activeId}`)}><Close /></button></span>}
-        {scrolling.back && <span className="reader-scroll-notice"><button onClick={() => scrolling.controller.current?.goBack()}>↩ 返回刚才位置</button><button aria-label="关闭返回位置提示" onClick={() => scrolling.controller.current?.dismissBack()}><Close /></button></span>}
-        {scrolling.latest && (readingGroups.length > 1 || !!view?.conversation.length) && <span className="reader-scroll-notice"><button onClick={() => scrolling.controller.current?.toLatest()}>{active ? "回答生成中 · " : ""}回到最新 ↓</button><button aria-label="关闭回到最新提示" onClick={() => scrolling.controller.current?.dismissLatest()}><Close /></button></span>}
+    {latestNotice.visible && <span className="reader-scroll-notice"><button type="button" onClick={() => {
+      setReviewChunk(null);
+      const last = readingGroups.at(-1);
+      const progressGroup = [...readingGroups].reverse().find(group => group.chunk && frontier && chunkKey(group.chunk) === chunkKey(frontier));
+      const progressTarget = Array.from(stream.current?.querySelectorAll<HTMLElement>("[data-reading-group]") ?? [])
+        .find(element => element.dataset.readingGroup === progressGroup?.id);
+      // A review event can be last chronologically without being the reading frontier.
+      // A live answer still takes precedence, preserving explicit stream-follow behavior.
+      if (!active && progressGroup && progressTarget && progressGroup.id !== last?.id) {
+        lens.focus(progressGroup.id);
+        scrolling.controller.current?.land(progressTarget);
+      } else {
+        if (last) lens.focus(last.id);
+        scrolling.controller.current?.toLatest();
+      }
+      focusNavigationFallback();
+    }}>回到最新 ↓</button><button type="button" aria-label="关闭回到最新提示" onClick={() => {
+      latestNotice.dismiss();
+      focusNavigationFallback();
+    }}><Close /></button></span>}
   </div>;
   const continueLabel = view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total) ? "已读完" : (view?.sessionFresh && view.readingStarted && frontier?.index === frontier?.total) || (!view?.sessionFresh && displayed?.index === displayed?.total && !reviewChunk) ? "完成本篇" : operation === "下一段" ? "打开中…" : "继续";
-  return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-measure={measure} data-notes-layout={notesLayout} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && structureOpen) {
+  return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-measure={measure} data-notes-layout={notesLayout} data-anno-rail={Object.values(stackedRails).some(Boolean) ? "stacked" : undefined} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && structureOpen) {
       setStructureOpen(false); layout.current?.querySelector<HTMLButtonElement>(".reader-location-badge")?.focus({ preventScroll: true });
     } else if (event.key === "Escape" && sideMode && !(event.target as HTMLElement).closest("dialog")) {
     preserveReading(() => setSideMode(null)); event.currentTarget.querySelector<HTMLButtonElement>(mist ? ".reader-side-toggle" : ".reader-figures-toggle")?.focus({ preventScroll: true });
@@ -665,23 +709,13 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
 
         <div className="reader-panel" hidden={renderedSideMode !== "notes"}>
         {view?.noteFeedback && <p role="status" className="focus-note-feedback">{view.noteFeedback.status === "saved" ? "已记下" : "未保存，可重试"}</p>}
-        {view?.source.sourceId && view.sourceNotes && <details className="focus-source-notes"><summary>笔记 · {view.sourceNotes.filter(note => !note.deleted).length}</summary>
-          {noteError && <p role="alert">{noteError}</p>}
-          {view.sourceNotes.length === 0 ? <p>明确说“记下来”后，笔记会保存在这篇材料下。</p> :
-            <ol>{view.sourceNotes.filter(note => !note.deleted || note.canUndo).map(note => <li key={note.noteId} data-source-note-id={note.noteId}>
-              {editingNoteId === note.noteId ? <div><textarea aria-label="编辑笔记" value={editDraft} onChange={event => setEditDraft(event.target.value)} />
-                {noteConflict && <p>已保存版本：{noteConflict.content}</p>}
-                {noteConflict ? <button disabled={!editDraft.trim()} onClick={() => void changeNote(note, "edit", noteConflict.revision)}>重新提交</button> :
-                  <button disabled={!editDraft.trim()} onClick={() => void changeNote(note, "edit", editBaseRevision ?? note.revision)}>保存修改</button>}
-                <button onClick={() => { setEditingNoteId(null); setEditBaseRevision(null); setNoteConflict(null); setNoteError(""); }}>取消</button></div> :
-                <><span>{note.deleted ? "已删除，可撤销" : note.content}</span>
-                  {!note.deleted && <button onClick={() => { setEditingNoteId(note.noteId); setEditDraft(note.content); setEditBaseRevision(note.revision); setNoteConflict(null); setNoteError(""); }}>编辑</button>}
-                  {!note.deleted && <button onClick={() => void changeNote(note, "delete")}>删除</button>}
-                  {note.canUndo && <button onClick={() => void changeNote(note, "undo")}>撤销</button>}
-
-                </>}
-            </li>)}</ol>}
-        </details>}
+        {view?.source.sourceId && view.sourceNotes && <SourceNotesPanel notes={view.sourceNotes} chunks={visibleChunks}
+          error={noteError} lostSentenceNoteIds={sentenceNoteController.current?.lostSentenceNoteIds}
+          editing={{ noteId: editingNoteId, draft: editDraft, revision: editBaseRevision, conflict: noteConflict }}
+          onDraftChange={setEditDraft} onOpenSentence={openSentenceNote}
+          onEdit={note => { setEditingNoteId(note.noteId); setEditDraft(note.content); setEditBaseRevision(note.revision); setNoteConflict(null); setNoteError(""); }}
+          onChange={(note, action, expected) => void changeNote(note, action, expected)}
+          onCancelEdit={() => { setEditingNoteId(null); setEditBaseRevision(null); setNoteConflict(null); setNoteError(""); }} />}
         </div>
         <div className="reader-panel" hidden={renderedSideMode !== "progress"}>
         {view?.source.sourceId && view.readingProgress && <details className="focus-source-notes" open><summary>阅读记录 · {progressEntries.filter(entry => !entry.deleted).length}</summary>
@@ -711,9 +745,10 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         </aside>
         </section>
     <main className="focus-stream" ref={stream} aria-label="阅读与对话" tabIndex={0}
-      onWheel={e => { if (!(e.target as HTMLElement).closest(".reading-group-notes")) scrolling.controller.current?.userIntent(e.deltaY < 0); }} onTouchStart={e => { if (!(e.target as HTMLElement).closest(".reading-group-notes")) pauseFollow(); }}
-      onKeyDown={e => { if (!(e.target as HTMLElement).closest(".reading-group-notes") && ["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "].includes(e.key)) scrolling.controller.current?.userIntent(["PageUp", "Home", "ArrowUp"].includes(e.key)); }}
-      onMouseUp={readSelection} onKeyUp={readSelection} onScroll={e => { if (e.target !== e.currentTarget) return; setSelection(null); locateVisibleChunk(); scrolling.controller.current?.onScroll(); }}>
+      onClick={annotations.onClick} onPointerOver={annotations.onPointerOver} onPointerOut={annotations.onPointerOut}
+      onWheel={e => { if (!(e.target as HTMLElement).closest(".reader-anno-rail, .reader-chunk-notes-fold")) scrolling.controller.current?.userIntent(e.deltaY < 0); }} onTouchStart={e => { if (!(e.target as HTMLElement).closest(".reader-anno-rail, .reader-chunk-notes-fold")) pauseFollow(); }}
+      onKeyDown={e => { annotations.onKeyDown(e); if (!e.defaultPrevented && !(e.target as HTMLElement).closest(".reader-anno-rail, .reader-chunk-notes-fold") && ["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "].includes(e.key)) scrolling.controller.current?.userIntent(["PageUp", "Home", "ArrowUp"].includes(e.key)); }}
+      onMouseUp={annotations.readSelection} onScroll={e => { if (e.target !== e.currentTarget) return; annotations.closeSelection(); locateVisibleChunk(); scrolling.controller.current?.onScroll(); }}>
       {!mist && readingLocation}
       <div className="focus-content">
         {showStructure && view && (host.getArticleOverview ? <ArticleOverviewPanel host={host} sourceId={sourceId} title={view.source.title} view={view}
@@ -735,35 +770,48 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
             {(current || view.history.length > 0) && host.resumeReading && <button onClick={resume} disabled={blocked}>恢复阅读</button>}</div>
         </section>}
         {paragraphGroups.map(group => {
+          const folded = !!group.chunk && discussionFolds.collapsed(foldKey(group.id));
+          const discussionId = `discussion-${encodeURIComponent(foldKey(group.id))}`;
+          const generating = active && group.indexes.some(index => entries[index].kind === "message" && entries[index].messageId === view?.conversation.at(-1)?.messageId);
           const groupIndex = readingGroups.findIndex(item => item.id === group.id);
           const state = group.id === lens.activeId ? "focus" : Math.abs(groupIndex - lensIndex) === 1 ? "near" : "far";
           return <div key={`${eventScope}:${group.id}`} className={mist ? "reading-lens-group" : undefined}
             data-reading-group={group.chunk ? group.id : undefined} data-lens-group={mist && group.chunk ? group.id : undefined} data-lens-index={group.chunk?.index}
             data-state={mist && group.chunk ? state : undefined} data-review={mist && group.id === lens.activeId && lensReview}>
           {([false, true] as const).filter(discussion => !discussion || group.indexes.some(index => entries[index].kind === "message")).map(discussion => <div key={String(discussion)} className={discussion ? "reading-group-discussion" : "reading-group-passage"}>
-          <div className={discussion ? undefined : "reading-group-source"}>
+          {discussion && group.chunk && <div className="reading-discussion-divider"><button type="button"
+            aria-expanded={!folded} aria-controls={discussionId} onClick={event => {
+              follow.current = false;
+              scrolling.controller.current?.holdDisclosure(event.currentTarget);
+              event.currentTarget.focus({ preventScroll: true });
+              discussionFolds.setCollapsed(foldKey(group.id), !folded);
+            }}>{folded ? "展开讨论" : "收起讨论"}{generating && <span> · 生成中</span>}</button></div>}
+          <div id={discussion ? discussionId : undefined} hidden={discussion && folded} className={discussion ? undefined : "reading-group-source"}>
           {group.indexes.filter(index => (entries[index].kind === "message") === discussion).map(index => {
           const e = entries[index];
           const message = e.kind === "message" ? view?.conversation.find(m => m.messageId === e.messageId) : null;
-          const content = e.kind === "reading" ? <ReadingChunk chunk={e.chunk} onReference={referenceChunk} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} onLanguage={(chunk, original) => preserveReading(() => setFigureLanguages(old => ({ ...old, [chunkKey(chunk)]: original })))} /> : message ? <ReaderConversation messages={[message]} chunks={chunks} figures={view?.figures} figureSourceId={sourceId} sourceFigures={sourceFigures} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} streaming={active && message.messageId === view?.conversation.at(-1)?.messageId}
-            onJump={jumpReference} onHighlight={highlight} onClearHighlight={() => { if (!highlightTimer.current) clearHighlight(); }} onSaveNote={(reply, chunk) => send(`请把下面的回答记下来：\n\n${reply.content}`, false, false, chunk)} /> : null;
+          const content = e.kind === "reading" ? <ReadingChunk chunk={e.chunk} located={annotations.located.get(group.id)}
+            pending={annotations.pending?.groupId === group.id ? annotations.pending : null} fresh={annotations.fresh} onMarks={annotations.onMarks(group.id)}
+            onReference={referenceChunk} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} onLanguage={(chunk, original) => preserveReading(() => setFigureLanguages(old => ({ ...old, [chunkKey(chunk)]: original })))} /> : message ? <ReaderConversation messages={[message]} chunks={chunks} figures={view?.figures} figureSourceId={sourceId} sourceFigures={sourceFigures} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} streaming={active && message.messageId === view?.conversation.at(-1)?.messageId}
+            onJump={jumpReference} onHighlight={highlight} onClearHighlight={() => { if (!highlightTimer.current) clearHighlight(); }} onSaveNote={(reply, chunk) => send(`请把下面的回答记下来：\n\n${reply.content}`, false, false, chunk ?? null)} /> : null;
           const identity = eventKeys[index];
-          return <TimelineEvent key={`${eventScope}:${identity}`} identity={identity} current={index === focusedIndex} fresh={committedEvents.current?.scope === eventScope && !committedEvents.current.ids.has(identity)} streaming={active && message?.role === "assistant" && message.messageId === view?.conversation.at(-1)?.messageId}>{content}</TimelineEvent>;
+          return <TimelineEvent key={`${eventScope}:${identity}`} identity={identity} current={index === focusedIndex} fresh={committedEvents.current?.scope === eventScope && !committedEvents.current.ids.has(identity)} streaming={!folded && active && message?.role === "assistant" && message.messageId === view?.conversation.at(-1)?.messageId}>{content}</TimelineEvent>;
           })}
           </div>
-          {!discussion && notesOpen && group.chunk && <AttachedNotes chunk={group.chunk} notes={projectedNotes.get(group.id) ?? []}
+          {!discussion && !notesOpen && group.chunk && <FoldedChunkNotes chunk={group.chunk} notes={projectedNotes.get(group.id) ?? []} host={host}
+            onAccept={value => preserveReading(() => accept(value))} onToast={annotations.showToast}
+            freshNoteId={noteFeedback.freshGroupId === group.id ? noteFeedback.freshNoteId : undefined}
+            freshToken={noteFeedback.freshGroupId === group.id ? noteFeedback.freshToken : undefined}
+            resetVersion={view?.resetVersion} noteClearVersion={view?.noteClearVersion} />}
+          {!discussion && notesOpen && group.chunk && <AnnotationRail chunk={group.chunk} notes={projectedNotes.get(group.id) ?? []}
+            marks={annotations.registry.get(group.id)?.marks ?? []} host={host} onAccept={value => preserveReading(() => accept(value))}
+            linkedKey={annotations.linkedKey} onLink={annotations.setLinkedKey} onEdit={annotations.openEditor}
+            onDelete={mark => void annotations.deleteMark(mark)} onToast={annotations.showToast}
+            resetVersion={view?.resetVersion} noteClearVersion={view?.noteClearVersion}
+            freshNoteId={noteFeedback.freshGroupId === group.id ? noteFeedback.freshNoteId : undefined}
+            onStackedChange={stacked => setRailStacked(group.id, stacked)}
             onDiscuss={() => preserveReading(() => referenceChunk(group.chunk!))}
-            onOpenNote={note => preserveReading(() => {
-              setSideMode("notes");
-              if (!note.deleted) { setEditingNoteId(note.noteId); setEditDraft(note.content); setEditBaseRevision(note.revision); setNoteConflict(null); setNoteError(""); }
-              requestAnimationFrame(() => {
-                const list = layout.current?.querySelector<HTMLDetailsElement>(".focus-source-notes");
-                if (list) list.open = true;
-                const item = Array.from(list?.querySelectorAll<HTMLElement>("[data-source-note-id]") ?? []).find(el => el.dataset.sourceNoteId === note.noteId);
-                item?.scrollIntoView({ block: "nearest" });
-                item?.querySelector<HTMLElement>("textarea, button")?.focus({ preventScroll: true });
-              });
-            })} />}
+          />}
           </div>)}
           </div>;
         })}
@@ -772,6 +820,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       </div>
       <div ref={scrolling.end} aria-hidden="true" />
       <div ref={scrolling.spacer} aria-hidden="true" style={{ height: 128, overflowAnchor: "none" }} />
+      {annotations.overlay}
     </main>
       {!mist && navigationNotices}
 
@@ -840,8 +889,8 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         </div>}
 
       </div>
-      <button className="reader-attach-toggle" aria-pressed={attachNotes} title={attachNotes ? "隐藏段落笔记" : "显示段落笔记"} onClick={() => preserveReading(() => {
-        const next = !attachNotes; setAttachNotes(next);
+      <button className="reader-attach-toggle" aria-pressed={attachNotes} title={attachNotes ? "关闭笔记吸附" : "打开笔记吸附"} onClick={() => preserveReading(() => {
+        const next = !attachNotes; annotations.beforeAttachChange(next); setAttachNotes(next);
         try { localStorage.setItem("focus.attachNotes", String(next)); } catch { /* In-memory fallback. */ }
       })}><Pin /><span className="mist-action-label">笔记</span></button>
       <button className="reader-fullscreen-toggle" aria-label={fullscreen ? "退出全屏" : "全屏"} aria-pressed={fullscreen} onClick={() => onFullscreenChange?.(!fullscreen)}>{fullscreen ? <Collapse /> : <Expand />}<span className="mist-action-label">{fullscreen ? "退出全屏" : "全屏"}</span></button>
@@ -854,7 +903,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       {blocked && <span className="mist-reading-actions__status">{active ? "请等待回答完成，或停止此问答" : `${operation}中`}</span>}
     </nav>}
 
-    {selection && <button className="reader-selection-quote" style={{ left: selection.x, top: selection.y }} onMouseDown={e => e.preventDefault()} onClick={() => { referenceChunk(selection.chunk, selection.text); setSelection(null); window.getSelection()?.removeAllRanges(); }}>引用所选提问</button>}
+    {annotations.toast}
     {viewer && <FigureViewer request={viewer} figures={sourceFigures} onClose={() => setViewer(null)} />}
     <dialog ref={dialog} className="focus-dialog" data-panel={renderedPanel} onCancel={() => setPanel(null)} onClick={e => { if (e.target === dialog.current) setPanel(null); }}>
       <header><h2>{renderedPanel === "materials" ? "材料" : renderedPanel === "contents" ? "已加载段落" : "阅读设置"}</h2><button aria-label="关闭" onClick={() => setPanel(null)}>×</button></header>

@@ -121,8 +121,13 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
         except Exception as exc:
             self.close_connection = True
-            code = 'note_bundle_changed' if getattr(exc, 'error_id', None) == 'note_bundle_changed' else 'cursor-changed' if getattr(exc, 'error_id', None) == 'cursor_changed' else 'invalid-request' if isinstance(exc, (ValueError, WorkspaceError)) else 'unavailable'
-            self._send(409 if code in ('cursor-changed', 'note_bundle_changed') else 400 if code == 'invalid-request' else 500,
+            error_id = getattr(exc, 'error_id', None)
+            annotation_errors = {'note_bundle_changed': 409, 'highlight_bundle_changed': 409,
+                                 'highlight_overlap': 409, 'note_sentence_overlap': 409,
+                                 'highlight_request_conflict': 409, 'highlight_invalid': 400,
+                                 'note_sentence_invalid': 400, 'highlight_not_found': 404}
+            code = error_id if error_id in annotation_errors else 'cursor-changed' if error_id == 'cursor_changed' else 'invalid-request' if isinstance(exc, (ValueError, WorkspaceError)) else 'unavailable'
+            self._send(annotation_errors.get(code, 409 if code == 'cursor-changed' else 400 if code == 'invalid-request' else 500),
                        {'ok': False, 'error': {'code': code, 'message': str(exc), 'retryable': code == 'unavailable'}})
 
     def _blog(self, method, path, source_id, parts):
@@ -321,6 +326,19 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, {'ok': True, 'value': result})
                     return
                 raise ValueError('Unknown Source Note operation')
+            if len(parts) >= 2 and parts[1] == 'highlights':
+                if method == 'POST' and len(parts) == 2:
+                    result = service.source_highlight_create(source_id, self._body())
+                    self._send(201, {'ok': True, 'value': result})
+                    return
+                if method == 'GET' and len(parts) == 4 and parts[2] == 'requests':
+                    self._send(200, {'ok': True, 'value': service.source_highlight_request(source_id, unquote(parts[3]))})
+                    return
+                if method == 'POST' and len(parts) == 4 and re.fullmatch(r'[0-9a-f]{32}', parts[2]) and parts[3] in ('delete', 'undo'):
+                    result = service.source_highlight_change(source_id, parts[2], parts[3], self._body())
+                    self._send(200, {'ok': True, 'value': result})
+                    return
+                raise ValueError('Unknown Reading Highlight operation')
             if len(parts) >= 2 and parts[1] == 'preparation':
                 if method == 'GET' and len(parts) == 2:
                     self._send(200, {'ok': True, 'value': service.snapshot()['preparations'].get(source_id)})

@@ -1,0 +1,391 @@
+{
+  "positions": [
+    {
+      "name": "before-selection",
+      "scroll": 0,
+      "first": 36
+    },
+    {
+      "name": "after-highlight",
+      "scroll": 0,
+      "first": 36
+    },
+    {
+      "name": "after-reload-top",
+      "scroll": 0,
+      "first": 36
+    },
+    {
+      "name": "editor-open",
+      "scroll": 81,
+      "first": -45
+    },
+    {
+      "name": "after-note-save",
+      "scroll": 81,
+      "first": -45
+    },
+    {
+      "name": "note-view-close",
+      "scroll": 149,
+      "first": -113
+    }
+  ],
+  "selection": {
+    "start": 83,
+    "end": 111,
+    "text": "访问一次 DRAM 的能耗大约是一次 8 位乘加的两百倍"
+  },
+  "highlight": {
+    "weight": "700",
+    "image": "linear-gradient(rgba(247, 206, 70, 0.5), rgba(247, 206, 70, 0.5)), linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0))"
+  },
+  "editor": {
+    "top": 111.01776123046875,
+    "bottom": 223.82296752929688,
+    "anchorBottom": 103.125,
+    "gap": 7.89276123046875
+  },
+  "materials": {
+    "sentenceNoteId": "149eca81d1004096883ba30ae670840a",
+    "sentenceNoteCount": 5,
+    "duplicatedParagraphEntries": 0
+  },
+  "passed": [
+    "A1",
+    "A2",
+    "A3",
+    "A4",
+    "A10",
+    "A17",
+    "A5",
+    "A6",
+    "A7",
+    "A8",
+    "A9",
+    "A13",
+    "A14",
+    "A12"
+  ],
+  "rail-1600": [
+    {
+      "source": {
+        "top": 36,
+        "bottom": 401.359375,
+        "left": 390,
+        "right": 1146
+      },
+      "cards": [
+        {
+          "top": 117.65625,
+          "bottom": 178.28125,
+          "left": 1193,
+          "right": 1458,
+          "key": "n:149eca81d1004096883ba30ae670840a",
+          "displaced": false,
+          "anchorTop": 123.65625
+        },
+        {
+          "top": 236.953125,
+          "bottom": 319.015625,
+          "left": 1193,
+          "right": 1458,
+          "key": "n:b0000000000000000000000000000002",
+          "displaced": false,
+          "anchorTop": 242.953125
+        }
+      ],
+      "foot": {
+        "top": 415.359375,
+        "bottom": 589.859375,
+        "left": 1193,
+        "right": 1458
+      }
+    },
+    {
+      "source": {
+        "top": 645.859375,
+        "bottom": 977.75,
+        "left": 390,
+        "right": 1146
+      },
+      "cards": [
+        {
+          "top": 694.046875,
+          "bottom": 776.109375,
+          "left": 1193,
+          "right": 1458,
+          "key": "n:b0000000000000000000000000000003",
+          "displaced": false,
+          "anchorTop": 700.046875
+        },
+        {
+          "top": 784.046875,
+          "bottom": 866.109375,
+          "left": 1193,
+          "right": 1458,
+          "key": "n:b0000000000000000000000000000004",
+          "displaced": true,
+          "anchorTop": 733.515625
+        },
+        {
+          "top": 874.046875,
+          "bottom": 956.109375,
+          "left": 1193,
+          "right": 1458,
+          "key": "n:b0000000000000000000000000000005",
+          "displaced": true,
+          "anchorTop": 852.8125
+        }
+      ],
+      "foot": {
+        "top": 991.75,
+        "bottom": 1187.6875,
+        "left": 1193,
+        "right": 1458
+      }
+    },
+    {
+      "source": {
+        "top": 1243.6875,
+        "bottom": 1542.109375,
+        "left": 390,
+        "right": 1146
+      },
+      "cards": [],
+      "foot": {
+        "top": 1556.109375,
+        "bottom": 1670.359375,
+        "left": 1193,
+        "right": 1458
+      }
+    }
+  ],
+  "rail-1280": [
+    {
+      "source": {
+        "top": 36,
+        "bottom": 401.359375,
+        "left": 386,
+        "right": 1142
+      },
+      "cards": [
+        {
+          "top": 415.359375,
+          "bottom": 475.984375,
+          "left": 386,
+          "right": 1142,
+          "key": "n:149eca81d1004096883ba30ae670840a",
+          "displaced": false,
+          "anchorTop": 123.65625
+        },
+        {
+          "top": 483.984375,
+          "bottom": 544.609375,
+          "left": 386,
+          "right": 1142,
+          "key": "n:b0000000000000000000000000000002",
+          "displaced": false,
+          "anchorTop": 242.953125
+        }
+      ],
+      "foot": {
+        "top": 558.609375,
+        "bottom": 711.671875,
+        "left": 386,
+        "right": 1142
+      }
+    },
+    {
+      "source": {
+        "top": 767.671875,
+        "bottom": 1099.5625,
+        "left": 386,
+        "right": 1142
+      },
+      "cards": [
+        {
+          "top": 1113.5625,
+          "bottom": 1174.1875,
+          "left": 386,
+          "right": 1142,
+          "key": "n:b0000000000000000000000000000003",
+          "displaced": false,
+          "anchorTop": 821.859375
+        },
+        {
+          "top": 1182.1875,
+          "bottom": 1242.8125,
+          "left": 386,
+          "right": 1142,
+          "key": "n:b0000000000000000000000000000004",
+          "displaced": false,
+          "anchorTop": 855.328125
+        },
+        {
+          "top": 1250.8125,
+          "bottom": 1311.4375,
+          "left": 386,
+          "right": 1142,
+          "key": "n:b0000000000000000000000000000005",
+          "displaced": false,
+          "anchorTop": 974.625
+        }
+      ],
+      "foot": {
+        "top": 1325.4375,
+        "bottom": 1478.5,
+        "left": 386,
+        "right": 1142
+      }
+    },
+    {
+      "source": {
+        "top": 1534.5,
+        "bottom": 1832.921875,
+        "left": 386,
+        "right": 1142
+      },
+      "cards": [],
+      "foot": {
+        "top": 1860.921875,
+        "bottom": 1975.171875,
+        "left": 386,
+        "right": 1142
+      }
+    }
+  ],
+  "rail-1024": [
+    {
+      "source": {
+        "top": 24,
+        "bottom": 422.828125,
+        "left": 312,
+        "right": 960
+      },
+      "cards": [
+        {
+          "top": 436.828125,
+          "bottom": 497.453125,
+          "left": 312,
+          "right": 960,
+          "key": "n:149eca81d1004096883ba30ae670840a",
+          "displaced": false,
+          "anchorTop": 145.125
+        },
+        {
+          "top": 505.453125,
+          "bottom": 566.078125,
+          "left": 312,
+          "right": 960,
+          "key": "n:b0000000000000000000000000000002",
+          "displaced": false,
+          "anchorTop": 264.421875
+        }
+      ],
+      "foot": {
+        "top": 580.078125,
+        "bottom": 733.140625,
+        "left": 312,
+        "right": 960
+      }
+    },
+    {
+      "source": {
+        "top": 789.140625,
+        "bottom": 1121.03125,
+        "left": 312,
+        "right": 960
+      },
+      "cards": [
+        {
+          "top": 1135.03125,
+          "bottom": 1195.65625,
+          "left": 312,
+          "right": 960,
+          "key": "n:b0000000000000000000000000000003",
+          "displaced": false,
+          "anchorTop": 843.328125
+        },
+        {
+          "top": 1203.65625,
+          "bottom": 1264.28125,
+          "left": 312,
+          "right": 960,
+          "key": "n:b0000000000000000000000000000004",
+          "displaced": false,
+          "anchorTop": 876.796875
+        },
+        {
+          "top": 1272.28125,
+          "bottom": 1332.90625,
+          "left": 312,
+          "right": 960,
+          "key": "n:b0000000000000000000000000000005",
+          "displaced": false,
+          "anchorTop": 996.09375
+        }
+      ],
+      "foot": {
+        "top": 1346.90625,
+        "bottom": 1499.96875,
+        "left": 312,
+        "right": 960
+      }
+    },
+    {
+      "source": {
+        "top": 1555.96875,
+        "bottom": 1921.328125,
+        "left": 312,
+        "right": 960
+      },
+      "cards": [],
+      "foot": {
+        "top": 1949.328125,
+        "bottom": 2063.578125,
+        "left": 312,
+        "right": 960
+      }
+    }
+  ],
+  "saveAnimations": [
+    {
+      "target": "reader-anno reader-anno--note is-new-note is-linked",
+      "state": "running"
+    },
+    {
+      "target": "reader-anno reader-anno--note is-new-note reader-anno--tail is-linked",
+      "state": "running"
+    },
+    {
+      "target": "reader-anno-bulb is-new",
+      "state": "running"
+    },
+    {
+      "target": "reader-anno-card is-linked",
+      "state": "running"
+    }
+  ],
+  "mobileStack": {
+    "bodyBottom": -845.890625,
+    "cardTops": [
+      -831.890625
+    ],
+    "cardBottoms": [
+      -749.828125
+    ],
+    "notesTop": -735.828125
+  },
+  "touchTarget": {
+    "width": 17,
+    "after": "-14px",
+    "hit": [
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "errors": []
+}

@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-23",
+  "status": "PASS",
+  "basis": "Actual Knowledge Base copy; isolated Host; controlled CandidateRuntime, no external model calls",
+  "privacy": "Redacted counts and behavior only. No source text, source identifiers, private screenshots, original KB path or model transcript included.",
+  "copyOnly": true,
+  "originalKnowledgeBaseModified": false,
+  "layers": {
+    "source": { "crossFormulaSelection": true, "formulaNodes": 2, "markFragments": 2, "bulbs": 1, "formulaOutsideMarks": true },
+    "translation": { "crossFormulaSelection": true, "formulaNodes": 3, "markFragments": 3, "bulbs": 1, "formulaOutsideMarks": true }
+  },
+  "afterRefresh": { "highlights": 2, "notes": 3, "sentenceNotes": 2, "highlightLayers": ["source", "translation"], "noteLayers": ["source", "translation"] },
+  "discussionSave": { "anchorAbsent": true, "placementPresent": true, "matchingSourceLines": true, "matchingBundle": true, "sentence": null },
+  "attachment": { "attached": true, "cards": 1, "detached": true, "detachedBulbs": 1, "reattached": true },
+  "clear": { "httpStatus": 200, "beforeHighlights": 2, "beforeNotes": 3, "afterHighlights": 0, "afterNotes": 0, "generationAdvanced": true, "afterRefreshMarks": 0, "afterRefreshBulbs": 0, "afterRefreshCards": 0 },
+  "physicalChineseIme": "NOT_RUN"
+}

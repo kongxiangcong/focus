@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .reading_workspace import WorkspaceCore, WorkspaceError
 from .source_notes import SourceNotes
+from .source_highlights import SourceHighlights
 
 
 _SAVE = re.compile(r"记下来|记一下|记下|记录(?:下来|为笔记)?|保存(?:为)?(?:一条|一份|个)?(?:简短|简明|新的|短)?笔记|存为笔记|save (?:this )?note|remember this", re.I)
@@ -24,6 +25,7 @@ class DiscussionApplication:
     def __init__(self, workspace: Path, *, writer_id: str = "local-core"):
         self.core = WorkspaceCore(Path(workspace))
         self.notes = SourceNotes(Path(workspace), writer_id=writer_id)
+        self.highlights = SourceHighlights(self.notes)
 
     @staticmethod
     def method() -> str:
@@ -72,9 +74,14 @@ class DiscussionApplication:
                 raise WorkspaceError("note_intent_missing", "Save authorization could not be confirmed for this request")
             if set(arguments) - {"content", "kind", "origin", "anchor", "evidence_role"}:
                 raise WorkspaceError("note_invalid", "Unexpected note candidate fields")
+            placement = None
+            reference = scope.get("reference")
+            if "anchor" not in arguments and reference and reference.get("bundleVersion") == bundle == self.notes.bundle_version(source_id):
+                placement = {"sourceId": source_id, "bundle": bundle,
+                             "sourceLines": list(reference["sourceLines"])}
             return self.notes.save(source_id, bundle=bundle, request_id=scope["requestId"],
                                    expected_generation=scope.get('generation', 0),
-                                   intent_id=scope["requestId"], **arguments)
+                                   intent_id=scope["requestId"], placement=placement, **arguments)
         raise WorkspaceError("source_scope_invalid", "This discussion cannot call that tool")
 
     def cancel(self, scope: dict) -> dict:

@@ -22,7 +22,7 @@ def scrub(state, source_id, *, reset_reading=False):
     for key, value in state.get('requests', {}).items():
         if references(value):
             state['requests'][key] = {'cleared': True, 'sourceId': source_id}
-    for key in ('noteFeedback', 'noteOperation', 'run'):
+    for key in ('noteFeedback', 'noteOperation', 'highlightOperation', 'run'):
         if references(state.get(key)):
             state[key] = None
     # Legacy native contexts may contain more than one Source. Never resume them.

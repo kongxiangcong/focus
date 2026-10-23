@@ -1,0 +1,26 @@
+{
+  "date": "2026-10-23",
+  "environment": "Windows; Google Chrome driven by Playwright; isolated synthetic fixtures and controlled Python Host Runtime",
+  "prototypeSha256": "f813a3f77d84cea1d8da00f4a0ebcc1153180e424c55e70b09b0f3004b064b85",
+  "checks": [
+    { "command": "pnpm reader:typecheck", "status": "PASS", "projects": ["reader-contracts", "reader-ui", "standalone"] },
+    { "command": "pnpm reader:test", "status": "FAIL", "readerUiPassed": 199, "standalonePassed": 168, "standaloneTimedOut": 1, "defaultTimeouts": true, "classification": "Existing baseline timing failure", "test": "WorkspaceApp.test.tsx:126 edits original metadata and Topic membership through Host actions", "note": "The identical 5000ms timeout occurred at baseline 883c456 in both default and serial runs. Final integration full single-worker standalone rerun passed all 169 with assertions and timeouts unchanged.", "logsLocalOnly": ["final-reader-test.log", "baseline-ui.log", "baseline-standalone-serial.log"] },
+    { "command": "pnpm --filter @focus/standalone exec vitest run --maxWorkers=1", "status": "PASS", "tests": 169, "defaultTimeouts": true, "durationSeconds": 160.60, "logLocalOnly": "final-standalone-serial.log" },
+    { "command": "pnpm reader:build", "status": "PASS", "fonts": "Same-origin emitted KaTeX assets; Host CSP unchanged", "warning": "Existing large-chunk advisory" },
+    { "command": "PYTHONPATH=tests;.agents;. .venv/Scripts/python.exe -m unittest discover -s tests -p test_*.py", "status": "PASS", "tests": 518, "skipped": 1, "skipReason": "Real DeepSeek SDK opt-in", "durationSeconds": 682.569, "basis": "Final merged integration 71d72a5 including all review fixes", "logLocalOnly": "final-python-full.log", "warning": "Existing unclosed sqlite connection ResourceWarning; no test failure" },
+    { "command": "node tests/reading_annotations_browser.mjs", "status": "PASS", "port": 5174, "output": "final-integration-metrics.json", "scenarios": 14, "basis": "Final merged root 71d72a5 after implementer worktree cleanup", "contexts": ["desktop", "mobile", "reduced"], "strictErrors": [] },
+    { "command": "node tests/reading_attachment_browser.mjs", "status": "PASS", "port": 5179, "widthRange": [390, 1600] },
+    { "command": "FOCUS_BROWSER_SCRIPT=reading_discussion_browser.mjs .venv/Scripts/python.exe tests/confirmed_ux_browser.py", "status": "PASS", "port": 8773, "strictErrors": [] },
+    { "command": "FOCUS_BROWSER_SCRIPT=tests/confirmed_ux_browser.mjs .venv/Scripts/python.exe tests/confirmed_ux_browser.py", "status": "PASS", "port": 8774, "groups": 10, "strictErrors": [] }
+  ],
+  "browserSetup": {
+    "requiredEnvironment": ["FOCUS_PLAYWRIGHT_MODULE", "FOCUS_CHROMIUM_EXECUTABLE"],
+    "optionalEnvironment": ["FOCUS_BROWSER_PORT", "FOCUS_BROWSER_OUTPUT", "FOCUS_READER_ROOT"],
+    "windowsFixtureEnvironment": { "TEMP": "repo-local tmp/test-runs/annotations", "TMP": "same as TEMP", "NODE_OPTIONS": "--no-experimental-webstorage", "PYTHONPATH": "tests;.agents;." },
+    "worktreeFixtureNote": "On deeply nested Windows worktrees, set reading_fixture.ROOT to the short repository root before running the Python browser launcher; its generated isolated fixture is still served by this worktree Host."
+  },
+  "notRun": ["Physical Chinese IME", "Physical touch device", "Firefox", "Safari", "External model answer quality"],
+  "independentReview": { "reviewedHead": "7e08b5c", "fixCommit": "bef1ecb83bc8b35b9f286467bc60c7ee35fafff8", "mergedHead": "71d72a54f56d92dd35255ae469e3ef644f5e7de3", "standards": { "original": 3, "closed": 3, "remaining": 0 }, "spec": { "original": 2, "closed": 2, "remaining": 0 }, "report": "../../review.md" },
+  "cleanup": { "mergedCleanWorktreesRemoved": 15, "dependencyLinksUnlinkedWithoutRecursion": 122, "branchesRetained": true, "rootDependenciesRetained": true, "previewServersStopped": true },
+  "rawLogsLocalOnly": "tmp/test-runs/annotations/{acceptance13-*,final-*,baseline-*}.log"
+}

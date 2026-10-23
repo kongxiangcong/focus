@@ -1,6 +1,11 @@
 """Source Notes use the real Core and an isolated registered Source."""
+import shutil
+import sqlite3
 import tempfile
+import json
+import sqlite3
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 import reading_fixture
@@ -34,6 +39,50 @@ class SourceNotesTests(unittest.TestCase):
         self.assertNotEqual(first["note"]["noteId"], second["note"]["noteId"])
         self.assertEqual(2, len(SourceNotes(self.workspace).list(self.source)))
 
+    def test_pre_annotation_request_receipt_replays_after_schema_upgrade(self):
+        root = self.workspace / 'sources' / self.source / 'notes'
+        root.mkdir()
+        legacy_note = {'noteId': 'a' * 32, 'sourceId': self.source, 'revision': 1,
+                       'content': 'An example and conclusion.', 'kind': 'conclusion', 'origin': 'dialogue',
+                       'bundle': self.bundle, 'anchor': None, 'evidenceRole': 'explanation',
+                       'deleted': False, 'canUndo': True, 'sourceUpdated': False, 'referenceStatus': 'current'}
+        receipt = {'status': 'saved', 'note': legacy_note}
+        payload = {'sourceId': self.source, 'bundle': self.bundle, 'intentId': 'intent-12345',
+                   'content': 'An example and conclusion.', 'kind': 'conclusion', 'origin': 'dialogue',
+                   'evidenceRole': 'explanation', 'anchor': None}
+        with closing(sqlite3.connect(root / 'notes.sqlite3')) as db, db:
+            db.execute('CREATE TABLE notes (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, '
+                       'content TEXT NOT NULL, kind TEXT NOT NULL, origin TEXT NOT NULL, '
+                       'bundle TEXT NOT NULL, anchor TEXT, evidence_role TEXT NOT NULL, deleted INTEGER NOT NULL, undo TEXT)')
+            db.execute('INSERT INTO notes VALUES (?, 1, ?, ?, ?, ?, NULL, ?, 0, ?)',
+                       (legacy_note['noteId'], legacy_note['content'], 'conclusion', 'dialogue', self.bundle,
+                        'explanation', json.dumps({'operation': 'create'})))
+            db.execute('CREATE TABLE requests (id TEXT PRIMARY KEY, digest TEXT, result TEXT, cancelled INTEGER NOT NULL DEFAULT 0)')
+            db.execute('INSERT INTO requests VALUES (?, ?, ?, 0)',
+                       ('request-1234', json.dumps(payload, ensure_ascii=False, sort_keys=True), json.dumps(receipt)))
+        self.assertEqual(receipt, self.save())
+        self.assertEqual([legacy_note['noteId']], [note['noteId'] for note in self.notes.list(self.source)])
+
+    def test_sentence_note_survives_edit_and_has_immutable_sentence_identity(self):
+        sentence = {'planId': 'plan-001', 'chunkId': 'chunk-001', 'layer': 'source',
+                    'range': {'start': 0, 'end': 5},
+                    'quote': {'exact': 'Hello', 'prefix': '', 'suffix': ''}}
+        anchor = {'sourceId': self.source, 'bundle': self.bundle, 'sourceLines': [1, 6]}
+        created = self.save(sentence=sentence, anchor=anchor)['note']
+        self.assertEqual(sentence, created['sentence'])
+        self.assertIsNone(self.save('plain-note-123')['note']['sentence'])
+        edited = self.notes.change(self.source, note_id=created['noteId'], request_id='sentence-edit',
+            expected_revision=1, operation='edit', content='Edited remark')['note']
+        self.assertEqual('Edited remark', edited['content'])
+        self.assertEqual(sentence, edited['sentence'])
+        with self.assertRaises(WorkspaceError) as caught:
+            self.save('sentence-no-anchor', sentence=sentence)
+        self.assertEqual('note_sentence_invalid', caught.exception.error_id)
+        changed = {**sentence, 'range': {'start': 1, 'end': 6}}
+        with self.assertRaises(WorkspaceError) as caught:
+            self.save(sentence=changed, anchor=anchor)
+        self.assertEqual('note_request_conflict', caught.exception.error_id)
+
     def test_changed_payload_and_cancelled_request_rejected(self):
         self.save()
         with self.assertRaises(WorkspaceError) as caught:
@@ -44,6 +93,69 @@ class SourceNotesTests(unittest.TestCase):
         with self.assertRaises(WorkspaceError) as caught:
             self.save("request-9999")
         self.assertEqual("note_cancelled", caught.exception.error_id)
+
+    def test_placement_is_durable_and_in_request_identity(self):
+        placement = {"sourceId": self.source, "bundle": self.bundle, "sourceLines": [1, 6]}
+        created = self.save(placement=placement)
+        self.assertEqual(placement, SourceNotes(self.workspace).list(self.source)[0]['placement'])
+        self.assertEqual(created, self.save(placement=placement))
+        with self.assertRaises(WorkspaceError) as caught:
+            self.save(placement={**placement, 'sourceLines': [7, 10]})
+        self.assertEqual('note_request_conflict', caught.exception.error_id)
+        note = created['note']
+        for operation in ('edit', 'delete', 'undo'):
+            note = self.notes.change(self.source, note_id=note['noteId'],
+                request_id='placement-' + operation, expected_revision=note['revision'],
+                operation=operation, **({'content': 'Edited note'} if operation == 'edit' else {}))['note']
+            self.assertEqual(placement, note['placement'])
+        self.assertFalse(note['deleted'])
+
+    def test_invalid_placement_cannot_be_saved_as_evidence(self):
+        valid = {'sourceId': self.source, 'bundle': self.bundle, 'sourceLines': [1, 6]}
+        invalid = [[], {}, {**valid, 'quote': 'The alias address keeps source order.'},
+                   {**valid, 'sourceId': 'other-paper'}, {**valid, 'bundle': 'old'},
+                   *({**valid, 'sourceLines': lines} for lines in
+                     ([0, 6], [6, 1], [1, 99], [True, 6], [1.0, 6], [1], '1,6'))]
+        for index, placement in enumerate(invalid):
+            with self.subTest(placement=placement), self.assertRaises(WorkspaceError) as caught:
+                self.save(f'bad-placement-{index}', placement=placement)
+            self.assertEqual('note_placement_invalid', caught.exception.error_id)
+        with self.assertRaises(WorkspaceError) as caught:
+            self.notes.save(self.source, bundle=self.bundle, request_id='placement-evidence',
+                intent_id='intent-12345', content='Claim', kind='conclusion', origin='dialogue',
+                evidence_role='source_claim', placement=valid)
+        self.assertEqual('note_anchor_required', caught.exception.error_id)
+        self.assertEqual([], self.notes.list(self.source))
+
+    def test_legacy_note_database_adds_optional_placement(self):
+        root = self.workspace / 'sources' / self.source / 'notes'
+        root.mkdir(parents=True)
+        with sqlite3.connect(root / 'notes.sqlite3') as db:
+            db.execute('CREATE TABLE notes (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, '
+                       'content TEXT NOT NULL, kind TEXT NOT NULL, origin TEXT NOT NULL, '
+                       'bundle TEXT NOT NULL, anchor TEXT, evidence_role TEXT NOT NULL, '
+                       'deleted INTEGER NOT NULL, undo TEXT)')
+            db.execute('INSERT INTO notes VALUES (?, 1, ?, ?, ?, ?, NULL, ?, 0, NULL)',
+                       ('f' * 32, 'Legacy note', 'thought', 'user', self.bundle, 'explanation'))
+        note = self.notes.list(self.source)[0]
+        self.assertEqual('Legacy note', note['content'])
+        self.assertIsNone(note['placement'])
+        self.assertFalse(note['sourceUpdated'])
+
+    def test_placement_tracks_changed_bundle_and_historical_availability(self):
+        placement = {'sourceId': self.source, 'bundle': self.bundle, 'sourceLines': [1, 6]}
+        self.save(placement=placement)
+        root = self.workspace / 'sources' / self.source
+        archive = root / 'reading' / 'bundles' / self.bundle
+        shutil.copytree(root / 'parser-bundle', archive)
+        content = root / 'parser-bundle' / 'content.md'
+        content.write_text(content.read_text(encoding='utf-8') + '\nUpdated source.\n', encoding='utf-8')
+        note = self.notes.list(self.source)[0]
+        self.assertTrue(note['sourceUpdated'])
+        self.assertEqual('historical', note['referenceStatus'])
+        self.assertEqual(placement, note['placement'])
+        shutil.rmtree(archive)
+        self.assertEqual('unavailable', self.notes.list(self.source)[0]['referenceStatus'])
 
     def test_bad_evidence_rejected_without_note(self):
         with self.assertRaises(WorkspaceError) as caught:

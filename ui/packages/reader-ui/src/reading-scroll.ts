@@ -40,7 +40,7 @@ export class ReadingScroll {
 
   cancel = () => { if (this.animation !== null) cancelAnimationFrame(this.animation); this.animation = null; };
   latestBottom = () => {
-    const live = this.streaming ? this.pane.querySelector<HTMLElement>('[data-streaming="true"]') : null;
+    const live = this.streaming ? Array.from(this.pane.querySelectorAll<HTMLElement>('[data-streaming="true"]')).find(el => !el.closest('[hidden]')) : null;
     return live ? layoutTop(this.pane, live) + live.offsetHeight : layoutTop(this.pane, this.end);
   };
   atLatest = () => this.latestBottom() - this.pane.scrollTop - this.pane.clientHeight <= 48;
@@ -66,6 +66,12 @@ export class ReadingScroll {
     this.cancel(); this.capture(); this.heldUntil = performance.now() + 700;
     this.reserved = { px: this.spacer.offsetHeight + extra, until: this.heldUntil };
     this.sizeSpacer();
+  };
+  holdDisclosure = (button: HTMLElement) => {
+    this.hold();
+    // The disclosure remains visible even when the entire answer below it disappears.
+    this.anchor = { el: button, offset: Math.max(startLine(this.pane),
+      Math.min(this.pane.clientHeight - button.offsetHeight, layoutTop(this.pane, button) - this.pane.scrollTop)) };
   };
   animateTo = (raw: number, done?: () => void) => {
     this.cancel(); this.sizeSpacer();
@@ -132,7 +138,7 @@ export class ReadingScroll {
       this.sizeSpacer();
       if (this.animation === null && (geometry !== this.geometry || performance.now() < this.heldUntil)) this.restore();
       this.geometry = geometry;
-      if (this.streaming && this.follow.current && this.animation === null && performance.now() >= this.heldUntil) {
+      if (this.streaming && this.pane.querySelector('[data-streaming="true"]') && this.follow.current && this.animation === null && performance.now() >= this.heldUntil) {
         const top = this.latestBottom() - this.pane.clientHeight + 24;
         if (top > this.pane.scrollTop) this.pane.scrollTop = top;
       }
@@ -152,7 +158,9 @@ export function useReadingScroll(pane: RefObject<HTMLElement | null>, follow: Re
     setState({ latest: false, back: false });
     if (!pane.current || !end.current || !spacer.current || !enabled) { controller.current = null; return; }
     const scroll = new ReadingScroll(pane.current, end.current, spacer.current, follow,
-      (latest, back) => setState(old => old.latest === latest && old.back === back ? old : { latest, back }));
+      // Navigation also changes the follow ref. Publish even when notice flags stay false
+      // so consumers observe the settled frontier before the next review gesture.
+      (latest, back) => setState({ latest, back }));
     controller.current = scroll; setState({ latest: false, back: false }); scroll.start();
     return () => { scroll.dispose(); controller.current = null; };
   }, [scope, enabled]);

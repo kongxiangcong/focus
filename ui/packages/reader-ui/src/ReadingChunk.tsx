@@ -1,26 +1,36 @@
 import { AssetInstanceContext } from "./asset-context";
 import { withAssetInstance } from "./figures";
-import type { ReaderChunk, ReaderImage, ReaderMessage } from "@focus/reader-contracts";
-import { useContext, useState } from "react";
+import type { AnnotationLayer, ReaderChunk, ReaderImage, ReaderMessage } from "@focus/reader-contracts";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent";
+import type { Located, PendingAnnotation, ResolvedMark } from "./annotation-projection";
 import { chunkFigures, imageIdentity, type Figure } from "./figures";
 
 export const chunkKey = (c: { sourceId: string; planId: string; chunkId: string }) => `${c.sourceId}/${c.planId}/${c.chunkId}`;
 
-export function ReadingChunk({ chunk, onReference, onFigure, onZoom, onLanguage }: { chunk: ReaderChunk; onReference: (chunk: ReaderChunk) => void;
-  onZoom?: (figure: Figure, origin: HTMLElement) => void; onFigure?: (figure: Figure) => void; onLanguage?: (chunk: ReaderChunk, original: boolean) => void }) {
+export function ReadingChunk({ chunk, onReference, onFigure, onZoom, onLanguage, located, pending, fresh, onLayerChange, onMarks }: { chunk: ReaderChunk; onReference: (chunk: ReaderChunk) => void;
+  onZoom?: (figure: Figure, origin: HTMLElement) => void; onFigure?: (figure: Figure) => void; onLanguage?: (chunk: ReaderChunk, original: boolean) => void;
+  located?: readonly Located[]; pending?: PendingAnnotation | null; fresh?: Record<string, ("hl" | "note")[]>;
+  onLayerChange?: (chunk: ReaderChunk, layer: AnnotationLayer) => void;
+  onMarks?: (key: string, marks: readonly ResolvedMark[], lost: readonly Located[], layer: AnnotationLayer, text: string) => void;
+}) {
   const instanceId = useContext(AssetInstanceContext);
   const [original, setOriginal] = useState(false);
   const translated = chunk.translation !== null && !original;
   const preparing = !original && chunk.presentationStatus === "translation-required" && chunk.translation === null;
   const text = preparing ? "" : translated ? chunk.translation! : chunk.sourceMarkdown;
   const figures = chunkFigures(chunk, original);
-  return <article className="focus-reading focus-reader__chunk" data-chunk-key={chunkKey(chunk)}>
+  const layer: AnnotationLayer = translated ? "translation" : "source";
+  const key = chunkKey(chunk);
+  const annotation = useMemo(() => located || pending || onMarks ? { located: located ?? [], pending, fresh, layer } : undefined, [located, pending, fresh, layer, onMarks]);
+  const reportMarks = useCallback((marks: readonly ResolvedMark[], lost: readonly Located[], text: string) => onMarks?.(key, marks, lost, layer, text), [key, layer, onMarks]);
+  useEffect(() => { onLayerChange?.(chunk, layer); }, [chunk, layer, onLayerChange]);
+  return <article className="focus-reading focus-reader__chunk" data-chunk-key={chunkKey(chunk)} data-annotation-layer={layer}>
     <header className="focus-reading__meta"><span>{preparing ? "待准备" : translated ? "译文" : "原文"}</span><span>第 {chunk.index} / {chunk.total} 段</span>
       {chunk.translation !== null && <button aria-pressed={original} onClick={() => { setOriginal(!original); onLanguage?.(chunk, !original); }}>{original ? "查看译文" : "查看原文"}</button>}
     </header>
     <h2>{chunk.sectionPath.at(-1)}</h2>
-    {preparing ? <p role="status">译文尚未准备完成，请打开材料继续准备。</p> : <MarkdownContent text={text} sourceId={chunk.sourceId} figures={figures} onFigure={onFigure} />}
+    {preparing ? <p role="status">译文尚未准备完成，请打开材料继续准备。</p> : <MarkdownContent text={text} sourceId={chunk.sourceId} figures={figures} onFigure={onFigure} annotation={annotation} onAnnotations={reportMarks} />}
     {!preparing && onFigure && <div className="reader-thumbnail-strip">{figures.map(f => <div className="reader-thumbnail" key={f.id}>
       <button aria-label={`放大${f.label}`} onClick={e => onZoom?.(f, e.currentTarget)}><img src={withAssetInstance(f.src, instanceId)} alt={f.caption || f.label} width={92} height={58} loading="lazy" /></button>
       <div><strong>{f.label}</strong><p title={f.caption}>{f.caption}</p><button onClick={() => onFigure(f)}>在资料栏固定</button></div>
