@@ -1,0 +1,164 @@
+{
+  "source": {
+    "sourceId": "demo-anno",
+    "title": "片上缓冲区的动态分区（示例文本）",
+    "topicId": null
+  },
+  "chunks": [
+    {
+      "sourceId": "demo-anno",
+      "planId": "plan-anno",
+      "chunkId": "c1",
+      "index": 1,
+      "total": 3,
+      "bundleVersion": "anno-v1",
+      "sourceLines": [
+        1,
+        4
+      ],
+      "sourceMarkdown": "片上缓冲区是数据流加速器里最昂贵、也最容易被忽视的资源。一次卷积层的计算里，乘加单元真正工作的时间往往不到总周期的一半，其余时间都在等待数据从片外 DRAM 搬进来。访问一次 DRAM 的能耗大约是一次 8 位乘加的两百倍，因此决定性能上限的通常不是算力，而是数据能否在片上被反复使用。\n\n复用有三种来源：同一个权重被不同输入使用，同一个输入被不同卷积核使用，以及部分和在多次累加之间停留。不同的数据流把这三种复用分配给不同层级的存储：权重驻留把权重固定在处理单元的寄存器里，输出驻留让部分和留在原地，行驻留则试图在三者之间取得平衡。",
+      "translation": null,
+      "presentationStatus": "source-ready",
+      "sectionPath": [],
+      "images": [],
+      "relevantGlossary": []
+    },
+    {
+      "sourceId": "demo-anno",
+      "planId": "plan-anno",
+      "chunkId": "c2",
+      "index": 2,
+      "total": 3,
+      "bundleVersion": "anno-v1",
+      "sourceLines": [
+        5,
+        8
+      ],
+      "sourceMarkdown": "这篇文章的核心主张是：缓冲区容量不应按层的最大需求静态划分，而应在编译期按每一层的复用结构重新分区。作者把每个缓冲区切成若干等大的存储体，由一个简单的交叉开关决定每个存储体在当前层服务于权重、输入还是部分和。\n\n为了让编译器能做出这个决定，作者为每种分区方案建立了一个解析代价模型，用片外访问次数近似能耗，用存储体冲突近似延迟。模型并不追求精确，只要求在候选方案之间排序正确；实测中它与周期级仿真的排名一致率超过百分之九十。",
+      "translation": null,
+      "presentationStatus": "source-ready",
+      "sectionPath": [],
+      "images": [],
+      "relevantGlossary": []
+    },
+    {
+      "sourceId": "demo-anno",
+      "planId": "plan-anno",
+      "chunkId": "c3",
+      "index": 3,
+      "total": 3,
+      "bundleVersion": "anno-v1",
+      "sourceLines": [
+        9,
+        12
+      ],
+      "sourceMarkdown": "在 ResNet-50 和 MobileNetV2 上，动态分区把片外访问量平均降低了百分之三十七，而面积开销只有交叉开关本身，约占缓冲区面积的百分之四。收益主要来自深度可分离卷积层：这类层的权重极少、输入复用很低，静态划分给权重的空间几乎完全浪费。\n\n不过，作者的评测假设批大小为一，并且忽略了层与层之间重新分区所需的数据迁移。如果相邻两层的分区差异很大，迁移成本可能吞掉一部分收益；文章只在附录里用一句话提到这一点。",
+      "translation": null,
+      "presentationStatus": "source-ready",
+      "sectionPath": [],
+      "images": [],
+      "relevantGlossary": []
+    }
+  ],
+  "sourceNotes": [
+    {
+      "noteId": "00000000000000000000000000000001",
+      "sourceId": "demo-anno",
+      "revision": 1,
+      "content": "这一段讲清了为什么瓶颈在搬运而不是计算，后面所有设计都围绕「提高片上复用」展开。",
+      "kind": "thought",
+      "origin": "user",
+      "evidenceRole": "explanation",
+      "bundle": "anno-v1",
+      "anchor": {
+        "sourceId": "demo-anno",
+        "bundle": "anno-v1",
+        "sourceLines": [
+          1,
+          4
+        ]
+      },
+      "placement": null,
+      "sentence": null,
+      "referenceStatus": "current",
+      "sourceUpdated": false,
+      "deleted": false,
+      "canUndo": true
+    },
+    {
+      "noteId": "00000000000000000000000000000002",
+      "sourceId": "demo-anno",
+      "revision": 1,
+      "content": "讨论整理：动态分区 = 编译期为每层选分区 + 运行时交叉开关切换；代价模型只需排序正确。",
+      "kind": "conclusion",
+      "origin": "dialogue",
+      "evidenceRole": "explanation",
+      "bundle": "anno-v1",
+      "anchor": null,
+      "placement": {
+        "sourceId": "demo-anno",
+        "bundle": "anno-v1",
+        "sourceLines": [
+          5,
+          8
+        ]
+      },
+      "sentence": null,
+      "referenceStatus": "current",
+      "sourceUpdated": false,
+      "deleted": false,
+      "canUndo": true
+    }
+  ],
+  "markSeeds": [
+    {
+      "chunkId": "c1",
+      "exact": "决定性能上限的通常不是算力，而是数据能否在片上被反复使用",
+      "highlight": true,
+      "note": ""
+    },
+    {
+      "chunkId": "c1",
+      "exact": "部分和在多次累加之间停留",
+      "highlight": false,
+      "note": "部分和复用就是输出驻留的动机，可以和 Eyeriss 的行驻留对照着看。"
+    },
+    {
+      "chunkId": "c2",
+      "exact": "在编译期按每一层的复用结构重新分区",
+      "highlight": true,
+      "note": "关键：分区在编译期决定，运行时只切换交叉开关配置。"
+    },
+    {
+      "chunkId": "c2",
+      "exact": "若干等大的存储体",
+      "highlight": false,
+      "note": "存储体粒度决定分区的灵活度，文中没有给出粒度的敏感性分析。"
+    },
+    {
+      "chunkId": "c2",
+      "exact": "只要求在候选方案之间排序正确",
+      "highlight": false,
+      "note": "代价模型只需要保序、不需要绝对准确——这是能用解析模型的前提。"
+    },
+    {
+      "chunkId": "c3",
+      "exact": "忽略了层与层之间重新分区所需的数据迁移",
+      "highlight": true,
+      "note": ""
+    }
+  ],
+  "dialogueNote": {
+    "kind": "结论",
+    "origin": "dialogue",
+    "text": "讨论整理：收益集中在深度可分离卷积；「批大小为一」和「忽略迁移成本」是两条需要核实的假设。",
+    "placement": {
+      "sourceId": "demo-anno",
+      "bundle": "anno-v1",
+      "sourceLines": [
+        9,
+        12
+      ]
+    }
+  }
+}
