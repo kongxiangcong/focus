@@ -8,7 +8,7 @@ button { cursor:pointer; }
 
 /* ---------- shell ---------- */
 .workspace-app { height:100dvh; display:grid; position:relative;
-  grid-template-columns:var(--nav-width,var(--reader-nav)) minmax(0,1fr);
+  grid-template-columns:var(--nav-width,var(--nav-expanded-width,var(--reader-nav))) minmax(0,1fr);
   grid-template-rows:auto minmax(0,1fr);
   background:var(--reader-canvas); color:var(--reader-ink); }
 .workspace-app[data-nav-collapsed=true] { --nav-width:var(--reader-nav-collapsed); }
@@ -537,3 +537,11 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
 @media(max-width:760px) and (prefers-reduced-motion:reduce) {
   .workspace-app :is(.library-inspector, .library-inspector-backdrop) { transition:none !important; }
 }
+
+/* Navigation edge resizing; separate from reader drawers and annotation rails. */
+.workspace-nav-resizer { position:absolute; z-index:10; top:0; bottom:0; left:var(--nav-expanded-width,var(--reader-nav)); width:var(--reader-nav-handle); transform:translateX(-50%); cursor:col-resize; touch-action:none; }
+.workspace-nav-resizer::after { content:""; position:absolute; top:0; bottom:0; left:50%; width:1px; background:transparent; }
+.workspace-nav-resizer:hover::after, .workspace-nav-resizer:focus-visible::after { background:var(--reader-accent-line); }
+.workspace-nav-resizer:focus-visible { outline:2px solid var(--reader-focus); outline-offset:-2px; }
+.workspace-app[data-nav-resizing=true], .workspace-app[data-nav-resizing=true] * { cursor:col-resize !important; user-select:none; }
+@media(max-width:760px) { .workspace-nav-resizer { display:none; } }

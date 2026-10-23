@@ -1,3 +1,4 @@
+import { NavigationResize } from "./NavigationResize";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
 import { FocusReader, AgentControls, TaskProgress, readingFontSizes } from "@focus/reader-ui";
@@ -533,7 +534,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }, [readingFullscreen]);
   useEffect(() => { if (route !== "/reading") setReadingFullscreen(false); }, [route]);
   return <div className="workspace-app" data-route={route} data-nav-collapsed={navCollapsed} data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-body-font": readingFontFamily(readingFont) } as CSSProperties}>
-    <aside className="workspace-nav" aria-label="工作台导航">
+    <NavigationResize enabled={!navCollapsed && !(route === "/reading" && readingFullscreen)} />
+    <aside id="workspace-navigation" className="workspace-nav" aria-label="工作台导航">
       <div className="workspace-nav__head">
         <a className="workspace-logo" href="/library" onClick={e => { e.preventDefault(); navigate("/library"); }}>focus<span>.</span></a>
         <button type="button" className="workspace-nav-toggle" aria-label={navCollapsed ? "展开导航" : "收起导航"} aria-expanded={!navCollapsed} aria-controls="workspace-routes" onClick={() => { setNavCollapsed(!navCollapsed); try { localStorage.setItem("focus.navigation", navCollapsed ? "expanded" : "collapsed"); } catch { /* Navigation remains usable without persistence. */ } }}><span aria-hidden="true">☰</span></button>

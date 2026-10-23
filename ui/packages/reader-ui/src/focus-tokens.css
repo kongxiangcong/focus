@@ -125,6 +125,11 @@
   --reader-gap-xl:32px;
   --reader-column:1040px;
   --reader-nav:288px;
+  --reader-nav-min:240px;
+  --reader-nav-max:420px;
+  --reader-main-min:480px;
+  --reader-nav-handle:8px;
+  --reader-nav-step:16px;
   --reader-nav-collapsed:56px;
   --reader-drawer:420px;
   --reader-inspector:400px;
