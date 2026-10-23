@@ -28,6 +28,8 @@
 
 - [09 吸附栏与小段笔记](issues/09-attached-rail.md#answer)：跟随卡片、碰撞下推、段末小段笔记区、堆叠布局及共享 CRUD 已完成；真实 Chrome A5 三视口与 390–1600 宽度附件回归、三项目类型检查和构建通过，最终共享 list/fold 回归 8 项通过。旧 AttachedNotes 展示已替换。
 
+- [11 批注动效](issues/11-motion.md#answer)：保存飞入、吸附开关 FLIP/卡片飞行、删除视觉保留及减少动效/堆叠降级完成；51 项动效/样式测试、UI/standalone 类型检查与构建通过。根分支严格 Chrome 复验通过 A1/A2/A3/A4/A5/A6/A7/A8/A9/A10/A12/A13/A14/A17，三 context 零 pageerror/consoleerror/HTTP 错误，证据待 13 整理。
+
 ## Fog
 
 功能与浏览器验收以 [13](issues/13-acceptance.md) 为准。
