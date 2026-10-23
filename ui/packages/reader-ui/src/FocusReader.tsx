@@ -1,4 +1,4 @@
-import { AttachedNotes } from "./AttachedNotes";
+import { AnnotationRail } from "./annotations/AnnotationRail";
 import { projectSourceNotes } from "./note-projection";
 import { useAnnotations } from "./annotations/useAnnotations";
 import { useNoteFeedback } from "./annotations/useNoteFeedback";
@@ -9,7 +9,7 @@ import { AssetInstanceContext } from "./asset-context";
 import { PanelLeft, Pin, Expand, Collapse, ArrowRight, ArrowUp, StopSquare, ChevronDown, Widen, Close } from "./ReaderIcons";
 import { createReaderId, cursorReceipt, type ReaderChunk, type ReaderAttachment, type ReaderHost, type ReadingWindow,
   type ReaderHostResult, type SendReaderMessageInput, type ContinueReadingInput, type SourceNote, type ReadingProgressEntry } from "@focus/reader-contracts";
-import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentControls } from "./AgentControls";
 import { ReadingChunk, ReaderConversation, chunkKey } from "./ReadingChunk";
 import { readingFontSizes, readingMeasures, readingLayout, readReadingMeasure, effectiveReadingMeasure, measureWidth, drawerTranslation, type ReadingMeasure } from "./typography";
@@ -60,6 +60,9 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const [attachNotes, setAttachNotes] = useState(() => {
     try { localStorage.removeItem("focus.attachDiscussion"); return localStorage.getItem("focus.attachNotes") !== "false"; } catch { return true; }
   });
+  const [stackedRails, setStackedRails] = useState<Record<string, boolean>>({});
+  const setRailStacked = useCallback((group: string, stacked: boolean) => setStackedRails(previous =>
+    !!previous[group] === stacked ? previous : { ...previous, [group]: stacked }), []);
   const [preferredMeasure, setPreferredMeasure] = useState<ReadingMeasure>(() => {
     try { return readReadingMeasure(localStorage, readingFontSizes[fontSize]); } catch { return "standard"; }
   });
@@ -645,7 +648,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         {scrolling.latest && (readingGroups.length > 1 || !!view?.conversation.length) && <span className="reader-scroll-notice"><button onClick={() => scrolling.controller.current?.toLatest()}>{active ? "回答生成中 · " : ""}回到最新 ↓</button><button aria-label="关闭回到最新提示" onClick={() => scrolling.controller.current?.dismissLatest()}><Close /></button></span>}
   </div>;
   const continueLabel = view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total) ? "已读完" : (view?.sessionFresh && view.readingStarted && frontier?.index === frontier?.total) || (!view?.sessionFresh && displayed?.index === displayed?.total && !reviewChunk) ? "完成本篇" : operation === "下一段" ? "打开中…" : "继续";
-  return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-measure={measure} data-notes-layout={notesLayout} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && structureOpen) {
+  return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-measure={measure} data-notes-layout={notesLayout} data-anno-rail={Object.values(stackedRails).some(Boolean) ? "stacked" : undefined} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && structureOpen) {
       setStructureOpen(false); layout.current?.querySelector<HTMLButtonElement>(".reader-location-badge")?.focus({ preventScroll: true });
     } else if (event.key === "Escape" && sideMode && !(event.target as HTMLElement).closest("dialog")) {
     preserveReading(() => setSideMode(null)); event.currentTarget.querySelector<HTMLButtonElement>(mist ? ".reader-side-toggle" : ".reader-figures-toggle")?.focus({ preventScroll: true });
@@ -724,8 +727,8 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
         </section>
     <main className="focus-stream" ref={stream} aria-label="阅读与对话" tabIndex={0}
       onClick={annotations.onClick} onPointerOver={annotations.onPointerOver} onPointerOut={annotations.onPointerOut}
-      onWheel={e => { if (!(e.target as HTMLElement).closest(".reading-group-notes")) scrolling.controller.current?.userIntent(e.deltaY < 0); }} onTouchStart={e => { if (!(e.target as HTMLElement).closest(".reading-group-notes")) pauseFollow(); }}
-      onKeyDown={e => { annotations.onKeyDown(e); if (!e.defaultPrevented && !(e.target as HTMLElement).closest(".reading-group-notes") && ["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "].includes(e.key)) scrolling.controller.current?.userIntent(["PageUp", "Home", "ArrowUp"].includes(e.key)); }}
+      onWheel={e => { if (!(e.target as HTMLElement).closest(".reader-anno-rail, .reader-chunk-notes-fold")) scrolling.controller.current?.userIntent(e.deltaY < 0); }} onTouchStart={e => { if (!(e.target as HTMLElement).closest(".reader-anno-rail, .reader-chunk-notes-fold")) pauseFollow(); }}
+      onKeyDown={e => { annotations.onKeyDown(e); if (!e.defaultPrevented && !(e.target as HTMLElement).closest(".reader-anno-rail, .reader-chunk-notes-fold") && ["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "].includes(e.key)) scrolling.controller.current?.userIntent(["PageUp", "Home", "ArrowUp"].includes(e.key)); }}
       onMouseUp={annotations.readSelection} onScroll={e => { if (e.target !== e.currentTarget) return; annotations.closeSelection(); locateVisibleChunk(); scrolling.controller.current?.onScroll(); }}>
       {!mist && readingLocation}
       <div className="focus-content">
@@ -771,19 +774,15 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
             freshNoteId={noteFeedback.freshGroupId === group.id ? noteFeedback.freshNoteId : undefined}
             freshToken={noteFeedback.freshGroupId === group.id ? noteFeedback.freshToken : undefined}
             resetVersion={view?.resetVersion} noteClearVersion={view?.noteClearVersion} />}
-          {!discussion && notesOpen && group.chunk && <AttachedNotes chunk={group.chunk} notes={projectedNotes.get(group.id) ?? []}
+          {!discussion && notesOpen && group.chunk && <AnnotationRail chunk={group.chunk} notes={projectedNotes.get(group.id) ?? []}
+            marks={annotations.registry.get(group.id)?.marks ?? []} host={host} onAccept={value => preserveReading(() => accept(value))}
+            linkedKey={annotations.linkedKey} onLink={annotations.setLinkedKey} onEdit={annotations.openEditor}
+            onDelete={mark => void annotations.deleteMark(mark)} onToast={annotations.showToast}
+            resetVersion={view?.resetVersion} noteClearVersion={view?.noteClearVersion}
+            freshNoteId={noteFeedback.freshGroupId === group.id ? noteFeedback.freshNoteId : undefined}
+            onStackedChange={stacked => setRailStacked(group.id, stacked)}
             onDiscuss={() => preserveReading(() => referenceChunk(group.chunk!))}
-            onOpenNote={note => preserveReading(() => {
-              setSideMode("notes");
-              if (!note.deleted) { setEditingNoteId(note.noteId); setEditDraft(note.content); setEditBaseRevision(note.revision); setNoteConflict(null); setNoteError(""); }
-              requestAnimationFrame(() => {
-                const list = layout.current?.querySelector<HTMLDetailsElement>(".focus-source-notes");
-                if (list) list.open = true;
-                const item = Array.from(list?.querySelectorAll<HTMLElement>("[data-source-note-id]") ?? []).find(el => el.dataset.sourceNoteId === note.noteId);
-                item?.scrollIntoView({ block: "nearest" });
-                item?.querySelector<HTMLElement>("textarea, button")?.focus({ preventScroll: true });
-              });
-            })} />}
+          />}
           </div>)}
           </div>;
         })}

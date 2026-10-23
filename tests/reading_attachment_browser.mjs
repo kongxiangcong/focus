@@ -10,6 +10,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.FOCUS_PLAYWRIGHT_MODULE);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const browserRoot = `/@fs/${root.replaceAll('\\', '/')}`;
 const tempRoot = path.join(root, 'ui/apps/standalone/tmp');
 fs.mkdirSync(tempRoot, { recursive: true });
 const fixture = fs.mkdtempSync(path.join(tempRoot, 'attached-notes-'));
@@ -24,6 +25,10 @@ const notes = chunks.map((chunk, index) => ({ noteId: `note-${index + 1}`, sourc
   : '**对应第二段的笔记**\n\n映射策略需要同时考虑并行度和数据搬运成本。\n\n- 空间映射\n- 时间复用',
   kind: 'thought', origin: 'user', evidenceRole: 'explanation', bundle: 'v1',
   anchor: { sourceId: 'demo', bundle: 'v1', sourceLines: chunk.sourceLines }, referenceStatus: 'current', sourceUpdated: false, deleted: false, canUndo: false }));
+for (const [index, paragraph] of [0, 3].entries()) {
+ const exact=chunks[0].sourceMarkdown.split('\n\n')[paragraph].split('。')[0]+'。';
+ notes.push({...notes[0],noteId:`sentence-${index}`,content:`句子备注卡片 ${index+1}`,sentence:{planId:'plan',chunkId:'chunk-1',layer:'source',range:{start:0,end:exact.length},quote:{exact,prefix:'',suffix:''}}});
+}
 const view = { status: 'reading', source: { sourceId: 'demo', title: '架构阅读示例', topicId: null }, sessionId: 's1',
   current: chunks[1], navigationCurrent: chunks[1], history: [chunks[0]], sourceNotes: notes,
   conversation: [{ messageId: 'm1', role: 'assistant', content: '这是一条仍留在阅读流中的讨论回复。', chunkId: chunks[0].chunkId,
@@ -33,8 +38,8 @@ fs.writeFileSync(path.join(fixture, 'index.html'), '<!doctype html><html lang="z
 fs.writeFileSync(path.join(fixture, 'main.tsx'), `
 import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { FocusReader } from '/@fs${root}/ui/packages/reader-ui/src/FocusReader.tsx';
-import '/@fs${root}/ui/packages/reader-ui/src/focus-tokens.css';
+import { FocusReader } from '${browserRoot}/ui/packages/reader-ui/src/FocusReader.tsx';
+import '${browserRoot}/ui/packages/reader-ui/src/focus-tokens.css';
 const view = ${JSON.stringify(view)};
 window.notesCalls = [];
 const host = { getReadingWindow: async () => ({ok:true,value:view}),
@@ -58,9 +63,10 @@ const settle = () => page.waitForTimeout(400);
 const toggle = page.getByRole('navigation', { name: '阅读功能控制区' }).getByRole('button', { name: '笔记', exact: true });
 const layout = () => page.locator('.focus-reader').getAttribute('data-notes-layout');
 const geometry = () => page.locator('[data-lens-index="2"] .reading-group-passage').evaluate(e => {
- const source = e.querySelector('.reading-group-source'), notes = e.querySelector('.reading-group-notes');
+ const source = e.querySelector('.reading-group-source'), notes = e.querySelector('.reader-anno-rail');
  return { passage: e.getBoundingClientRect().width, source: source.getBoundingClientRect().width,
-   text: source.querySelector('.focus-markdown').getBoundingClientRect().width, notes: notes?.getBoundingClientRect().width };
+   text: source.querySelector('.focus-markdown').getBoundingClientRect().width, notes: notes?.getBoundingClientRect().width,
+   stacked:notes?.dataset.annoRail==='stacked',notesTop:notes?.getBoundingClientRect().top,sourceBottom:source.getBoundingClientRect().bottom };
 });
 try {
  await page.goto(`http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT || 5173}/tmp/${path.basename(fixture)}/index.html`);
@@ -74,7 +80,10 @@ try {
  await toggle.click(); await settle();
  await page.setViewportSize({ width: 1280, height: 900 }); await settle();
  assert.equal(await layout(), 'split'); metrics.split = await geometry();
- assert.ok(Math.abs(metrics.split.notes / metrics.split.passage - .25) < .001);
+ if(metrics.split.stacked) {
+  assert.ok(Math.abs(metrics.split.notes-metrics.split.passage)<1,JSON.stringify(metrics.split));
+  assert.ok(metrics.split.notesTop>=metrics.split.sourceBottom-1,JSON.stringify(metrics.split));
+ } else assert.ok(Math.abs(metrics.split.notes / metrics.split.passage - .25) < .001,JSON.stringify(metrics.split));
  await page.getByRole('button', { name: '全屏', exact: true }).click(); await settle();
  assert.equal(await layout(), 'side');
  await page.getByRole('button', { name: '退出全屏', exact: true }).click(); await settle();
@@ -97,11 +106,15 @@ try {
  assert.equal(await page.evaluate(() => window.notesCalls[0].receipt.chunkId), 'chunk-1');
  assert.match(await page.locator('[data-lens-index="2"] .reading-group-discussion').innerText(), /仍留在阅读流/);
  assert.equal(await firstNotes.getByText('仍留在阅读流中的讨论回复。').count(), 0);
- const body = firstNotes.locator('.reading-group-notes__body');
- metrics.longNotes = await body.evaluate(e => ({ height: e.clientHeight, total: e.scrollHeight }));
- assert.ok(metrics.longNotes.total > metrics.longNotes.height);
- await body.evaluate(e => e.scrollTop = 60);
- assert.ok(await body.evaluate(e => e.scrollTop > 0));
+ metrics.longNotes = await firstNotes.evaluate(e => {
+  const source=e.closest('.reading-group-passage').querySelector('.reading-group-source').getBoundingClientRect();
+  const foot=e.querySelector('.reader-chunk-notes').getBoundingClientRect();
+  const cards=[...e.querySelectorAll('[data-anno-card]')].map(card=>card.getBoundingClientRect());
+  return {sourceBottom:source.bottom,footTop:foot.top,lastCardBottom:Math.max(...cards.map(card=>card.bottom))};
+ });
+ assert.ok(metrics.longNotes.footTop>=metrics.longNotes.sourceBottom-1);
+ assert.ok(metrics.longNotes.footTop>=metrics.longNotes.lastCardBottom-1);
+ assert.equal(await firstNotes.locator('[data-anno-card]').count(),2);
  for (const [width, height] of [[1600,1000], [1440,900], [1280,800], [1024,768], [720,900], [390,844]]) {
   await page.setViewportSize({ width, height }); await settle();
   await page.locator('.focus-stream').evaluate(e => { e.dispatchEvent(new WheelEvent('wheel', {bubbles:true,deltaY:-100})); e.scrollTop = 100; e.dispatchEvent(new Event('scroll', {bubbles:true})); }); await settle();
@@ -131,5 +144,5 @@ try {
  assert.equal(await page.locator('.reading-lens').evaluate(e=>getComputedStyle(e).transitionDuration),'0s');
  assert.deepEqual(errors, []);
  fs.writeFileSync(path.join(out,'metrics.json'),JSON.stringify(metrics,null,2));
- console.log('PASS: side/split notes, normal/fullscreen, paragraph discussion, bounded scrolling, dock notices, 390–1600px, persistence and reduced motion.');
+ console.log('PASS: side/split/stacked notes, normal/fullscreen, paragraph discussion, rail cards and paragraph foot, dock notices, 390–1600px, persistence and reduced motion.');
 } finally { await browser.close(); fs.rmSync(fixture,{recursive:true,force:true}); }

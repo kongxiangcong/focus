@@ -66,7 +66,7 @@ it("saves a sentence note in-place, opens the bulb, edits, and deletes with undo
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() => expect(change).toHaveBeenCalledWith(chunk.sourceId, expect.any(String), "edit", 1, expect.any(String), "修改后的备注"));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "编辑备注" })).not.toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", { name: "查看备注" })); fireEvent.click(screen.getByRole("button", { name: "删除标注" }));
+  fireEvent.click(screen.getByRole("button", { name: "查看备注" })); fireEvent.click(within(screen.getByRole("dialog", { name: "备注" })).getByRole("button", { name: "删除标注" }));
   await screen.findByText("已删除标注"); expect(screen.queryByRole("button", { name: "查看备注" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "撤销" }));
   await screen.findByRole("button", { name: "查看备注" });
