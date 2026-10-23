@@ -18,7 +18,7 @@ type Float = { kind: "selection"; draft: SelectionDraft; rect: DOMRect; crossBlo
   | { kind: "annotation"; mark: ResolvedMark; group: string; rect: DOMRect }
   | { kind: "editor"; target: EditorTarget; rect: DOMRect; conflict?: string }
   | { kind: "note"; note: SourceNote; rect: DOMRect };
-interface Submitted { target: EditorTarget; text: string; scope: string }
+interface Submitted { target: EditorTarget; text: string; scope: string; editorRect?: DOMRect }
 const emptyWindow: ReadingWindow = { status: "reading", source: { sourceId: "", title: "", topicId: null }, current: null, history: [], conversation: [] };
 
 export function useAnnotations({ host, view, accept, stream, groups, onReference, attached }: {
@@ -29,6 +29,8 @@ export function useAnnotations({ host, view, accept, stream, groups, onReference
   const [float, setFloat] = useState<Float | null>(null), [text, setText] = useState("");
   const [linkedKey, setLinkedKey] = useState<string | null>(null), [registryVersion, setRegistryVersion] = useState(0);
   const [localToast, setLocalToast] = useState<AnnotationToastValue | null>(null);
+  const [savedAnnotation, setSavedAnnotation] = useState<{ noteId: string; editorRect: DOMRect; token: number } | null>(null);
+  const saveToken = useRef(0);
   const registry = useRef(new Map<string, Registry>()), reports = useRef(new Map<string, (key: string, marks: readonly ResolvedMark[], lost: readonly Located[], layer: TextLayer, text: string) => void>());
   const origin = useRef<HTMLElement | null>(null), submitted = useRef(new Map<string, Submitted>()), drafts = useAnnotationDrafts();
   const latest = useRef({ float, text, scope, groups, attached }); latest.current = { float, text, scope, groups, attached };
@@ -37,6 +39,7 @@ export function useAnnotations({ host, view, accept, stream, groups, onReference
   const saved = useCallback((id: string, note: SourceNote) => {
     const item = submitted.current.get(id); submitted.current.delete(id);
     if (!item || item.scope !== latest.current.scope) return;
+    if (item.editorRect) setSavedAnnotation({ noteId: note.noteId, editorRect: item.editorRect, token: ++saveToken.current });
     const key = editorKey(item.target);
     if (drafts.read(key) === item.text) drafts.write(key, null);
     const current = latest.current;
@@ -48,6 +51,10 @@ export function useAnnotations({ host, view, accept, stream, groups, onReference
           ?? candidates.find(el => el.dataset.annoKey === markKey);
         target?.focus({ preventScroll: true });
       });
+    } else if (current.float?.kind === "editor" && editorKey(current.float.target) === key) {
+      const target: EditorTarget = { isNew: false, note };
+      drafts.write(key, null); drafts.write(editorKey(target), current.text);
+      setFloat({ kind: "editor", target, rect: current.float.rect });
     }
   }, [close, drafts.read, drafts.write, stream]);
   const failed = useCallback((id: string) => {
@@ -67,13 +74,14 @@ export function useAnnotations({ host, view, accept, stream, groups, onReference
       rect: active?.rect ?? origin.current?.getBoundingClientRect() ?? new DOMRect(16, 80, 200, 20), conflict: current.content });
   }, [drafts.read]);
   const actions = useAnnotationActions({ host, view: view ?? emptyWindow, accept, scope, onNoteSaved: saved, onNoteFailed: failed, onNoteConflict: conflicted });
+  useEffect(() => { if (actions.toast) setLocalToast(null); }, [actions.toast]);
   const located = useMemo(() => groupLocated(actions.highlights, actions.notes, groups), [actions.highlights, actions.notes, groups]);
   useEffect(() => {
     if (priorScope.current === scope) return;
     const oldSource = priorScope.current.split(":")[0];
     if (oldSource === view?.source.sourceId) drafts.clearSource(oldSource);
     priorScope.current = scope; submitted.current.clear(); registry.current.clear(); reports.current.clear();
-    close(); setText(""); setLocalToast(null);
+    close(); setText(""); setLocalToast(null); setSavedAnnotation(null);
   }, [scope, close, drafts.clearSource, view?.source.sourceId]);
   const showToast = useCallback((message: string, action?: { label: string; run: () => void }) => {
     actions.dismissToast(); setLocalToast({ message, actionLabel: action?.label, action: action?.run });
@@ -142,7 +150,8 @@ export function useAnnotations({ host, view, accept, stream, groups, onReference
   async function saveEditor() {
     if (float?.kind !== "editor" || !text.trim() || actions.busy) return;
     const target = float.target, id = createReaderId().replaceAll("-", ""), captured = text;
-    submitted.current.set(id, { target, text: captured, scope }); setLocalToast(null);
+    const editorRect = stream.current?.querySelector<HTMLElement>(".reader-anno-editor")?.closest<HTMLElement>(".reader-anno-pop")?.getBoundingClientRect();
+    submitted.current.set(id, { target, text: captured, scope, editorRect }); setLocalToast(null);
     target.isNew ? await actions.createNote({ sourceId: target.draft.chunk.sourceId, requestId: id, content: captured, kind: "thought", origin: "user",
       chunk: { planId: target.draft.chunk.planId, chunkId: target.draft.chunk.chunkId }, sentence: { layer: target.draft.layer, range: { start: target.draft.start, end: target.draft.end }, quote: target.draft.quote } })
       : await actions.editNote(target.note, captured, id);
@@ -244,8 +253,8 @@ export function useAnnotations({ host, view, accept, stream, groups, onReference
         onReference={() => { if (float.kind === "selection") { onReference(float.draft.chunk, float.draft.text); close(); window.getSelection()?.removeAllRanges(); } }} />}
     </AnnotationLayer>;
   }
-  return { located, pending, onMarks, linkedKey, setLinkedKey, registry: registry.current, lostSentenceNoteIds, openEditor, openNote,
-    deleteMark: actions.deleteMark, showToast, fresh: actions.fresh, notes: actions.notes, highlights: actions.highlights,
+  return { located, pending, onMarks, linkedKey, setLinkedKey, registry: registry.current, lostSentenceNoteIds, openEditor, openNote, savedAnnotation,
+    deleteMark: (mark: { highlight?: ResolvedMark["highlight"]; note?: SourceNote }) => { setLocalToast(null); return actions.deleteMark(mark); }, showToast, fresh: actions.fresh, notes: actions.notes, highlights: actions.highlights,
     overlay, toast: <AnnotationToast toast={localToast ?? actions.toast ?? null} onDismiss={dismissToast} />,
     readSelection, closeSelection: () => { if (float?.kind === "selection") close(); },
     onClick: delegated,

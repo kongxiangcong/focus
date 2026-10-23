@@ -1,6 +1,8 @@
 import { AttachedNotes } from "./AttachedNotes";
 import { projectSourceNotes } from "./note-projection";
 import { useAnnotations } from "./annotations/useAnnotations";
+import { useNoteFeedback } from "./annotations/useNoteFeedback";
+import { FoldedChunkNotes } from "./annotations/FoldedChunkNotes";
 import { SourceNotesPanel } from "./SourceNotesPanel";
 import { clearAnnotationDrafts } from "./annotation-draft-reset";
 import { AssetInstanceContext } from "./asset-context";
@@ -168,9 +170,14 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     setEditingProgressId(null); setProgressDraft(""); setProgressBaseRevision(null); setProgressConflict(null); setProgressError(""); follow.current = true;
   }
   const draftState = useRef({ reference, editingNoteId, editDraft, editBaseRevision, editingProgressId, progressDraft, progressBaseRevision });
+  const acceptedNoteIds = useRef<{ source: string; ids: Set<string> } | null>(null);
   draftState.current = { reference, editingNoteId, editDraft, editBaseRevision, editingProgressId, progressDraft, progressBaseRevision };
   function accept(value: ReadingWindow) {
     if (!alive.current || (value.revision !== undefined && value.revision < revision.current)) return;
+    const priorNotes = acceptedNoteIds.current;
+    if (priorNotes?.source === value.source.sourceId && value.noteFeedback?.status === "saved" &&
+      value.sourceNotes?.some(note => note.origin === "dialogue" && !priorNotes.ids.has(note.noteId))) scrolling.controller.current?.hold();
+    acceptedNoteIds.current = { source: value.source.sourceId, ids: new Set(value.sourceNotes?.map(note => note.noteId) ?? []) };
     const owner = `${value.source.sourceId}:${value.discussionId ?? value.sessionId}`;
     if (draftOwner.current && owner !== draftOwner.current) {
       drafts.current[draftOwner.current] = { text: draftRef.current, reference: draftState.current.reference, noteId: draftState.current.editingNoteId,
@@ -378,6 +385,8 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const reviewLanding = useRef(false);
   const pendingQuestion = useRef<string | null | undefined>(undefined);
   const scrolling = useReadingScroll(stream, follow, eventScope, active, visible && !showStructure);
+  const noteFeedback = useNoteFeedback({ view, groups: paragraphGroups, projected: projectedNotes, stream,
+    onToast: annotations.showToast, onJump: element => scrolling.controller.current?.jump(element) });
   useLayoutEffect(() => {
     const pane = stream.current;
     if (!pane || !mist) return;
@@ -437,17 +446,17 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       if (alive.current && started === epoch.current) setFailure({ message: String(error), label: `重试${label}`, retry: () => void perform(label, task, success) });
     } finally { locked.current = false; if (alive.current) setOperation(""); }
   }
-  function send(content = draft, clear = true, includeAttachments = true, explicitReference?: ReaderChunk) {
+  function send(content = draft, clear = true, includeAttachments = true, explicitReference?: ReaderChunk | null) {
     if (!view || blocked || uploading || !content.trim()) return;
     pendingQuestion.current = view.conversation.filter(m => m.role === "user").at(-1)?.messageId ?? null;
     setDiscussionFocus(displayed ? chunkKey(displayed) : null);
     follow.current = true;
     // undefined uses the reading context; null is an explicitly removed reference.
-    const selected = explicitReference ?? (reference === null ? null : reference ?? reviewChunk ?? displayed);
+    const selected = explicitReference !== undefined ? explicitReference : (reference === null ? null : reference ?? reviewChunk ?? displayed);
     const attachmentIds = (includeAttachments ? uploads : []).flatMap(u => u.attachment ? [u.attachment.attachmentId] : []);
     const sentUploads = (includeAttachments ? uploads : []).filter(u => u.state === "ready").map(u => u.id);
     const input: SendReaderMessageInput = {
-      sessionId: view.sessionId, receipt: selected ? { sourceId: selected.sourceId, planId: selected.planId, chunkId: selected.chunkId } : reference === null ? null : visibleChunks.some(c => current && chunkKey(c) === chunkKey(current)) ? cursorReceipt(view) : null,
+      sessionId: view.sessionId, receipt: selected ? { sourceId: selected.sourceId, planId: selected.planId, chunkId: selected.chunkId } : selected === null ? null : visibleChunks.some(c => current && chunkKey(c) === chunkKey(current)) ? cursorReceipt(view) : null,
       content: clear && reference?.excerpt ? `> ${reference.excerpt.replace(/\n/g, "\n> ")}\n\n${content.trim()}` : content.trim(), attachmentIds,
       sourceId: selected?.sourceId ?? (view.source.sourceId || undefined),
     };
@@ -752,11 +761,16 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
           const content = e.kind === "reading" ? <ReadingChunk chunk={e.chunk} located={annotations.located.get(group.id)}
             pending={annotations.pending?.groupId === group.id ? annotations.pending : null} fresh={annotations.fresh} onMarks={annotations.onMarks(group.id)}
             onReference={referenceChunk} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} onLanguage={(chunk, original) => preserveReading(() => setFigureLanguages(old => ({ ...old, [chunkKey(chunk)]: original })))} /> : message ? <ReaderConversation messages={[message]} chunks={chunks} figures={view?.figures} figureSourceId={sourceId} sourceFigures={sourceFigures} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} streaming={active && message.messageId === view?.conversation.at(-1)?.messageId}
-            onJump={jumpReference} onHighlight={highlight} onClearHighlight={() => { if (!highlightTimer.current) clearHighlight(); }} onSaveNote={(reply, chunk) => send(`请把下面的回答记下来：\n\n${reply.content}`, false, false, chunk)} /> : null;
+            onJump={jumpReference} onHighlight={highlight} onClearHighlight={() => { if (!highlightTimer.current) clearHighlight(); }} onSaveNote={(reply, chunk) => send(`请把下面的回答记下来：\n\n${reply.content}`, false, false, chunk ?? null)} /> : null;
           const identity = eventKeys[index];
           return <TimelineEvent key={`${eventScope}:${identity}`} identity={identity} current={index === focusedIndex} fresh={committedEvents.current?.scope === eventScope && !committedEvents.current.ids.has(identity)} streaming={active && message?.role === "assistant" && message.messageId === view?.conversation.at(-1)?.messageId}>{content}</TimelineEvent>;
           })}
           </div>
+          {!discussion && !notesOpen && group.chunk && <FoldedChunkNotes chunk={group.chunk} notes={projectedNotes.get(group.id) ?? []} host={host}
+            onAccept={value => preserveReading(() => accept(value))} onToast={annotations.showToast}
+            freshNoteId={noteFeedback.freshGroupId === group.id ? noteFeedback.freshNoteId : undefined}
+            freshToken={noteFeedback.freshGroupId === group.id ? noteFeedback.freshToken : undefined}
+            resetVersion={view?.resetVersion} noteClearVersion={view?.noteClearVersion} />}
           {!discussion && notesOpen && group.chunk && <AttachedNotes chunk={group.chunk} notes={projectedNotes.get(group.id) ?? []}
             onDiscuss={() => preserveReading(() => referenceChunk(group.chunk!))}
             onOpenNote={note => preserveReading(() => {

@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { FixtureReaderHost } from "../../../../apps/standalone/src/adapters/fixture-reader-host";
 import { FocusReader } from "../FocusReader";
@@ -136,4 +136,22 @@ it("uses the selected occurrence's visible layer when a Chunk appears twice", as
   fireEvent.click(screen.getAllByRole("button", { name: "查看原文" })[0]);
   selectText(); fireEvent.click(await screen.findByRole("button", { name: "重点" }));
   await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ layer: "source", quote: expect.objectContaining({ exact: "First sentence." }) })));
+});
+it("keeps typing during a save and applies the next save as an edit of the acknowledged note", async () => {
+  const host = await setup(), original = host.createSourceNote.bind(host);
+  let release: (() => void) | undefined;
+  const create = vi.spyOn(host, "createSourceNote").mockImplementationOnce(async input => {
+    const result = await original(input); await new Promise<void>(resolve => { release = resolve; }); return result;
+  });
+  const edit = vi.spyOn(host, "changeSourceNote");
+  selectText(); fireEvent.click(await screen.findByRole("button", { name: "备注" }));
+  const field = screen.getByRole("textbox", { name: "备注文字" });
+  fireEvent.change(field, { target: { value: "第一份备注" } }); fireEvent.keyDown(field, { key: "Enter" });
+  fireEvent.change(field, { target: { value: "写入期间继续修改" } });
+  await waitFor(() => expect(release).toBeDefined()); await act(async () => release!());
+  expect(field).toHaveValue("写入期间继续修改");
+  await waitFor(() => expect(screen.getByRole("button", { name: "保存" })).toBeEnabled());
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(edit).toHaveBeenCalledWith(chunk.sourceId, expect.any(String), "edit", 1, expect.any(String), "写入期间继续修改"));
+  expect(create).toHaveBeenCalledOnce();
 });
