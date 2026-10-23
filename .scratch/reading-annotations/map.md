@@ -26,6 +26,8 @@
 
 - [10 关闭吸附与保存反馈](issues/10-detached-mode.md#answer)：fold 复用共享笔记 CRUD 并保持可访问折叠；讨论保存按投影提示且仅“查看”跳转，明确 null 的无引用回答保存为整篇。73 项 UI 回归、类型检查及真实 Chrome A7/A8/A9 与既有批注预检通过；并修复保存中继续输入导致重复句子备注的边界，提供 11 的 M8 几何事件。
 
+- [09 吸附栏与小段笔记](issues/09-attached-rail.md#answer)：跟随卡片、碰撞下推、段末小段笔记区、堆叠布局及共享 CRUD 已完成；真实 Chrome A5 三视口与 390–1600 宽度附件回归、三项目类型检查和构建通过，最终共享 list/fold 回归 8 项通过。旧 AttachedNotes 展示已替换。
+
 ## Fog
 
 功能与浏览器验收以 [13](issues/13-acceptance.md) 为准。
