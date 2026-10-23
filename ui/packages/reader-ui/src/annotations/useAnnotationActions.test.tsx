@@ -34,6 +34,20 @@ it("shows one optimistic highlight before the Host response and replaces its tem
   expect(result.current.busy).toBe(false);
 });
 
+it("expires the one-time fresh highlight flag and does not replay it on later renders", async () => {
+  vi.useFakeTimers();
+  try {
+    const host = new FixtureReaderHost(), initial = value(await host.getReadingWindow()), payload = input(initial);
+    const { result, rerender } = renderHook(() => { const [view, accept] = useState(initial); return useAnnotationActions({ host, view, accept, scope: "source:0" }); });
+    await act(async () => { await result.current.createHighlight(payload); });
+    expect(Object.values(result.current.fresh)).toEqual([["hl"]]);
+    act(() => { vi.advanceTimersByTime(801); });
+    expect(result.current.fresh).toEqual({});
+    rerender();
+    expect(result.current.fresh).toEqual({});
+  } finally { vi.useRealTimers(); }
+});
+
 it("keeps newer snapshot records when two successful requests finish out of order", async () => {
   const host = new FixtureReaderHost(), initial = value(await host.getReadingWindow()), firstInput = input(initial);
   const secondInput = { ...firstInput, requestId: "second-highlight", range: { start: 5, end: 8 }, quote: { exact: "需要保", prefix: "", suffix: "" } };

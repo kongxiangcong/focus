@@ -129,6 +129,8 @@
   box-shadow:var(--reader-shadow-popover); animation:reader-anno-pop-in var(--reader-duration-quick) var(--reader-ease-out); }
 .reader-anno-bubble[data-side=above] { transform-origin:var(--arrow-x) 100%; }
 .reader-anno-bubble[data-side=below] { transform-origin:var(--arrow-x) 0; }
+.reader-anno-float[data-side=above] .reader-anno-bubble { transform-origin:var(--arrow-x) 100%; }
+.reader-anno-float[data-side=below] .reader-anno-bubble { transform-origin:var(--arrow-x) 0; }
 .reader-anno-bubble button, .focus-reader .reader-anno-bubble button { display:inline-flex; align-items:center; gap:6px; height:30px; min-height:0; padding:0 10px; border:0; border-radius:7px; background:transparent; color:inherit; font:13px var(--reader-ui); cursor:pointer; white-space:nowrap; }
 .reader-anno-bubble button:hover, .reader-anno-bubble button:focus-visible, .focus-reader .reader-anno-bubble button:hover, .focus-reader .reader-anno-bubble button:focus-visible { background:rgba(255,255,255,.13); outline:none; }
 .reader-anno-bubble button svg { width:15px; height:15px; }
