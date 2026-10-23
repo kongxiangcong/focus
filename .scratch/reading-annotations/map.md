@@ -16,6 +16,8 @@
 
 - [04 Host 标注接口](issues/04-host-highlights-sentence-api.md#answer)：重点 HTTP 创建/删除/撤销/请求查询、句子备注、快照与错误码落地；43 项规定测试和 39 项笔记/讨论回归通过，兼容旧请求 digest，并清除残留操作快照。均为隔离合成 Host/Core 证据。
 
+- [05 合同与适配器](issues/05-contracts-adapters.md#answer)：可选标注合同、HTTP/fixture 幂等读写及演示 JSON 落地，9 项适配器和 4 项 CSS 检查及三个 TypeScript 项目检查通过；依赖可标注文本的 seedMarks 辅助函数移至 06，避免循环依赖。
+
 ## Fog
 
 功能与浏览器验收以 [13](issues/13-acceptance.md) 为准。
