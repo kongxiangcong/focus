@@ -20,6 +20,8 @@
 
 - [06 可标注文本与投影](issues/06-text-offsets-rendering.md#answer)：DOM/HAST 共用 UTF-16 定位、首帧标注渲染与重定位合并、演示 seedMarks 已完成；47 项文本/Markdown/图片/投影测试及 UI/standalone 类型检查与构建通过。ReadingChunk 稳定上报 marks/lost/layer/text，供 08 接入。
 
+- [12 资料栏与清除](issues/12-materials-and-clear.md#answer)：资料栏分组显示句子备注与小段/整篇笔记，编辑回调和清除版本围栏已接入；22 项 UI、4 项 fixture、7 项 Host 检查及三项目类型检查、构建与隔离 Chrome 检查通过。
+
 ## Fog
 
 功能与浏览器验收以 [13](issues/13-acceptance.md) 为准。
