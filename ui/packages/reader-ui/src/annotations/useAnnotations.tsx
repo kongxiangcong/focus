@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { createReaderId, type AnnotationLayer as TextLayer, type ReaderChunk, type ReaderHost, type ReadingWindow, type SourceNote } from "@focus/reader-contracts";
+import { createReaderId, type AnnotationLayer as TextLayer, type ReaderChunk, type ReaderHost, type ReadingWindow, type SourceNote, type ReadingHighlight } from "@focus/reader-contracts";
 import { blockOf, domAnnotatableText, domOffset } from "../annotatable-text";
 import { groupLocated, quoteAt, type Located, type PendingAnnotation, type ResolvedMark } from "../annotation-projection";
 import { chunkKey } from "../ReadingChunk";
@@ -10,6 +10,7 @@ import { AnnotationNotePop } from "./AnnotationNotePop";
 import { AnnotationToast } from "./AnnotationToast";
 import { useAnnotationDrafts } from "./useAnnotationDrafts";
 import { useAnnotationActions } from "./useAnnotationActions";
+import { useAnnotationMotion } from "./useAnnotationMotion";
 import { editorKey, type AnnotationToastValue, type EditorTarget, type SelectionDraft } from "./types";
 
 type Group = { id: string; chunk: ReaderChunk | null };
@@ -21,9 +22,9 @@ type Float = { kind: "selection"; draft: SelectionDraft; rect: DOMRect; crossBlo
 interface Submitted { target: EditorTarget; text: string; scope: string; editorRect?: DOMRect }
 const emptyWindow: ReadingWindow = { status: "reading", source: { sourceId: "", title: "", topicId: null }, current: null, history: [], conversation: [] };
 
-export function useAnnotations({ host, view, accept, stream, groups, onReference, attached }: {
+export function useAnnotations({ host, view, accept, stream, groups, onReference, attached, notesLayout }: {
   host: ReaderHost; view: ReadingWindow | null; accept: (view: ReadingWindow) => void;
-  stream: RefObject<HTMLElement | null>; groups: readonly Group[]; onReference: (chunk: ReaderChunk, text?: string) => void; attached: boolean;
+  stream: RefObject<HTMLElement | null>; groups: readonly Group[]; onReference: (chunk: ReaderChunk, text?: string) => void; attached: boolean; notesLayout?: string;
 }) {
   const scope = `${view?.source.sourceId ?? ""}:${view?.resetVersion ?? 0}:${view?.noteClearVersion ?? 0}`;
   const [float, setFloat] = useState<Float | null>(null), [text, setText] = useState("");
@@ -74,8 +75,16 @@ export function useAnnotations({ host, view, accept, stream, groups, onReference
       rect: active?.rect ?? origin.current?.getBoundingClientRect() ?? new DOMRect(16, 80, 200, 20), conflict: current.content });
   }, [drafts.read]);
   const actions = useAnnotationActions({ host, view: view ?? emptyWindow, accept, scope, onNoteSaved: saved, onNoteFailed: failed, onNoteConflict: conflicted });
+  const motion = useAnnotationMotion<{ key?: string; highlight?: ReadingHighlight; note?: SourceNote }>({ stream, scope, layout: notesLayout ?? (attached ? "side" : "off"), savedAnnotation });
+  const highlights = useMemo(() => [...actions.highlights.filter(item => !motion.retained.some(mark => mark.highlight?.highlightId === item.highlightId)), ...motion.retained.flatMap(mark => mark.highlight ? [mark.highlight] : [])], [actions.highlights, motion.retained]);
+  const notes = useMemo(() => [...actions.notes.filter(item => !motion.retained.some(mark => mark.note?.noteId === item.noteId)), ...motion.retained.flatMap(mark => mark.note ? [mark.note] : [])], [actions.notes, motion.retained]);
+  function deleteMark(mark: { highlight?: ReadingHighlight; note?: SourceNote }) {
+    setLocalToast(null);
+    const found = [...registry.current.values()].flatMap(entry => entry.marks).find(item => mark.note ? item.note?.noteId === mark.note.noteId : item.highlight?.highlightId === mark.highlight?.highlightId);
+    return motion.deleteMark({ ...mark, key: found?.key }, () => actions.deleteMark(mark));
+  }
   useEffect(() => { if (actions.toast) setLocalToast(null); }, [actions.toast]);
-  const located = useMemo(() => groupLocated(actions.highlights, actions.notes, groups), [actions.highlights, actions.notes, groups]);
+  const located = useMemo(() => groupLocated(highlights, notes, groups), [highlights, notes, groups]);
   useEffect(() => {
     if (priorScope.current === scope) return;
     const oldSource = priorScope.current.split(":")[0];
@@ -241,20 +250,20 @@ export function useAnnotations({ host, view, accept, stream, groups, onReference
     };
     overlay = <AnnotationLayer stream={stream} getRect={getRect} bubble={float.kind === "selection" || float.kind === "annotation"} label={float.kind === "editor" ? "编辑备注" : "备注"}>
       {float.kind === "editor" ? <AnnotationEditor value={text} busy={actions.busy} conflict={float.conflict} onChange={value => { setText(value); drafts.write(editorKey(float.target), value); }} onSave={() => void saveEditor()} onCancel={cancelEditor} />
-      : float.kind === "note" ? <AnnotationNotePop note={float.note} onEdit={() => openEditor(float.note)} onDelete={() => { close(); setLocalToast(null); void actions.deleteMark({ note: float.note, highlight: [...registry.current.values()].flatMap(entry => entry.marks).find(item => item.note?.noteId === float.note.noteId)?.highlight }); }} />
+      : float.kind === "note" ? <AnnotationNotePop note={float.note} onEdit={() => openEditor(float.note)} onDelete={() => { close(); setLocalToast(null); void deleteMark({ note: float.note, highlight: [...registry.current.values()].flatMap(entry => entry.marks).find(item => item.note?.noteId === float.note.noteId)?.highlight }); }} />
       : <AnnotationBubble mode={float.kind} highlight={!!mark?.highlight} hasNote={!!mark?.note} crossBlock={float.kind === "selection" && float.crossBlock} overlap={float.kind === "selection" && float.partial}
         canHighlight={!!host.createHighlight && (!mark?.highlight || !!host.changeHighlight)} canNote={!!host.createSourceNote || !!mark?.note && !!host.changeSourceNote}
         onHighlight={() => { if (float.kind === "selection") addHighlight(float.draft); else if (mark) {
-          if (mark.highlight) { close(); setLocalToast(null); void actions.deleteMark({ highlight: mark.highlight }); }
+          if (mark.highlight) { close(); setLocalToast(null); void deleteMark({ highlight: mark.highlight }); }
           else { const draft = draftForMark(mark, float.group); if (draft) addHighlight(draft); }
         } }} onNote={() => { if (float.kind === "selection") openTarget({ isNew: true, draft: float.draft }, float.rect);
           else if (mark?.note) openEditor(mark.note); else if (mark) { const draft = draftForMark(mark, float.group); if (draft) openTarget({ isNew: true, draft }, markRect(mark.key, true) ?? float.rect); } }}
-        onDelete={() => { if (mark) { close(); setLocalToast(null); void actions.deleteMark(mark); } }}
+        onDelete={() => { if (mark) { close(); setLocalToast(null); void deleteMark(mark); } }}
         onReference={() => { if (float.kind === "selection") { onReference(float.draft.chunk, float.draft.text); close(); window.getSelection()?.removeAllRanges(); } }} />}
     </AnnotationLayer>;
   }
   return { located, pending, onMarks, linkedKey, setLinkedKey, registry: registry.current, lostSentenceNoteIds, openEditor, openNote, savedAnnotation,
-    deleteMark: (mark: { highlight?: ResolvedMark["highlight"]; note?: SourceNote }) => { setLocalToast(null); return actions.deleteMark(mark); }, showToast, fresh: actions.fresh, notes: actions.notes, highlights: actions.highlights,
+    deleteMark, beforeAttachChange: motion.beforeAttachChange, showToast, fresh: actions.fresh, notes, highlights,
     overlay, toast: <AnnotationToast toast={localToast ?? actions.toast ?? null} onDismiss={dismissToast} />,
     readSelection, closeSelection: () => { if (float?.kind === "selection") close(); },
     onClick: delegated,

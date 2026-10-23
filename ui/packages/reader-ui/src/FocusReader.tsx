@@ -318,7 +318,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const notesLayout = !notesOpen ? "off" : readingWidth >= columnWidth + readingLayout.padding + readingLayout.noteGap + readingLayout.noteWidth ? "side" : "split";
   const paragraphGroups = groupReadingDiscussion(entries, eventKeys);
   const annotations = useAnnotations({ host, view, accept: value => preserveReading(() => accept(value)), stream,
-    groups: paragraphGroups, onReference: referenceChunk, attached: notesOpen });
+    groups: paragraphGroups, onReference: referenceChunk, attached: notesOpen, notesLayout });
   sentenceNoteController.current = annotations;
   const projectedNotes = projectSourceNotes(view?.sourceNotes ?? [], paragraphGroups);
   const readingGroups = paragraphGroups.filter(group => group.chunk !== null);
@@ -861,7 +861,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
 
       </div>
       <button className="reader-attach-toggle" aria-pressed={attachNotes} title={attachNotes ? "关闭笔记吸附" : "打开笔记吸附"} onClick={() => preserveReading(() => {
-        const next = !attachNotes; setAttachNotes(next);
+        const next = !attachNotes; annotations.beforeAttachChange(next); setAttachNotes(next);
         try { localStorage.setItem("focus.attachNotes", String(next)); } catch { /* In-memory fallback. */ }
       })}><Pin /><span className="mist-action-label">笔记</span></button>
       <button className="reader-fullscreen-toggle" aria-label={fullscreen ? "退出全屏" : "全屏"} aria-pressed={fullscreen} onClick={() => onFullscreenChange?.(!fullscreen)}>{fullscreen ? <Collapse /> : <Expand />}<span className="mist-action-label">{fullscreen ? "退出全屏" : "全屏"}</span></button>
