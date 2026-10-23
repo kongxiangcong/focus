@@ -44,14 +44,14 @@ Recovery and retained state: 写入乐观显示，失败保留草稿并以同一
 ### 回归与构建
 
 - `pnpm reader:typecheck`：contracts / reader-ui / standalone 均通过。
-- `pnpm reader:test`：reader-ui 192、standalone 168 项通过。首次高负载运行有一条选区等待失败；完整单 worker 两套均通过。补齐测试 helper 的 pointerUp→mouseUp 实际手势后重跑默认命令通过；业务断言与 timeout 未降低。
+- 完整前端回归：reader-ui 199、standalone 169 项通过。修复合入后的默认 `pnpm reader:test` 中，reader-ui 全部通过；standalone 168 项通过，既有 WorkspaceApp 元数据编辑用例触发 5 秒超时。完整单 worker 重跑 169 项全部通过（160.60s），业务断言与 timeout 未改动。同一用例在基线 `883c456` 默认/单 worker 均已有相同超时，证据为本地 `baseline-ui.log`、`baseline-standalone-serial.log`，不归因于本功能。审查前的默认命令也曾完整通过；选区 helper 已补齐真实手势的 pointerUp→mouseUp。
 - `pnpm reader:build`：通过；小型 KaTeX 字体输出为同源文件，隔离 Host 生产资源浏览器回归无 CSP console 错误。仍有既有 bundle-size 提示。
-- Python 全量 discover：510 项（1 项真实 DeepSeek SDK opt-in 测试跳过），其余通过（根分支同功能实现，611.089s；13 只改浏览器 fixture 支持代码，未改后端产品逻辑）。
+- Python 全量 discover：最终合并根分支 518 项（1 项真实 DeepSeek SDK opt-in 测试跳过），其余通过，682.569s。日志 `tmp/test-runs/annotations/final-python-full.log`。测试过程有既有 sqlite 连接未关闭的 ResourceWarning，不影响测试结果；本次未为消除警告改动无关代码。
 - `reading_attachment_browser.mjs`：side / split / stacked、390–1600、普通/全屏、阅读锚点、dock、偏好与减少动效通过。
 - `reading_discussion_browser.mjs`：原文选区引用、引用跳转/悬停、段落回看、笔记保存与只读跳转、控制台门禁通过。
 - `confirmed_ux_browser.mjs`：10 组旧流程通过，覆盖准备/正文/回看/前沿、新会话 SSE 与刷新、完成终态、资料抽屉、重读确认、知识库任务区与顶层模态。Mist 已移除的新会话按钮改由公开 Host API 驱动，仍断言 UI 与持久状态；未恢复旧 UI。
 
-可重复命令和结果摘要见 [validation-summary.json](evidence/product/validation-summary.json)。原始运行日志保存在本地 `tmp/test-runs/annotations/acceptance13-*.log`，不将私人库内容纳入提交。
+可重复命令和结果摘要见 [validation-summary.json](evidence/product/validation-summary.json)。原始运行日志保存在本地 `tmp/test-runs/annotations/acceptance13-*.log` 与 `final-*.log`，不将私人库内容纳入提交。
 
 ### 原型对照与手测范围
 
@@ -63,7 +63,7 @@ Recovery and retained state: 写入乐观显示，失败保留草稿并以同一
 
 ## Remaining work
 
-所需自动化验收已通过；物理中文输入法仍需人在目标机器检查“组字中 Enter 不提交，完成组字后 Enter 保存”。真实触屏与其他浏览器为后续验证范围。独立双轴审查后的修复复核与最终工作树清理由集成任务统一完成。
+物理中文输入法仍需人在目标机器检查“组字中 Enter 不提交，完成组字后 Enter 保存”。真实触屏与其他浏览器为后续验证范围。standalone 默认并发的既有超时与完整单 worker 通过结果均保留在回归记录中。
 
 ## Independent review fixes
 
@@ -82,3 +82,11 @@ Recovery and retained state: 写入乐观显示，失败保留草稿并以同一
 修复后验证：受影响 Python 六套共 61 项通过（48.626s），含独立进程竞争；完整 reader-ui 199 项通过；standalone 完整单 worker 169 项通过。standalone 首次并行运行有一条既有 WorkspaceApp 元数据编辑测试 5 秒超时，未改变断言/超时，完整单 worker 重跑通过。contracts / reader-ui / standalone 三套 tsc 与生产构建（422 modules）通过；既有 bundle-size 提示保留。
 
 `tests/reading_annotations_browser.mjs` 对隔离修复分支重跑全部 14 个 Chrome 场景通过，desktop / mobile / reduced-motion 三个 context 的 `errors` 为空。本地日志 `tmp/test-runs/annotations/review-fixes-browser.log`，指标 `tmp/test-runs/annotations/review-fixes-browser/metrics.json`；仅使用合成数据。物理中文输入法的 NOT_RUN 状态不变。原始两轴发现及集成复核由集成任务另记，修复本身不宣称新的独立审查已经通过。
+
+## Integration closeout
+
+修复提交 `bef1ecb` 合入 `71d72a5` 后，两名原独立审查者分别复核：Standards 3 项关闭、0 项残留；Spec 2 项关闭、0 项残留。独立复核证据与两轴原始发现见 [review.md](review.md)。
+
+最终集成分支再次通过三个 TypeScript 项目检查、生产构建、518 项 Python 回归（1 项跳过）与全部 14 个 Chrome 场景；[最终集成指标](evidence/product/final-integration-metrics.json) 的 desktop / mobile / reduced-motion 错误列表为空。该轮在清理实现工作树后直接加载根分支模块，日志位于 `tmp/test-runs/annotations/final-integration-browser.log`。
+
+15 个本次实现工作树均在确认干净且 HEAD 已包含于集成分支后移除；122 个依赖 junction 仅解除链接自身，根依赖保留，所有分支保留。本次自建预览服务已停止。原型哈希未变；未执行 push 或 PR，未将真实库正文、截图或路径纳入提交。
