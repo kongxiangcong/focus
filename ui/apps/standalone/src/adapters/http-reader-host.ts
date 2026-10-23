@@ -91,7 +91,7 @@ function isReadingWindow(value: unknown): value is ReadingWindow {
 }
 
 function isFailureCode(value: unknown): value is ReaderFailureCode {
-  return ["highlight_bundle_changed", "highlight_invalid", "highlight_request_conflict", "highlight_not_found", "note_sentence_invalid", "note_bundle_changed", "cursor-changed", "invalid-request", "invalid-response", "unavailable", "unknown"].includes(
+  return ["highlight_overlap", "note_sentence_overlap", "highlight_bundle_changed", "highlight_invalid", "highlight_request_conflict", "highlight_not_found", "note_sentence_invalid", "note_bundle_changed", "cursor-changed", "invalid-request", "invalid-response", "unavailable", "unknown"].includes(
     String(value),
   );
 }

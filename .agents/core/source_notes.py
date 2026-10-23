@@ -103,6 +103,36 @@ class SourceNotes:
         with _LOCK, closing(self._connect(source_id)) as db:
             return db.execute("SELECT count(*) FROM clears").fetchone()[0]
 
+    @staticmethod
+    def _check_annotation_overlap(db: sqlite3.Connection, bundle: str, locator: dict,
+                                  entity: str, exclude_id: str | None = None) -> None:
+        """Check occupancy inside the caller's write transaction, across both entities.
+
+        An exact range can carry one highlight and one sentence note. Any other
+        intersection is ambiguous, and must not redirect a new write to an old note.
+        """
+        candidates = [("highlight", row["id"],
+                       {"planId": row["plan_id"], "chunkId": row["chunk_id"],
+                        "layer": row["layer"],
+                        "range": {"start": row["range_start"], "end": row["range_end"]}})
+                      for row in db.execute("SELECT * FROM highlights WHERE deleted=0 AND bundle=?", (bundle,))]
+        candidates.extend(("note", row["id"], json.loads(row["sentence"]))
+                          for row in db.execute("SELECT id, bundle, sentence FROM notes "
+                                                "WHERE deleted=0 AND sentence IS NOT NULL AND bundle=?", (bundle,)))
+        start, end = locator["range"]["start"], locator["range"]["end"]
+        for other_entity, other_id, other in candidates:
+            if other_entity == entity and other_id == exclude_id:
+                continue
+            if any(other[key] != locator[key] for key in ("planId", "chunkId", "layer")):
+                continue
+            other_start, other_end = other["range"]["start"], other["range"]["end"]
+            if start >= other_end or end <= other_start:
+                continue
+            if entity != other_entity and (start, end) == (other_start, other_end):
+                continue
+            code = "highlight_overlap" if entity == "highlight" else "note_sentence_overlap"
+            raise WorkspaceError(code, "The sentence range is already occupied; select it again")
+
     def clear(self, source_id: str, *, request_id: str) -> None:
         """Erase notes and recovery payloads, retaining only revoked request IDs."""
         self._check_request(request_id)
@@ -230,6 +260,8 @@ class SourceNotes:
                 raise WorkspaceError("note_bundle_changed", "Source Bundle changed")
             encoded_anchor = self._anchor(source_id, bundle, anchor)
             encoded_placement = self._placement(source_id, bundle, placement)
+            if sentence is not None:
+                self._check_annotation_overlap(db, bundle, sentence, "note")
             note_id = uuid.uuid4().hex
             db.execute("INSERT INTO notes(id, revision, content, kind, origin, bundle, anchor, "
                        "evidence_role, deleted, undo, sentence, placement) VALUES(?, 1, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)",
@@ -290,6 +322,9 @@ class SourceNotes:
                         db.execute("UPDATE notes SET revision=?, deleted=1, undo=NULL WHERE id=?", (revision, note_id))
                     else:
                         saved = recovery["before"]
+                        if not saved["deleted"] and row["sentence"]:
+                            self._check_annotation_overlap(db, saved["bundle"],
+                                                           json.loads(row["sentence"]), "note", note_id)
                         db.execute("UPDATE notes SET revision=?, content=?, kind=?, origin=?, bundle=?, anchor=?, "
                                    "evidence_role=?, deleted=?, undo=NULL WHERE id=?",
                                    (revision, saved["content"], saved["kind"], saved["origin"], saved["bundle"],

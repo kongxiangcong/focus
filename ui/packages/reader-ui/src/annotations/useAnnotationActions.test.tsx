@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import type { CreateHighlightInput, CreateSourceNoteInput, ReadingWindow, ReaderHostResult } from "@focus/reader-contracts";
+import { readerFailure, type CreateHighlightInput, type CreateSourceNoteInput, type ReadingWindow, type ReaderHostResult } from "@focus/reader-contracts";
 import { FixtureReaderHost } from "../../../../apps/standalone/src/adapters/fixture-reader-host";
 import { useAnnotationActions } from "./useAnnotationActions";
 
@@ -103,6 +103,20 @@ it("does not offer a stale-bundle write for retry", async () => {
   await act(async () => { await result.current.createHighlight(input(initial)); });
   expect(result.current.highlights).toEqual([]);
   expect(result.current.toast).toEqual(expect.objectContaining({ message: "这段原文已更新，标注未保存" }));
+  expect(result.current.toast?.action).toBeUndefined();
+  expect(sessionStorage.getItem("focus.annotationRequests")).toBeNull();
+});
+
+it("rejects an occupied sentence as unsaved without adopting another note or retrying it", async () => {
+  const host = new FixtureReaderHost(), initial = value(await host.getReadingWindow()), payload = noteInput(initial);
+  vi.spyOn(host, "createSourceNote").mockResolvedValue(readerFailure("note_sentence_overlap", "Range occupied"));
+  const onNoteSaved = vi.fn(), onNoteFailed = vi.fn(), onNoteConflict = vi.fn();
+  const { result } = renderHook(() => useAnnotationActions({ host, view: initial, accept: vi.fn(), scope: "source:0", onNoteSaved, onNoteFailed, onNoteConflict }));
+  await act(async () => { await result.current.createNote(payload); });
+  expect(result.current.notes).toEqual([]);
+  expect(onNoteSaved).not.toHaveBeenCalled(); expect(onNoteConflict).not.toHaveBeenCalled();
+  expect(onNoteFailed).toHaveBeenCalledWith(payload.requestId);
+  expect(result.current.toast?.message).toBe("这处标注已在另一窗口更改，请重新选择");
   expect(result.current.toast?.action).toBeUndefined();
   expect(sessionStorage.getItem("focus.annotationRequests")).toBeNull();
 });

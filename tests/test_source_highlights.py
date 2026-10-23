@@ -65,7 +65,7 @@ class SourceHighlightsTests(unittest.TestCase):
             conflict = self.change(restored, 'undo', request, revision)
             self.assertEqual({'status': 'conflict', 'current': restored}, conflict)
             self.assertEqual(conflict, self.highlights.result(self.source, request))
-        fresh = self.save('highlight-second')['highlight']
+        fresh = self.save('highlight-second', locator={**self.locator, 'range': {'start': 7, 'end': 14}})['highlight']
         undone = self.change(fresh, 'undo', 'highlight-uncreate')['highlight']
         self.assertTrue(undone['deleted'])
         self.assertEqual(2, undone['revision'])

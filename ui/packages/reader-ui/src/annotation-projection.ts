@@ -1,4 +1,5 @@
 import type { AnnotationLayer, ReaderChunk, ReadingHighlight, SentenceLocator, SentenceQuote, SourceNote } from "@focus/reader-contracts";
+import { readingOwner } from "./reading-owner";
 
 export type Located = { kind: "highlight"; item: ReadingHighlight } | { kind: "note"; item: SourceNote & { sentence: SentenceLocator } };
 export interface ResolvedMark { key: string; start: number; end: number; highlight?: ReadingHighlight; note?: SourceNote & { sentence: SentenceLocator } }
@@ -33,17 +34,7 @@ export function groupLocated(highlights: readonly ReadingHighlight[], notes: rea
     const loc = record.kind === "highlight" ? record.item : record.item.sentence;
     const anchor = record.kind === "highlight" ? record.item : record.item.anchor;
     if (!anchor) continue;
-    const eligible = groups.filter(group => group.chunk?.sourceId === item.sourceId && group.chunk.bundleVersion === anchor.bundle);
-    const exact = eligible.filter(group => group.chunk!.planId === loc.planId && group.chunk!.chunkId === loc.chunkId);
-    let owner = exact.at(-1);
-    if (!owner) {
-      let overlap = 0;
-      for (const group of eligible) {
-        const chunk = group.chunk!;
-        const lines = Math.min(chunk.sourceLines[1], anchor.sourceLines[1]) - Math.max(chunk.sourceLines[0], anchor.sourceLines[0]) + 1;
-        if (lines > 0 && (lines > overlap || (lines === overlap && chunk.index <= owner!.chunk!.index))) { owner = group; overlap = lines; }
-      }
-    }
+    const owner = readingOwner(groups, item.sourceId, anchor, loc);
     if (owner) projected.set(owner.id, [...(projected.get(owner.id) ?? []), record]);
   }
   return projected;

@@ -75,6 +75,13 @@ describe("SourceNotesPanel", () => {
     expect(handlers.onOpenSentence).toHaveBeenCalledWith(sentence, false, chunk);
   });
 
+  it("uses the last repeated exact chunk occurrence, matching inline annotation ownership", () => {
+    const handlers = callbacks(), latest = { ...chunk, sourceMarkdown: "Latest rendered occurrence" };
+    render(<SourceNotesPanel notes={[sentence]} chunks={[chunk, latest]} {...handlers} />);
+    fireEvent.click(screen.getByText("「Quoted sentence.」"));
+    expect(handlers.onOpenSentence).toHaveBeenCalledWith(sentence, false, latest);
+  });
+
   it("keeps a loaded lost sentence remark readable and editable without jumping to an unrelated position", () => {
     const handlers = callbacks();
     render(<SourceNotesPanel notes={[sentence]} chunks={[chunk]} lostSentenceNoteIds={new Set([sentence.noteId])} {...handlers} />);

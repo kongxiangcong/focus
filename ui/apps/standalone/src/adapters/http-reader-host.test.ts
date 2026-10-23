@@ -216,3 +216,12 @@ it("posts independent library display title through Source management", async ()
     }),
   }));
 });
+
+it("preserves explicit annotation occupancy conflicts from HTTP", async () => {
+  for (const code of ["highlight_overlap", "note_sentence_overlap"]) {
+    const error = { code, message: "Range occupied", retryable: false };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify({ ok: false, error }), { status: 409 }));
+    const host = new HttpReaderHost({ baseUrl: "http://127.0.0.1:4317", fetch });
+    expect(await host.changeHighlight("fixture-paper", "highlight", "undo", 2, "overlap-request")).toEqual({ ok: false, error });
+  }
+});

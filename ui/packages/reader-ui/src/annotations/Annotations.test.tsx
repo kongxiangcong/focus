@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { FixtureReaderHost } from "../../../../apps/standalone/src/adapters/fixture-reader-host";
 import { FocusReader } from "../FocusReader";
-import { readerSuccess, type ReaderChunk, type ReaderHost } from "@focus/reader-contracts";
+import { readerFailure, readerSuccess, type ReaderChunk, type ReaderHost } from "@focus/reader-contracts";
 import { domAnnotatableText } from "../annotatable-text";
 
 const chunk: ReaderChunk = { sourceId: "demo-paper", planId: "plan-001", chunkId: "chunk-001", index: 1, total: 1,
@@ -50,6 +50,27 @@ it("keeps cross-block selections available only for reference questions", async 
   expect(within(toolbar).getByRole("button", { name: "引用提问" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "重点" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "备注" })).not.toBeInTheDocument();
+});
+it("clears the old selection toolbar after keyboard extension into another chunk", async () => {
+  const second = { ...chunk, chunkId: "chunk-002", index: 2, total: 2, sourceMarkdown: "Outside the first chunk." };
+  const host = await setup(host => {
+    const get = host.getReadingWindow.bind(host);
+    vi.spyOn(host, "getReadingWindow").mockImplementation(async () => {
+      const result = await get();
+      return result.ok ? readerSuccess({ ...result.value, current: second, history: [chunk],
+        timeline: [{ kind: "reading", chunk }, { kind: "reading", chunk: second }] }) : result;
+    });
+  });
+  const create = vi.spyOn(host, "createHighlight");
+  selectText(); await screen.findByRole("toolbar", { name: "选区操作" });
+  const selection = window.getSelection()!, range = selection.getRangeAt(0);
+  const end = screen.getByText("Outside the first chunk.").firstChild!;
+  range.setEnd(end, 7);
+  selection.removeAllRanges(); selection.addRange(range);
+  fireEvent.keyDown(document, { key: "ArrowRight", shiftKey: true }); fireEvent(document, new Event("selectionchange"));
+  await waitFor(() => expect(screen.queryByRole("toolbar", { name: "选区操作" })).not.toBeInTheDocument());
+  expect(screen.queryByRole("button", { name: "重点" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "备注" })).not.toBeInTheDocument(); expect(create).not.toHaveBeenCalled();
 });
 it("saves a sentence note in-place, opens the bulb, edits, and deletes with undo", async () => {
   const host = await setup(); const create = vi.spyOn(host, "createSourceNote"), change = vi.spyOn(host, "changeSourceNote");
@@ -107,6 +128,21 @@ it("retains failed note input and retries the same request once; bundle changes 
   host.writeOutcome = "bundle_changed";
   selectText(16, 31); fireEvent.click(await screen.findByRole("button", { name: "重点" }));
   await screen.findByText("这段原文已更新，标注未保存"); expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+});
+it("keeps a rejected new sentence draft as new rather than editing another tab's note", async () => {
+  const host = await setup();
+  const create = vi.spyOn(host, "createSourceNote").mockResolvedValue(readerFailure("note_sentence_overlap", "Occupied in another tab"));
+  const edit = vi.spyOn(host, "changeSourceNote");
+  selectText(); fireEvent.click(await screen.findByRole("button", { name: "备注" }));
+  const input = screen.getByRole("textbox", { name: "备注文字" });
+  fireEvent.change(input, { target: { value: "这仍是我的新草稿" } }); fireEvent.keyDown(input, { key: "Enter" });
+  await screen.findByText("这处标注已在另一窗口更改，请重新选择");
+  expect(input).toHaveValue("这仍是我的新草稿");
+  expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+  expect(edit).not.toHaveBeenCalled();
+  expect(input).toHaveValue("这仍是我的新草稿");
 });
 it("rejects partial overlap and opens existing annotations when selection is contained", async () => {
   await setup(); selectText(); fireEvent.click(await screen.findByRole("button", { name: "重点" }));

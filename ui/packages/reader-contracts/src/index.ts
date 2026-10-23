@@ -315,6 +315,8 @@ export interface SendReaderMessageInput {
 }
 
 export type ReaderFailureCode =
+  | "highlight_overlap"
+  | "note_sentence_overlap"
   | "highlight_bundle_changed"
   | "highlight_invalid"
   | "highlight_request_conflict"

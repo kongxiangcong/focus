@@ -63,4 +63,22 @@ Recovery and retained state: 写入乐观显示，失败保留草稿并以同一
 
 ## Remaining work
 
-所需自动化验收已通过；物理中文输入法仍需人在目标机器检查“组字中 Enter 不提交，完成组字后 Enter 保存”。真实触屏与其他浏览器为后续验证范围。独立双轴代码审查与最终工作树清理由集成任务统一完成。
+所需自动化验收已通过；物理中文输入法仍需人在目标机器检查“组字中 Enter 不提交，完成组字后 Enter 保存”。真实触屏与其他浏览器为后续验证范围。独立双轴审查后的修复复核与最终工作树清理由集成任务统一完成。
+
+## Independent review fixes
+
+独立审查范围为 `883c456` → `7e08b5c`。两轴分别保留：Standards 发现 3 项（2 项规则违反、1 项设计判断），Spec 发现 2 项；各轴最高为 P2。以下修复来自隔离的 `codex/annotations-review-fixes` 分支，未调整产品契约或删除失败断言。
+
+| Axis / finding | Resolution | Public regression |
+|---|---|---|
+| Standards P2：持久化允许重复与部分重叠 | `SourceNotes._check_annotation_overlap` 在既有 `BEGIN IMMEDIATE` 内同时检查两张 active 表；相同区间只允许一条重点与一条备注，其他交集拒绝。创建与撤销恢复共用检查，请求重放优先；拒绝不消耗撤销槽或修订号 | `test_annotation_overlap.py`：独立请求、双实例与独立进程竞争、跨实体、包含/部分重叠、边界相接、恢复冲突及同请求重试；原 undo 测试的第二独立样本改用不重叠区间，保留原恢复断言 |
+| Standards P3：几何 token 未使用 | `AnnotationRail` 与 `useRailLayout` 从计算样式读取 narrow-rail / card-gap / card-offset，纯 packing 显式接收数值 | `AnnotationRail.test.tsx`：覆盖自定义 300px 阈值、24px 间距及 12px 偏移 |
+| Standards P3（设计判断）：归属判断重复 | `reading-owner.ts` 统一 Source/Bundle 资格、精确 Plan/Chunk 优先、最大行交集、小段序优先和重复段最后一次出现；三个入口共用 | 原 annotation/note projection 测试保留；`SourceNotesPanel.test.tsx` 增加最后一次精确出现回归，已加载失效备注仍可编辑 |
+| Spec P2：跨段键盘选区保留旧气泡 | `useAnnotations.readSelection` 对越界、无效偏移及无效段落关闭旧选区气泡，保留编辑器入口的草稿保护 | `Annotations.test.tsx`：先建立可操作选区，再 Shift+Arrow 延伸到另一 Chunk，旧重点/备注操作消失；原非空编辑器保护测试保留 |
+| Spec P3：普通内容 repack 禁用 M13 | `useRailLayout` 只在首次布局及布局模式变化时加 `.no-anim`；内容修订和删除保留 CSS transform 过渡 | `AnnotationRail.test.tsx`：备注变高、删除前卡后，后卡移动且无 `.no-anim`；模式切换仍抑制过渡 |
+
+跨 HTTP 边界的拒绝使用 409 与稳定 `highlight_overlap` / `note_sentence_overlap` 错误码；HTTP adapter 保留这些码。新备注拒绝不会冒充保存或把他人的备注绑定成当前编辑对象，用户草稿仍保留并提示重新选择。`test_reading_highlights_host.py` 检查创建/恢复拒绝后持久数据不变；actions 与完整 reader UI 测试覆盖草稿和回调语义。
+
+修复后验证：受影响 Python 六套共 61 项通过（48.626s），含独立进程竞争；完整 reader-ui 199 项通过；standalone 完整单 worker 169 项通过。standalone 首次并行运行有一条既有 WorkspaceApp 元数据编辑测试 5 秒超时，未改变断言/超时，完整单 worker 重跑通过。contracts / reader-ui / standalone 三套 tsc 与生产构建（422 modules）通过；既有 bundle-size 提示保留。
+
+`tests/reading_annotations_browser.mjs` 对隔离修复分支重跑全部 14 个 Chrome 场景通过，desktop / mobile / reduced-motion 三个 context 的 `errors` 为空。本地日志 `tmp/test-runs/annotations/review-fixes-browser.log`，指标 `tmp/test-runs/annotations/review-fixes-browser/metrics.json`；仅使用合成数据。物理中文输入法的 NOT_RUN 状态不变。原始两轴发现及集成复核由集成任务另记，修复本身不宣称新的独立审查已经通过。
