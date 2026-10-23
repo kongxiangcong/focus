@@ -34,6 +34,7 @@ function selectText(start = 0, end = 15, cross = false) {
   range.setEnd(cross ? paragraphs[1].firstChild! : last.node, cross ? 7 : end - last.start);
   window.getSelection()!.removeAllRanges(); window.getSelection()!.addRange(range);
   fireEvent.pointerUp(paragraphs[0]);
+  fireEvent.mouseUp(paragraphs[0]);
 }
 it("offers highlight, note, and reference for an in-block selection and persists emphasis", async () => {
   const host = await setup(); const create = vi.spyOn(host, "createHighlight");

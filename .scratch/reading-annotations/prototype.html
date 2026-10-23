@@ -1,0 +1,981 @@
+<!doctype html>
+<html lang="zh-CN" data-attached="false">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>阅读批注与段全局笔记 · 原型</title>
+<style>
+@property --hl-w { syntax:'<percentage>'; inherits:false; initial-value:100%; }
+@property --ul-w { syntax:'<percentage>'; inherits:false; initial-value:100%; }
+
+/* Values mirror ui/packages/reader-ui/src/focus-tokens.css; --anno-* are proposed additions. */
+:root {
+  color-scheme:light;
+  --reader-canvas:#f5f4f0; --reader-surface-1:#eceae4; --reader-surface-2:#fffffe;
+  --reader-ink:#1d2125; --reader-ink-2:#4f5964; --reader-muted:#5d636b; --reader-faint:#8b9097;
+  --reader-accent:#2d5f7f; --reader-accent-ink:#24506c; --reader-accent-soft:rgba(45,95,127,.10); --reader-accent-line:rgba(45,95,127,.38);
+  --reader-mark-strong:#c28a1e; --reader-mark-ink:#8a5d0c;
+  --reader-action:#1d2125; --reader-on-action:#f8f7f4; --reader-focus:#24506c; --reader-danger:#a32b31;
+  --reader-line:rgba(29,33,37,.10); --reader-line-strong:rgba(29,33,37,.18); --reader-hover:rgba(29,33,37,.055);
+  --reader-serif:"FOCUS Source Han Serif","Iowan Old Style","Palatino Linotype","Noto Serif CJK SC","Songti SC","SimSun",Georgia,serif;
+  --reader-ui:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  --reader-prose-size:18px; --reader-prose-leading:1.86;
+  --quick:140ms; --move:240ms; --travel:380ms; --exit:170ms;
+  --ease-out:cubic-bezier(.22,.8,.24,1); --ease-inout:cubic-bezier(.45,0,.2,1); --ease-in:cubic-bezier(.4,0,1,1);
+  --reader-shadow:0 0 0 1px rgba(29,33,37,.07),0 1px 2px rgba(29,33,37,.04),0 12px 32px -18px rgba(29,33,37,.22);
+  --reader-shadow-popover:0 0 0 1px rgba(29,33,37,.08),0 4px 10px -4px rgba(29,33,37,.10),0 18px 44px -18px rgba(29,33,37,.30);
+  --reader-radius:6px; --reader-card-radius:10px;
+
+  --anno-hl:rgba(247,206,70,.50);
+  --anno-hl-strong:#d6a514;
+  --anno-line:rgba(163,43,49,.80);
+  --measure:680px; --rail-w:272px; --rail-gap:40px;
+}
+* { box-sizing:border-box; }
+html { scroll-padding-top:64px; }
+body { margin:0; background:var(--reader-canvas); color:var(--reader-ink); font:13px/1.5 var(--reader-ui); }
+button { font:inherit; color:inherit; }
+:focus-visible { outline:2px solid var(--reader-focus); outline-offset:2px; }
+
+/* Top bar */
+.topbar { position:sticky; top:0; z-index:30; display:flex; align-items:center; gap:12px; height:48px; padding:0 20px;
+  background:rgba(245,244,240,.92); backdrop-filter:blur(8px); border-bottom:1px solid var(--reader-line); }
+.topbar__title { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--reader-ink-2); }
+.topbar__title b { color:var(--reader-ink); font-weight:600; margin-right:8px; }
+.spacer { flex:1; }
+.switch { display:inline-flex; align-items:center; gap:8px; height:30px; padding:0 10px 0 8px; border:0; border-radius:999px; background:transparent; cursor:pointer; }
+.switch:hover { background:var(--reader-hover); }
+.switch__track { position:relative; width:28px; height:16px; border-radius:999px; background:var(--reader-line-strong); transition:background-color var(--quick) var(--ease-out); }
+.switch__track::after { content:""; position:absolute; top:2px; left:2px; width:12px; height:12px; border-radius:50%; background:#fff; box-shadow:0 1px 2px #0003; transition:transform var(--move) var(--ease-out); }
+.switch[aria-pressed=true] .switch__track { background:var(--reader-accent); }
+.switch[aria-pressed=true] .switch__track::after { transform:translateX(12px); }
+.switch small { color:var(--reader-muted); font-variant-numeric:tabular-nums; }
+.demo { position:relative; }
+.demo > summary { list-style:none; display:inline-flex; align-items:center; height:30px; padding:0 10px; border-radius:8px; cursor:pointer; color:var(--reader-ink-2); }
+.demo > summary::-webkit-details-marker { display:none; }
+.demo > summary:hover, .demo[open] > summary { background:var(--reader-hover); }
+.demo__menu { position:absolute; right:0; top:36px; width:264px; padding:6px; background:var(--reader-surface-2); border-radius:12px; box-shadow:var(--reader-shadow-popover); }
+.demo__menu button, .demo__menu label { display:flex; align-items:center; gap:8px; width:100%; min-height:32px; padding:6px 10px; border:0; border-radius:8px; background:none; text-align:left; cursor:pointer; }
+.demo__menu button:hover, .demo__menu label:hover { background:var(--reader-hover); }
+.demo__menu hr { border:0; border-top:1px solid var(--reader-line); margin:4px 0; }
+.demo__menu small { display:block; color:var(--reader-muted); }
+
+/* Reading layout */
+.reader { max-width:calc(var(--measure) + 64px); margin:0 auto; padding:44px 32px 200px; }
+[data-attached=true] .reader { max-width:calc(var(--measure) + var(--rail-gap) + var(--rail-w) + 64px); }
+.doc-head { max-width:var(--measure); margin-bottom:28px; }
+.doc-head h1 { margin:0 0 6px; font:600 26px/1.4 var(--reader-serif); }
+.doc-head p { margin:0; color:var(--reader-muted); }
+.hint { margin-top:14px !important; display:flex; flex-wrap:wrap; gap:6px 14px; font-size:12px; }
+.hint span::before { content:"·"; margin-right:6px; color:var(--reader-faint); }
+.hint span:first-child::before { content:none; }
+
+.chunk { margin-bottom:36px; }
+.chunk__label { margin-bottom:6px; font-size:12px; color:var(--reader-muted); }
+.chunk-grid { display:grid; grid-template-columns:minmax(0,var(--measure)); align-items:start; }
+[data-attached=true] .chunk-grid { grid-template-columns:minmax(0,var(--measure)) var(--rail-w); column-gap:var(--rail-gap); }
+.passage p { margin:0 0 .9em; font:var(--reader-prose-size)/var(--reader-prose-leading) var(--reader-serif); overflow-wrap:anywhere; }
+.passage p:last-child { margin-bottom:0; }
+.passage ::selection { background:rgba(45,95,127,.20); }
+.rail { display:none; }
+[data-attached=true] .rail { display:block; min-width:0; padding-left:14px; border-left:1px solid var(--reader-line); }
+.rail-anchored { position:relative; }
+@media (max-width:1047px) {
+  [data-attached=true] .chunk-grid { grid-template-columns:minmax(0,3fr) minmax(0,1fr); column-gap:20px; }
+}
+@media (max-width:759px) {
+  .reader { padding:28px 18px 160px; }
+  [data-attached=true] .chunk-grid { grid-template-columns:minmax(0,1fr); }
+  [data-attached=true] .rail { margin-top:14px; padding-left:0; border-left:0; }
+  .rail-anchored { height:auto !important; }
+  .rail-anchored .card { position:relative !important; transform:none !important; margin-bottom:8px; }
+  .card::before { display:none; }
+}
+
+/* Marks: text-offset anchored highlight / note */
+.mk { --hl-img:linear-gradient(transparent,transparent); --ul-img:linear-gradient(transparent,transparent);
+  background-image:var(--hl-img), var(--ul-img); background-repeat:no-repeat; background-position:0 0, 0 100%;
+  background-size:var(--hl-w) 100%, var(--ul-w) 1.5px; padding-bottom:3px; border-radius:2px; cursor:pointer;
+  transition:background-color var(--quick) var(--ease-out); }
+.mk--hl { --hl-img:linear-gradient(var(--anno-hl),var(--anno-hl)); }
+.mk--note { --ul-img:repeating-linear-gradient(90deg,var(--anno-line) 0 4px,transparent 4px 7px); }
+.mk--pending { --ul-img:repeating-linear-gradient(90deg,var(--reader-faint) 0 4px,transparent 4px 7px); background-color:var(--reader-hover); }
+.mk.is-linked, .mk:focus-visible { background-color:var(--reader-accent-soft); outline:none; }
+.mk.is-new-hl { animation:hl-in var(--travel) var(--ease-out) both; }
+.mk.is-new-note { animation:ul-in var(--travel) var(--ease-out) both; }
+.mk.is-new-hl.is-new-note { animation:hl-in var(--travel) var(--ease-out) both, ul-in var(--travel) var(--ease-out) 80ms both; }
+.mk--tail.is-new-hl, .mk--tail.is-new-note { animation-delay:300ms; animation-duration:80ms; }
+.mk.is-pulse { animation:pulse 900ms var(--ease-out); }
+@keyframes hl-in { from { --hl-w:0%; } }
+@keyframes ul-in { from { --ul-w:0%; } }
+@keyframes pulse { 0%,60% { background-color:rgba(45,95,127,.22); } 100% { background-color:transparent; } }
+.nb { white-space:nowrap; }
+.bulb-anchor { position:relative; display:inline-block; width:0; height:0; }
+.bulb { position:absolute; left:1px; bottom:.78em; width:17px; height:17px; padding:0; display:grid; place-items:center;
+  border:1px solid rgba(194,138,30,.45); border-radius:9px 9px 9px 3px; background:#fffaf0; color:var(--reader-mark-strong);
+  box-shadow:0 1px 2px rgba(29,33,37,.10); cursor:pointer; transform-origin:0 100%;
+  transition:opacity var(--move) var(--ease-out) var(--bulb-delay,0s), transform var(--move) var(--ease-out) var(--bulb-delay,0s), visibility 0s var(--bulb-delay,0s); }
+.bulb::after { content:""; position:absolute; inset:-7px; }
+.bulb svg { width:11px; height:11px; }
+.bulb:hover { background:#fff2d6; }
+.bulb.is-new { animation:bulb-pop var(--travel) cubic-bezier(.34,1.5,.64,1) 320ms both; }
+@keyframes bulb-pop { from { opacity:0; transform:scale(.3); } }
+[data-attached=true] .bulb { opacity:0; transform:scale(.4); visibility:hidden; pointer-events:none;
+  transition:opacity var(--quick) var(--ease-in), transform var(--quick) var(--ease-in), visibility 0s var(--quick); }
+
+/* Rail cards (individual notes) */
+.card { position:absolute; left:0; right:0; top:0; padding:8px 11px 9px; background:var(--reader-surface-2); border-radius:var(--reader-card-radius);
+  box-shadow:var(--reader-shadow); font:13px/1.65 var(--reader-ui); transform-origin:0 0;
+  transition:transform var(--move) var(--ease-out), box-shadow var(--quick) var(--ease-out); }
+.no-anim .card { transition:none; }
+.card::before { content:""; position:absolute; top:13px; left:-15px; width:11px; border-top:1px solid var(--reader-line-strong); transition:opacity var(--quick); }
+.card.is-displaced::before { opacity:0; }
+.card.is-linked { box-shadow:0 0 0 1px var(--reader-accent-line),0 12px 32px -18px rgba(29,33,37,.3); }
+.card.is-linked::before { border-color:var(--reader-accent-line); }
+.card__quote { margin-bottom:3px; padding-left:8px; border-left:2px dashed var(--anno-line); color:var(--reader-muted); font:12px/1.6 var(--reader-serif);
+  display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
+.card.has-hl .card__quote span { background:var(--anno-hl); }
+.card__text { white-space:pre-wrap; overflow-wrap:anywhere; }
+.card__actions { position:absolute; top:4px; right:4px; display:flex; gap:2px; padding:2px; border-radius:8px; background:var(--reader-surface-2);
+  opacity:0; transition:opacity var(--quick) var(--ease-out); }
+.card:hover .card__actions, .card:focus-within .card__actions, .card.is-linked .card__actions { opacity:1; }
+.card.is-saved { animation:settle var(--move) var(--ease-out); }
+@keyframes settle { from { box-shadow:0 0 0 2px rgba(247,206,70,.7),var(--reader-shadow); } }
+
+.icon-btn { display:inline-grid; place-items:center; width:24px; height:24px; padding:0; border:0; border-radius:6px; background:transparent; color:var(--reader-ink-2); cursor:pointer; }
+.icon-btn:hover { background:var(--reader-hover); color:var(--reader-ink); }
+.icon-btn.danger:hover { color:var(--reader-danger); }
+.icon-btn svg { width:14px; height:14px; }
+.ghost { display:inline-flex; align-items:center; gap:4px; height:26px; padding:0 8px; border:0; border-radius:var(--reader-radius); background:transparent; color:var(--reader-ink-2); font-size:12px; cursor:pointer; }
+.ghost:hover { background:var(--reader-hover); color:var(--reader-ink); }
+.ghost.danger:hover { color:var(--reader-danger); }
+.ghost svg { width:13px; height:13px; }
+.primary { height:26px; padding:0 12px; border:0; border-radius:var(--reader-radius); background:var(--reader-action); color:var(--reader-on-action); font-size:12px; cursor:pointer; }
+.primary:disabled { opacity:.35; cursor:default; }
+
+/* Paragraph (global) notes */
+.cnotes { margin-top:14px; padding-top:10px; border-top:1px dashed var(--reader-line-strong); font:12.5px/1.65 var(--reader-ui); }
+.cnotes > header { display:flex; align-items:center; gap:6px; margin-bottom:6px; font-weight:500; }
+.cnotes > header small { color:var(--reader-muted); font-weight:400; font-variant-numeric:tabular-nums; }
+.cnotes ol { list-style:none; margin:0; padding:0; }
+.cnote { position:relative; padding:6px 0; }
+.cnote + .cnote { border-top:1px solid var(--reader-line); }
+.cnote p { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.cnote__meta { display:flex; align-items:center; gap:6px; min-height:22px; font-size:11px; color:var(--reader-muted); }
+.tag { padding:0 6px; border-radius:999px; background:var(--reader-surface-1); }
+.tag--dlg { background:var(--reader-accent-soft); color:var(--reader-accent-ink); }
+.cnote__actions { margin-left:auto; display:flex; opacity:0; transition:opacity var(--quick); }
+.cnote:hover .cnote__actions, .cnote:focus-within .cnote__actions { opacity:1; }
+.cnote.is-new { animation:enter var(--move) var(--ease-out) both; }
+.cnote.is-new p { animation:fresh 1400ms var(--ease-out); border-radius:4px; }
+@keyframes enter { from { opacity:0; transform:translateY(6px); } }
+@keyframes fresh { 0%,50% { background:var(--reader-accent-soft); } }
+.cnotes__empty { margin:0 0 4px; color:var(--reader-muted); }
+.cnotes__bar { display:flex; flex-wrap:wrap; gap:2px; margin:4px 0 0 -8px; }
+.rail-foot .cnotes.is-entering { animation:enter var(--move) var(--ease-out) 160ms both; }
+
+/* Detached mode: paragraph notes fold under the paragraph end */
+.cfoot { margin-top:10px; font:12.5px/1.65 var(--reader-ui); }
+.cfoot__row { display:flex; align-items:center; gap:2px; margin-left:-8px; }
+.cfoot__toggle svg { transition:transform var(--move) var(--ease-out); }
+.cfoot[data-open=true] .cfoot__toggle svg { transform:rotate(90deg); }
+.cfoot__body { display:grid; grid-template-rows:0fr; transition:grid-template-rows var(--move) var(--ease-out); }
+.cfoot[data-open=true] .cfoot__body { grid-template-rows:1fr; }
+.cfoot__inner { min-height:0; overflow:hidden; }
+.cfoot__panel { margin-top:6px; padding:6px 12px; border-left:2px solid var(--reader-line-strong); }
+
+/* Editors */
+.editor textarea { display:block; width:100%; min-height:64px; max-height:240px; resize:none; padding:8px 10px; border:1px solid var(--reader-line-strong);
+  border-radius:8px; background:var(--reader-surface-2); color:var(--reader-ink); font:13px/1.65 var(--reader-ui); }
+.editor textarea:focus { outline:none; border-color:var(--reader-accent-line); box-shadow:0 0 0 3px var(--reader-accent-soft); }
+.editor__bar { display:flex; align-items:center; gap:4px; margin-top:6px; }
+.editor__bar small { flex:1; color:var(--reader-faint); font-size:11px; }
+
+.kinds { display:flex; gap:2px; margin-bottom:6px; }
+.kinds button { height:22px; padding:0 8px; border:0; border-radius:999px; background:transparent; color:var(--reader-ink-2); font-size:11.5px; cursor:pointer; }
+.kinds button[aria-checked=true] { background:var(--reader-ink); color:var(--reader-on-action); }
+.cnotes .editor, .cfoot .editor { margin:6px 0; }
+
+/* Floating layer */
+.float { position:absolute; z-index:50; }
+.bubble { display:flex; gap:2px; padding:3px; border-radius:10px; background:var(--reader-action); color:var(--reader-on-action);
+  box-shadow:var(--reader-shadow-popover); animation:pop-in var(--quick) var(--ease-out); }
+.bubble[data-side=above] { transform-origin:var(--arrow-x) 100%; }
+.bubble[data-side=below] { transform-origin:var(--arrow-x) 0; }
+.bubble button { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 10px; border:0; border-radius:7px; background:transparent; font-size:13px; cursor:pointer; white-space:nowrap; }
+.bubble button:hover, .bubble button:focus-visible { background:rgba(255,255,255,.13); outline:none; }
+.bubble button svg { width:15px; height:15px; }
+.bubble .ic-hl { color:#f7ce46; }
+.bubble .ic-note { color:#f0a3a6; }
+.bubble button[aria-pressed=true] { background:rgba(247,206,70,.18); }
+.bubble .sep { width:1px; margin:6px 2px; background:rgba(255,255,255,.18); }
+.bubble__msg { padding:0 10px; align-self:center; color:rgba(248,247,244,.75); font-size:12px; }
+.float::before { content:""; position:absolute; left:calc(var(--arrow-x) - 5px); width:10px; height:10px; transform:rotate(45deg); background:inherit; }
+.float[data-side=above]::before { bottom:-4px; }
+.float[data-side=below]::before { top:-4px; }
+.pop { width:min(320px, calc(100vw - 16px)); padding:10px 12px; border-radius:12px; background:var(--reader-surface-2); box-shadow:var(--reader-shadow-popover);
+  font:13px/1.65 var(--reader-ui); animation:pop-in var(--quick) var(--ease-out); }
+.pop[data-side=above] { transform-origin:var(--arrow-x) 100%; }
+.pop[data-side=below] { transform-origin:var(--arrow-x) 0; }
+.pop__quote { margin-bottom:6px; padding-left:8px; border-left:2px dashed var(--anno-line); color:var(--reader-muted); font:12px/1.6 var(--reader-serif);
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.pop__text { white-space:pre-wrap; overflow-wrap:anywhere; }
+.pop__bar { display:flex; justify-content:flex-end; gap:2px; margin:6px -6px -4px 0; }
+@keyframes pop-in { from { opacity:0; transform:scale(.94) translateY(2px); } }
+
+.ghost-layer { position:fixed; inset:0; z-index:45; pointer-events:none; }
+.ghost-layer .card { position:fixed; transition:none; }
+
+.toast { position:fixed; left:50%; bottom:28px; z-index:60; display:flex; align-items:center; gap:10px; padding:6px 6px 6px 14px; border-radius:10px;
+  background:var(--reader-action); color:var(--reader-on-action); box-shadow:var(--reader-shadow-popover); transform:translateX(-50%);
+  animation:toast-in var(--move) var(--ease-out); }
+.toast button { height:26px; padding:0 10px; border:0; border-radius:7px; background:rgba(255,255,255,.12); cursor:pointer; }
+.toast button:hover { background:rgba(255,255,255,.2); }
+@keyframes toast-in { from { opacity:0; transform:translate(-50%,8px); } }
+
+:root[data-reduced=true] *, :root[data-reduced=true] *::before, :root[data-reduced=true] *::after { animation:none !important; transition:none !important; }
+@media (prefers-reduced-motion:reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar__title"><b>FOCUS</b>片上缓冲区的动态分区（示例文本）</div>
+  <span class="spacer"></span>
+  <button class="switch" id="attach-toggle" type="button" aria-pressed="false" title="笔记吸附">
+    <span class="switch__track" aria-hidden="true"></span><span>笔记吸附</span><small id="note-count"></small>
+  </button>
+  <details class="demo" id="demo">
+    <summary>演示</summary>
+    <div class="demo__menu">
+      <button type="button" data-act="demo-dialogue">模拟讨论里说「记一下」<small>存为第 3 段的段全局笔记，验证能出现在笔记框</small></button>
+      <hr>
+      <label><input type="checkbox" id="opt-reduced"> 模拟“减少动效”</label>
+      <hr>
+      <button type="button" data-act="demo-reset">重置示例数据</button>
+    </div>
+  </details>
+</header>
+
+<main class="reader" id="reader">
+  <div class="doc-head">
+    <h1>片上缓冲区的动态分区</h1>
+    <p>示例文本，仅用于交互原型，内容与数值不代表真实论文。</p>
+    <p class="hint"><span>选中句子 → 重点 / 备注</span><span>点击已标注文字可修改或删除</span><span>右上角切换笔记吸附</span></p>
+  </div>
+  <div id="chunks"></div>
+</main>
+<div class="ghost-layer" id="ghost-layer" aria-hidden="true"></div>
+<div id="toast-host" aria-live="polite"></div>
+
+<script>
+"use strict";
+const CHUNKS = [
+  { id:"c1", index:1, paras:[
+    "片上缓冲区是数据流加速器里最昂贵、也最容易被忽视的资源。一次卷积层的计算里，乘加单元真正工作的时间往往不到总周期的一半，其余时间都在等待数据从片外 DRAM 搬进来。访问一次 DRAM 的能耗大约是一次 8 位乘加的两百倍，因此决定性能上限的通常不是算力，而是数据能否在片上被反复使用。",
+    "复用有三种来源：同一个权重被不同输入使用，同一个输入被不同卷积核使用，以及部分和在多次累加之间停留。不同的数据流把这三种复用分配给不同层级的存储：权重驻留把权重固定在处理单元的寄存器里，输出驻留让部分和留在原地，行驻留则试图在三者之间取得平衡。"
+  ]},
+  { id:"c2", index:2, paras:[
+    "这篇文章的核心主张是：缓冲区容量不应按层的最大需求静态划分，而应在编译期按每一层的复用结构重新分区。作者把每个缓冲区切成若干等大的存储体，由一个简单的交叉开关决定每个存储体在当前层服务于权重、输入还是部分和。",
+    "为了让编译器能做出这个决定，作者为每种分区方案建立了一个解析代价模型，用片外访问次数近似能耗，用存储体冲突近似延迟。模型并不追求精确，只要求在候选方案之间排序正确；实测中它与周期级仿真的排名一致率超过百分之九十。"
+  ]},
+  { id:"c3", index:3, paras:[
+    "在 ResNet-50 和 MobileNetV2 上，动态分区把片外访问量平均降低了百分之三十七，而面积开销只有交叉开关本身，约占缓冲区面积的百分之四。收益主要来自深度可分离卷积层：这类层的权重极少、输入复用很低，静态划分给权重的空间几乎完全浪费。",
+    "不过，作者的评测假设批大小为一，并且忽略了层与层之间重新分区所需的数据迁移。如果相邻两层的分区差异很大，迁移成本可能吞掉一部分收益；文章只在附录里用一句话提到这一点。"
+  ]}
+];
+const SEED_MARKS = [
+  { chunk:"c1", p:0, quote:"决定性能上限的通常不是算力，而是数据能否在片上被反复使用", highlight:true },
+  { chunk:"c1", p:1, quote:"部分和在多次累加之间停留", note:"部分和复用就是输出驻留的动机，可以和 Eyeriss 的行驻留对照着看。" },
+  { chunk:"c2", p:0, quote:"在编译期按每一层的复用结构重新分区", highlight:true, note:"关键：分区在编译期决定，运行时只切换交叉开关配置。" },
+  { chunk:"c2", p:0, quote:"若干等大的存储体", note:"存储体粒度决定分区的灵活度，文中没有给出粒度的敏感性分析。" },
+  { chunk:"c2", p:1, quote:"只要求在候选方案之间排序正确", note:"代价模型只需要保序、不需要绝对准确——这是能用解析模型的前提。" },
+  { chunk:"c3", p:1, quote:"忽略了层与层之间重新分区所需的数据迁移", highlight:true }
+];
+const SEED_CNOTES = {
+  c1:[{ id:"n1", kind:"想法", origin:"user", text:"这一段讲清了为什么瓶颈在搬运而不是计算，后面所有设计都围绕「提高片上复用」展开。" }],
+  c2:[{ id:"n2", kind:"结论", origin:"dialogue", text:"讨论整理：动态分区 = 编译期为每层选分区 + 运行时交叉开关切换；代价模型只需排序正确。" }],
+  c3:[]
+};
+const DIALOGUE_NOTE = { kind:"结论", origin:"dialogue", text:"讨论整理：收益集中在深度可分离卷积；「批大小为一」和「忽略迁移成本」是两条需要核实的假设。" };
+
+const ICON = {
+  hl:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/></svg>',
+  note:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+  bulb:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>',
+  trash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+  chev:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>'
+};
+
+const KEY = "focus-annotation-prototype-v1";
+const reduceQuery = matchMedia("(prefers-reduced-motion: reduce)");
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+const chunkOf = id => CHUNKS.find(c => c.id === id);
+const motionOK = () => !reduceQuery.matches && !S.reduceSim;
+const isStacked = () => innerWidth < 760;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+function seed() {
+  let seq = 0;
+  const marks = [];
+  for (const s of SEED_MARKS) {
+    const start = chunkOf(s.chunk).paras[s.p].indexOf(s.quote);
+    if (start < 0) continue;
+    marks.push({ id:"m" + (++seq), chunk:s.chunk, p:s.p, start, end:start + s.quote.length, quote:s.quote, highlight:!!s.highlight, note:s.note || "" });
+  }
+  return { attached:false, reduceSim:false, marks, cnotes:JSON.parse(JSON.stringify(SEED_CNOTES)), seq:100 };
+}
+function load() { try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; } }
+function persist() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} }
+let S = load() || seed();
+const uid = p => p + (++S.seq);
+
+/* Transient UI state; mark/paragraph-note drafts survive re-renders. */
+const ui = { sel:null, float:null, editor:null, chunkEditor:null, expanded:new Set(), toggleToken:0 };
+
+/* ---------- Rendering ---------- */
+function renderAll() {
+  $("#chunks").innerHTML = CHUNKS.map(c => `
+    <article class="chunk" data-chunk="${c.id}">
+      <div class="chunk__label">第 ${c.index} 段</div>
+      <div class="chunk-grid">
+        <div class="passage-col">
+          <div class="passage">${c.paras.map((_, i) => `<p data-p="${i}"></p>`).join("")}</div>
+          <div class="chunk-foot"></div>
+        </div>
+        <aside class="rail" aria-label="第 ${c.index} 段笔记">
+          <div class="rail-anchored"></div>
+          <div class="rail-foot"></div>
+        </aside>
+      </div>
+    </article>`).join("");
+  for (const c of CHUNKS) {
+    c.paras.forEach((_, i) => renderPara(c.id, i));
+    renderChunkNotes(c.id);
+    renderRail(c.id);
+  }
+  syncChrome();
+  layoutRails(true);
+}
+
+function marksIn(cid, p) {
+  const list = S.marks.filter(m => m.chunk === cid && m.p === p);
+  const e = ui.editor;
+  if (e && e.isNew && e.mark.chunk === cid && e.mark.p === p) list.push(e.mark);
+  return list.sort((a, b) => a.start - b.start);
+}
+
+function renderPara(cid, p, fresh = {}) {
+  const el = $(`.chunk[data-chunk="${cid}"] p[data-p="${p}"]`);
+  const text = chunkOf(cid).paras[p];
+  let out = "", i = 0;
+  for (const m of marksIn(cid, p)) {
+    out += esc(text.slice(i, m.start)) + markHTML(m, text.slice(m.start, m.end), fresh[m.id] || "");
+    i = m.end;
+  }
+  el.innerHTML = out + esc(text.slice(i));
+}
+
+function markHTML(m, t, fresh) {
+  const pending = ui.editor && ui.editor.isNew && ui.editor.mark === m;
+  const cls = ["mk"];
+  if (m.highlight) cls.push("mk--hl");
+  if (m.note) cls.push("mk--note");
+  if (pending) cls.push("mk--pending");
+  if (fresh.includes("hl")) cls.push("is-new-hl");
+  if (fresh.includes("note")) cls.push("is-new-note");
+  const label = m.note ? `备注：${m.note}` : "重点";
+  const head = t.slice(0, -1), tail = t.slice(-1);
+  const bulb = m.note
+    ? `<span class="bulb-anchor"><button class="bulb${fresh.includes("note") ? " is-new" : ""}" type="button" data-bulb="${m.id}" aria-label="查看备注" title="查看备注">${ICON.bulb}</button></span>`
+    : "";
+  const c = cls.join(" ");
+  return `<span class="${c}" data-mark="${m.id}" tabindex="0" aria-label="${esc(label)}">${esc(head)}</span>` +
+    `<span class="nb"><span class="${c} mk--tail" data-mark="${m.id}">${esc(tail)}</span>${bulb}</span>`;
+}
+
+function railMarks(cid) {
+  return S.marks.filter(m => m.chunk === cid && m.note);
+}
+
+function renderRail(cid) {
+  const rail = $(`.chunk[data-chunk="${cid}"] .rail-anchored`);
+  if (!S.attached) { rail.innerHTML = ""; rail.style.height = ""; return; }
+  rail.innerHTML = railMarks(cid).map(cardHTML).join("");
+}
+
+function cardHTML(m) {
+  return `<div class="card${m.highlight ? " has-hl" : ""}" data-card="${m.id}" tabindex="-1">
+    <div class="card__quote"><span>${esc(m.quote)}</span></div>
+    <div class="card__text">${esc(m.note)}</div>
+    <div class="card__actions">
+      <button class="icon-btn" type="button" data-act="edit-note" data-id="${m.id}" title="编辑备注" aria-label="编辑备注">${ICON.note}</button>
+      <button class="icon-btn danger" type="button" data-act="delete" data-id="${m.id}" title="删除标注" aria-label="删除标注">${ICON.trash}</button>
+    </div>
+  </div>`;
+}
+
+function editorHTML(form, draft, extra = "") {
+  return `<form class="editor" data-form="${form}">${extra}
+    <textarea rows="3" aria-label="${form === "mark" ? "备注内容" : "段全局笔记内容"}" placeholder="${form === "mark" ? "写下你的备注…" : "写下这一段的笔记…"}">${esc(draft)}</textarea>
+    <div class="editor__bar"><small>Enter 保存 · Shift+Enter 换行 · Esc 取消</small>
+      <button class="ghost" type="button" data-act="${form}-cancel">取消</button>
+      <button class="primary" type="submit"${draft.trim() ? "" : " disabled"}>保存</button></div>
+  </form>`;
+}
+
+function renderChunkNotes(cid, freshId) {
+  const art = $(`.chunk[data-chunk="${cid}"]`);
+  const foot = $(".chunk-foot", art), railFoot = $(".rail-foot", art);
+  const c = chunkOf(cid), notes = S.cnotes[cid] || [];
+  const ce = ui.chunkEditor && ui.chunkEditor.chunkId === cid ? ui.chunkEditor : null;
+  const items = notes.map(n => ce && ce.noteId === n.id
+    ? `<li class="cnote">${chunkEditorHTML(ce)}</li>`
+    : `<li class="cnote${n.id === freshId ? " is-new" : ""}" data-cnote="${n.id}">
+        <div class="cnote__meta"><span class="tag">${esc(n.kind)}</span>${n.origin === "dialogue" ? '<span class="tag tag--dlg">来自讨论</span>' : ""}
+          <span class="cnote__actions">
+            <button class="ghost" type="button" data-act="cnote-edit" data-chunk="${cid}" data-id="${n.id}">编辑</button>
+            <button class="ghost danger" type="button" data-act="cnote-delete" data-chunk="${cid}" data-id="${n.id}">删除</button>
+          </span></div>
+        <p>${esc(n.text)}</p></li>`).join("");
+  const list = (notes.length ? `<ol>${items}</ol>` : "") + (ce && !ce.noteId ? chunkEditorHTML(ce) : "");
+  const actions = `<button class="ghost" type="button" data-act="cnote-new" data-chunk="${cid}">${ICON.plus}记段全局笔记</button>
+    <button class="ghost" type="button" data-act="discuss" data-chunk="${cid}">就这段讨论</button>`;
+  if (S.attached) {
+    foot.innerHTML = "";
+    railFoot.innerHTML = `<section class="cnotes" aria-label="第 ${c.index} 段的段全局笔记">
+      <header><span>段全局笔记</span><small>${notes.length || ""}</small></header>
+      ${list || '<p class="cnotes__empty">本段还没有段全局笔记</p>'}
+      <div class="cnotes__bar">${actions}</div></section>`;
+  } else {
+    railFoot.innerHTML = "";
+    const open = ui.expanded.has(cid) || !!ce;
+    foot.innerHTML = `<div class="cfoot" data-open="${open}">
+      <div class="cfoot__row">
+        ${notes.length ? `<button class="ghost cfoot__toggle" type="button" data-act="cfoot-toggle" data-chunk="${cid}" aria-expanded="${open}" aria-controls="cfoot-${cid}">${ICON.chev}段全局笔记 · ${notes.length}</button>` : ""}
+        ${actions}
+      </div>
+      <div class="cfoot__body" id="cfoot-${cid}"><div class="cfoot__inner"${open ? "" : " inert"}><div class="cfoot__panel">${list}</div></div></div>
+    </div>`;
+  }
+}
+
+function chunkEditorHTML(ce) {
+  const kinds = `<div class="kinds" role="radiogroup" aria-label="笔记类型">${["想法", "结论", "问题"].map(k =>
+    `<button type="button" role="radio" aria-checked="${ce.kind === k}" data-act="cnote-kind" data-kind="${k}">${k}</button>`).join("")}</div>`;
+  return editorHTML("cnote", ce.draft, kinds);
+}
+
+function syncChrome() {
+  document.documentElement.dataset.attached = S.attached;
+  document.documentElement.dataset.reduced = S.reduceSim;
+  $("#attach-toggle").setAttribute("aria-pressed", S.attached);
+  const n = S.marks.filter(m => m.note).length + Object.values(S.cnotes).reduce((a, l) => a + l.length, 0);
+  $("#note-count").textContent = n || "";
+  $("#opt-reduced").checked = S.reduceSim;
+}
+
+/* ---------- Rail layout: cards follow their sentence without overlapping ---------- */
+function layoutRails(noAnim = false) {
+  if (!S.attached) return;
+  const stacked = isStacked();
+  for (const c of CHUNKS) {
+    const art = $(`.chunk[data-chunk="${c.id}"]`);
+    const rail = $(".rail-anchored", art), passage = $(".passage", art);
+    const cards = $$(".card", rail);
+    if (stacked) { rail.style.height = ""; continue; }
+    if (noAnim) rail.classList.add("no-anim");
+    const railTop = rail.getBoundingClientRect().top;
+    const items = cards.map(card => {
+      const piece = $(`.mk[data-mark="${card.dataset.card}"]`, passage);
+      const r = piece && piece.getClientRects()[0];
+      return { card, anchor:r ? r.top - railTop - 6 : 0, h:card.offsetHeight };
+    }).sort((a, b) => a.anchor - b.anchor);
+    let bottom = -Infinity;
+    for (const it of items) {
+      const top = Math.max(it.anchor, bottom + 8);
+      it.card.style.transform = `translateY(${top}px)`;
+      it.card.dataset.top = top;
+      it.card.classList.toggle("is-displaced", top > it.anchor + 6);
+      bottom = top + it.h;
+    }
+    rail.style.height = Math.max(passage.offsetHeight, bottom + 4) + "px";
+    if (noAnim) { rail.offsetHeight; requestAnimationFrame(() => rail.classList.remove("no-anim")); }
+  }
+}
+let layoutFrame = 0;
+function scheduleLayout() {
+  if (layoutFrame) return;
+  layoutFrame = requestAnimationFrame(() => { layoutFrame = 0; layoutRails(); });
+}
+
+/* ---------- Selection bubble ---------- */
+function paraOf(node) {
+  const el = node && (node.nodeType === 1 ? node : node.parentElement);
+  return el && el.closest(".passage p[data-p]");
+}
+function offsetIn(p, node, off) {
+  const r = document.createRange();
+  r.selectNodeContents(p);
+  r.setEnd(node, off);
+  return r.toString().length;
+}
+let pointerDown = false;
+function checkSelection() {
+  const sel = getSelection();
+  if (!sel.rangeCount || sel.isCollapsed) { if (ui.float && ui.float.kind === "sel") closeFloat(); return; }
+  const range = sel.getRangeAt(0);
+  const p = paraOf(range.startContainer);
+  if (!p || p !== paraOf(range.endContainer)) { if (ui.float && ui.float.kind === "sel") closeFloat(); return; }
+  const cid = p.closest(".chunk").dataset.chunk, pi = +p.dataset.p, text = chunkOf(cid).paras[pi];
+  let start = offsetIn(p, range.startContainer, range.startOffset), end = offsetIn(p, range.endContainer, range.endOffset);
+  while (start < end && /\s/.test(text[start])) start++;
+  while (end > start && /\s/.test(text[end - 1])) end--;
+  if (end <= start) return;
+  if (ui.editor) return;
+  const overlap = S.marks.filter(m => m.chunk === cid && m.p === pi && m.start < end && start < m.end);
+  if (overlap.length === 1 && overlap[0].start <= start && end <= overlap[0].end) { openMarkBubble(overlap[0].id, range.getBoundingClientRect()); return; }
+  ui.sel = { cid, pi, start, end, quote:text.slice(start, end) };
+  const body = overlap.length
+    ? `<span class="bubble__msg">与已有标注重叠，请缩小选区</span>`
+    : `<button type="button" data-act="sel-hl"><span class="ic-hl">${ICON.hl}</span>重点</button>
+       <button type="button" data-act="sel-note"><span class="ic-note">${ICON.note}</span>备注</button>`;
+  openFloat("sel", "bubble", body, range.getBoundingClientRect(), { side:"above" });
+}
+
+function openMarkBubble(id, rect) {
+  const m = S.marks.find(x => x.id === id);
+  if (!m) return;
+  getSelection().removeAllRanges();
+  const r = rect || $(`.mk[data-mark="${id}"]`).getBoundingClientRect();
+  openFloat("mark", "bubble", `
+    <button type="button" data-act="mark-hl" data-id="${id}" aria-pressed="${m.highlight}"><span class="ic-hl">${ICON.hl}</span>${m.highlight ? "取消重点" : "重点"}</button>
+    <button type="button" data-act="edit-note" data-id="${id}"><span class="ic-note">${ICON.note}</span>${m.note ? "编辑备注" : "备注"}</button>
+    <span class="sep" aria-hidden="true"></span>
+    <button type="button" data-act="delete" data-id="${id}">${ICON.trash}删除标注</button>`, r, { side:"above", focus:true, returnTo:$(`.mk[data-mark="${id}"]`) });
+}
+
+function openNotePop(id) {
+  const m = S.marks.find(x => x.id === id);
+  const bulb = $(`.bulb[data-bulb="${id}"]`);
+  openFloat("note", "pop", `
+    <div class="pop__quote">${esc(m.quote)}</div>
+    <div class="pop__text">${esc(m.note)}</div>
+    <div class="pop__bar">
+      <button class="ghost" type="button" data-act="edit-note" data-id="${id}">${ICON.note}编辑</button>
+      <button class="ghost danger" type="button" data-act="delete" data-id="${id}">${ICON.trash}删除标注</button>
+    </div>`, bulb.getBoundingClientRect(), { side:"below", focus:true, returnTo:bulb, label:"备注" });
+}
+
+/* Floating elements live in document coordinates so they scroll with the text. */
+function openFloat(kind, cls, html, rect, { side = "above", align = "center", focus = false, returnTo = null, label = "" } = {}) {
+  closeFloat(false);
+  const el = document.createElement("div");
+  el.className = `float ${cls}`;
+  if (cls === "pop") { el.setAttribute("role", "dialog"); el.setAttribute("aria-label", label || "备注"); }
+  else el.setAttribute("role", "toolbar");
+  el.innerHTML = html;
+  document.body.append(el);
+  placeFloat(el, rect, side, align);
+  ui.float = { kind, el, returnTo };
+  if (focus) (el.querySelector("button,textarea") || el).focus({ preventScroll:true });
+  return el;
+}
+function placeFloat(el, rect, side, align) {
+  const w = el.offsetWidth, h = el.offsetHeight, vw = document.documentElement.clientWidth;
+  const ax = align === "start" ? rect.left + 14 : rect.left + rect.width / 2;
+  const left = clamp(align === "start" ? rect.left - 10 : ax - w / 2, 8, vw - w - 8);
+  let top = side === "above" ? rect.top - h - 10 : rect.bottom + 10;
+  if (side === "above" && top < 56) { top = rect.bottom + 10; side = "below"; }
+  else if (side === "below" && top + h > innerHeight - 8 && rect.top - h - 10 > 56) { top = rect.top - h - 10; side = "above"; }
+  el.dataset.side = side;
+  el.style.left = left + scrollX + "px";
+  el.style.top = top + scrollY + "px";
+  el.style.setProperty("--arrow-x", clamp(ax - left, 14, w - 14) + "px");
+}
+function closeFloat(restoreFocus = false) {
+  if (!ui.float) return;
+  const { el, returnTo } = ui.float;
+  ui.float = null;
+  el.remove();
+  if (restoreFocus && returnTo && returnTo.isConnected) returnTo.focus({ preventScroll:true });
+}
+
+/* ---------- Mark actions ---------- */
+function addHighlight() {
+  const s = ui.sel; if (!s) return;
+  const m = { id:uid("m"), chunk:s.cid, p:s.pi, start:s.start, end:s.end, quote:s.quote, highlight:true, note:"" };
+  S.marks.push(m); persist();
+  getSelection().removeAllRanges(); closeFloat();
+  renderPara(m.chunk, m.p, { [m.id]:"hl" });
+}
+
+function startNewNote() {
+  const s = ui.sel; if (!s) return;
+  const mark = { id:uid("m"), chunk:s.cid, p:s.pi, start:s.start, end:s.end, quote:s.quote, highlight:false, note:"" };
+  getSelection().removeAllRanges(); closeFloat();
+  openEditor({ markId:mark.id, isNew:true, mark, draft:"" });
+}
+
+function editNote(id) {
+  const m = S.marks.find(x => x.id === id); if (!m) return;
+  closeFloat();
+  openEditor({ markId:id, isNew:false, mark:m, draft:m.note });
+}
+
+function openEditor(e) {
+  if (ui.editor) cancelEditor(true);
+  ui.editor = e;
+  renderPara(e.mark.chunk, e.mark.p);
+  const rects = $$(`.mk[data-mark="${e.markId}"]`).flatMap(p => [...p.getClientRects()]);
+  const el = openFloat("editor", "pop", editorHTML("mark", e.draft), rects[rects.length - 1], { side:"below", align:"start", label:"写备注" });
+  focusEnd($("textarea", el));
+}
+function focusEnd(ta) {
+  if (!ta) return;
+  ta.focus({ preventScroll:true });
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  autosize(ta);
+}
+function autosize(ta) { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight + 2, 240) + "px"; }
+
+function saveEditor() {
+  const e = ui.editor; if (!e || !e.draft.trim()) return;
+  const text = e.draft.trim();
+  let m = e.mark, fresh = "";
+  if (e.isNew) { m.note = text; S.marks.push(m); fresh = "note"; }
+  else { fresh = m.note ? "" : "note"; m.note = text; }
+  ui.editor = null; persist();
+  const popRect = ui.float && ui.float.kind === "editor" ? ui.float.el.getBoundingClientRect() : null;
+  if (popRect) closeFloat();
+  renderPara(m.chunk, m.p, { [m.id]:fresh });
+  renderRail(m.chunk); layoutRails(true); syncChrome();
+  if (S.attached) {
+    const card = $(`.card[data-card="${m.id}"]`);
+    if (!card) return;
+    card.focus({ preventScroll:true });
+    // The submitted editor travels from under the sentence into its rail slot.
+    if (popRect && motionOK() && !isStacked()) {
+      const fr = card.getBoundingClientRect(), top = +card.dataset.top || 0, s = popRect.width / fr.width;
+      card.animate([
+        { opacity:.4, transform:`translate(${popRect.left - fr.left}px, ${top + popRect.top - fr.top}px) scale(${s})` },
+        { opacity:1, transform:`translate(0, ${top}px) scale(1)` }
+      ], { duration:380, easing:"cubic-bezier(.22,.8,.24,1)" }).finished.then(() => card.classList.add("is-saved"), () => {});
+    } else card.classList.add("is-saved");
+  } else {
+    const bulb = $(`.bulb[data-bulb="${m.id}"]`);
+    if (bulb) bulb.focus({ preventScroll:true });
+  }
+}
+
+function cancelEditor(silent = false) {
+  const e = ui.editor; if (!e) return;
+  ui.editor = null;
+  if (ui.float && ui.float.kind === "editor") closeFloat();
+  renderPara(e.mark.chunk, e.mark.p);
+  renderRail(e.mark.chunk); layoutRails(true);
+  if (!silent && e.draft.trim()) toast(e.isNew ? "已放弃这条备注" : "已放弃修改", () => openEditor({ ...e }));
+}
+
+function toggleHighlight(id) {
+  const m = S.marks.find(x => x.id === id); if (!m) return;
+  closeFloat();
+  if (m.highlight && !m.note) return deleteMark(id);
+  m.highlight = !m.highlight; persist();
+  if (m.highlight) { renderPara(m.chunk, m.p, { [id]:"hl" }); }
+  else sweepOut($$(`.mk[data-mark="${id}"]`), "--hl-w", () => renderPara(m.chunk, m.p));
+  renderRail(m.chunk); layoutRails();
+}
+
+function deleteMark(id) {
+  const idx = S.marks.findIndex(x => x.id === id); if (idx < 0) return;
+  const [m] = S.marks.splice(idx, 1);
+  persist(); closeFloat(); syncChrome();
+  const done = () => { renderPara(m.chunk, m.p); renderRail(m.chunk); layoutRails(); };
+  const pieces = $$(`.mk[data-mark="${id}"]`), bulb = $(`.bulb[data-bulb="${id}"]`), card = $(`.card[data-card="${id}"]`);
+  if (motionOK()) {
+    const top = card ? card.dataset.top || 0 : 0;
+    if (card) card.animate([{ opacity:1 }, { opacity:0, transform:`translate(10px, ${top}px) scale(.97)` }], { duration:170, easing:"cubic-bezier(.4,0,1,1)", fill:"forwards" });
+    if (bulb) bulb.animate([{ transform:"scale(1)" }, { opacity:0, transform:"scale(.3)" }], { duration:170, easing:"cubic-bezier(.4,0,1,1)", fill:"forwards" });
+    sweepOut(pieces, ["--hl-w", "--ul-w"], done);
+  } else done();
+  toast("已删除标注", () => {
+    S.marks.push(m); persist(); syncChrome();
+    renderPara(m.chunk, m.p, { [m.id]:(m.highlight ? "hl " : "") + (m.note ? "note" : "") });
+    renderRail(m.chunk); layoutRails();
+  });
+}
+
+function sweepOut(els, props, done) {
+  props = [].concat(props);
+  if (!motionOK() || !els.length) return done();
+  let finished = false;
+  const finish = () => { if (!finished) { finished = true; done(); } };
+  const from = Object.fromEntries(props.map(p => [p, "100%"])), to = Object.fromEntries(props.map(p => [p, "0%"]));
+  const anims = els.map(el => el.animate([from, to], { duration:240, easing:"cubic-bezier(.45,0,.2,1)", fill:"forwards" }));
+  Promise.all(anims.map(a => a.finished)).then(finish, finish);
+  setTimeout(finish, 400);
+}
+
+/* ---------- Paragraph notes ---------- */
+function newChunkNote(cid) {
+  ui.chunkEditor = { chunkId:cid, noteId:null, kind:"想法", draft:"" };
+  ui.expanded.add(cid);
+  renderChunkNotes(cid); layoutRails();
+  focusEnd($(`.chunk[data-chunk="${cid}"] form[data-form="cnote"] textarea`));
+}
+function editChunkNote(cid, id) {
+  const n = S.cnotes[cid].find(x => x.id === id);
+  ui.chunkEditor = { chunkId:cid, noteId:id, kind:n.kind, draft:n.text };
+  renderChunkNotes(cid); layoutRails();
+  focusEnd($(`.chunk[data-chunk="${cid}"] form[data-form="cnote"] textarea`));
+}
+function saveChunkNote() {
+  const ce = ui.chunkEditor; if (!ce || !ce.draft.trim()) return;
+  let id = ce.noteId;
+  if (id) Object.assign(S.cnotes[ce.chunkId].find(x => x.id === id), { text:ce.draft.trim(), kind:ce.kind });
+  else { id = uid("n"); S.cnotes[ce.chunkId].push({ id, kind:ce.kind, origin:"user", text:ce.draft.trim() }); }
+  ui.chunkEditor = null; persist();
+  renderChunkNotes(ce.chunkId, ce.noteId ? null : id); layoutRails(); syncChrome();
+}
+function cancelChunkNote() {
+  const ce = ui.chunkEditor; if (!ce) return;
+  ui.chunkEditor = null;
+  renderChunkNotes(ce.chunkId); layoutRails();
+}
+function deleteChunkNote(cid, id) {
+  const list = S.cnotes[cid], idx = list.findIndex(x => x.id === id);
+  const [n] = list.splice(idx, 1);
+  persist(); syncChrome();
+  const done = () => { renderChunkNotes(cid); layoutRails(); };
+  const li = $(`.cnote[data-cnote="${id}"]`);
+  if (li && motionOK()) li.animate([{ opacity:1 }, { opacity:0, transform:"translateX(8px)" }], { duration:170, easing:"cubic-bezier(.4,0,1,1)", fill:"forwards" }).finished.then(done, done);
+  else done();
+  toast("已删除段全局笔记", () => { list.splice(idx, 0, n); persist(); syncChrome(); renderChunkNotes(cid, n.id); layoutRails(); });
+}
+function saveFromDialogue() {
+  const cid = "c3";
+  const id = uid("n");
+  S.cnotes[cid].push({ id, ...DIALOGUE_NOTE });
+  persist(); syncChrome();
+  ui.expanded.add(cid);
+  renderChunkNotes(cid, id); layoutRails();
+  toast("已存为第 3 段的段全局笔记", () => {
+    const li = $(`.cnote[data-cnote="${id}"]`);
+    if (!li) return;
+    li.scrollIntoView({ block:"center", behavior:motionOK() ? "smooth" : "auto" });
+    li.classList.remove("is-new"); li.offsetWidth; li.classList.add("is-new");
+  }, "查看");
+}
+
+/* ---------- Attach toggle with continuity ---------- */
+function captureAnchor() {
+  const p = $$(".passage p").find(el => el.getBoundingClientRect().bottom > 60);
+  return p && { el:p, top:p.getBoundingClientRect().top };
+}
+function restoreAnchor(a) { if (a) scrollBy(0, a.el.getBoundingClientRect().top - a.top); }
+function inView(r) { return r.bottom > -40 && r.top < innerHeight + 40; }
+
+function setAttached(on) {
+  if (on === S.attached) return;
+  const token = ++ui.toggleToken;
+  closeFloat(); if (ui.editor) cancelEditor();
+  const layer = $("#ghost-layer"); layer.innerHTML = "";
+  const animate = motionOK();
+  const anchor = captureAnchor();
+  const firstPassage = $(".passage");
+  const beforeLeft = firstPassage.getBoundingClientRect().left;
+
+  // Detaching: snapshot visible cards so they can fly back into their bulbs.
+  const ghosts = [];
+  if (!on && animate) for (const card of $$(".rail .card")) {
+    const r = card.getBoundingClientRect();
+    if (!inView(r)) continue;
+    const g = card.cloneNode(true);
+    Object.assign(g.style, { left:r.left + "px", top:r.top + "px", width:r.width + "px", height:r.height + "px", transform:"none", margin:0 });
+    ghosts.push({ g, r, id:card.dataset.card });
+  }
+
+  S.attached = on; persist(); syncChrome();
+  for (const c of CHUNKS) { renderChunkNotes(c.id); renderRail(c.id); }
+  layoutRails(true);
+  restoreAnchor(anchor);
+  if (!animate) return;
+
+  const dx = beforeLeft - firstPassage.getBoundingClientRect().left;
+  if (Math.abs(dx) > 1) for (const p of $$(".passage-col"))
+    if (inView(p.getBoundingClientRect())) p.animate([{ transform:`translateX(${dx}px)` }, { transform:"none" }], { duration:380, easing:"cubic-bezier(.22,.8,.24,1)" });
+
+  if (on) {
+    let i = 0;
+    for (const card of $$(".rail .card")) {
+      const fr = card.getBoundingClientRect();
+      if (!inView(fr)) continue;
+      const src = sourcePoint(card.dataset.card, dx);
+      if (!src) continue;
+      const top = +card.dataset.top || 0;
+      card.animate([
+        { opacity:0, transform:`translate(${src.x - fr.left}px, ${top + src.y - fr.top}px) scale(.12)` },
+        { opacity:1, transform:`translate(0, ${top}px) scale(1)` }
+      ], { duration:380, delay:i++ * 35, easing:"cubic-bezier(.22,.8,.24,1)", fill:"backwards" });
+    }
+    for (const s of $$(".rail-foot .cnotes")) if (inView(s.getBoundingClientRect())) s.classList.add("is-entering");
+  } else {
+    let i = 0;
+    for (const { g, r, id } of ghosts) {
+      const dst = sourcePoint(id, 0);
+      if (!dst) continue;
+      layer.append(g);
+      const a = g.animate([
+        { opacity:1, transform:"none" },
+        { opacity:0, transform:`translate(${dst.x - r.left}px, ${dst.y - r.top}px) scale(.1)` }
+      ], { duration:380, delay:i++ * 30, easing:"cubic-bezier(.45,0,.2,1)", fill:"both" });
+      a.finished.then(() => g.remove(), () => g.remove());
+    }
+    $$(".bulb").forEach((b, k) => b.style.setProperty("--bulb-delay", `${260 + Math.min(k, 8) * 30}ms`));
+    setTimeout(() => { if (token === ui.toggleToken) $$(".bulb").forEach(b => b.style.removeProperty("--bulb-delay")); }, 900);
+  }
+}
+
+/* Where a card comes from / returns to: the bulb, or the end of a highlight. */
+function sourcePoint(id, dx) {
+  const bulb = $(`.bulb[data-bulb="${id}"]`);
+  if (bulb) { const r = bulb.getBoundingClientRect(); return { x:r.left + dx, y:r.top }; }
+  const pieces = $$(`.mk[data-mark="${id}"]`);
+  if (!pieces.length) return null;
+  const rects = pieces.flatMap(p => [...p.getClientRects()]);
+  const r = rects[rects.length - 1];
+  return { x:r.right + dx, y:r.top };
+}
+
+/* ---------- Toast with undo ---------- */
+let toastTimer = 0;
+function toast(msg, action, label = "撤销") {
+  const host = $("#toast-host");
+  clearTimeout(toastTimer);
+  host.innerHTML = `<div class="toast"><span>${esc(msg)}</span>${action ? `<button type="button">${label}</button>` : ""}</div>`;
+  if (action) $("button", host).onclick = () => { host.innerHTML = ""; action(); };
+  toastTimer = setTimeout(() => { host.innerHTML = ""; }, 6000);
+}
+
+/* ---------- Events ---------- */
+function setLinked(id, on) {
+  $$(`.mk[data-mark="${id}"], .card[data-card="${id}"]`).forEach(el => el.classList.toggle("is-linked", on));
+}
+
+document.addEventListener("pointerdown", e => {
+  pointerDown = true;
+  const t = e.target;
+  if (ui.float && !ui.float.el.contains(t)) {
+    if (ui.float.kind === "editor") { if (!ui.editor.draft.trim() && !t.closest(".mk")) cancelEditor(); }
+    else closeFloat();
+  }
+});
+document.addEventListener("pointerup", e => {
+  pointerDown = false;
+  if (e.target.closest(".passage")) setTimeout(checkSelection, 0);
+});
+let selTimer = 0;
+document.addEventListener("selectionchange", () => {
+  clearTimeout(selTimer);
+  selTimer = setTimeout(() => { if (!pointerDown) checkSelection(); }, 220);
+});
+
+document.addEventListener("click", e => {
+  const t = e.target;
+  const bulb = t.closest(".bulb");
+  if (bulb) { openNotePop(bulb.dataset.bulb); return; }
+  const btn = t.closest("[data-act]");
+  if (btn) return act(btn.dataset.act, btn);
+  const mk = t.closest(".mk[data-mark]");
+  if (mk && getSelection().isCollapsed && !(ui.editor && ui.editor.markId === mk.dataset.mark)) { openMarkBubble(mk.dataset.mark); return; }
+  const card = t.closest(".card[data-card]");
+  if (card && !t.closest("form")) {
+    $$(`.mk[data-mark="${card.dataset.card}"]`).forEach(el => { el.classList.remove("is-pulse"); el.offsetWidth; el.classList.add("is-pulse"); });
+  }
+});
+document.addEventListener("pointerdown", e => { if (e.target.closest(".bubble button")) e.preventDefault(); }, true);
+
+function act(name, btn) {
+  const id = btn.dataset.id, cid = btn.dataset.chunk;
+  switch (name) {
+    case "sel-hl": return addHighlight();
+    case "sel-note": return startNewNote();
+    case "mark-hl": return toggleHighlight(id);
+    case "edit-note": return editNote(id);
+    case "delete": return deleteMark(id);
+    case "mark-cancel": return cancelEditor();
+    case "cnote-new": return newChunkNote(cid);
+    case "cnote-edit": return editChunkNote(cid, id);
+    case "cnote-delete": return deleteChunkNote(cid, id);
+    case "cnote-cancel": return cancelChunkNote();
+    case "cnote-kind":
+      ui.chunkEditor.kind = btn.dataset.kind;
+      $$('[data-act="cnote-kind"]', btn.parentElement).forEach(b => b.setAttribute("aria-checked", b === btn));
+      return;
+    case "cfoot-toggle": {
+      ui.expanded.has(cid) ? ui.expanded.delete(cid) : ui.expanded.add(cid);
+      const foot = btn.closest(".cfoot"), open = ui.expanded.has(cid);
+      foot.dataset.open = open; btn.setAttribute("aria-expanded", open);
+      $(".cfoot__inner", foot).inert = !open;
+      return;
+    }
+    case "discuss": return toast(`已把第 ${chunkOf(cid).index} 段引用到讨论输入框（原型未包含讨论区）`);
+    case "demo-dialogue": $("#demo").open = false; return saveFromDialogue();
+    case "demo-reset":
+      $("#demo").open = false;
+      localStorage.removeItem(KEY); S = seed(); ui.editor = ui.chunkEditor = null; ui.expanded.clear(); closeFloat(); renderAll();
+      return toast("已重置示例数据");
+  }
+}
+
+document.addEventListener("submit", e => {
+  e.preventDefault();
+  if (e.target.dataset.form === "mark") saveEditor(); else saveChunkNote();
+});
+document.addEventListener("input", e => {
+  const ta = e.target.closest("form[data-form] textarea");
+  if (!ta) return;
+  const form = ta.form.dataset.form;
+  if (form === "mark" && ui.editor) ui.editor.draft = ta.value;
+  if (form === "cnote" && ui.chunkEditor) ui.chunkEditor.draft = ta.value;
+  $('button[type="submit"]', ta.form).disabled = !ta.value.trim();
+  autosize(ta); scheduleLayout();
+});
+document.addEventListener("keydown", e => {
+  const ta = e.target.closest && e.target.closest("form[data-form] textarea");
+  if (ta) {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ta.form.requestSubmit(); return; }
+    if (e.key === "Escape") { e.preventDefault(); ta.form.dataset.form === "mark" ? cancelEditor() : cancelChunkNote(); return; }
+    return;
+  }
+  if (e.key === "Escape") {
+    if (ui.float) { closeFloat(true); return; }
+    if ($("#demo").open) { $("#demo").open = false; return; }
+  }
+  const mk = e.target.closest && e.target.closest(".mk[data-mark]");
+  if (mk && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openMarkBubble(mk.dataset.mark); }
+});
+document.addEventListener("pointerover", e => {
+  const el = e.target.closest(".mk[data-mark], .card[data-card]");
+  if (el) setLinked(el.dataset.mark || el.dataset.card, true);
+});
+document.addEventListener("pointerout", e => {
+  const el = e.target.closest(".mk[data-mark], .card[data-card]");
+  if (el && !el.contains(e.relatedTarget)) setLinked(el.dataset.mark || el.dataset.card, false);
+});
+
+$("#attach-toggle").addEventListener("click", () => setAttached(!S.attached));
+$("#opt-reduced").addEventListener("change", e => { S.reduceSim = e.target.checked; persist(); syncChrome(); });
+reduceQuery.addEventListener("change", () => document.getAnimations().forEach(a => a.finish()));
+addEventListener("resize", () => { if (ui.float && ui.float.kind !== "editor") closeFloat(); });
+new ResizeObserver(scheduleLayout).observe($("#reader"));
+
+renderAll();
+if (document.fonts) document.fonts.ready.then(() => layoutRails(true));
+</script>
+</body>
+</html>

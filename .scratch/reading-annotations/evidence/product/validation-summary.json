@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-23",
+  "environment": "Windows; Google Chrome driven by Playwright; isolated synthetic fixtures and controlled Python Host Runtime",
+  "prototypeSha256": "f813a3f77d84cea1d8da00f4a0ebcc1153180e424c55e70b09b0f3004b064b85",
+  "checks": [
+    { "command": "pnpm reader:typecheck", "status": "PASS", "projects": ["reader-contracts", "reader-ui", "standalone"] },
+    { "command": "pnpm reader:test", "status": "PASS", "readerUiTests": 192, "standaloneTests": 168, "defaultTimeouts": true, "note": "Initial selection-helper timing failure under concurrent browser load; complete serial suites also passed; corrected helper to emit both pointerUp and mouseUp, then default command passed." },
+    { "command": "pnpm reader:build", "status": "PASS", "fonts": "Same-origin emitted KaTeX assets; Host CSP unchanged", "warning": "Existing large-chunk advisory" },
+    { "command": "PYTHONPATH=tests;.agents;. .venv/Scripts/python.exe -m unittest discover -s tests", "status": "PASS", "tests": 510, "skipped": 1, "skipReason": "Real DeepSeek SDK opt-in", "durationSeconds": 611.089, "basis": "Integration implementation; ticket13 changes only browser fixture support, no backend product changes" },
+    { "command": "node tests/reading_annotations_browser.mjs", "status": "PASS", "port": 5179, "output": "metrics.json", "contexts": ["desktop", "mobile", "reduced"], "strictErrors": [] },
+    { "command": "node tests/reading_attachment_browser.mjs", "status": "PASS", "port": 5179, "widthRange": [390, 1600] },
+    { "command": "FOCUS_BROWSER_SCRIPT=reading_discussion_browser.mjs .venv/Scripts/python.exe tests/confirmed_ux_browser.py", "status": "PASS", "port": 8773, "strictErrors": [] },
+    { "command": "FOCUS_BROWSER_SCRIPT=tests/confirmed_ux_browser.mjs .venv/Scripts/python.exe tests/confirmed_ux_browser.py", "status": "PASS", "port": 8774, "groups": 10, "strictErrors": [] }
+  ],
+  "browserSetup": {
+    "requiredEnvironment": ["FOCUS_PLAYWRIGHT_MODULE", "FOCUS_CHROMIUM_EXECUTABLE"],
+    "optionalEnvironment": ["FOCUS_BROWSER_PORT", "FOCUS_BROWSER_OUTPUT", "FOCUS_READER_ROOT"],
+    "windowsFixtureEnvironment": { "TEMP": "repo-local tmp/test-runs/annotations", "TMP": "same as TEMP", "NODE_OPTIONS": "--no-experimental-webstorage", "PYTHONPATH": "tests;.agents;." },
+    "worktreeFixtureNote": "On deeply nested Windows worktrees, set reading_fixture.ROOT to the short repository root before running the Python browser launcher; its generated isolated fixture is still served by this worktree Host."
+  },
+  "notRun": ["Physical Chinese IME", "Physical touch device", "Firefox", "Safari", "External model answer quality"],
+  "rawLogsLocalOnly": "tmp/test-runs/annotations/acceptance13-*.log"
+}
