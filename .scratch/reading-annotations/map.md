@@ -24,6 +24,8 @@
 
 - [08 批注交互](issues/08-selection-bubble-editor.md#answer)：选区/标注气泡、句下备注编辑与查看、乐观写重试/撤销、持久草稿与清除围栏完成；61 项 UI 测试、类型检查及真实 Chrome A1/A2/A3 与编辑框几何通过。物理 IME 手测仍为 NOT_RUN，留在 13 验证缺口。
 
+- [10 关闭吸附与保存反馈](issues/10-detached-mode.md#answer)：fold 复用共享笔记 CRUD 并保持可访问折叠；讨论保存按投影提示且仅“查看”跳转，明确 null 的无引用回答保存为整篇。73 项 UI 回归、类型检查及真实 Chrome A7/A8/A9 与既有批注预检通过；并修复保存中继续输入导致重复句子备注的边界，提供 11 的 M8 几何事件。
+
 ## Fog
 
 功能与浏览器验收以 [13](issues/13-acceptance.md) 为准。
