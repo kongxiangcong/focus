@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { createReaderId, type ReaderChunk, type ReaderHost, type ReadingWindow, type SourceNote } from "@focus/reader-contracts";
+import { createReaderId, readerFailure, type ReaderChunk, type ReaderHost, type ReadingWindow, type SourceNote, type ReaderHostResult } from "@focus/reader-contracts";
 import { MarkdownContent } from "../MarkdownContent";
 
 export interface ChunkNoteListProps {
@@ -26,13 +26,14 @@ export function ChunkNoteList({ chunk, notes, host, onAccept, onToast, freshNote
   const [kind, setKind] = useState<EditableKind>("thought"), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [bundleChanged, setBundleChanged] = useState(false);
   const [conflict, setConflict] = useState<SourceNote | null>(null);
+  const [pending, setPending] = useState<{ text: string; noteId?: string } | null>(null), [savedId, setSavedId] = useState<string | null>(null);
   const scope = `${chunk.sourceId}:${chunk.planId}:${chunk.chunkId}:${resetVersion}:${noteClearVersion}`;
   const currentScope = useRef(scope); currentScope.current = scope;
   const requestIds = useRef(new Map<string, string>());
   const priorScope = useRef(scope);
   const createDraftKey = `${chunk.sourceId}:${chunk.planId}:${chunk.chunkId}`;
   const draftKey = editor && editor !== "new" ? `${chunk.sourceId}:note:${editor.noteId}` : createDraftKey;
-  function storedDrafts(): Record<string, { text: string; kind: EditableKind }> {
+  function storedDrafts(): Record<string, { text: string; kind: EditableKind; requestId?: string; requestKey?: string }> {
     try { return JSON.parse(sessionStorage.getItem("focus.chunkNoteDrafts") ?? "{}"); } catch { return {}; }
   }
   function persist(value: string | null, selectedKind = kind, key = draftKey) {
@@ -45,7 +46,7 @@ export function ChunkNoteList({ chunk, notes, host, onAccept, onToast, freshNote
   useEffect(() => { if (createSignal > 0) open(); }, [createSignal]);
   useEffect(() => { onEditingChange?.(editor !== null); }, [!!editor, onEditingChange]);
   useEffect(() => { if (priorScope.current === scope) return; priorScope.current = scope;
-    setEditor(null); setText(""); setBusy(false); setError(""); setBundleChanged(false); setConflict(null); requestIds.current.clear(); }, [scope]);
+    setEditor(null); setText(""); setBusy(false); setError(""); setBundleChanged(false); setConflict(null); setPending(null); setSavedId(null); requestIds.current.clear(); }, [scope]);
   const requestId = (key: string) => {
     if (!requestIds.current.has(key)) requestIds.current.set(key, createReaderId());
     return requestIds.current.get(key)!;
@@ -56,12 +57,18 @@ export function ChunkNoteList({ chunk, notes, host, onAccept, onToast, freshNote
     const capturedScope = scope;
     const content = text.trim(), expected = conflict?.revision ?? editing?.revision;
     const key = JSON.stringify([editing?.noteId ?? "create", expected, content, kind, wholeSource]);
-    setBusy(true); setError("");
-    const result = editing ? await host.changeSourceNote!(chunk.sourceId, editing.noteId, "edit", expected!, requestId(key), content)
-      : await host.createSourceNote!({ sourceId: chunk.sourceId, requestId: requestId(key), content, kind, origin: "user",
-        ...(wholeSource ? {} : { chunk: { planId: chunk.planId, chunkId: chunk.chunkId } }) });
+    const stored = storedDrafts()[draftKey];
+    const id = stored?.requestKey === key && stored.requestId ? stored.requestId : requestId(key);
+    try { const all = storedDrafts(); all[draftKey] = { text, kind, requestId: id, requestKey: key }; sessionStorage.setItem("focus.chunkNoteDrafts", JSON.stringify(all)); } catch { /* Stable in-memory request remains available. */ }
+    setBusy(true); setError(""); setPending({ text: content, ...(editing ? { noteId: editing.noteId } : {}) });
+    let result: ReaderHostResult<ReadingWindow>;
+    try {
+      result = editing ? await host.changeSourceNote!(chunk.sourceId, editing.noteId, "edit", expected!, id, content)
+        : await host.createSourceNote!({ sourceId: chunk.sourceId, requestId: id, content, kind, origin: "user",
+          ...(wholeSource ? {} : { chunk: { planId: chunk.planId, chunkId: chunk.chunkId } }) });
+    } catch (error) { result = readerFailure("unavailable", String(error), true); }
     if (currentScope.current !== capturedScope) return;
-    setBusy(false);
+    setBusy(false); setPending(null);
     if (!result.ok) { setError(result.error.message); setBundleChanged(result.error.code === "note_bundle_changed"); return; }
     onAccept(result.value); requestIds.current.delete(key);
     if (result.value.noteOperation?.status === "conflict") {
@@ -69,12 +76,14 @@ export function ChunkNoteList({ chunk, notes, host, onAccept, onToast, freshNote
     }
     const note = result.value.noteOperation?.note;
     persist(null); setEditor(null); setText(""); setBundleChanged(false);
-    if (note) onSaved?.(note);
+    if (note) { setSavedId(note.noteId); onSaved?.(note); }
   }
   async function change(note: SourceNote, operation: "delete" | "undo") {
     if (!host.changeSourceNote) return;
     const capturedScope = scope, key = JSON.stringify([note.noteId, note.revision, operation]);
-    const result = await host.changeSourceNote(chunk.sourceId, note.noteId, operation, note.revision, requestId(key), undefined);
+    let result: ReaderHostResult<ReadingWindow>;
+    try { result = await host.changeSourceNote(chunk.sourceId, note.noteId, operation, note.revision, requestId(key), undefined); }
+    catch (error) { result = readerFailure("unavailable", String(error), true); }
     if (currentScope.current !== capturedScope) return;
     if (!result.ok) { setError(result.error.message); onToast?.("小段笔记未更新", { label: "重试", run: () => void change(note, operation) }); return; }
     onAccept(result.value); requestIds.current.delete(key);
@@ -83,11 +92,13 @@ export function ChunkNoteList({ chunk, notes, host, onAccept, onToast, freshNote
     if (operation === "delete" && changed) onToast?.("已删除小段笔记", { label: "撤销", run: () => void change(changed, "undo") });
   }
   return <>
-    <ol>{notes.filter(note => !note.deleted && !note.sentence).map(note => <li className={`reader-chunk-notes__item${note.noteId === freshNoteId ? " is-new" : ""}`} key={note.noteId} data-chunk-note-id={note.noteId}>
+    {!editor && error && <p role="alert">{error}</p>}
+    <ol>{notes.filter(note => !note.deleted && !note.sentence).map(note => <li className={`reader-chunk-notes__item${note.noteId === freshNoteId || note.noteId === savedId ? " is-new" : ""}`} key={note.noteId} data-chunk-note-id={note.noteId}>
       <div className="reader-chunk-notes__meta"><span className="reader-chunk-notes__tag">{kinds[note.kind]}</span>{note.origin === "dialogue" && <span className="reader-chunk-notes__tag reader-chunk-notes__tag--dlg">来自讨论</span>}
         {host.changeSourceNote && <span className="reader-chunk-notes__actions"><button className="reader-anno-ghost" onClick={() => edit(note)}>编辑</button><button className="reader-anno-ghost danger" onClick={() => void change(note, "delete")}>删除</button></span>}</div>
-      <MarkdownContent text={note.content} sourceId={note.sourceId} />
+      <MarkdownContent text={pending?.noteId === note.noteId ? pending.text : note.content} sourceId={note.sourceId} />
     </li>)}</ol>
+    {pending && !pending.noteId && <div className="reader-chunk-notes__item" role="status" aria-busy="true"><MarkdownContent text={pending.text} sourceId={chunk.sourceId} /></div>}
     {editor && <div className="reader-anno-editor">
       {editor === "new" && <div className="reader-anno-kinds" role="radiogroup" aria-label="笔记类型">{(["thought", "conclusion", "question"] as const).map(value =>
         <button key={value} role="radio" aria-checked={kind === value} onClick={() => { setKind(value); persist(text, value); }}>{kinds[value]}</button>)}</div>
