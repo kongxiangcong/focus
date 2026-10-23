@@ -148,6 +148,7 @@ class ReadingHighlightHostTests(unittest.TestCase):
     def test_fresh_session_retains_annotations_but_clear_and_reset_erase_them_and_receipts(self):
         for reset in (False, True):
             with self.subTest(resetReading=reset):
+                before = self.host.snapshot()
                 highlight_payload = {**self.highlight_payload, 'requestId': uuid.uuid4().hex}
                 highlight = self.request(self.path, highlight_payload)[1]['value']['sourceHighlights'][0]
                 note_payload = {key: value for key, value in self.payload.items() if key != 'quote'}
@@ -158,6 +159,7 @@ class ReadingHighlightHostTests(unittest.TestCase):
                 self.assertNotEqual(old_session, self.host.state['sessionId'])
                 self.host.select_discussion_source(self.source)
                 fresh = self.host.snapshot()
+                self.assertEqual(before['noteClearVersion'], fresh['noteClearVersion'])
                 self.assertEqual(highlight['highlightId'], fresh['sourceHighlights'][0]['highlightId'])
                 self.assertIsNotNone(fresh['sourceNotes'][0]['sentence'])
                 # Re-establish a saved operation so clear must remove its recovery payload too.
@@ -167,6 +169,8 @@ class ReadingHighlightHostTests(unittest.TestCase):
                 self.assertEqual([], result['sourceHighlights'])
                 self.assertEqual([], result['sourceNotes'])
                 self.assertIsNone(result['highlightOperation'])
+                self.assertEqual(before['noteClearVersion'] + 1, result['noteClearVersion'])
+                self.assertEqual(before['resetVersion'] + int(reset), result['resetVersion'])
                 self.assertEqual({'status': 'cancelled'}, self.request(
                     self.path + '/requests/' + highlight_payload['requestId'])[1]['value'])
 

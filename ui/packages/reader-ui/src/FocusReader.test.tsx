@@ -236,6 +236,37 @@ it("T15 restores the original source draft and never sends it to another source"
   await waitFor(() => expect(host.sendMessage).toHaveBeenCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ sourceId: "fixture-paper", chunkId: "chunk-001" }) })));
 });
 
+it("clears only the cleared source annotation drafts on reset or explicit note-clear generation", async () => {
+  let emit: ((value: ReturnType<typeof readerSuccess<ReadingWindow>>) => void) | undefined;
+  const initial = { ...firstWindow, sessionId: "clear-s1", revision: 1, resetVersion: 0, noteClearVersion: 0,
+    sourceNotes: [], sourceHighlights: [] };
+  const host: ReaderHost = {
+    getReadingWindow: vi.fn().mockResolvedValue(readerSuccess(initial)),
+    continueReading: vi.fn().mockResolvedValue(readerSuccess(initial)),
+    sendMessage: vi.fn().mockResolvedValue(readerSuccess(initial)),
+    subscribe: callback => { emit = callback; return () => {}; },
+  };
+  const writeDrafts = () => {
+    for (const key of ["focus.annotationDrafts", "focus.chunkNoteDrafts"])
+      sessionStorage.setItem(key, JSON.stringify({ "fixture-paper:plan-001:chunk-001": "Own draft", "other-paper:note:other": "Keep draft" }));
+  };
+  sessionStorage.removeItem("focus.draftResetVersions");
+  sessionStorage.removeItem("focus.noteClearVersions");
+  writeDrafts();
+  render(<FocusReader host={host} />);
+  await screen.findByText("The first chunk.");
+  // An ordinary empty collection must never erase recoverable input.
+  expect(JSON.parse(sessionStorage.getItem("focus.annotationDrafts")!)["fixture-paper:plan-001:chunk-001"]).toBe("Own draft");
+  act(() => emit!(readerSuccess({ ...initial, revision: 2, resetVersion: 1, noteClearVersion: 1 })));
+  for (const key of ["focus.annotationDrafts", "focus.chunkNoteDrafts"])
+    expect(JSON.parse(sessionStorage.getItem(key)!)).toEqual({ "other-paper:note:other": "Keep draft" });
+  writeDrafts();
+  // A notes-only clear leaves resetVersion unchanged; the explicit generation still invalidates drafts.
+  act(() => emit!(readerSuccess({ ...initial, revision: 3, resetVersion: 1, noteClearVersion: 2 })));
+  for (const key of ["focus.annotationDrafts", "focus.chunkNoteDrafts"])
+    expect(JSON.parse(sessionStorage.getItem(key)!)).toEqual({ "other-paper:note:other": "Keep draft" });
+});
+
 
 it("removes a paragraph reference before typing and sends no implicit receipt", async () => {
   const host = setup();

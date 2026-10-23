@@ -192,6 +192,8 @@ export interface ReadingWindow {
   sessionFresh?: boolean;
   readingStarted?: boolean;
   resetVersion?: number;
+  /** Source note/highlight clear generation, including a clear that preserves the reading cursor. */
+  noteClearVersion?: number;
   /** Persistent frontier, also available when a fresh session hides its cards. */
   navigationCurrent?: ReaderChunk | null;
   timeline?: readonly ({ kind: "reading"; chunk: ReaderChunk; eventId?: string } | { kind: "message"; messageId: string })[];

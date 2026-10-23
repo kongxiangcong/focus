@@ -183,12 +183,14 @@ CREATE TABLE IF NOT EXISTS highlights (
 
 窗口快照（`HostService.snapshot()`，`host/service.py:198–271`）新增 `window['sourceHighlights'] = highlights.list(note_source, include_deleted=True)`，范围规则与 `sourceNotes` 相同；`sourceNotes` 中的记录自然带上 `placement`、`sentence`。
 
+实施补充（2026-10-23）：窗口另返回可选 `noteClearVersion`，值为当前 Source 的 `SourceNotes.generation`。仅清除讨论与笔记不会增加既有 `resetVersion`，因此前端同时比较这两个明确版本信号，清除属于该 Source 的批注和小段笔记草稿及乐观状态；普通空笔记集合不表示用户清除了草稿。Fresh Session 不增加任一版本。
+
 ### 4.5 前端合同（`ui/packages/reader-contracts/src/index.ts`）
 
 - 新增 `SentenceLocator`、`AnnotationLayer`、`ReadingHighlight`、`CreateHighlightInput`、`HighlightOperation`、`NotePlacement`。
 - `SourceNote` 增加可选 `placement?: NotePlacement | null`、`sentence?: SentenceLocator | null`。
 - `CreateSourceNoteInput` 增加可选 `sentence?: { layer; range; quote }`。
-- `ReadingWindow` 增加 `sourceHighlights?: readonly ReadingHighlight[]`、`highlightOperation?: HighlightOperation | null`。
+- `ReadingWindow` 增加 `sourceHighlights?: readonly ReadingHighlight[]`、`highlightOperation?: HighlightOperation | null`、`noteClearVersion?: number`。
 - `ReaderHost` 增加可选方法 `createHighlight?(input)`、`changeHighlight?(sourceId, highlightId, operation: "delete"|"undo", expectedRevision, requestId)`、`highlightRequestResult?(sourceId, requestId)`。
 - 纯函数 `sentenceNoteText(note)`：有 `sentence` 时返回 `「原句」\n备注`，否则返回 `content`。所有以纯文本显示笔记的地方都用它。
 - 能力判断：有 `createHighlight` 才显示“重点”；有 `createSourceNote` 才显示“备注”；都没有时选区气泡只剩“引用提问”。

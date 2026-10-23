@@ -64,6 +64,9 @@ export class FixtureReaderHost implements ReaderHost {
   private readonly recovery = new Map<string, SourceNote | "create">();
   private readonly highlightRecovery = new Map<string, "create" | "delete">();
   private readonly failures = new Set<"highlight" | "note">();
+  private readonly cancelledRequests = new Set<string>();
+  private readonly clearRequests = new Set<string>();
+  private noteClearVersion = 0;
   private noteOperation?: SourceNoteOperation;
   private highlightOperation?: HighlightOperation;
   private readonly source: ReaderSource;
@@ -87,6 +90,7 @@ export class FixtureReaderHost implements ReaderHost {
   }
 
   private replay(entity: "highlight" | "note", requestId: string, payload: unknown): ReaderHostResult<ReadingWindow> | undefined {
+    if (this.cancelledRequests.has(requestId)) return readerFailure("invalid-request", "此请求已随笔记清除");
     const prior = this.requests.get(requestId);
     if (!prior) return;
     if (prior.entity !== entity || prior.identity !== identity(payload)) return readerFailure(entity === "highlight" ? "highlight_request_conflict" : "invalid-request", "请求已用于不同内容");
@@ -134,6 +138,7 @@ export class FixtureReaderHost implements ReaderHost {
 
   async highlightRequestResult(sourceId: string, requestId: string): Promise<ReaderHostResult<HighlightOperation | { status: "cancelled" } | null>> {
     if (sourceId !== this.source.sourceId) return readerFailure("invalid-request", "标注来源不正确");
+    if (this.cancelledRequests.has(requestId)) return readerSuccess({ status: "cancelled" });
     const prior = this.requests.get(requestId);
     return readerSuccess(prior?.entity === "highlight" ? prior.operation : null);
   }
@@ -188,8 +193,22 @@ export class FixtureReaderHost implements ReaderHost {
 
   async sourceNoteRequestResult(sourceId: string, requestId: string): Promise<ReaderHostResult<SourceNoteRequestResult | null>> {
     if (sourceId !== this.source.sourceId) return readerFailure("invalid-request", "笔记来源不正确");
+    if (this.cancelledRequests.has(requestId)) return readerSuccess({ status: "cancelled" });
     const prior = this.requests.get(requestId);
     return readerSuccess(prior?.entity === "note" ? prior.operation : null);
+  }
+
+  async clearSource(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    if (sourceId !== this.source.sourceId || !requestValid(requestId)) return readerFailure("invalid-request", "清除来源或请求不正确");
+    if (this.clearRequests.has(requestId)) return readerSuccess(this.snapshot());
+    this.clearRequests.add(requestId);
+    for (const id of this.requests.keys()) this.cancelledRequests.add(id);
+    this.requests.clear(); this.recovery.clear(); this.highlightRecovery.clear(); this.failures.clear();
+    this.notes.length = 0; this.highlights.length = 0;
+    this.noteOperation = undefined; this.highlightOperation = undefined;
+    this.messages.length = 0; this.timeline = []; this.chunkIndex = 0; this.fresh = true;
+    this.noteClearVersion += 1;
+    return readerSuccess(this.snapshot());
   }
 
   private chunkIndex = 0;
@@ -261,6 +280,7 @@ export class FixtureReaderHost implements ReaderHost {
       sourceNotes: [...this.notes], noteOperation: this.noteOperation,
       sourceHighlights: [...this.highlights], highlightOperation: this.highlightOperation,
       sessionId: this.sessionId, sessionFresh: this.fresh,
+      resetVersion: this.noteClearVersion, noteClearVersion: this.noteClearVersion,
       timeline: this.timeline,
       status: current === null ? "completed" : "reading",
       source: this.source,

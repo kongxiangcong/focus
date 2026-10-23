@@ -1,5 +1,7 @@
 import { AttachedNotes } from "./AttachedNotes";
 import { projectSourceNotes } from "./note-projection";
+import { SourceNotesPanel } from "./SourceNotesPanel";
+import { clearAnnotationDrafts } from "./annotation-draft-reset";
 import { AssetInstanceContext } from "./asset-context";
 import { PanelLeft, Pin, Expand, Collapse, ArrowRight, ArrowUp, StopSquare, ChevronDown, Widen, Close } from "./ReaderIcons";
 import { createReaderId, cursorReceipt, type ReaderChunk, type ReaderAttachment, type ReaderHost, type ReadingWindow,
@@ -138,6 +140,8 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const [editBaseRevision, setEditBaseRevision] = useState<number | null>(null);
   const [noteError, setNoteError] = useState("");
   const [noteConflict, setNoteConflict] = useState<SourceNote | null>(null);
+  const sentenceNoteController = useRef<{ openEditor: (note: SourceNote) => void; openNote: (note: SourceNote) => void;
+    lostSentenceNoteIds?: ReadonlySet<string> } | null>(null);
   const [editingProgressId, setEditingProgressId] = useState<string | null>(null);
   const [progressDraft, setProgressDraft] = useState("");
   const [progressBaseRevision, setProgressBaseRevision] = useState<number | null>(null);
@@ -238,18 +242,27 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const resetVersions = useRef<Record<string, number>>((() => {
     try { return JSON.parse(sessionStorage.getItem("focus.draftResetVersions") ?? "{}"); } catch { return {}; }
   })());
+  const noteClearVersions = useRef<Record<string, number>>((() => {
+    try { return JSON.parse(sessionStorage.getItem("focus.noteClearVersions") ?? "{}"); } catch { return {}; }
+  })());
   useEffect(() => {
-    if (!view?.source.sourceId || view.resetVersion === undefined) return;
+    if (!view?.source.sourceId) return;
     const source = view.source.sourceId;
     const previous = resetVersions.current[source];
-    resetVersions.current[source] = view.resetVersion;
+    const previousClear = noteClearVersions.current[source];
+    const resetChanged = view.resetVersion !== undefined && previous !== undefined && previous !== view.resetVersion;
+    const notesCleared = view.noteClearVersion !== undefined && previousClear !== undefined && previousClear !== view.noteClearVersion;
+    if (view.resetVersion !== undefined) resetVersions.current[source] = view.resetVersion;
+    if (view.noteClearVersion !== undefined) noteClearVersions.current[source] = view.noteClearVersion;
     try { sessionStorage.setItem("focus.draftResetVersions", JSON.stringify(resetVersions.current)); } catch { /* memory fallback */ }
-    if (previous !== undefined && previous !== view.resetVersion) {
+    try { sessionStorage.setItem("focus.noteClearVersions", JSON.stringify(noteClearVersions.current)); } catch { /* memory fallback */ }
+    if (resetChanged || notesCleared) {
       for (const key of Object.keys(drafts.current)) if (key.startsWith(`${source}:`)) delete drafts.current[key];
+      clearAnnotationDrafts(source);
       clearSessionUI();
       try { sessionStorage.setItem("focus.drafts", JSON.stringify(drafts.current)); } catch { /* memory fallback */ }
     }
-  }, [view?.source.sourceId, view?.resetVersion]);
+  }, [view?.source.sourceId, view?.resetVersion, view?.noteClearVersion]);
   const current = view?.current ?? null;
   const frontier = view?.navigationCurrent ?? current;
   useEffect(() => { setReviewChunk(null); }, [view?.source.sourceId, view?.readingRevision]);
@@ -567,6 +580,13 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
     const target = referencedElement(chunk);
     if (target) { scrolling.controller.current?.jump(target); highlight(chunk, excerpt, true); }
   }
+  function openSentenceNote(note: SourceNote, edit: boolean, chunk: ReaderChunk) {
+    preserveReading(() => setSideMode(null));
+    const lost = note.sourceUpdated || sentenceNoteController.current?.lostSentenceNoteIds?.has(note.noteId);
+    jumpReference(chunk, lost ? "" : note.sentence?.quote.exact ?? "");
+    if (edit) sentenceNoteController.current?.openEditor(note);
+    else sentenceNoteController.current?.openNote(note);
+  }
   function readSelection() {
     const selected = window.getSelection();
     if (!selected?.rangeCount || selected.isCollapsed || !selected.toString().trim()) { setSelection(null); return; }
@@ -666,23 +686,13 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
 
         <div className="reader-panel" hidden={renderedSideMode !== "notes"}>
         {view?.noteFeedback && <p role="status" className="focus-note-feedback">{view.noteFeedback.status === "saved" ? "已记下" : "未保存，可重试"}</p>}
-        {view?.source.sourceId && view.sourceNotes && <details className="focus-source-notes"><summary>笔记 · {view.sourceNotes.filter(note => !note.deleted).length}</summary>
-          {noteError && <p role="alert">{noteError}</p>}
-          {view.sourceNotes.length === 0 ? <p>明确说“记下来”后，笔记会保存在这篇材料下。</p> :
-            <ol>{view.sourceNotes.filter(note => !note.deleted || note.canUndo).map(note => <li key={note.noteId} data-source-note-id={note.noteId}>
-              {editingNoteId === note.noteId ? <div><textarea aria-label="编辑笔记" value={editDraft} onChange={event => setEditDraft(event.target.value)} />
-                {noteConflict && <p>已保存版本：{noteConflict.content}</p>}
-                {noteConflict ? <button disabled={!editDraft.trim()} onClick={() => void changeNote(note, "edit", noteConflict.revision)}>重新提交</button> :
-                  <button disabled={!editDraft.trim()} onClick={() => void changeNote(note, "edit", editBaseRevision ?? note.revision)}>保存修改</button>}
-                <button onClick={() => { setEditingNoteId(null); setEditBaseRevision(null); setNoteConflict(null); setNoteError(""); }}>取消</button></div> :
-                <><span>{note.deleted ? "已删除，可撤销" : note.content}</span>
-                  {!note.deleted && <button onClick={() => { setEditingNoteId(note.noteId); setEditDraft(note.content); setEditBaseRevision(note.revision); setNoteConflict(null); setNoteError(""); }}>编辑</button>}
-                  {!note.deleted && <button onClick={() => void changeNote(note, "delete")}>删除</button>}
-                  {note.canUndo && <button onClick={() => void changeNote(note, "undo")}>撤销</button>}
-
-                </>}
-            </li>)}</ol>}
-        </details>}
+        {view?.source.sourceId && view.sourceNotes && <SourceNotesPanel notes={view.sourceNotes} chunks={visibleChunks}
+          error={noteError} lostSentenceNoteIds={sentenceNoteController.current?.lostSentenceNoteIds}
+          editing={{ noteId: editingNoteId, draft: editDraft, revision: editBaseRevision, conflict: noteConflict }}
+          onDraftChange={setEditDraft} onOpenSentence={openSentenceNote}
+          onEdit={note => { setEditingNoteId(note.noteId); setEditDraft(note.content); setEditBaseRevision(note.revision); setNoteConflict(null); setNoteError(""); }}
+          onChange={(note, action, expected) => void changeNote(note, action, expected)}
+          onCancelEdit={() => { setEditingNoteId(null); setEditBaseRevision(null); setNoteConflict(null); setNoteError(""); }} />}
         </div>
         <div className="reader-panel" hidden={renderedSideMode !== "progress"}>
         {view?.source.sourceId && view.readingProgress && <details className="focus-source-notes" open><summary>阅读记录 · {progressEntries.filter(entry => !entry.deleted).length}</summary>
