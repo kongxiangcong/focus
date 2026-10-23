@@ -105,7 +105,7 @@ interface SentenceLocator {
   chunkId: string;
   layer: "source" | "translation";
   range: { start: number; end: number };                     // 可标注文本内 UTF-16 偏移，[start, end)
-  quote: { exact: string; prefix: string; suffix: string };  // exact = 原句；prefix/suffix 各 ≤ 32 个 UTF-16 单元
+  quote: { exact: string; prefix: string; suffix: string };  // exact = 原句；prefix/suffix 各 ≤ 32 个 UTF-16 单元；截断时避开代理对边界
 }
 ```
 

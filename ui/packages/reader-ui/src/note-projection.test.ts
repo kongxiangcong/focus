@@ -31,3 +31,10 @@ it("keeps undoable notes and uses only the latest occurrence of a revisited para
   const deleted = { ...note, deleted: true, canUndo: true };
   expect([...projectSourceNotes([deleted], [...groups, { ...groups[1], id: "revisit" }])]).toEqual([["revisit", [deleted]]]);
 });
+
+it("projects discussion placement as small-chunk notes while excluding sentence notes", () => {
+  const placed: SourceNote = { ...note, anchor: null, placement: note.anchor! };
+  expect([...projectSourceNotes([placed], groups)]).toEqual([["second", [placed]]]);
+  const sentence: SourceNote = { ...note, sentence: { planId: "plan", chunkId: "one", layer: "source", range: { start: 0, end: 4 }, quote: { exact: "Text", prefix: "", suffix: "" } } };
+  expect(projectSourceNotes([sentence], groups).size).toBe(0);
+});
