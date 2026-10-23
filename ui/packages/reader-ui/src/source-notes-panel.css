@@ -1,0 +1,11 @@
+.source-notes-group { margin:var(--reader-gap-sm); }
+.source-notes-group > summary { color:var(--reader-muted); cursor:pointer; font-size:var(--reader-ui-size); }
+.source-notes-group > ol { margin:0; padding-left:var(--reader-gap); }
+.source-notes-group li > small, .source-note-content { display:block; }
+.focus-source-notes .source-note-quote {
+  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden;
+  width:100%; border:0; border-left:2px dashed var(--reader-anno-line); border-radius:0;
+  padding:0 var(--reader-gap-sm); color:var(--reader-muted); background:transparent;
+  font-family:var(--reader-serif); text-align:left; line-height:1.6; white-space:normal;
+}
+.source-note-lost { color:var(--reader-muted); }
