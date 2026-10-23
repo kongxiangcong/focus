@@ -72,7 +72,8 @@ it("returns to structure and reviews read sections without changing the frontier
   await waitFor(() => expect(screen.getByLabelText("当前阅读位置")).toHaveTextContent("全文 › 方法"));
   expect(screen.getByRole("textbox")).toHaveValue("保留草稿");
   expect(host.continueReading).not.toHaveBeenCalled();
-  expect(screen.getByText(/正式位置未改变/)).toBeInTheDocument();
+  expect(screen.queryByText(/正式位置未改变/)).not.toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: "回到最新 ↓" })).toBeInTheDocument();
 });
 
 it("does not force an introduction in a fresh discussion after reading has begun", async () => {

@@ -25,9 +25,9 @@ async function saveFromDiscussion(placed: boolean, detached = false) {
 it("announces the projected paragraph after discussion save and jumps only on View", async () => {
   await saveFromDiscussion(true);
   await screen.findByText("已存为第 1 段的小段笔记");
-  expect(screen.queryByRole("button", { name: /返回刚才位置/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^回到最新/ })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "查看" }));
-  expect(await screen.findByRole("button", { name: /返回刚才位置/ })).toBeInTheDocument();
+  expect(await screen.findByRole("button", { name: /^回到最新/ })).toBeInTheDocument();
 });
 it("announces a whole-source note when no paragraph can own it", async () => {
   await saveFromDiscussion(false); await screen.findByText("已存为整篇笔记，可在资料栏查看");

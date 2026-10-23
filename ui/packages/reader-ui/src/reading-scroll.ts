@@ -158,7 +158,9 @@ export function useReadingScroll(pane: RefObject<HTMLElement | null>, follow: Re
     setState({ latest: false, back: false });
     if (!pane.current || !end.current || !spacer.current || !enabled) { controller.current = null; return; }
     const scroll = new ReadingScroll(pane.current, end.current, spacer.current, follow,
-      (latest, back) => setState(old => old.latest === latest && old.back === back ? old : { latest, back }));
+      // Navigation also changes the follow ref. Publish even when notice flags stay false
+      // so consumers observe the settled frontier before the next review gesture.
+      (latest, back) => setState({ latest, back }));
     controller.current = scroll; setState({ latest: false, back: false }); scroll.start();
     return () => { scroll.dispose(); controller.current = null; };
   }, [scope, enabled]);

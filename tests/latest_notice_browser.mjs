@@ -1,0 +1,61 @@
+/** Unified navigation lifecycle against the actual reader; synthetic Host only. */
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import {createRequire} from 'node:module';
+const {chromium}=createRequire(import.meta.url)(process.env.FOCUS_PLAYWRIGHT_MODULE);
+const root=process.cwd(), dir=path.join(root,'ui/apps/standalone/tmp/latest-notice');
+fs.mkdirSync(dir,{recursive:true});
+fs.writeFileSync(path.join(dir,'index.html'),'<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module" src="./main.tsx"></script></body></html>');
+fs.writeFileSync(path.join(dir,'main.tsx'),`
+import React,{useState} from 'react';import{createRoot}from'react-dom/client';
+import{FocusReader}from'/@fs/${root}/ui/packages/reader-ui/src/FocusReader.tsx';
+import'/@fs/${root}/ui/packages/reader-ui/src/focus-tokens.css';
+const chunk={sourceId:'demo',planId:'p',chunkId:'c',index:2,total:4,sectionPath:['正文'],sourceLines:[1,2],sourceMarkdown:'完整正文保留。This is the original paragraph.',translation:null,images:[],relevantGlossary:[],presentationStatus:'source-ready'};
+const answer=Array.from({length:55},(_,i)=>'讨论内容 '+i+'：这一段是用于真实几何验证的长回答。').join('\\n\\n');
+let v={status:'reading',sessionId:'s',source:{sourceId:'demo',title:'Demo'},current:chunk,history:[],conversation:[{messageId:'a',chunkId:'c',role:'assistant',content:answer},{messageId:'b',chunkId:'c',role:'assistant',content:answer}],timeline:[{kind:'reading',eventId:'r1',chunk:{...chunk,index:1,chunkId:'c1'}},{kind:'message',messageId:'a'},{kind:'reading',eventId:'r2',chunk},{kind:'message',messageId:'b'}]};
+let emit;const ok=()=>({ok:true,value:{...v}});window.update=patch=>{v={...v,...patch};emit(ok())};window.stream=()=>{v={...v,agent:{models:[],run:{runId:'r',status:'running',approvals:[],activity:[]}}};emit(ok())};window.tick=()=>{v={...v,conversation:v.conversation.map((m,i)=>i?{...m,content:m.content+'\\n\\n更多增量内容'}:m)};emit(ok())};window.stops=0;window.reviewPast=()=>{v={...v,timeline:[...v.timeline,{kind:'reading',eventId:'old-review',chunk:{...chunk,index:1,chunkId:'c1'}}]};emit(ok())};window.advance=()=>{const next={...chunk,index:3,chunkId:'c3'};v={...v,current:next,timeline:[...v.timeline,{kind:'reading',eventId:'r3',chunk:next}]};emit(ok())};
+const host={getReadingWindow:async()=>ok(),subscribe:f=>{emit=f;return()=>{}},continueReading:async()=>{window.advance();return ok()},sendMessage:async()=>ok(),stop:async()=>{window.stops++;v={...v,agent:undefined};return ok()}};
+function App(){const[full,setFull]=useState(false);return <><style>{'html,body,#root{margin:0;height:100%}.wrap{height:100%}'}</style><div className="wrap"><FocusReader host={host} appearance="mist" fullscreen={full} onFullscreenChange={setFull}/></div></>};createRoot(document.getElementById('root')).render(<App/>);
+`);
+const browser=await chromium.launch({headless:true,executablePath:process.env.FOCUS_CHROMIUM_EXECUTABLE});
+const page=await browser.newPage({viewport:{width:1440,height:1000},reducedMotion:'reduce'});
+const errors=[];page.on('pageerror',e=>errors.push(e.message));
+const latest=()=>page.getByRole('button',{name:'回到最新 ↓',exact:true});
+const close=()=>page.getByRole('button',{name:'关闭回到最新提示',exact:true});
+const settle=()=>page.waitForTimeout(950);
+const back=async()=>{await page.locator('.focus-stream').evaluate(p=>{p.dispatchEvent(new WheelEvent('wheel',{bubbles:true,deltaY:-100}));p.scrollTop=0;p.dispatchEvent(new Event('scroll',{bubbles:true}));});await settle();};
+try {
+ await page.goto(`http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT||5173}/tmp/latest-notice/index.html`);
+ await page.locator('.reading-discussion-divider').first().waitFor();await settle();await back();
+ assert.equal(await latest().count(),1);
+ assert.equal(await page.getByRole('button',{name:/回到进度|返回刚才位置|返回当前阅读/}).count(),0);
+ assert.equal(await page.locator('.focus-review-banner').count(),0);
+ await latest().click();await settle();assert.equal(await latest().count(),0);
+ assert.ok(await page.locator('.focus-stream').evaluate(p=>p.scrollTop)>100);
+ await page.evaluate(()=>window.reviewPast());await settle();await back();assert.equal(await latest().count(),1);
+ await latest().click();await settle();assert.equal(await latest().count(),0);
+ assert.equal(await page.locator('.reading-lens').getAttribute('data-lens-active'),'r2');
+ await back();assert.equal(await latest().count(),1);
+ await close().focus();await page.keyboard.press('Enter');
+ assert.equal(await latest().count(),0);
+ assert.equal(await page.getByRole('button',{name:'当前阅读位置',exact:true}).evaluate(e=>e===document.activeElement),true);
+ for(let i=0;i<3;i++) {await back();assert.equal(await latest().count(),0);}
+ await page.getByRole('button',{name:'资料',exact:true}).click();await settle();
+ await page.getByRole('button',{name:'关闭阅读侧栏',exact:true}).click();await back();assert.equal(await latest().count(),0);
+ await page.evaluate(()=>window.update({sessionId:'other'}));await settle();await back();assert.equal(await latest().count(),1);
+ await page.evaluate(()=>window.update({sessionId:'s'}));await settle();await back();assert.equal(await latest().count(),0);
+ await page.evaluate(()=>window.update({source:{sourceId:'other-source',title:'Other'}}));await settle();await back();assert.equal(await latest().count(),1);
+ await page.evaluate(()=>window.update({source:{sourceId:'demo',title:'Demo'}}));await settle();await back();assert.equal(await latest().count(),0);
+ await page.getByRole('button',{name:'继续',exact:true}).click();await settle();assert.equal(await latest().count(),0);
+ await back();assert.equal(await latest().count(),1);
+ await latest().click();await settle();assert.equal(await latest().count(),0);
+ await page.setViewportSize({width:390,height:844});await settle();
+ await page.getByRole('button',{name:'全屏',exact:true}).click();await back();assert.equal(await latest().count(),1);
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+ await close().focus();await page.keyboard.press('Space');assert.equal(await latest().count(),0);
+ await back();assert.equal(await latest().count(),0);
+ await page.reload();await page.locator('.reading-discussion-divider').first().waitFor();await settle();await back();assert.equal(await latest().count(),1);
+ assert.deepEqual(errors,[]);
+ console.log(JSON.stringify({browser:browser.version(),passed:['single latest','latest destination including trailing old review','keyboard dismissal/focus','repeated review suppression','materials/session/source isolation','refresh resets presentation memory','advance then review','narrow/fullscreen'],errors}));
+} finally {await browser.close();fs.rmSync(dir,{recursive:true,force:true});}

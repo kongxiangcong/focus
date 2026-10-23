@@ -1,3 +1,4 @@
+import { useLatestNotice } from "./latest-notice";
 import { discussionFoldKey, useDiscussionFolds } from "./discussion-fold";
 import { AnnotationRail } from "./annotations/AnnotationRail";
 import { projectSourceNotes } from "./note-projection";
@@ -103,8 +104,6 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   }
   const [collapsed, setCollapsed] = useState(false);
   const [structureOpen, setStructureOpen] = useState(false);
-  const [reviewNoticeDismissed, setReviewNoticeDismissed] = useState(false);
-  const [progressNoticeDismissed, setProgressNoticeDismissed] = useState<string | null>(null);
   const [viewportChunk, setViewportChunk] = useState<ReaderChunk | null>(null);
   const [view, setView] = useState<ReadingWindow | null>(null);
   const paintedTimingRuns = useRef(new Set<string>());
@@ -292,7 +291,6 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   }, [showStructure]);
   useEffect(() => { setStructureOpen(false); }, [view?.source.sourceId, frontier?.planId, view?.resetVersion]);
   useEffect(() => { setViewportChunk(null); }, [view?.source.sourceId, view?.readingRevision, reviewChunk, view?.sessionId]);
-  useEffect(() => { setReviewNoticeDismissed(false); }, [reviewChunk, view?.source.sourceId, view?.sessionId]);
   const sourceId = view?.source.sourceId ?? "";
   const protectedImages = new Set(chunks.flatMap(c => [...extractFigures(c.sourceMarkdown, c.sourceId).protectedIds]));
   const allFigures = mergeFigures(sourceId, (view?.figures ?? []).filter(f => !protectedImages.has(imageIdentity(f.src, sourceId))),
@@ -314,7 +312,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   ];
   const entries = [...ordered, ...(view?.timeline ? (view.conversation ?? []).filter(m => !ordered.some(e => e.kind === "message" && e.messageId === m.messageId)).map(m => ({ kind: "message" as const, messageId: m.messageId })) : [])];
   const eventKeys = entries.map((e, index) => e.kind === "reading" ? ("eventId" in e && typeof e.eventId === "string" ? e.eventId : undefined) ?? `${chunkKey(e.chunk)}:${index}` : e.messageId);
-  const eventScope = `${sourceId}:${view?.discussionId ?? view?.sessionId}`;
+  const eventScope = JSON.stringify([view?.workspace?.workspaceId ?? "default", sourceId, view?.sessionId, view?.discussionId]);
   const notesOpen = mist && attachNotes && !showStructure;
   const notesLayout = !notesOpen ? "off" : readingWidth >= columnWidth + readingLayout.padding + readingLayout.noteGap + readingLayout.noteWidth ? "side" : "split";
   const paragraphGroups = groupReadingDiscussion(entries, eventKeys);
@@ -623,7 +621,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const outline = view?.outline ?? Array.from({ length: current?.total ?? chunks.at(-1)?.total ?? 0 },
     (_, i) => ({ chunkId: `chunk-${String(i + 1).padStart(3, "0")}`, index: i + 1, sectionPath: [] as string[] }));
   const progressEntries = view?.readingProgress ?? [];
-  const locationProgress = mist && lensReview ? <small>回看 {lensChunk!.index} · 进度 {frontier!.index}/{frontier!.total}</small> : <small>{view?.structureIntro ? 0 : locatedChunk?.index ?? frontier?.index ?? current?.index ?? 0} / {view?.outline?.length ?? frontier?.total ?? current?.total ?? 0}</small>;
+  const locationProgress = <small>{view?.structureIntro ? 0 : locatedChunk?.index ?? frontier?.index ?? current?.index ?? 0} / {view?.outline?.length ?? frontier?.total ?? current?.total ?? 0}</small>;
   const locationPath = <span>{showStructure ? "文章结构" : structureTitle || (view?.status === "completed" ? "已完成本篇" : "准备阅读")}</span>;
   const readingLocation = !!(view?.structure?.length || view?.outline?.length || frontier || current) && (mist
     ? <button type="button" className="reader-location-badge" aria-label="当前阅读位置" aria-haspopup="dialog" title={structureTitle} onClick={() => setPanel("contents")}>{locationProgress}{locationPath}</button>
@@ -640,18 +638,33 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       else composer.current?.focus({ preventScroll: true });
     });
   }
+  const reviewing = lensReview || !!(reviewChunk && frontier && reviewChunk.planId === frontier.planId && reviewChunk.index < frontier.index);
+  const latestNotice = useLatestNotice(eventScope, JSON.stringify([frontier?.planId, frontier?.chunkId]),
+    !follow.current && (reviewing || scrolling.back || (scrolling.latest && (readingGroups.length > 1 || !!view?.conversation.length))));
+  function focusNavigationFallback() {
+    (layout.current?.querySelector<HTMLElement>(".reader-location-badge") ?? composer.current ?? stream.current)?.focus({ preventScroll: true });
+  }
   const navigationNotices = !showStructure && <div className="reader-navigation-notices" aria-label="阅读导航提示">
-    {reviewChunk && !reviewNoticeDismissed && <p className="focus-review-banner">正在回看第 {reviewChunk.index} 段 · 正式位置未改变 <button onClick={() => { if (frontier) review(frontier); }}>返回当前阅读</button><button aria-label="关闭回看提示" onClick={() => setReviewNoticeDismissed(true)}><Close /></button></p>}
-    {lensReview && progressNoticeDismissed !== `${eventScope}:${lens.activeId}` && <span className="reader-scroll-notice"><button type="button" onClick={() => {
-        const group = [...readingGroups].reverse().find(item => item.chunk && frontier && chunkKey(item.chunk) === chunkKey(frontier));
-        const target = Array.from(lens.document.current?.querySelectorAll<HTMLElement>("[data-lens-group]") ?? []).find(el => el.dataset.lensGroup === group?.id);
-        if (group && target && stream.current) {
-          lens.focus(group.id);
-          scrolling.controller.current?.jump(target);
-        }
-      }}>回到进度</button><button aria-label="关闭回到进度提示" onClick={() => setProgressNoticeDismissed(`${eventScope}:${lens.activeId}`)}><Close /></button></span>}
-        {scrolling.back && <span className="reader-scroll-notice"><button onClick={() => scrolling.controller.current?.goBack()}>↩ 返回刚才位置</button><button aria-label="关闭返回位置提示" onClick={() => scrolling.controller.current?.dismissBack()}><Close /></button></span>}
-        {scrolling.latest && (readingGroups.length > 1 || !!view?.conversation.length) && <span className="reader-scroll-notice"><button onClick={() => scrolling.controller.current?.toLatest()}>{active ? "回答生成中 · " : ""}回到最新 ↓</button><button aria-label="关闭回到最新提示" onClick={() => scrolling.controller.current?.dismissLatest()}><Close /></button></span>}
+    {latestNotice.visible && <span className="reader-scroll-notice"><button type="button" onClick={() => {
+      setReviewChunk(null);
+      const last = readingGroups.at(-1);
+      const progressGroup = [...readingGroups].reverse().find(group => group.chunk && frontier && chunkKey(group.chunk) === chunkKey(frontier));
+      const progressTarget = Array.from(stream.current?.querySelectorAll<HTMLElement>("[data-reading-group]") ?? [])
+        .find(element => element.dataset.readingGroup === progressGroup?.id);
+      // A review event can be last chronologically without being the reading frontier.
+      // A live answer still takes precedence, preserving explicit stream-follow behavior.
+      if (!active && progressGroup && progressTarget && progressGroup.id !== last?.id) {
+        lens.focus(progressGroup.id);
+        scrolling.controller.current?.land(progressTarget);
+      } else {
+        if (last) lens.focus(last.id);
+        scrolling.controller.current?.toLatest();
+      }
+      focusNavigationFallback();
+    }}>回到最新 ↓</button><button type="button" aria-label="关闭回到最新提示" onClick={() => {
+      latestNotice.dismiss();
+      focusNavigationFallback();
+    }}><Close /></button></span>}
   </div>;
   const continueLabel = view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total) ? "已读完" : (view?.sessionFresh && view.readingStarted && frontier?.index === frontier?.total) || (!view?.sessionFresh && displayed?.index === displayed?.total && !reviewChunk) ? "完成本篇" : operation === "下一段" ? "打开中…" : "继续";
   return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-measure={measure} data-notes-layout={notesLayout} data-anno-rail={Object.values(stackedRails).some(Boolean) ? "stacked" : undefined} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && structureOpen) {
