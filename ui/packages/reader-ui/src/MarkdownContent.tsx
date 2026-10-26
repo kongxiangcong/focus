@@ -1,4 +1,4 @@
-import { memo, useContext, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, memo, useContext, useLayoutEffect, useMemo, useRef } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import "katex/dist/katex.min.css";
 import { AssetInstanceContext } from "./asset-context";
@@ -29,7 +29,9 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
   onAnnotations?: (marks: readonly ResolvedMark[], lost: readonly Located[], text: string) => void;
 }) {
   const instanceId = useContext(AssetInstanceContext);
-  const markdown = normalizeMathMarkdown(text);
+  const figureHandler = useRef(onFigure); figureHandler.current = onFigure;
+  const showFigure = useCallback((figure: Figure) => figureHandler.current?.(figure), []);
+  const markdown = useMemo(() => normalizeMathMarkdown(text), [text]);
   function markFigures() {
     return (tree: FigureNode) => {
       if (!sourceId || !figures || !onFigure) return;
@@ -63,12 +65,14 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
   useLayoutEffect(() => {
     if (annotation && resultRef.current) onAnnotations?.(resultRef.current.marks, resultRef.current.lost, resultRef.current.text);
   }, [annotationKey, text, onAnnotations]);
-  return <div className="focus-markdown"><Markdown remarkPlugins={remarkPlugins} rehypePlugins={[...rehypePlugins, markFigures, ...annotationPlugins, ...(annotation ? [probe] : [])]}
+  // Parent handlers may change on each token; retain the parsed tree for stable content.
+  const rendered = useMemo(() => <Markdown remarkPlugins={remarkPlugins} rehypePlugins={[...rehypePlugins, markFigures, ...annotationPlugins, ...(annotation ? [probe] : [])]}
     components={{ ...components, img: ({ node, src, alt }) => {
       const figure = (node as FigureNode | undefined)?.data?.readerFigure;
-      return figure && onFigure ? <button data-anno-ui="" className="reader-figure-link" onClick={() => onFigure(figure)}>查看{figure.label}</button> : <img src={src} alt={alt ?? ""} loading="lazy" />;
+      return figure && onFigure ? <button data-anno-ui="" className="reader-figure-link" onClick={() => showFigure(figure)}>查看{figure.label}</button> : <img src={src} alt={alt ?? ""} loading="lazy" />;
     } }} urlTransform={(url, key) => {
       if (sourceId && key === "src") return imageUrl(url, sourceId, instanceId);
       return defaultUrlTransform(url);
-    }}>{markdown}</Markdown></div>;
+    }}>{markdown}</Markdown>, [markdown, sourceId, instanceId, inlineFigures, JSON.stringify(figures), !!onFigure, markKey, annotationKey]);
+  return <div className="focus-markdown">{rendered}</div>;
 });

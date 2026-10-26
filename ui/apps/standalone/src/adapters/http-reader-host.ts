@@ -1,3 +1,4 @@
+import { mergeText } from "./text-stream";
 import { createReaderId, type CreateSourceNoteInput, type CreateHighlightInput, type HighlightOperation,
   type BackendSetupAction, type BackendSetupInput, type BackendSetupResult,
   type BlogRegenerationTarget,
@@ -596,13 +597,41 @@ export class HttpReaderHost implements ReaderHost {
   }
 
   subscribe(listener: (result: ReaderHostResult<ReadingWindow>) => void): () => void {
-    const stream = new EventSource(`${this.baseUrl}/reader/events${this.instanceId ? '?instance=' + this.instanceId : ''}`);
-    stream.addEventListener("snapshot", (event) => {
-      try { listener(this.boundResult(JSON.parse((event as MessageEvent).data))); }
-      catch { listener({ ok: false, error: { code: "invalid-response", message: "任务状态流格式错误", retryable: true } }); }
-    });
-    stream.onerror = () => listener({ ok: false, error: { code: "unavailable", message: "连接中断，正在恢复；后台任务可能仍在运行。", retryable: true } });
-    return () => stream.close();
+    let current: ReadingWindow | null = null;
+    let closed = false;
+    let stream: EventSource;
+    const connect = () => {
+      current = null;
+      stream = new EventSource(`${this.baseUrl}/reader/events${this.instanceId ? '?instance=' + this.instanceId : ''}`);
+      const connection = stream;
+      stream.addEventListener("workspace-changed", () => {
+        if (closed || stream !== connection) return;
+        closed = true; current = null; stream.close();
+        listener({ ok: false, error: { code: "invalid-response", message: "工作区已切换，请重新载入。", retryable: false } });
+      });
+      stream.addEventListener("snapshot", (event) => {
+        if (closed || stream !== connection) return;
+        try {
+          const result = this.boundResult(JSON.parse((event as MessageEvent).data));
+          current = result.ok ? result.value : null;
+          listener(result);
+        } catch { listener({ ok: false, error: { code: "invalid-response", message: "任务状态流格式错误", retryable: true } }); }
+      });
+      stream.addEventListener("text", (event) => {
+        if (closed || stream !== connection) return;
+        try {
+          if (!current) throw new Error("Missing baseline");
+          current = mergeText(current, JSON.parse((event as MessageEvent).data));
+          listener({ ok: true, value: current });
+        } catch {
+          // A new connection always starts with a complete authoritative baseline.
+          stream.close(); connect();
+        }
+      });
+      stream.onerror = () => listener({ ok: false, error: { code: "unavailable", message: "连接中断，正在恢复；后台任务可能仍在运行。", retryable: true } });
+    };
+    connect();
+    return () => { closed = true; stream.close(); };
   }
 
   private async request(path: string, init: RequestInit): Promise<ReaderHostResult<ReadingWindow>> {
