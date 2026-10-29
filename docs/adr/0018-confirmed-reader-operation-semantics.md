@@ -55,3 +55,11 @@ The UI opens the task panel, expands the matching batch and focuses its recovery
 action. Re-upload does not submit parsing again, even for an already confirmed
 item. The notice distinguishes an uploaded original awaiting publication from
 a published document with unfinished follow-up work.
+
+## 2026-10-26 streaming projection isolation
+
+Text updates use versioned absolute message replacements over SSE, preserving
+per-fragment persistence. Connections begin with a full baseline; structural
+changes invalidate it. Read-only full projection runs outside the session lock
+and validates captured versions before publication. See the implementation and
+measured scope in [streaming performance verification](../performance/streaming.md).

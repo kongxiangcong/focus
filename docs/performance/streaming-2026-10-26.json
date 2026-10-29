@@ -1,0 +1,112 @@
+{
+  "base": "37e1ae4",
+  "before": {
+    "session_bytes": 651208,
+    "fragments": 300,
+    "cadence_ms": 5,
+    "reference_delay_ms": 2.0,
+    "first_applied_ms": 2.317389997188002,
+    "first_sse_ms": 268.134618003387,
+    "last_apply_lag_ms": 6995.903414033819,
+    "last_sse_lag_ms": 7251.291382010095,
+    "first_send_ms": 261.1118020140566,
+    "last_send_lag_ms": 7249.358606990427,
+    "max_lock_wait_ms": 321.0976620321162,
+    "max_backlog": 198,
+    "max_notification_ms": 327.05234101740643,
+    "full_snapshots": 31,
+    "snapshot_seconds": [
+      0.2593075609765947,
+      0.2564856550307013,
+      0.2873707929975353,
+      0.2558781590196304,
+      0.31498330004978925,
+      0.30835454899352044,
+      0.28496246004942805,
+      0.2711724219843745,
+      0.2610781230032444,
+      0.2810518660116941,
+      0.2677250279812142,
+      0.26982936199055985,
+      0.2725442699738778,
+      0.25294245401164517,
+      0.2555957599543035,
+      0.2645490969880484,
+      0.2955000849906355,
+      0.29368406702997163,
+      0.2611143629765138,
+      0.25569310697028413,
+      0.2857265959610231,
+      0.26840346097014844,
+      0.26211221795529127,
+      0.2635842430172488,
+      0.2614927380345762,
+      0.2591848790179938,
+      0.2601722879917361,
+      0.255947915953584,
+      0.27815955999540165,
+      0.2807970470166765,
+      0.25126613600878045
+    ],
+    "exact_output": true
+  },
+  "after": {
+    "session_bytes": 651208,
+    "fragments": 300,
+    "cadence_ms": 5,
+    "reference_delay_ms": 2.0,
+    "first_applied_ms": 3.3603979973122478,
+    "first_sse_ms": 13.629839988425374,
+    "last_apply_lag_ms": 3.0925499740988016,
+    "last_sse_lag_ms": 5.010207009036094,
+    "first_send_ms": 13.45791103085503,
+    "last_send_lag_ms": 4.923901986330748,
+    "max_lock_wait_ms": 0.29744900530204177,
+    "max_backlog": 1,
+    "max_notification_ms": 3.8857710314914584,
+    "full_snapshots": 1,
+    "snapshot_seconds": [
+      0.26929255900904536
+    ],
+    "exact_output": true
+  },
+  "browser": [
+    {
+      "beforeReload": {
+        "firstReceived": {
+          "length": 1,
+          "received": 1792986614043.1
+        },
+        "firstDisplay": {
+          "length": 1,
+          "time": 1792986614063.9
+        }
+      },
+      "eventSamples": 123,
+      "firstReceived": {
+        "length": 194,
+        "received": 1792986616130.2998
+      },
+      "lastReceived": {
+        "length": 298,
+        "received": 1792986617007.7
+      },
+      "displayed": {
+        "length": 300,
+        "time": 1792986617463.9
+      },
+      "displaySamples": 49,
+      "maxDisplayGapMs": 447.89990234375,
+      "finalCharacters": 300,
+      "exactOutput": true,
+      "reloadDuringStream": true,
+      "terminalReload": true
+    },
+    {
+      "host_start_epoch_ms": 1792986614027.4805,
+      "host_first_ms": 8.853912993799895,
+      "host_last_ms": 2992.1771800145507,
+      "persisted_characters": 300
+    }
+  ]
+}

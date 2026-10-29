@@ -84,6 +84,8 @@ class HostService:
         self.lock = threading.RLock()
         self.condition = threading.Condition(self.lock)
         self.generation = int(time.time() * 1000)
+        self.page_generation = self.generation
+        self.stream_messages = {}
         self.model, self.codex_bin = model, str(codex_bin) if codex_bin is not None else None
         self.network, self.approval_policy = network, approval_policy
         backend = backend or DEFAULT_BACKEND
@@ -176,6 +178,8 @@ class HostService:
                     self.state['readingMarker'] = marker
         self.store.save()
         self.generation += 1
+        self.page_generation = self.generation
+        self.stream_messages.clear()
         self.condition.notify_all()
 
     def _append_reading(self, receipt):
@@ -185,125 +189,179 @@ class HostService:
             'discussionId': discussions.select(self.state, source_id)})
 
     def snapshot(self):
+        # Existing mutation commands may already own the lock for their response.
+        # Read-only HTTP refreshes, like SSE, project a captured state off lock.
+        if not self.lock._is_owned():
+            with self.lock:
+                self.source_clear.recover()
+                self.recover_source_edits()
+                self.store.expire_logs()
+                self._reconcile_deleted_sources()
+            return self.event_snapshot()[1]
         with self.lock:
             self.source_clear.recover()
             self.recover_source_edits()
             self.store.expire_logs()
             self._reconcile_deleted_sources()
-            window = self.core.window()
-            discussion_source = self.state.get('discussionSourceId')
-            if discussion_source and discussion_source != window['source']['sourceId']:
-                source = SourceLibrary(self.workspace).get(discussion_source)
-                window.update(status='empty', source={'sourceId': discussion_source, 'title': source['title'],
-                    'topicId': None}, current=None, history=[], outline=[], structure=[])
-            note_source = discussion_source or window['source']['sourceId']
-            try:
-                window['figures'] = self.core.figure_catalog(note_source) if note_source else []
-            except (OSError, ValueError, WorkspaceError):
-                window['figures'] = []
-            window['revision'] = self.generation
-            window['sessionId'] = self.state['sessionId']
-            window['workspace'] = {**self.lease.manifest, 'instanceId': self.lease.instance_id,
-                                   'path': str(self.workspace)}
-            window['configuration'] = self.configuration_status()
-            window['sessionFresh'] = not self.state['displayReading']
-            window['navigationCurrent'] = window['current']
-            selected_state = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8")) if (self.workspace / 'state.json').is_file() else {}
-            window['readingStarted'] = bool(selected_state.get('sources', {}).get(note_source, {}).get('reading_started'))
-            window['structureIntro'] = bool(window.get('structure') and window['navigationCurrent'] and not window['readingStarted'])
-            if note_source and window.get('structure'):
-                window['articleOverview'] = self.article_overview(note_source)
-                overview = window['articleOverview']
-                if overview['status'] == 'ready':
-                    window['structure'] = overview['structure']
-                    for chunk, node in zip(window['outline'], overview['chunkNodes']):
-                        chunk['nodeId'] = node
-            window['resetVersion'] = sum(1 for source in selected_state.get('source_resets', {}).values() if source == note_source)
-            if not self.state['displayReading'] or (window['navigationCurrent'] and not window['readingStarted']):
-                window['sessionFresh'] = True
-                window['current'] = None
-                if window['status'] != 'completed':
-                    window['status'] = 'empty'
-            projected = {(c['sourceId'], c['planId'], c['chunkId']): c for c in [*window['history'], *([window['current']] if window['current'] else [])]}
-            window['timeline'] = []
-            window['unavailableReferences'] = []
-            for entry in self.state['timeline']:
-                if entry['kind'] == 'reading':
-                    receipt = entry['receipt']
-                    key = tuple(receipt[k] for k in ('sourceId', 'planId', 'chunkId'))
-                    try:
-                        chunk = projected.get(key) or self.core.reference(receipt)
-                    except (ValueError, WorkspaceError):
-                        window['unavailableReferences'].append({**receipt, 'reason': '原版本引用不可定位'})
-                        continue
-                    window['timeline'].append({**entry, 'chunk': chunk})
-                else:
-                    window['timeline'].append(entry)
-            messages = self.state['conversation']
-            if note_source:
-                discussion_id = discussions.select(self.state, note_source)
-                window['discussionId'] = discussion_id
-                window['discussions'] = [{'discussionId': key, 'sourceId': value['sourceId']}
-                                         for key, value in self.state['discussions'].items()
-                                         if value['sourceId'] == note_source]
-                messages = [m for m in messages if m.get('discussionId') == discussion_id or m.get('sourceDeleted')]
-                visible_ids = {m['messageId'] for m in messages}
-                window['timeline'] = [e for e in window['timeline']
-                                      if (e['kind'] == 'message' and e['messageId'] in visible_ids)
-                                      or (e['kind'] == 'reading' and self.state['displayReading'] and e['chunk']['sourceId'] == note_source
-                                          and (not e.get('discussionId') or e['discussionId'] == discussion_id))]
-            # Completed reading is a full-document projection, not another reading event.
-            # Keep real discussion/review events and insert only missing current-plan chunks.
-            if window['status'] == 'completed' and self.state['displayReading']:
-                present = {(e['chunk']['sourceId'], e['chunk']['planId'], e['chunk']['chunkId'])
-                           for e in window['timeline'] if e['kind'] == 'reading'}
-                for chunk in window['history']:
-                    key = tuple(chunk[k] for k in ('sourceId', 'planId', 'chunkId'))
-                    if key in present:
-                        continue
-                    index = next((i for i, e in enumerate(window['timeline'])
-                                  if e['kind'] == 'reading' and e['chunk']['planId'] == chunk['planId']
-                                  and e['chunk']['sourceId'] == chunk['sourceId']
-                                  and e['chunk']['index'] > chunk['index']), len(window['timeline']))
-                    window['timeline'].insert(index, {'kind': 'reading', 'chunk': chunk,
-                        'eventId': 'completed:' + ':'.join(key)})
-                    present.add(key)
-            window['conversation'] = json.loads(json.dumps(messages))
-            window['sourceNotes'] = self.source_notes.list(note_source, include_deleted=True) if note_source else []
-            window['noteClearVersion'] = self.source_notes.generation(note_source) if note_source else 0
-            window['sourceHighlights'] = self.source_highlights.list(note_source, include_deleted=True) if note_source else []
-            window['readingProgress'] = self.progress_core.list(note_source) if note_source else []
-            window['noteFeedback'] = self.state.get('noteFeedback') if note_source and (self.state.get('noteFeedback') or {}).get('sourceId') == note_source else None
-            window['noteOperation'] = self.state.get('noteOperation') if note_source and (self.state.get('noteOperation') or {}).get('sourceId') == note_source else None
-            window['highlightOperation'] = self.state.get('highlightOperation') if note_source and (self.state.get('highlightOperation') or {}).get('sourceId') == note_source else None
-            window['blog'] = self._blog_summary()
-            preparations = {}
-            for path in (self.workspace / 'sources').glob('*/reading/preparation.json'):
-                source_id = path.parent.parent.name
-                preparation = self.reading_app.status(source_id)
-                if preparation:
-                    preparations[source_id] = {key: preparation.get(key) for key in
-                        ('source_id', 'status', 'step', 'total', 'completed', 'ready', 'error', 'plan_id', 'attempt',
-                         'glossary_revision',
-                         'selected_plan_id', 'selected_ready', 'candidate')}
-                    projected = preparations[source_id]
-                    projected['timed_out'] = preparation['status'] == 'failed' and bool(
-                        preparation.get('timed_out') or re.search(r'timeout|timed[ -]?out|超时', preparation.get('error') or '', re.IGNORECASE))
-                    dismissed = self.store.get('dismissedPreparation:' + source_id)
-                    projected['dismissed'] = dismissed == {
-                        'run_id': preparation['run_id'], 'attempt': preparation['attempt']}
-            window['preparations'] = preparations
-            window['clearBusySources'] = [source['sourceId'] for source in SourceLibrary(self.workspace).overview() if self.source_clear_busy(source['sourceId'])]
-            window['agent'] = {'run': self.state['run'], 'catalog': self.core.catalog(),
-                               'backend': self.backend_name,
-                               'backends': [{'id': name, 'label': {'codex': 'Codex', 'deepseek': 'DeepSeek'}[name],
-                                             'unavailableReason': getattr(adapter, 'unavailable_reason', None)}
-                                            for name, adapter in BACKENDS.items()]}
-            window['workItems'] = self.work_items(window)
-            for item in window['workItems']:
-                if item['kind'] == 'preparation' and item['dismissed']:
-                    window['preparations'][item['targetId']]['dismissed'] = True
-            return json.loads(json.dumps(window))
+            return self._project_snapshot()
+
+    def _project_snapshot(self):
+        window = self.core.window()
+        discussion_source = self.state.get('discussionSourceId')
+        if discussion_source and discussion_source != window['source']['sourceId']:
+            source = SourceLibrary(self.workspace).get(discussion_source)
+            window.update(status='empty', source={'sourceId': discussion_source, 'title': source['title'],
+                'topicId': None}, current=None, history=[], outline=[], structure=[])
+        note_source = discussion_source or window['source']['sourceId']
+        try:
+            window['figures'] = self.core.figure_catalog(note_source) if note_source else []
+        except (OSError, ValueError, WorkspaceError):
+            window['figures'] = []
+        window['revision'] = self.generation
+        window['sessionId'] = self.state['sessionId']
+        window['workspace'] = {**self.lease.manifest, 'instanceId': self.lease.instance_id,
+                               'path': str(self.workspace)}
+        window['configuration'] = self.configuration_status()
+        window['sessionFresh'] = not self.state['displayReading']
+        window['navigationCurrent'] = window['current']
+        selected_state = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8")) if (self.workspace / 'state.json').is_file() else {}
+        window['readingStarted'] = bool(selected_state.get('sources', {}).get(note_source, {}).get('reading_started'))
+        window['structureIntro'] = bool(window.get('structure') and window['navigationCurrent'] and not window['readingStarted'])
+        if note_source and window.get('structure'):
+            window['articleOverview'] = self.article_overview(note_source)
+            overview = window['articleOverview']
+            if overview['status'] == 'ready':
+                window['structure'] = overview['structure']
+                for chunk, node in zip(window['outline'], overview['chunkNodes']):
+                    chunk['nodeId'] = node
+        window['resetVersion'] = sum(1 for source in selected_state.get('source_resets', {}).values() if source == note_source)
+        if not self.state['displayReading'] or (window['navigationCurrent'] and not window['readingStarted']):
+            window['sessionFresh'] = True
+            window['current'] = None
+            if window['status'] != 'completed':
+                window['status'] = 'empty'
+        projected = {(c['sourceId'], c['planId'], c['chunkId']): c for c in [*window['history'], *([window['current']] if window['current'] else [])]}
+        window['timeline'] = []
+        window['unavailableReferences'] = []
+        for entry in self.state['timeline']:
+            if entry['kind'] == 'reading':
+                receipt = entry['receipt']
+                key = tuple(receipt[k] for k in ('sourceId', 'planId', 'chunkId'))
+                try:
+                    chunk = projected.get(key) or self.core.reference(receipt)
+                except (ValueError, WorkspaceError):
+                    window['unavailableReferences'].append({**receipt, 'reason': '原版本引用不可定位'})
+                    continue
+                window['timeline'].append({**entry, 'chunk': chunk})
+            else:
+                window['timeline'].append(entry)
+        messages = self.state['conversation']
+        if note_source:
+            discussion_id = discussions.select(self.state, note_source)
+            window['discussionId'] = discussion_id
+            window['discussions'] = [{'discussionId': key, 'sourceId': value['sourceId']}
+                                     for key, value in self.state['discussions'].items()
+                                     if value['sourceId'] == note_source]
+            messages = [m for m in messages if m.get('discussionId') == discussion_id or m.get('sourceDeleted')]
+            visible_ids = {m['messageId'] for m in messages}
+            window['timeline'] = [e for e in window['timeline']
+                                  if (e['kind'] == 'message' and e['messageId'] in visible_ids)
+                                  or (e['kind'] == 'reading' and self.state['displayReading'] and e['chunk']['sourceId'] == note_source
+                                      and (not e.get('discussionId') or e['discussionId'] == discussion_id))]
+        # Completed reading is a full-document projection, not another reading event.
+        # Keep real discussion/review events and insert only missing current-plan chunks.
+        if window['status'] == 'completed' and self.state['displayReading']:
+            present = {(e['chunk']['sourceId'], e['chunk']['planId'], e['chunk']['chunkId'])
+                       for e in window['timeline'] if e['kind'] == 'reading'}
+            for chunk in window['history']:
+                key = tuple(chunk[k] for k in ('sourceId', 'planId', 'chunkId'))
+                if key in present:
+                    continue
+                index = next((i for i, e in enumerate(window['timeline'])
+                              if e['kind'] == 'reading' and e['chunk']['planId'] == chunk['planId']
+                              and e['chunk']['sourceId'] == chunk['sourceId']
+                              and e['chunk']['index'] > chunk['index']), len(window['timeline']))
+                window['timeline'].insert(index, {'kind': 'reading', 'chunk': chunk,
+                    'eventId': 'completed:' + ':'.join(key)})
+                present.add(key)
+        window['conversation'] = json.loads(json.dumps(messages))
+        window['sourceNotes'] = self.source_notes.list(note_source, include_deleted=True) if note_source else []
+        window['noteClearVersion'] = self.source_notes.generation(note_source) if note_source else 0
+        window['sourceHighlights'] = self.source_highlights.list(note_source, include_deleted=True) if note_source else []
+        window['readingProgress'] = self.progress_core.list(note_source) if note_source else []
+        window['noteFeedback'] = self.state.get('noteFeedback') if note_source and (self.state.get('noteFeedback') or {}).get('sourceId') == note_source else None
+        window['noteOperation'] = self.state.get('noteOperation') if note_source and (self.state.get('noteOperation') or {}).get('sourceId') == note_source else None
+        window['highlightOperation'] = self.state.get('highlightOperation') if note_source and (self.state.get('highlightOperation') or {}).get('sourceId') == note_source else None
+        window['blog'] = self._blog_summary()
+        preparations = {}
+        for path in (self.workspace / 'sources').glob('*/reading/preparation.json'):
+            source_id = path.parent.parent.name
+            preparation = self.reading_app.status(source_id)
+            if preparation:
+                preparations[source_id] = {key: preparation.get(key) for key in
+                    ('source_id', 'status', 'step', 'total', 'completed', 'ready', 'error', 'plan_id', 'attempt',
+                     'glossary_revision',
+                     'selected_plan_id', 'selected_ready', 'candidate')}
+                projected = preparations[source_id]
+                projected['timed_out'] = preparation['status'] == 'failed' and bool(
+                    preparation.get('timed_out') or re.search(r'timeout|timed[ -]?out|超时', preparation.get('error') or '', re.IGNORECASE))
+                dismissed = self.store.get('dismissedPreparation:' + source_id)
+                projected['dismissed'] = dismissed == {
+                    'run_id': preparation['run_id'], 'attempt': preparation['attempt']}
+        window['preparations'] = preparations
+        window['clearBusySources'] = [source['sourceId'] for source in SourceLibrary(self.workspace).overview() if self.source_clear_busy(source['sourceId'])]
+        window['agent'] = {'run': self.state['run'], 'catalog': self.core.catalog(),
+                           'backend': self.backend_name,
+                           'backends': [{'id': name, 'label': {'codex': 'Codex', 'deepseek': 'DeepSeek'}[name],
+                                         'unavailableReason': getattr(adapter, 'unavailable_reason', None)}
+                                        for name, adapter in BACKENDS.items()]}
+        window['workItems'] = self.work_items(window)
+        for item in window['workItems']:
+            if item['kind'] == 'preparation' and item['dismissed']:
+                window['preparations'][item['targetId']]['dismissed'] = True
+        return json.loads(json.dumps(window))
+
+    def event_snapshot(self):
+        """Project captured session state off the writer lock; reject structural races.
+
+        Ordinary output may advance during projection. Its absolute replacements
+        follow this baseline on the same SSE connection. Business mutations must
+        invalidate the baseline instead of allowing an old page to escape.
+        """
+        while not self.shutting_down:
+            with self.lock:
+                page = self.page_generation
+                state_path = self.workspace / 'state.json'
+                core_state = json.loads(state_path.read_text(encoding='utf-8')) if state_path.exists() else {}
+                source_id = self.state.get('discussionSourceId') or core_state.get('current_source_id')
+                if source_id:
+                    # Selection allocates identity and binds legacy messages. It
+                    # belongs to the authority, never to a detached projection.
+                    discussions.select(self.state, source_id)
+                view = copy.copy(self)
+                for name in ('reading_workers', 'progress_workers', 'ingestion_workers',
+                             'batch_workers', 'blog_workers', 'blog_errors'):
+                    setattr(view, name, dict(getattr(self, name)))
+                view.lock = threading.RLock()
+                view.store = copy.copy(self.store)
+                view.store.state = copy.deepcopy(self.state)
+                state_path = self.workspace / 'state.json'
+                version = state_path.stat().st_mtime_ns if state_path.exists() else None
+            window = view._project_snapshot()
+            with self.lock:
+                current_version = state_path.stat().st_mtime_ns if state_path.exists() else None
+                if page == self.page_generation and version == current_version:
+                    return page, window
+        raise ValueError('Workspace is closing')
+
+    def text_event(self, page, revision):
+        """Bounded absolute replacements, not a replay queue of token fragments."""
+        if page != self.page_generation:
+            return None
+        return {'baseRevision': revision, 'revision': self.generation,
+                'sessionId': self.state['sessionId'], 'instanceId': self.lease.instance_id,
+                'messages': copy.deepcopy(list(self.stream_messages.values())),
+                'run': copy.deepcopy(self.state['run'])}
 
     def work_items(self, window):
         """Project durable business attempts; never infer work from the last log line."""
@@ -821,6 +879,8 @@ class HostService:
                     with self.lock:
                         self.batch_workers.pop(batch_id, None)
                         self.generation += 1
+                        self.page_generation = self.generation
+                        self.stream_messages.clear()
                         self.condition.notify_all()
 
             worker = threading.Thread(target=run, name='focus-batch-' + batch_id[:8], daemon=True)
@@ -869,6 +929,8 @@ class HostService:
                     with self.lock:
                         self.ingestion_workers.pop(item_id, None)
                         self.generation += 1
+                        self.page_generation = self.generation
+                        self.stream_messages.clear()
                         self.condition.notify_all()
 
             worker = threading.Thread(target=run, name='focus-ingestion-' + item_id[:8], daemon=True)
@@ -1018,6 +1080,8 @@ class HostService:
                     with self.lock:
                         self.blog_workers.pop(source_id, None)
                         self.generation += 1
+                        self.page_generation = self.generation
+                        self.stream_messages.clear()
                         self.condition.notify_all()
 
             worker = threading.Thread(target=run, name='focus-blog-' + source_id[:8], daemon=True)
@@ -1838,7 +1902,16 @@ class HostService:
                     'status': 'retrying' if params.get('willRetry') else 'failed',
                     'detail': params.get('message', 'Unknown runtime error')}]
                 self._progress('连接异常，正在重试' if params.get('willRetry') else '处理遇到错误')
-            self.changed()
+            if method in ('message/delta', 'message/completed'):
+                message = self._conversation_entry(params['itemId'])
+                self.stream_messages[message['messageId']] = message
+                # Preserve existing durability: every applied fragment is saved.
+                # Reading receipts are business changes, never token side effects.
+                self.store.save()
+                self.generation += 1
+                self.condition.notify_all()
+            else:
+                self.changed()
 
     def _conversation_entry(self, item_id):
         message = next((m for m in self.state['conversation'] if m['messageId'] == item_id), None)

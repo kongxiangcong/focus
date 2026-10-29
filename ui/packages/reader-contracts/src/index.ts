@@ -74,6 +74,7 @@ export interface BlogStatus {
 export type ReaderMessageRole = "user" | "assistant";
 
 export interface ReaderMessage {
+  discussionId?: string | null;
   messageId: string;
   reference?: CursorReceipt | null;
   chunkId: string;

@@ -225,3 +225,33 @@ it("preserves explicit annotation occupancy conflicts from HTTP", async () => {
     expect(await host.changeHighlight("fixture-paper", "highlight", "undo", 2, "overlap-request")).toEqual({ ok: false, error });
   }
 });
+
+it("merges real subscription text frames and reconnects from an authoritative baseline after gaps", () => {
+  class Stream {
+    static instances: Stream[] = [];
+    handlers = new Map<string, (event: { data: string }) => void>();
+    close = vi.fn(); onerror: unknown;
+    constructor() { Stream.instances.push(this); }
+    addEventListener(name: string, handler: (event: {data:string}) => void) { this.handlers.set(name,handler); }
+    emit(name:string, value:unknown) { this.handlers.get(name)?.({data:JSON.stringify(value)}); }
+  }
+  vi.stubGlobal("EventSource", Stream);
+  try {
+    const listener = vi.fn();
+    const host = new HttpReaderHost({baseUrl:"",instanceId:"instance"});
+    const close = host.subscribe(listener);
+    const initial = {...completedWindow, revision:1, sessionId:"session",workspace:{workspaceId:"w",instanceId:"instance",path:"/fixture"}};
+    const first = Stream.instances[0]; first.emit("snapshot",{ok:true,value:initial});
+    first.emit("text",{baseRevision:1,revision:2,sessionId:"session",instanceId:"instance",messages:[{messageId:"reply",role:"assistant",chunkId:"",content:"abcd"}],run:null});
+    expect(listener.mock.calls.at(-1)?.[0].value.conversation[0].content).toBe("abcd");
+    first.emit("text",{baseRevision:0,revision:3,sessionId:"session",instanceId:"instance",messages:[],run:null});
+    expect(first.close).toHaveBeenCalled(); expect(Stream.instances).toHaveLength(2);
+    const calls = listener.mock.calls.length;
+    first.emit("snapshot",{ok:true,value:initial});
+    expect(listener).toHaveBeenCalledTimes(calls);
+    Stream.instances[1].emit("snapshot",{ok:true,value:{...initial,revision:4}});
+    close();
+    Stream.instances[1].emit("snapshot",{ok:true,value:initial});
+    expect(listener.mock.calls.at(-1)?.[0].value.revision).toBe(4);
+  } finally { vi.unstubAllGlobals(); }
+});

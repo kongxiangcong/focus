@@ -11,7 +11,7 @@ import { AssetInstanceContext } from "./asset-context";
 import { PanelLeft, Pin, Expand, Collapse, ArrowRight, ArrowUp, StopSquare, ChevronDown, Widen, Close } from "./ReaderIcons";
 import { createReaderId, cursorReceipt, type ReaderChunk, type ReaderAttachment, type ReaderHost, type ReadingWindow,
   type ReaderHostResult, type SendReaderMessageInput, type ContinueReadingInput, type SourceNote, type ReadingProgressEntry } from "@focus/reader-contracts";
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useMemo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentControls } from "./AgentControls";
 import { ReadingChunk, ReaderConversation, chunkKey } from "./ReadingChunk";
 import { readingFontSizes, readingMeasures, readingLayout, readReadingMeasure, effectiveReadingMeasure, measureWidth, drawerTranslation, type ReadingMeasure } from "./typography";
@@ -280,7 +280,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const active = !!agent?.run && ["running", "approval", "stopping"].includes(agent.run.status);
   const uploading = uploads.some(u => u.state === "uploading");
   const blocked = active || !!operation;
-  const chunks = view ? [...view.history, ...(current ? [current] : view.readingStarted && frontier ? [frontier] : [])] : [];
+  const chunks = useMemo(() => view ? [...view.history, ...(current ? [current] : view.readingStarted && frontier ? [frontier] : [])] : [], [view?.history, current, view?.readingStarted, frontier]);
   const displayed = reviewChunk ?? current;
   const showStructure = !!view?.structure?.length && (!!view.structureIntro || structureOpen);
   const bodyScroll = useRef(0);
@@ -292,20 +292,23 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   useEffect(() => { setStructureOpen(false); }, [view?.source.sourceId, frontier?.planId, view?.resetVersion]);
   useEffect(() => { setViewportChunk(null); }, [view?.source.sourceId, view?.readingRevision, reviewChunk, view?.sessionId]);
   const sourceId = view?.source.sourceId ?? "";
-  const protectedImages = new Set(chunks.flatMap(c => [...extractFigures(c.sourceMarkdown, c.sourceId).protectedIds]));
-  const allFigures = mergeFigures(sourceId, (view?.figures ?? []).filter(f => !protectedImages.has(imageIdentity(f.src, sourceId))),
-    ...chunks.filter(c => c.sourceId === sourceId).map(c => chunkFigures(c, figureLanguages[chunkKey(c)] ?? false)));
-  // Current-language captions override the original catalogue for loaded Chunks.
-  const localized = new Map(chunks.filter(c => c.sourceId === sourceId).flatMap(c => chunkFigures(c, figureLanguages[chunkKey(c)] ?? false)).map(f => [f.id, f]));
-  const sourceFigures = allFigures.map(f => {
-    const local = localized.get(f.id);
-    return local && (local.bodyCaption || figureNumber.test(local.caption) || !f.caption) ? { ...f, caption: local.caption, label: local.label } : f;
-  }).sort((a, b) => {
-    const aNumber = a.label.match(figureNumber)?.[1];
-    const bNumber = b.label.match(figureNumber)?.[1];
-    if (!aNumber || !bNumber) return aNumber ? -1 : bNumber ? 1 : 0;
-    return aNumber.localeCompare(bNumber, undefined, { numeric: true });
-  });
+  const { allFigures, sourceFigures } = useMemo(() => {
+    const protectedImages = new Set(chunks.flatMap(c => [...extractFigures(c.sourceMarkdown, c.sourceId).protectedIds]));
+    const allFigures = mergeFigures(sourceId, (view?.figures ?? []).filter(f => !protectedImages.has(imageIdentity(f.src, sourceId))),
+      ...chunks.filter(c => c.sourceId === sourceId).map(c => chunkFigures(c, figureLanguages[chunkKey(c)] ?? false)));
+    // Current-language captions override the original catalogue for loaded Chunks.
+    const localized = new Map(chunks.filter(c => c.sourceId === sourceId).flatMap(c => chunkFigures(c, figureLanguages[chunkKey(c)] ?? false)).map(f => [f.id, f]));
+    const sourceFigures = allFigures.map(f => {
+      const local = localized.get(f.id);
+      return local && (local.bodyCaption || figureNumber.test(local.caption) || !f.caption) ? { ...f, caption: local.caption, label: local.label } : f;
+    }).sort((a, b) => {
+      const aNumber = a.label.match(figureNumber)?.[1];
+      const bNumber = b.label.match(figureNumber)?.[1];
+      if (!aNumber || !bNumber) return aNumber ? -1 : bNumber ? 1 : 0;
+      return aNumber.localeCompare(bNumber, undefined, { numeric: true });
+    });
+    return { allFigures, sourceFigures };
+  }, [chunks, sourceId, view?.figures, figureLanguages]);
   const ordered = view?.timeline ?? [
     ...(view?.status === "completed" && !view.sessionFresh ? view.history.map(chunk => ({ kind: "reading" as const, chunk })) : displayed ? [{ kind: "reading" as const, chunk: displayed }] : []),
     ...(view?.conversation ?? []).map(message => ({ kind: "message" as const, messageId: message.messageId })),
@@ -315,14 +318,14 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
   const eventScope = JSON.stringify([view?.workspace?.workspaceId ?? "default", sourceId, view?.sessionId, view?.discussionId]);
   const notesOpen = mist && attachNotes && !showStructure;
   const notesLayout = !notesOpen ? "off" : readingWidth >= columnWidth + readingLayout.padding + readingLayout.noteGap + readingLayout.noteWidth ? "side" : "split";
-  const paragraphGroups = groupReadingDiscussion(entries, eventKeys);
+  const paragraphGroups = useMemo(() => groupReadingDiscussion(entries, eventKeys), [view?.timeline, view?.history, displayed, view?.conversation.length, view?.sessionId]);
   const discussionFolds = useDiscussionFolds();
   const foldKey = (id: string) => discussionFoldKey(view?.workspace?.workspaceId ?? "default", sourceId,
     view?.sessionId ?? "", view?.discussionId ?? "", id);
   const annotations = useAnnotations({ host, view, accept: value => preserveReading(() => accept(value)), stream,
     groups: paragraphGroups, onReference: referenceChunk, attached: notesOpen, notesLayout });
   sentenceNoteController.current = annotations;
-  const projectedNotes = projectSourceNotes(view?.sourceNotes ?? [], paragraphGroups);
+  const projectedNotes = useMemo(() => projectSourceNotes(view?.sourceNotes ?? [], paragraphGroups), [view?.sourceNotes, paragraphGroups]);
   const readingGroups = paragraphGroups.filter(group => group.chunk !== null);
   const lens = useReadingLens(eventScope, readingGroups.map(group => group.id), mist && visible && !showStructure);
   const lensIndex = Math.max(0, readingGroups.findIndex(group => group.id === lens.activeId));

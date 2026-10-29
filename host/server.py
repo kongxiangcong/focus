@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import socket
+import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -211,7 +212,12 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.close_connection = True
             generation = -1
+            page_generation = -1
             while not service.shutting_down:
+                # Coalesce absolute replacements to at most one frame per 16 ms.
+                # This wait never owns the session lock.
+                if generation >= 0:
+                    time.sleep(.016)
                 if self.server.workbench and self.server.workbench.host is not service:
                     self.wfile.write(b'event: workspace-changed\ndata: {}\n\n')
                     self.wfile.flush()
@@ -221,15 +227,26 @@ class Handler(BaseHTTPRequestHandler):
                         service.condition.wait(timeout=10)
                     if service.shutting_down:
                         break
-                    if generation == service.generation:
-                        frame = b': heartbeat\n\n'
-                    else:
-                        generation = service.generation
-                        try:
-                            value = {'ok': True, 'value': service.snapshot()}
-                        except Exception as exc:
-                            value = {'ok': False, 'error': {'code': 'invalid-response', 'message': str(exc), 'retryable': False}}
-                        frame = ('event: snapshot\ndata: ' + json.dumps(value, ensure_ascii=False) + '\n\n').encode()
+                    heartbeat = generation == service.generation
+                    update = None if heartbeat else service.text_event(page_generation, generation)
+                # Projection and JSON encoding must not own the session lock.
+                if heartbeat:
+                    frame = b': heartbeat\n\n'
+                elif update is not None:
+                    generation = update['revision']
+                    frame = ('event: text\ndata: ' + json.dumps(update, ensure_ascii=False) + '\n\n').encode()
+                else:
+                    try:
+                        page_generation, window = service.event_snapshot()
+                        generation = window['revision']
+                        value = {'ok': True, 'value': window}
+                    except Exception as exc:
+                        value = {'ok': False, 'error': {'code': 'invalid-response', 'message': str(exc), 'retryable': False}}
+                    frame = ('event: snapshot\ndata: ' + json.dumps(value, ensure_ascii=False) + '\n\n').encode()
+                if self.server.workbench and self.server.workbench.host is not service:
+                    self.wfile.write(b'event: workspace-changed\ndata: {}\n\n')
+                    self.wfile.flush()
+                    break
                 self.wfile.write(frame)
                 self.wfile.flush()
             return
