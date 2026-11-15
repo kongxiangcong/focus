@@ -1,5 +1,7 @@
 # FOCUS 当前设计入口
 
+2026-11-15：用户已批准精简版原文/对话双栏原型并授权开发。新界面以 [ADR 0034](../adr/0034-source-bound-answer-evidence.md) 和 [需求规格](../../.scratch/conversation-reading/spec.md) 为准；正式 HTTP 阅读入口已接入双栏页面与经校验的回答证据；旧 Host 适配器保留兼容页面。验收见 [.scratch/conversation-reading/production-acceptance.md](../../.scratch/conversation-reading/production-acceptance.md)。不要恢复宣传标题、引导小字和固定推荐问题。旧页面规范继续用于兼容维护。
+
 本索引按当前分支已接受的决策组织设计文档（更新：2026-10-23）。它说明实施时查哪份规范，不宣称所有设计已完成或浏览器验收通过；验证状态看各验收记录。用户当前任务的明确变更优先于本文列出的旧条款。
 
 ## 按修改范围选择规范
@@ -24,3 +26,5 @@
 - [focus-cds-ui.md](focus-cds-ui.md)：2026-10-18 迁移记录；其中的旧配色、段落、资料和 Composer 描述已由上述专项决策部分替代。
 - [focus-reader-ui-spec.md](focus-reader-ui-spec.md)：历史统一流规范，已在文件内标明被 ADR 0008 替代；仍适用的渲染／领域能力由当前代码、CONTEXT 和相关 ADR 核对，不从中恢复历史外观。
 - `focus-reader-current-session-prototype.md`、`focus-reader-design-verdict.md`、`FOCUS_LIBRARY_REDESIGN_PROMPTS.md`：原型、评议或执行提示材料；有已接受规范时按表中入口执行。
+
+2026-11-15 补充：统一阅读入口内提供「逐段精读 / 对话」两个 tab，逐段精读继续使用既有计划、译文和逐段进度。

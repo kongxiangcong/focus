@@ -1,0 +1,75 @@
+.conversation-reader { container-type:inline-size; container-name:reading; height:100%; min-height:0; position:relative; display:flex; flex-direction:column; color:var(--reader-ink); background:var(--reader-canvas); font-family:inherit; }
+.conversation-reader[hidden] { display:none; }
+.unified-reader { height:100%; min-height:0; display:flex; flex-direction:column; }
+.unified-reader[hidden] { display:none; }
+.reading-mode-panel { flex:1; min-height:0; position:relative; }
+.reading-mode-tabs { display:flex; gap:16px; padding:0 24px; flex:none; border-bottom:1px solid var(--reader-surface-1); background:var(--reader-canvas); }
+.reading-mode-tabs button { font:inherit; font-size:13px; color:var(--reader-muted); padding:12px 0; border:0; border-bottom:2px solid transparent; background:transparent; box-shadow:none; cursor:pointer; }
+.reading-mode-tabs button[aria-selected=true] { color:var(--reader-ink); border-bottom-color:var(--reader-accent); }
+.reading-mode-tabs button:focus-visible { outline:2px solid var(--reader-accent); outline-offset:2px; }
+.reading-mode-tabs button:disabled { opacity:.5; cursor:default; }
+.conversation-reader button { color:inherit; font:inherit; cursor:pointer; background:transparent; border:0!important; box-shadow:none!important; border-radius:6px; padding:6px 9px; }
+.conversation-reader button:hover { background:var(--reader-accent-soft); }
+.conversation-reader button:focus-visible,.source-splitter:focus-visible { outline:2px solid var(--reader-accent); outline-offset:3px; }
+.conversation-reader button:disabled { opacity:.4; cursor:default; }
+.source-reader-toolbar { min-height:48px; flex:none; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; padding:0 24px; border-bottom:1px solid var(--reader-surface-1); font-size:13px; }
+.source-reader-toolbar nav { display:none; }
+.source-reader-columns { display:grid; grid-template-columns:minmax(0,var(--source-share)) 7px minmax(0,1fr); flex:1; min-height:0; }
+.source-original-pane,.source-chat-pane { position:relative; min-width:0; min-height:0; }
+.source-original { height:100%; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:42px clamp(24px,4vw,76px) 120px; }
+.source-original article { max-width:850px; margin:auto; }
+.source-original .focus-markdown { font-family:var(--reader-body-font,var(--reader-serif)); font-size:var(--source-font-size); line-height:var(--reader-prose-leading); overflow-wrap:anywhere; }
+.source-original img { max-width:100%; height:auto; }
+.source-original pre,.source-original .katex-display { max-width:100%; overflow:auto; }
+.source-original .focus-markdown h1 { font-size:1.8em; line-height:1.35; margin:0 0 1.2em; }
+.source-original .focus-markdown h2 { margin-top:2em; font-size:1.3em; }
+.source-original .focus-markdown table { border-collapse:collapse; }
+.source-original td,.source-original th { border-bottom:1px solid var(--reader-surface-1); padding:8px; }
+.source-splitter { cursor:col-resize; touch-action:none; background:linear-gradient(to right,transparent 3px,var(--reader-surface-1) 3px,var(--reader-surface-1) 4px,transparent 4px); }
+.source-splitter:hover { background:var(--reader-accent-soft); }
+.source-chat-pane { display:flex; flex-direction:column; }
+.source-chat { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; padding:30px clamp(20px,2.7vw,44px); }
+.source-opening { font-size:14px; line-height:1.9; margin-bottom:32px; }
+.source-guide-toggle { float:right; color:var(--reader-ink-3)!important; font-size:12px!important; }
+.source-opening ul { list-style:none; padding:0; clear:both; }
+.source-opening li[data-child=true] { padding-left:18px; }
+.source-opening li button { text-align:left; padding-left:0; }
+.source-opening p { color:var(--reader-ink-2); }
+.source-message { margin:0 0 28px; font-size:var(--reader-conversation-size); line-height:var(--reader-conversation-leading); overflow-wrap:anywhere; }
+.source-message[data-role=user] { background:var(--reader-surface-1); border-radius:12px; padding:8px 16px; margin-left:22px; }
+.source-message .focus-markdown> :first-child { margin-top:0; }
+.source-message .focus-markdown> :last-child { margin-bottom:0; }
+.source-message .focus-markdown { font-family:inherit; }
+.source-composer { margin:0 20px 20px; position:relative; border:1px solid var(--reader-surface-1); border-radius:16px; background:var(--reader-surface-2); padding:12px 44px 12px 14px; }
+.source-composer textarea { resize:none; border:0; outline:none; background:transparent; color:inherit; width:100%; min-height:64px; max-height:180px; box-shadow:none!important; border:0!important; font:inherit; line-height:1.6; }
+.source-composer>button { position:absolute; right:10px; bottom:10px; color:var(--reader-accent); font-size:22px; }
+.source-composer .focus-agent { font-size:12px; }
+.source-evidence { background:var(--reader-mark-soft); color:inherit; border-radius:2px; transition:background-color var(--reader-duration-quick) var(--reader-ease-out); }
+.source-evidence.is-active { background:var(--reader-mark); }
+.conversation-reader .source-evidence-number,.conversation-reader .answer-evidence-number { display:inline; color:var(--reader-mark-ink); background:var(--reader-mark-soft); padding:1px 5px; font:600 11px/1.5 system-ui; vertical-align:super; border-radius:4px; margin:0 2px; }
+[data-evidence-block] { border-left:2px solid var(--reader-mark-strong); padding-left:12px; }
+.source-evidence-card { position:absolute; bottom:18px; left:24px; right:24px; max-width:530px; max-height:180px; overflow:auto; padding:12px 18px; border:1px solid var(--reader-mark); background:var(--reader-popover); border-radius:12px; box-shadow:0 8px 24px #0001; animation:source-card-in var(--reader-duration-quick) var(--reader-ease-out); font:13px/1.6 system-ui; }
+.source-evidence-card>button:first-child { float:right; }
+.source-evidence-card p { margin:6px 0; white-space:pre-wrap; }
+.source-reader-error { padding:8px 24px; color:var(--reader-ink); }
+.source-opening-skeleton { padding:16px 0 32px; }
+.source-opening-skeleton i { display:block; height:12px; background:var(--reader-surface-1); width:82%; margin:12px 0; border-radius:4px; }
+.source-opening-skeleton i:last-child { width:56%; }
+.source-notes-drawer { position:absolute; right:0; top:48px; bottom:0; width:min(380px,90%); overflow:auto; background:var(--reader-popover); border-left:1px solid var(--reader-surface-1); padding:20px; box-shadow:-8px 0 32px #0001; }
+.source-notes-drawer>button { float:right; }
+.source-notes-drawer article { clear:both; padding:16px 0; border-bottom:1px solid var(--reader-surface-1); }
+@keyframes source-card-in { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
+@container reading (max-width:959px) { .source-reader-toolbar nav { display:flex; } .source-reader-columns { display:flex; } .source-original-pane,.source-chat-pane { width:100%; } .source-splitter { display:none; } .conversation-reader[data-mobile=chat] .source-original-pane,.conversation-reader[data-mobile=original] .source-chat-pane { display:none; } .source-original { padding:24px 22px 160px; } }
+@media(prefers-reduced-motion:reduce) { .source-evidence { transition:none; } .source-evidence-card { animation:none; } }
+
+.source-selection-actions { position:absolute; bottom:18px; left:24px; display:flex; background:var(--reader-popover); border-radius:10px; box-shadow:0 4px 20px #0002; padding:6px; z-index:2; }
+.source-notes-drawer textarea { width:100%; min-height:100px; margin-top:16px; background:transparent; color:inherit; border:1px solid var(--reader-surface-1); font:inherit; padding:10px; border-radius:8px; }
+
+@media(pointer:coarse) { .conversation-reader .answer-evidence-number,.conversation-reader .source-evidence-number { display:inline-block; min-width:28px; min-height:28px; line-height:26px; } .source-reader-toolbar button { min-height:36px; } }
+
+.source-reader-toolbar select { max-width:90px; border:0; background:transparent; color:inherit; font:inherit; padding:6px; }
+
+:root[data-reduced-motion=true] .source-evidence { transition:none; }
+:root[data-reduced-motion=true] .source-evidence-card { animation:none; }
+
+.source-evidence-card[data-top=true] { top:18px; bottom:auto; }

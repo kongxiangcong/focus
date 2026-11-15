@@ -75,6 +75,14 @@ class AgentReadingRuntime:
             'Line-number prefixes are annotations, not source text.',
             {'source_id': source_id, 'ranges': numbered, 'context': context})
 
+    def opening(self, *, source_id, ranges):
+        return self._candidate('一次返回 {structure, guide}。structure 为精简中文文章骨架，按原文论证顺序，'
+            '节点只含 id,parentId,title,sourceLines。parentId 根为 null；父在子前，子范围包含于父，兄弟不重叠。'
+            'sourceLines 为原文行号闭区间，行号从1开始，含空行；title 最多50字。'
+            'guide 是一个连贯中文导读段落，建议200–400字，最多500字。解释问题、思路、证据和适用边界。'
+            '只依据原文，区分推导、仿真和实测，不把目标写成结果。不添加宣传标题、推荐问题或操作指引。',
+            {'source_id': source_id, 'ranges': ranges})
+
     def overview_structure(self, *, source_id, ranges, chunks, feedback=None):
         return self._candidate('根据全文原文先确定精简的中文文章骨架。Return {nodes, chunk_nodes}. '
             '保留作者主要层级和论证顺序，不罗列细碎小节，不强套背景/方法/实验模板。'

@@ -1019,3 +1019,20 @@ it("refreshes restored tasks after an older list request and identifies an alrea
   expect(host.startBatch).not.toHaveBeenCalled();
   expect(host.continueIngestion).not.toHaveBeenCalled();
 });
+
+it("opens unified reading without a Plan or a separate overview action", async () => {
+  const selected: ReadingWindow = { ...empty, source: { sourceId: "a-paper", title: "A Paper", topicId: null }, discussionId: "discussion" };
+  const { host } = setup([], empty, {
+    getReadingWindow: vi.fn(async () => readerSuccess(selected)),
+    getSourceDocument: vi.fn(async () => readerSuccess({ sourceId: "a-paper", bundleVersion: "v1", title: "A Paper", markdown: "# A Paper\n\nOriginal full article.", lineCount: 3 })),
+    getSourceOpening: vi.fn(async () => readerSuccess({ sourceId: "a-paper", bundleVersion: "v1", status: "ready" as const, structure: [{ id: "one", parentId: null, title: "论证", sourceLines: [1, 3] as const }], guide: "中文导读。" })),
+    selectDiscussionSource: vi.fn(async () => readerSuccess(selected)),
+  });
+  await screen.findByRole("heading", { name: "A Paper" });
+  expect(screen.queryByRole("button", { name: "文章结构" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "阅读" }));
+  await waitFor(() => expect(host.selectDiscussionSource).toHaveBeenCalledWith("a-paper"));
+  expect(host.openSource).not.toHaveBeenCalled();
+  expect(await screen.findByText("Original full article.")).toBeInTheDocument();
+  expect(await screen.findByText("中文导读。")).toBeInTheDocument();
+});

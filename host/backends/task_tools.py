@@ -5,7 +5,7 @@ from ..core_bridge import TOOL
 
 def discussion_tools():
     source = copy.deepcopy(TOOL)
-    source['inputSchema']['properties']['action']['enum'] = ['search', 'read_range', 'source_note']
+    source['inputSchema']['properties']['action']['enum'] = ['search', 'read_range', 'cite', 'source_note']
     return [source, {
         'name': 'focus_user_input', 'description': 'Ask the reader a necessary clarification through FOCUS. Does not grant write permissions.',
         'inputSchema': {'type': 'object', 'properties': {'questions': {'type': 'array', 'minItems': 1, 'maxItems': 3,

@@ -291,6 +291,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     </section>;
   }
   async function enterReading(sourceId: string) {
+    if (host.getSourceDocument && host.selectDiscussionSource) {
+      await operate("阅读", () => host.selectDiscussionSource!(sourceId), true);
+      return;
+    }
     if (!host.openSource) return;
     const prepared = view?.preparations?.[sourceId];
     if (prepared && !prepared.selected_ready && preparationFailed(sourceId)) {

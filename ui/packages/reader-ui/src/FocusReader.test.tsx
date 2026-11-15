@@ -283,3 +283,27 @@ it("removes a paragraph reference before typing and sends no implicit receipt", 
   fireEvent.click(screen.getByRole("button", { name: "发送" }));
   await waitFor(() => expect(host.sendMessage).toHaveBeenLastCalledWith(expect.objectContaining({ receipt: expect.objectContaining({ chunkId: "chunk-001" }) })));
 });
+
+it("keeps chunk reading reachable through the unified reading tabs", async () => {
+  let current = firstWindow;
+  const host: ReaderHost = {
+    getReadingWindow: vi.fn(async () => readerSuccess(current)),
+    getSourceDocument: vi.fn(async () => readerSuccess({ sourceId: "fixture-paper", bundleVersion: "v1", title: "Paper", markdown: "Full original article.", lineCount: 1 })),
+    openSource: vi.fn(async () => readerSuccess(current)),
+    selectDiscussionSource: vi.fn(async () => readerSuccess(current)),
+    continueReading: vi.fn(async () => { current = secondWindow; return readerSuccess(current); }),
+    sendMessage: vi.fn(async () => readerSuccess(current)),
+  };
+  render(<FocusReader host={host} />);
+  await screen.findByText("Full original article.");
+  fireEvent.click(screen.getByRole("tab", { name: "逐段精读" }));
+  await screen.findByText("The first chunk.");
+  expect(host.openSource).toHaveBeenCalledWith("fixture-paper", expect.any(String));
+  fireEvent.click(screen.getByRole("button", { name: "下一段 →" }));
+  await screen.findByText("The second chunk.");
+  fireEvent.click(screen.getByRole("tab", { name: "对话" }));
+  await screen.findByText("Full original article.");
+  fireEvent.click(screen.getByRole("tab", { name: "逐段精读" }));
+  await screen.findByText("The second chunk.");
+  expect(host.continueReading).toHaveBeenCalledTimes(1);
+});

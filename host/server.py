@@ -252,8 +252,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if method == 'GET' and path.startswith('/reader/assets/'):
             source, relative = unquote(path[len('/reader/assets/'):]).split('/', 1)
-            target = service.core.image(source, relative)
-            self._send(200, target.read_bytes(), content_type=mimetypes.guess_type(target)[0] or 'image/png')
+            expected = parse_qs(urlsplit(self.path).query).get('bundle', [None])[0]
+            with service.lock:
+                if expected and service.source_notes.bundle_version(source) != expected:
+                    raise WorkspaceError('source_bundle_changed', '图片原文版本已改变，请重新打开。')
+                target = service.core.image(source, relative)
+                data = target.read_bytes()
+                if expected and service.source_notes.bundle_version(source) != expected:
+                    raise WorkspaceError('source_bundle_changed', '图片原文版本已改变，请重新打开。')
+            self._send(200, data, content_type=mimetypes.guess_type(target)[0] or 'image/png')
             return
         if method == 'GET' and path.startswith('/reader/historical-assets/'):
             source, version, relative = unquote(path[len('/reader/historical-assets/'):]).split('/', 2)
@@ -375,6 +382,17 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, {'ok': True, 'value': result})
                     return
                 raise ValueError('Unknown Reading Preparation operation')
+            if len(parts) == 2 and parts[1] == 'completion' and method == 'POST':
+                self._send(200, {'ok': True, 'value': service.complete_source(source_id, self._body())})
+                return
+            if len(parts) == 2 and parts[1] == 'document' and method == 'GET':
+                self._send(200, {'ok': True, 'value': service.source_document(source_id)})
+                return
+            if len(parts) == 2 and parts[1] == 'opening' and method in ('GET', 'POST'):
+                if method == 'POST':
+                    self._body()
+                self._send(200, {'ok': True, 'value': service.source_opening(source_id, prepare=method == 'POST')})
+                return
             if len(parts) == 2 and parts[1] == 'overview' and method in ('GET', 'POST'):
                 with service.lock:
                     result = (service.article_overview(source_id) if method == 'GET' else

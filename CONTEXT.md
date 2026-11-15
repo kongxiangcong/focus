@@ -1,5 +1,15 @@
 # FOCUS Reading Workspace
 
+## Unified reading (ADR 0034)
+
+**Answer Evidence（回答证据）**: A traceable association between a particular answer's claim and original-source content or an external source. It belongs to the answer revision, retains source identity and version, and does not establish that the claim is true. It is neither a saved Reading Note nor a user Reading Highlight.
+
+**Source Document（原文文档）**: The complete readable original representation of a Reading Source at a particular Parser Bundle version, independent of reading plans and translations.
+
+**Reading View Bookmark（阅读视图书签）**: The reader's last manual browsing location in a Source Document. Evidence navigation does not advance this bookmark or Reading Cursor.
+
+The additions above describe the approved new reading model. Existing sequential operations below remain supported during implementation and compatibility migration.
+
 FOCUS 是一个以来源原文为锚点的私人阅读工作台。它保存可跨会话恢复的阅读位置、精简阅读资产及自己的来源讨论，不把外部宿主或 Runtime 的原生日志复制为讨论，也不评价读者的理解、掌握或能力。
 
 ## Language

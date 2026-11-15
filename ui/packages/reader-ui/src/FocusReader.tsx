@@ -1,3 +1,4 @@
+import { ConversationReader } from "./ConversationReader";
 import { useLatestNotice } from "./latest-notice";
 import { discussionFoldKey, useDiscussionFolds } from "./discussion-fold";
 import { AnnotationRail } from "./annotations/AnnotationRail";
@@ -57,7 +58,7 @@ export function groupReadingDiscussion<C extends { chunkId: string }>(
   return groups;
 }
 
-export function FocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange }: FocusReaderProps) {
+function LegacyFocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange }: FocusReaderProps) {
   const mist = appearance === "mist";
   const [attachNotes, setAttachNotes] = useState(() => {
     try { localStorage.removeItem("focus.attachDiscussion"); return localStorage.getItem("focus.attachNotes") !== "false"; } catch { return true; }
@@ -925,4 +926,76 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       {renderedPanel === "settings" && <label><input type="checkbox" checked={largeText} onChange={e => setLargeText(e.target.checked)} /> 使用较大正文字号</label>}
     </dialog>
   </div></AssetInstanceContext.Provider>;
+}
+
+export function FocusReader(props: FocusReaderProps) {
+  return props.host.getSourceDocument ? <UnifiedReader {...props} /> : <LegacyFocusReader {...props} />;
+}
+
+function UnifiedReader(props: FocusReaderProps) {
+  const [mode, setMode] = useState<"chunks" | "chat">("chat");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [sourceId, setSourceId] = useState<string | null>(null);
+  const sourceRef = useRef<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    const receive = (result: ReaderHostResult<ReadingWindow>) => {
+      if (!live || !result.ok) return;
+      const next = result.value.source.sourceId;
+      if (sourceRef.current !== next) {
+        sourceRef.current = next;
+        setSourceId(next);
+        setMode("chat");
+        setError("");
+      }
+    };
+    void props.host.getReadingWindow().then(receive);
+    const off = props.host.subscribe?.(receive);
+    return () => { live = false; off?.(); };
+  }, [props.host]);
+
+  async function selectMode(next: "chunks" | "chat") {
+    if (busy || next === mode || !sourceId) return;
+    setBusy(true);
+    setError("");
+    const selectedSource = sourceId;
+    try {
+      const result = next === "chunks"
+        ? await props.host.openSource!(selectedSource, createReaderId())
+        : await props.host.selectDiscussionSource!(selectedSource);
+      if (sourceRef.current !== selectedSource) return;
+      if (!result.ok) { setError(result.error.message); return; }
+      const preparation = result.value.preparations?.[selectedSource];
+      if (next === "chunks" && preparation && !preparation.selected_ready && !preparation.ready) {
+        setError(preparation.error || "正在准备逐段精读，完成后可再次打开。");
+        return;
+      }
+      setMode(next);
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return <div className="unified-reader" hidden={props.visible === false}>
+    <div className="reading-mode-tabs" role="tablist" aria-label="阅读方式">
+      {(["chunks", "chat"] as const).map((value, index) => <button key={value}
+        id={`reading-tab-${value}`} role="tab" aria-selected={mode === value}
+        aria-controls="reading-mode-panel" disabled={busy || !sourceId || !props.host.openSource || !props.host.selectDiscussionSource}
+        onClick={() => void selectMode(value)}
+        onKeyDown={event => {
+          if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+            event.preventDefault();
+            const buttons = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("[role=tab]");
+            buttons?.[1 - index]?.focus();
+          }
+        }}>{value === "chunks" ? "逐段精读" : "对话"}</button>)}
+    </div>
+    {error && <p role="alert">{error}</p>}
+    <div id="reading-mode-panel" className="reading-mode-panel" role="tabpanel" aria-labelledby={`reading-tab-${mode}`} aria-busy={busy}>
+      {mode === "chunks" ? <LegacyFocusReader {...props} /> : <ConversationReader {...props} />}
+    </div>
+  </div>;
 }

@@ -1,3 +1,5 @@
+import type { ReadingDocument, ReadingOpening, ValidatedAnswerEvidence } from "./source-document";
+export * from "./source-document";
 export type ReaderStatus = "empty" | "reading" | "completed";
 
 export type ChunkPresentationStatus =
@@ -74,6 +76,8 @@ export interface BlogStatus {
 export type ReaderMessageRole = "user" | "assistant";
 
 export interface ReaderMessage {
+  evidence?: readonly ValidatedAnswerEvidence[];
+  answerRevision?: string;
   discussionId?: string | null;
   messageId: string;
   reference?: CursorReceipt | null;
@@ -171,6 +175,9 @@ export interface ArticleOverview {
 }
 
 export interface ReadingWindow {
+  sourceBundleVersion?: string | null;
+  sourceGeneration?: number;
+  sourceCompletion?: { sourceId: string; bundleVersion: string; generation: number; completedAt: number } | null;
   articleOverview?: ArticleOverview;
   structure?: readonly ReadingStructureNode[];
   structureIntro?: boolean;
@@ -445,6 +452,9 @@ export interface CreateSourceNoteInput {
 }
 
 export interface ReaderHost {
+  completeSource?(sourceId: string, bundleVersion: string, generation: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  getSourceDocument?(sourceId: string): Promise<ReaderHostResult<ReadingDocument>>;
+  getSourceOpening?(sourceId: string, prepare?: boolean): Promise<ReaderHostResult<ReadingOpening>>;
   createHighlight?(input: CreateHighlightInput): Promise<ReaderHostResult<ReadingWindow>>;
   changeHighlight?(sourceId: string, highlightId: string, operation: "delete" | "undo", expectedRevision: number,
     requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
