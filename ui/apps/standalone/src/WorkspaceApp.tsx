@@ -1,3 +1,5 @@
+import { createPortal } from "react-dom";
+import { Fragment } from "react";
 import { NavigationResize } from "./NavigationResize";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
@@ -62,6 +64,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     media?.addEventListener?.("change", update);
     return () => media?.removeEventListener?.("change", update);
   }, [theme, density, reducedMotion]);
+  const [readingBranchOpen, setReadingBranchOpen] = useState(true);
+  const [branchSlot, setBranchSlot] = useState<HTMLDivElement | null>(null);
+  const [pickerSlot, setPickerSlot] = useState<HTMLDivElement | null>(null);
   const [readingFullscreen, setReadingFullscreen] = useState(false);
   const [managementTopics, setManagementTopics] = useState<readonly string[]>([]);
   const [generateOnUpload, setGenerateOnUpload] = useState(true);
@@ -545,7 +550,17 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <button type="button" className="workspace-nav-toggle" aria-label={navCollapsed ? "展开导航" : "收起导航"} aria-expanded={!navCollapsed} aria-controls="workspace-routes" onClick={() => { setNavCollapsed(!navCollapsed); try { localStorage.setItem("focus.navigation", navCollapsed ? "expanded" : "collapsed"); } catch { /* Navigation remains usable without persistence. */ } }}><span aria-hidden="true">☰</span></button>
       </div>
       <nav id="workspace-routes" aria-label="应用导航">{([["/library", "知识库", "▤"], ["/reading", "阅读", "☷"], ["/settings", "设置", "☼"]] as const).map(([path, title, icon]) =>
-        <a key={path} href={path} aria-label={title} title={navCollapsed ? title : undefined} aria-current={route === path ? "page" : undefined} onClick={e => { e.preventDefault(); navigate(path); }}><span aria-hidden="true">{icon}</span><span className="workspace-nav-label">{title}</span></a>)}</nav>
+        <Fragment key={path}>
+          <a href={path} aria-label={title} title={navCollapsed ? title : undefined} aria-current={route === path ? "page" : undefined}
+            onClick={e => { e.preventDefault(); if (path === "/reading") setReadingBranchOpen(true); navigate(path); }}>
+            <span aria-hidden="true">{icon}</span><span className="workspace-nav-label">{title}</span>
+          </a>
+          {path === "/reading" && route === path && host.getSourceDocument && <div className="reading-branch">
+            <button type="button" className="reading-branch-toggle" aria-label={readingBranchOpen ? "折叠阅读方式" : "展开阅读方式"}
+              aria-expanded={readingBranchOpen} aria-controls="reading-children" onClick={() => setReadingBranchOpen(!readingBranchOpen)}>⌄</button>
+            <div id="reading-children" ref={setBranchSlot} hidden={!readingBranchOpen} role="group" aria-label="阅读方式" />
+          </div>}
+        </Fragment>)}</nav>
       {route === "/library" && <div className="workspace-topics" role="group" aria-label="专题">
         <h2>专题</h2>
         <button type="button" className="workspace-topics__new" disabled={managementBusy || !host.createTopic} onClick={() => openManagement("create")}>＋ 新建专题</button>
@@ -556,7 +571,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     </aside>
     <header className="workspace-header">
       <div className={route === "/library" ? "workspace-toolbar library-toolbar" : "workspace-toolbar"}>
-        {route === "/reading" ? <div className="reading-library-picker"><span className="workspace-reading-title" title={view?.source.title}>{view?.source.title || "阅读"}</span></div> : route === "/library" ? <LibraryToolbar {...{ selectedTopic, topic, filtered, topics, unfiledCount, setTopic, libraryView, setLibraryView, setMoreSource, query, setQuery }} /> : <h1>设置</h1>}
+        {route === "/reading" ? <div className="reading-library-picker"><div className="reading-mode-picker" data-branch-open={readingBranchOpen} ref={setPickerSlot} /><span className="workspace-reading-title" title={view?.source.title}>{view?.source.title || "阅读"}</span></div> : route === "/library" ? <LibraryToolbar {...{ selectedTopic, topic, filtered, topics, unfiledCount, setTopic, libraryView, setLibraryView, setMoreSource, query, setQuery }} /> : <h1>设置</h1>}
         <div className="workspace-header-actions">
           <section className="workspace-status" aria-label="当前工作">
             <span className="workspace-sr-only" role="status">{connectionLost ? "连接中断，正在恢复" : !view ? "正在连接" : primaryWork ? `${primaryWork.label} · ${runningWork.length} 项进行中` : "当前无工作"}{attention.length > 0 ? ` · ${attention.length} 项需查看` : ""}</span>
@@ -631,7 +646,15 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     {route === "/reading" && readingFullscreen && <button type="button" className="reading-fullscreen-exit"
       aria-label="关闭全屏模式" title="退出全屏" onClick={() => setReadingFullscreen(false)}>×</button>}
     <div className="workspace-reading" hidden={route !== "/reading"}>
-      <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
+      <FocusReader renderModeNavigation={(mode, select, disabled) => <>
+        {branchSlot && createPortal((["chunks", "chat"] as const).map(value =>
+          <button type="button" key={value} aria-pressed={mode === value} disabled={disabled}
+            onClick={() => select(value)}>{value === "chunks" ? "精读" : "对话"}</button>), branchSlot)}
+        {pickerSlot && createPortal(<select aria-label="阅读方式" value={mode} disabled={disabled}
+          onChange={event => select(event.target.value === "chunks" ? "chunks" : "chat")}>
+          <option value="chunks">精读</option><option value="chat">对话</option>
+        </select>, pickerSlot)}
+      </>} host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
     {route === "/library" && <LibraryPage {...{ scoped, statusFilter, setStatusFilter, sourcesFailed, refresh, taskInbox, taskBatches, statusText, itemStatusText, continueInbox, controlBatch, sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, setConfirm, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} onTasks={() => setTaskDetails(true)} />}
     {route === "/settings" && <main className="settings-page">
       <WorkspaceSelection />

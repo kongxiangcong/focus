@@ -31,7 +31,8 @@ import { chunkFigures, figureChunk, extractFigures, figureNumber, imageIdentity,
 type DraftReference = ReaderChunk & { excerpt?: string };
 type Upload = { id: string; file: File; state: "uploading" | "ready" | "failed"; attachment?: ReaderAttachment; error?: string };
 type Failure = { message: string; label: string; retry: () => void };
-export interface FocusReaderProps { host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
+type ReadingMode = "chunks" | "chat";
+export interface FocusReaderProps { renderModeNavigation?: (mode: ReadingMode, select: (next: ReadingMode) => void, disabled: boolean) => ReactNode; host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
 
 // Capture entry eligibility only on mount, never on streaming updates.
 function TimelineEvent({ identity, fresh, current, streaming, children }: { identity: string; fresh: boolean; current: boolean; streaming?: boolean; children: ReactNode }) {
@@ -980,7 +981,7 @@ function UnifiedReader(props: FocusReaderProps) {
   }
 
   return <div className="unified-reader" hidden={props.visible === false}>
-    <div className="reading-mode-tabs" role="tablist" aria-label="阅读方式">
+    {props.renderModeNavigation && !props.fullscreen ? props.renderModeNavigation(mode, selectMode, busy || !sourceId || !props.host.openSource || !props.host.selectDiscussionSource) : <div className="reading-mode-tabs" role="tablist" aria-label="阅读方式">
       {(["chunks", "chat"] as const).map((value, index) => <button key={value}
         id={`reading-tab-${value}`} role="tab" aria-selected={mode === value}
         aria-controls="reading-mode-panel" disabled={busy || !sourceId || !props.host.openSource || !props.host.selectDiscussionSource}
@@ -992,9 +993,9 @@ function UnifiedReader(props: FocusReaderProps) {
             buttons?.[1 - index]?.focus();
           }
         }}>{value === "chunks" ? "逐段精读" : "对话"}</button>)}
-    </div>
+    </div>}
     {error && <p role="alert">{error}</p>}
-    <div id="reading-mode-panel" className="reading-mode-panel" role="tabpanel" aria-labelledby={`reading-tab-${mode}`} aria-busy={busy}>
+    <div id="reading-mode-panel" className="reading-mode-panel" role={props.renderModeNavigation && !props.fullscreen ? "region" : "tabpanel"} aria-label={mode === "chunks" ? "精读" : "对话"} aria-busy={busy}>
       {mode === "chunks" ? <LegacyFocusReader {...props} /> : <ConversationReader {...props} />}
     </div>
   </div>;

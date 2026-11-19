@@ -23,7 +23,9 @@ export function citedMarkdown(message: ReaderMessage, evidence: readonly Validat
   }).replace(/\[\[e:[^\]]*$/, "");
 }
 
-export function ConversationReader({ host, visible = true, fontSize = "standard" }: { host: ReaderHost; visible?: boolean; fontSize?: string }) {
+type FullscreenControls = { fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void };
+
+export function ConversationReader({ host, visible = true, fontSize = "standard", ...fullscreenControls }: { host: ReaderHost; visible?: boolean; fontSize?: string } & FullscreenControls) {
   const [view, setView] = useState<ReadingWindow | null>(null), [error, setError] = useState("");
   const acceptView = useCallback((next: ReadingWindow) => setView(previous => previous && previous.workspace?.instanceId === next.workspace?.instanceId && (previous.revision ?? 0) > (next.revision ?? 0) ? previous : next), []);
   useEffect(() => {
@@ -35,10 +37,10 @@ export function ConversationReader({ host, visible = true, fontSize = "standard"
   }, [host]);
   if (!view) return <div className="conversation-reader" role="status">{error || "加载中…"}</div>;
   if (!view.source.sourceId) return <div className="conversation-reader" />;
-  return <AssetInstanceContext.Provider value={view.workspace?.instanceId}><ReadingSurface key={`${view.workspace?.instanceId}:${view.source.sourceId}:${view.sourceBundleVersion ?? ""}:${view.sourceGeneration ?? view.resetVersion ?? 0}`} host={host} view={view} setView={acceptView} visible={visible} fontSize={fontSize} /></AssetInstanceContext.Provider>;
+  return <AssetInstanceContext.Provider value={view.workspace?.instanceId}><ReadingSurface key={`${view.workspace?.instanceId}:${view.source.sourceId}:${view.sourceBundleVersion ?? ""}:${view.sourceGeneration ?? view.resetVersion ?? 0}`} {...fullscreenControls} host={host} view={view} setView={acceptView} visible={visible} fontSize={fontSize} /></AssetInstanceContext.Provider>;
 }
 
-function ReadingSurface({ host, view, setView, visible, fontSize }: { host: ReaderHost; view: ReadingWindow; setView: (v: ReadingWindow) => void; visible: boolean; fontSize: string }) {
+function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, onFullscreenChange }: { host: ReaderHost; view: ReadingWindow; setView: (v: ReadingWindow) => void; visible: boolean; fontSize: string } & FullscreenControls) {
   const sourceId = view.source.sourceId!;
   const [document, setDocument] = useState<ReadingDocument | null>(null), [opening, setOpening] = useState<ReadingOpening | null>(null);
   const [error, setError] = useState(""), [reload, setReload] = useState(0), [sending, setSending] = useState(false);
@@ -171,9 +173,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize }: { host: Read
     cancelAuto(); setMobile("chat"); setActiveEvidence(id);
     requestAnimationFrame(() => { const el = chat.current?.querySelector<HTMLElement>(`[data-message-id="${selected?.messageId}"] [data-citation="${id}"]`); el?.scrollIntoView({ block: "nearest", behavior: reduced() ? "instant" : "smooth" }); el?.focus({ preventScroll: true }); });
   }
-  return <section ref={shell} className="conversation-reader" data-mobile={mobile} data-font-size={fontSize} hidden={!visible} style={{ "--source-share": `${share}%`, "--source-font-size": `${readingFontSizes[fontSize as keyof typeof readingFontSizes] ?? 18}px` } as CSSProperties}
+  return <section ref={shell} className="conversation-reader" data-fullscreen={!!fullscreen} data-mobile={mobile} data-font-size={fontSize} hidden={!visible} style={{ "--source-share": `${share}%`, "--source-font-size": `${readingFontSizes[fontSize as keyof typeof readingFontSizes] ?? 18}px` } as CSSProperties}
     onKeyDown={e => { if (e.key === "Escape") { setActiveEvidence(undefined); const previous = returnFocus.current; if (previous) requestAnimationFrame(() => chat.current?.querySelector<HTMLElement>(`[data-message-id="${previous.messageId}"] [data-citation="${previous.evidenceId}"]`)?.focus({ preventScroll: true })); } }}>
-    <header className="source-reader-toolbar"><span>阅读</span><nav aria-label="阅读视图"><button aria-pressed={mobile === "original"} onClick={() => setMobile("original")}>原文</button><button aria-pressed={mobile === "chat"} onClick={() => setMobile("chat")}>对话</button></nav><div>{(view.discussions?.length ?? 0) > 1 && host.selectDiscussionSource && <select aria-label="对话记录" value={view.discussionId ?? ""} disabled={running} onChange={e => void apply(host.selectDiscussionSource!(sourceId, e.target.value))}>{view.discussions!.map((d, i) => <option key={d.discussionId} value={d.discussionId}>对话 {i + 1}</option>)}</select>}<button onClick={() => setNotesOpen(!notesOpen)} aria-pressed={notesOpen}>笔记</button>{host.completeSource && document && <button disabled={!!view.sourceCompletion} onClick={() => void apply(host.completeSource!(sourceId, document.bundleVersion, document.generation ?? 0, createReaderId()))}>{view.sourceCompletion ? "已读完" : "标记读完"}</button>}{host.newSession && view.sessionId && <button disabled={running} onClick={() => void apply(host.newSession!(view.sessionId!))}>新会话</button>}</div></header>
+    <header className="source-reader-toolbar"><nav aria-label="阅读视图"><button onClick={() => setMobile(mobile === "chat" ? "original" : "chat")}>{mobile === "chat" ? "查看原文" : "返回对话"}</button></nav><div>{onFullscreenChange && !fullscreen && <button onClick={() => { setMobile("chat"); onFullscreenChange(true); }}>对话全屏</button>}{(view.discussions?.length ?? 0) > 1 && host.selectDiscussionSource && <select aria-label="对话记录" value={view.discussionId ?? ""} disabled={running} onChange={e => void apply(host.selectDiscussionSource!(sourceId, e.target.value))}>{view.discussions!.map((d, i) => <option key={d.discussionId} value={d.discussionId}>对话 {i + 1}</option>)}</select>}<button onClick={() => setNotesOpen(!notesOpen)} aria-pressed={notesOpen}>笔记</button>{host.completeSource && document && <button disabled={!!view.sourceCompletion} onClick={() => void apply(host.completeSource!(sourceId, document.bundleVersion, document.generation ?? 0, createReaderId()))}>{view.sourceCompletion ? "已读完" : "标记读完"}</button>}{host.newSession && view.sessionId && <button disabled={running} onClick={() => void apply(host.newSession!(view.sessionId!))}>新会话</button>}</div></header>
     {error && <div role="alert" className="source-reader-error">{error}<button onClick={() => setReload(v => v + 1)}>重试</button></div>}
     <div className="source-reader-columns">
       <div className="source-original-pane">

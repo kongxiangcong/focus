@@ -73,3 +73,13 @@
 :root[data-reduced-motion=true] .source-evidence-card { animation:none; }
 
 .source-evidence-card[data-top=true] { top:18px; bottom:auto; }
+
+.source-reader-toolbar > div { margin-inline-start:auto; }
+.conversation-reader[data-fullscreen=true] .source-reader-toolbar { padding-inline-end:54px; }
+.conversation-reader[data-fullscreen=true] .source-reader-toolbar nav { display:flex; }
+.conversation-reader[data-fullscreen=true] .source-reader-columns { display:flex; }
+.conversation-reader[data-fullscreen=true] :is(.source-original-pane,.source-chat-pane) { width:100%; }
+.conversation-reader[data-fullscreen=true] .source-splitter,
+.conversation-reader[data-fullscreen=true][data-mobile=chat] .source-original-pane,
+.conversation-reader[data-fullscreen=true][data-mobile=original] .source-chat-pane { display:none; }
+.conversation-reader[data-fullscreen=true] .source-chat-pane { max-width:850px; margin-inline:auto; }
