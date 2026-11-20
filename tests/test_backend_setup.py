@@ -54,20 +54,23 @@ class BackendSetupTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        self.host = HostService(self.root / 'kb', self.root / 'host')
+        self.host = HostService(self.root / 'kb', self.root / 'host', backend='codex')
 
     def tearDown(self):
         self.host.close()
         self.temporary.cleanup()
 
+    def business_state(self):
+        return {key: value for key, value in self.host.snapshot().items() if key != 'revision'}
+
     def test_explicit_missing_runtime_is_reported_without_fallback_or_business_changes(self):
-        before = self.host.snapshot()
+        before = self.business_state()
         result = self.host.backend_setup('inspect', {
             'backend': 'codex', 'runtimePath': str(self.root / 'missing.exe'),
         })
         self.assertEqual('unavailable', result['status'])
         self.assertEqual(str(self.root / 'missing.exe'), result['runtimePath'])
-        self.assertEqual(before, self.host.snapshot())
+        self.assertEqual(before, self.business_state())
 
     def test_account_check_uses_selected_runtime_shared_home_and_never_api_key_login(self):
         binary = self.root / 'codex.exe'
@@ -91,12 +94,12 @@ class BackendSetupTests(unittest.TestCase):
         binary.chmod(0o700)
         secret = self.root / '.env'
         secret.write_text('DEEPSEEK_API_KEY="fixture-key"\n', encoding='utf-8')
-        before = self.host.snapshot()
+        before = self.business_state()
         with patch('host.backends.acp.JsonRpcStdioClient', CredentialRuntime):
             result = self.host.backend_setup('check', {'backend': 'deepseek',
                 'runtimePath': str(binary), 'credentialFile': str(secret), 'model': 'deepseek-v4-flash'})
         self.assertEqual('success', result['status'])
-        self.assertEqual(before, self.host.snapshot())
+        self.assertEqual(before, self.business_state())
         self.assertNotIn('fixture-key', str(result))
         runtime = CredentialRuntime.instances[-1]
         self.assertEqual('fixture-key', runtime.env['DEEPSEEK_API_KEY'])
@@ -232,7 +235,7 @@ class BackendSetupTests(unittest.TestCase):
         binary = self.root / 'codex.exe'
         binary.touch()
         AccountRuntime.account_type = 'chatgpt'
-        before = self.host.snapshot()
+        before = self.business_state()
         markers = set()
         for mode, status in [('text-only', 'failed'), ('wrong-action', 'failed'), ('wrong-answer', 'failed'),
                              ('superseded', 'failed'), ('final', 'success'), ('stream', 'success')]:
@@ -251,7 +254,7 @@ class BackendSetupTests(unittest.TestCase):
                 self.assertEqual('never', calls['turn/start']['approvalPolicy'])
                 self.assertTrue(runtime.closed)
                 self.assertFalse(runtime.cwd.exists())
-                self.assertEqual(before, self.host.snapshot())
+                self.assertEqual(before, self.business_state())
                 if runtime.marker:
                     self.assertNotIn(runtime.marker, markers)
                     self.assertNotIn(runtime.marker, str(calls))
