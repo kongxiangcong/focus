@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { createReaderId, type BackendConfigurationState, type BackendDescriptor, type BackendSetupInput, type BackendSetupResult, type ReaderHost, type ReadingWindow } from "@focus/reader-contracts";
 
-const legacyBackends: readonly BackendDescriptor[] = [{ id: "codex", label: "Codex" }, { id: "deepseek", label: "DeepSeek" }];
+const legacyBackends: readonly BackendDescriptor[] = [
+  { id: "codex", label: "Codex", capabilities: { authMode: "interactive-oauth", modelDiscovery: "codex-model-list" } },
+  { id: "deepseek", label: "DeepSeek", capabilities: { modelDiscovery: "deepseek-models" } },
+];
+
+function catalogKey(input: BackendSetupInput) {
+  return JSON.stringify([input.backend, input.runtimePath ?? "", input.credentialFile ?? ""]);
+}
 
 export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearance, onCancelAppearance, onDraft }: {
   host: ReaderHost; configuration?: BackendConfigurationState; onSaved?: (view: ReadingWindow) => void; onSaveAppearance?: () => boolean; onCancelAppearance?: () => void;
@@ -14,12 +21,14 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
   const [checking, setChecking] = useState(false);
   const [loginBusy, setLoginBusy] = useState(false);
   const [login, setLogin] = useState<BackendSetupResult | null>(null);
+  const loginInput = useRef<BackendSetupInput | null>(null);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
   const revision = useRef(0);
   const alive = useRef(true);
   const saved = configuration?.saved;
   const backends = configuration?.backends ?? legacyBackends;
+  const selectedBackend = backends.find(backend => backend.id === input.backend);
   useEffect(() => {
     if (saved) {
       revision.current++;
@@ -47,8 +56,8 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
     const version = action === "login-start" ? ++revision.current : revision.current;
     setLoginBusy(true); setFeedback(""); setError("");
     try {
-      const payload = { ...input, runtimePath: saved?.backend === "codex" ? saved.runtimePath ?? undefined : undefined,
-        loginId: login?.loginId };
+      const selection = action === "login-start" ? input : loginInput.current ?? input;
+      const payload = { ...selection, loginId: login?.loginId };
       if (action === "login-start") {
         const prepared = await host.backendSetup("prepare", payload);
         if (!alive.current || version !== revision.current) return;
@@ -58,13 +67,17 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
       const response = await host.backendSetup(action, payload);
       if (!alive.current || version !== revision.current) return;
       if (!response.ok) { setError(response.error.message); setLogin(null); return; }
-      if (response.value.status === "waiting") setLogin({ ...response.value, authUrl: response.value.authUrl ?? login?.authUrl });
+      if (response.value.status === "waiting") {
+        loginInput.current = { ...selection, runtimePath: response.value.runtimePath ?? selection.runtimePath };
+        setLogin({ ...response.value, authUrl: response.value.authUrl ?? login?.authUrl });
+      }
       else {
+        loginInput.current = null;
         setLogin(null);
-        if (response.value.status === "authenticated") setFeedback("Codex 登录成功。可继续进行连接检查。");
+        if (response.value.status === "authenticated") setFeedback(`${selectedBackend?.label ?? "Backend"} 登录成功。可继续进行连接检查。`);
         else if (response.value.status !== "cancelled") setError(response.value.message);
       }
-    } catch { if (alive.current && version === revision.current) { setLogin(null); setError("Codex 登录失败，请重试。"); } }
+    } catch { if (alive.current && version === revision.current) { setLogin(null); setError("登录失败，请重试。"); } }
     finally { if (alive.current && version === revision.current) setLoginBusy(false); }
   }
   useEffect(() => {
@@ -89,10 +102,29 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
       if (!connected.ok) { setError(connected.error.message); return; }
       if (connected.value.status !== "success") { setError(connected.value.message); return; }
       setChecked(connected.value);
-      setCatalog(previous => ({ ...previous, [input.backend]: connected.value }));
+      if (connected.value.catalogStatus) setCatalog(previous => ({ ...previous, [catalogKey(input)]: connected.value }));
       setFeedback(`连接检查通过；已检模型：${connected.value.checkedModel ?? '本次请求模型'}。${connected.value.catalogMessage ?? ''}`);
     } catch { if (alive.current && version === revision.current) setError("连接检查失败，请重试。"); }
     finally { if (alive.current && version === revision.current) setChecking(false); }
+  }
+
+  async function loadModels() {
+    if (!host.backendSetup) return;
+    const version = ++revision.current;
+    setChecking(true); setError(""); setFeedback("");
+    try {
+      const result = await host.backendSetup("models", input);
+      if (!alive.current || version !== revision.current) return;
+      if (result.ok) {
+        setCatalog(previous => ({ ...previous, [catalogKey(input)]: result.value }));
+        if (result.value.catalogStatus === "loaded") setFeedback(result.value.message);
+        else setError(result.value.message);
+      } else setError(result.error.message);
+    } catch {
+      if (alive.current && version === revision.current) setError("模型清单加载失败，请重试。");
+    } finally {
+      if (alive.current && version === revision.current) setChecking(false);
+    }
   }
 
   async function save() {
@@ -116,7 +148,7 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
     finally { if (alive.current && version === revision.current) setChecking(false); }
   }
 
-  const currentCatalog = Object.hasOwn(catalog, input.backend) ? catalog[input.backend] : undefined;
+  const currentCatalog = catalog[catalogKey(input)];
   const options = [...new Set([...(currentCatalog?.models ?? []), input.model ?? ""])].filter(Boolean);
   return <section className="backend-setup focus-reader__appearance-panel" aria-label="后端设置">
     <h2>后端</h2>
@@ -131,22 +163,24 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
         <option value="">使用默认模型</option>
         {options.map(model => <option key={model} value={model}>{model}</option>)}
       </select></label>
+      <details>
+        <summary>手动设置模型</summary>
+        <label>手动输入模型<input value={input.model ?? ""} onChange={event => change({ ...input, model: event.target.value || undefined })} /></label>
+      </details>
+      {!!selectedBackend?.credentialEnv?.length && <label>凭据文件路径<input value={input.credentialFile ?? ""}
+        onChange={event => change({ ...input, credentialFile: event.target.value || undefined })} /></label>}
     </fieldset>
+    {selectedBackend?.capabilities?.authMode === "external-cli" && selectedBackend.loginHint && <p>{selectedBackend.loginHint}</p>}
     <div className="backend-setup__actions">
     <button type="button" disabled={checking || loginBusy || !!login || !host.backendSetup}
       onClick={() => void check()}>{checking ? "检查中…" : "连接检查"}</button>
-    {currentCatalog?.catalogStatus === 'failed' && <button type="button" disabled={checking} onClick={async () => {
-      const version = ++revision.current;
-      setChecking(true);
-      try {
-        const result = await host.backendSetup?.('models', input);
-        if (!alive.current || version !== revision.current || !result) return;
-        if (result.ok) { setCatalog(previous => ({ ...previous, [input.backend]: result.value })); setFeedback(result.value.message); }
-        else setError(result.error.message);
-      } finally { if (alive.current && version === revision.current) setChecking(false); }
-    }}>重试模型清单</button>}
-    {input.backend === "codex" && <button type="button" disabled={checking || loginBusy || !!login || !host.backendSetup}
-      onClick={() => void loginOperation("login-start")}>{loginBusy ? "登录处理中…" : "登录 Codex"}</button>}
+    {selectedBackend?.capabilities?.modelDiscovery && selectedBackend.capabilities.modelDiscovery !== "none" &&
+      <button type="button" disabled={checking || loginBusy || !!login || !host.backendSetup} onClick={() => void loadModels()}>
+        {currentCatalog?.catalogStatus === "failed" ? "重试模型清单" : "加载模型清单"}
+      </button>}
+    {selectedBackend?.capabilities?.authMode === "interactive-oauth" &&
+      <button type="button" disabled={checking || loginBusy || !!login || !host.backendSetup}
+        onClick={() => void loginOperation("login-start")}>{loginBusy ? "登录处理中…" : `登录 ${selectedBackend.label}`}</button>}
     </div>
     {input.model && currentCatalog?.catalogStatus === 'loaded' && !currentCatalog.models?.includes(input.model) && <p role="status">已保存的模型不在当前清单中；保留选择，可重检或返回默认。</p>}
     <p>{checked && checked.backend === input.backend && (!input.model || checked.checkedModel === input.model) ? '当前模型已验证（仅本次最小请求）。' : '当前模型尚未验证。'}</p>
@@ -160,7 +194,6 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
       const backend = saved?.backend ?? 'codex';
       change({ backend, model: configuration?.preferences?.[backend]?.model ?? undefined });
     }}>取消修改</button></div>}
-    <small>API 密钥等配置可在项目目录的 .env 文件中填写；Codex 使用已有登录。路径及 Backend／模型选项由应用自动保存。</small>
     {configuration?.busy && <p role="status">当前任务正在使用后端，请等待任务结束后保存；可先编辑设置。</p>}
     {feedback && <p role="status">{feedback}</p>}
     {error && <p role="alert">{error}</p>}

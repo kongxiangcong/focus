@@ -8,7 +8,7 @@ import threading
 import time
 from pathlib import Path
 
-from .backends.base import (MESSAGE_COMPLETED, MESSAGE_DELTA, TOOL_CALL, TRANSPORT_ERROR,
+from .backends.base import (BackendConfigurationError, MESSAGE_COMPLETED, MESSAGE_DELTA, TOOL_CALL, TRANSPORT_ERROR,
                             TURN_COMPLETED, safe_backend_error)
 from .core_bridge import CoreBridge, TOOL, WorkspaceError
 from core.library_import import import_markdown
@@ -34,7 +34,12 @@ def verify_source_round_trip(backend_factory, *, timeout=45, cancelled=None):
                                  short_name='probe', language='en')
         original.unlink()
         bridge = CoreBridge(source_workspace)
-        backend = backend_factory(workspace, purpose='connectivity', tools=[tool])
+        try:
+            backend = backend_factory(workspace, purpose='connectivity', tools=[tool])
+        except BackendConfigurationError as exc:
+            return 'failed', str(exc)
+        except Exception as exc:
+            return 'failed', safe_backend_error(exc)
         timer = threading.Timer(timeout, backend.close)
         timer.daemon = True
         timer.start()
@@ -86,6 +91,8 @@ def verify_source_round_trip(backend_factory, *, timeout=45, cancelled=None):
             raise TimeoutError()
         except (TimeoutError, queue.Empty):
             return 'failed', '请求超时，请检查网络和 Runtime。'
+        except BackendConfigurationError as exc:
+            return 'failed', str(exc)
         except Exception as exc:
             return 'failed', safe_backend_error(exc)
         finally:

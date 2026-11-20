@@ -32,6 +32,36 @@ it('invalidates a successful proof after an authoritative backend change or fail
 });
 const empty = { status: "empty" as const, source: { sourceId: "", title: "", topicId: null }, current: null, history: [], conversation: [] };
 
+it("loads custom Backend models independently and accepts a manual model ID", async () => {
+  const config = { backend: "external-custom", model: null, runtimePath: null, credentialFile: null };
+  const backendSetup = vi.fn(async () => readerSuccess({
+    backend: config.backend, runtimePath: "/runtime", status: "success",
+    message: "已加载模型清单", catalogStatus: "loaded", models: ["catalogued"],
+  }));
+  const saveBackendConfiguration = vi.fn(async () => readerSuccess(empty));
+  render(<BackendSetupPanel host={{ backendSetup, saveBackendConfiguration } as unknown as ReaderHost} configuration={{
+    saved: config, effective: config, busy: false, pending: false, refreshBlocked: false,
+    backends: [{
+      id: config.backend, label: "External", loginHint: "请在终端登录 External。",
+      capabilities: { authMode: "external-cli", modelDiscovery: "acp-config-option" },
+      credentialEnv: ["EXTERNAL_KEY"],
+    }],
+  }} />);
+  expect(screen.getByText("请在终端登录 External。")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /浏览器登录|登录 Codex/ })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "加载模型清单" }));
+  await screen.findByRole("option", { name: "catalogued" });
+  expect(screen.getByText("当前模型尚未验证。")).toBeInTheDocument();
+  fireEvent.click(screen.getByText("手动设置模型"));
+  fireEvent.change(screen.getByRole("textbox", { name: "手动输入模型" }), { target: { value: "manual-model" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "凭据文件路径" }), { target: { value: "/runtime/.env" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
+  await waitFor(() => expect(saveBackendConfiguration).toHaveBeenCalledWith(expect.objectContaining({
+    backend: "external-custom", model: "manual-model", credentialFile: "/runtime/.env",
+  })));
+  expect(backendSetup).toHaveBeenCalledOnce();
+});
+
 it("checks without applying, then saves and applies only on explicit confirmation", async () => {
   const backendSetup = vi.fn(async (action: string, input: { backend: string }) => readerSuccess({
     backend: input.backend, runtimePath: "/private/runtime", status: action === "prepare" ? "installed" : "success", message: "OK",

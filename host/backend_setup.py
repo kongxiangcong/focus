@@ -1,71 +1,12 @@
-"""Host-owned dependency and authentication checks, independent of business state.
-
-Setup never activates a backend or opens a FOCUS Discussion. Runtime errors are
-projected as fixed, actionable messages rather than leaking provider diagnostics.
-"""
-import os
-import shutil
+"""Host-owned settings operations for a registered Backend."""
 import tempfile
-import queue
 import threading
-import time
-import subprocess
-import sys
-import importlib.util
-import hashlib
-import hmac
-import json
-import secrets
-from urllib.request import Request, urlopen, build_opener, ProxyHandler
-from contextlib import contextmanager
-from urllib.parse import urlsplit
+from contextlib import ExitStack
 from pathlib import Path
 
-from .proxy import backend_environment
-from .runtime import AppServer
 from .backends import DEFAULT_REGISTRY, BackendError
 from .backend_verification import BackendVerification
-
-
-def deepseek_key(credential_file=None):
-    """Read only the named key. Never return .env contents in a Host projection."""
-    if not credential_file and os.getenv('DEEPSEEK_API_KEY'):
-        return os.environ['DEEPSEEK_API_KEY']
-    path = Path(credential_file) if credential_file else Path(__file__).resolve().parents[1] / '.env'
-    if not path.is_file():
-        return ''
-    for line in path.read_text(encoding='utf-8-sig').splitlines():
-        key, separator, value = line.strip().removeprefix('export ').partition('=')
-        if separator and key.strip() == 'DEEPSEEK_API_KEY':
-            return value.strip().strip('"\'')
-    return ''
-
-
-def runtime_path(backend, explicit=None):
-    if backend not in ('codex', 'deepseek'):
-        raise ValueError('请选择 Codex 或 DeepSeek。')
-    if explicit:
-        return str(Path(explicit).expanduser().absolute())
-    # Prefer the already-installed SDK's matching protocol carrier.  A global
-    # CLI may be older than the machine's Codex configuration.  This is local
-    # discovery only; an explicit selection is never replaced.
-    if backend == 'codex':
-        try:
-            from codex_cli_bin import bundled_codex_path
-            return str(bundled_codex_path())
-        except (ImportError, FileNotFoundError):
-            pass
-    installed = shutil.which('codex' if backend == 'codex' else 'dsh')
-    if installed:
-        return installed
-    try:
-        if backend == 'codex':
-            from codex_cli_bin import bundled_codex_path
-            return str(bundled_codex_path())
-        from deepseek_harness_runtime import bundled_runtime_path
-        return str(bundled_runtime_path())
-    except (ImportError, FileNotFoundError):
-        return None
+from .backends.base import BackendConfigurationError, safe_backend_error
 
 
 class BackendSetup:
@@ -74,184 +15,116 @@ class BackendSetup:
         self.verification = verification or BackendVerification()
         self.login_lock = threading.RLock()
         self.login = None
-        self.install_lock = threading.Lock()
         self.check_lock = threading.RLock()
-        self.authentication_salt = secrets.token_bytes(32)
-        self.connections = {}
 
-    def environment_id(self, payload, status):
-        path = Path(status['runtimePath']) if status.get('runtimePath') else None
-        runtime = (str(path.resolve()), path.stat().st_size, path.stat().st_mtime_ns) if path and path.is_file() else None
-        if status['backend'] == 'deepseek':
-            authentication = deepseek_key(payload.get('credentialFile'))
-        else:
-            home = Path(os.getenv('CODEX_HOME') or Path.home() / '.codex')
-            auth = home / 'auth.json'
-            authentication = auth.read_text(encoding='utf-8') if auth.is_file() else ''
-        private = json.dumps([status['backend'], runtime, authentication, os.getenv('DEEPSEEK_BASE_URL') if status['backend'] == 'deepseek' else None])
-        return hmac.new(self.authentication_salt, private.encode(), hashlib.sha256).hexdigest()
+    def _runtime(self, stack, payload, status):
+        workspace = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix='focus-setup-')))
+        backend = self.registry.create_backend(
+            status['backend'], workspace, runtime_path=status['runtimePath'],
+            credential_file=payload.get('credentialFile'), model=payload.get('model'),
+            purpose='candidate', tools=[],
+        )
+        stack.callback(backend.close)
+        return backend
 
-    def discover(self, payload, status):
-        if status['backend'] == 'codex':
-            values, cursor, seen = [], None, set()
-            with self.codex_account_runtime(status) as rpc:
-                while True:
-                    result = rpc.request('model/list', {'limit': 100, 'cursor': cursor, 'includeHidden': False}, timeout=20)
-                    values.extend(item['model'] for item in result.get('data', []) if isinstance(item.get('model'), str))
-                    cursor = result.get('nextCursor')
-                    if not cursor:
-                        break
-                    if cursor in seen:
-                        raise ValueError('model list pagination repeated')
-                    seen.add(cursor)
-            return list(dict.fromkeys(values))
-        base = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com').rstrip('/')
-        if urlsplit(base).scheme != 'https':
-            raise ValueError('model endpoint must use HTTPS')
-        request = Request(base + '/models', headers={'Authorization': 'Bearer ' + deepseek_key(payload.get('credentialFile'))})
-        environment = backend_environment('deepseek')
-        proxy = environment.get('HTTPS_PROXY') or environment.get('https_proxy')
-        proxies = {} if environment.get('NO_PROXY') == '*' else {'https': proxy} if proxy else None
-        opener = build_opener(ProxyHandler(proxies))
-        with opener.open(request, timeout=20) as response:
-            result = json.load(response)
-        # DSH's official provider uses the Anthropic Messages protocol.  Only
-        # text models whose supplier metadata declares that path are offered.
-        return [item['id'] for item in result['data'] if isinstance(item.get('id'), str)
-                and 'text' in item.get('input_modalities', []) and 'text' in item.get('output_modalities', [])
-                and isinstance(item.get('api_capabilities', {}).get('anthropic_messages'), dict)]
+    def _operation_error(self, status, error):
+        message = str(error) if isinstance(error, BackendConfigurationError) else safe_backend_error(error)
+        return {**status, 'status': 'failed', 'message': message}
 
     def models(self, payload):
         status = self.inspect(payload)
-        environment = self.environment_id(payload, status)
-        if environment not in self.connections:
-            return {**status, 'status': 'failed', 'catalogStatus': 'not-loaded', 'environmentId': environment,
-                    'message': '先通过此环境的连接检查，再加载模型清单。'}
+        if status['status'] != 'installed':
+            return {**status, 'status': 'failed', 'catalogStatus': 'failed', 'models': []}
+        spec = self.registry.get_spec(status['backend'])
+        if spec.capabilities.get('modelDiscovery', 'none') == 'none':
+            return {**status, 'status': 'failed', 'catalogStatus': 'not-supported', 'models': [],
+                    'message': '此 Backend 不提供模型清单，可手动输入模型。'}
         try:
-            models = self.discover(payload, status)
+            with ExitStack() as stack:
+                models = self._runtime(stack, payload, status).discover_models()
             if not models:
-                raise ValueError('no supported models')
-            refreshed = self.environment_id(payload, status)
-            self.connections[refreshed] = self.connections[environment]
-            return {**status, 'status': 'success', 'catalogStatus': 'loaded', 'models': models,
-                    'environmentId': refreshed, 'message': '真实模型清单已加载；清单不代表所有模型已验证。'}
-        except Exception:
-            return {**status, 'status': 'success', 'catalogStatus': 'failed', 'environmentId': environment,
-                    'models': [], 'message': '连接已通过，模型清单加载失败；可重试清单或使用默认模型。'}
+                raise BackendConfigurationError('Runtime 未返回可用模型，可重试或手动输入。')
+        except Exception as exc:
+            return {**self._operation_error(status, exc), 'catalogStatus': 'failed', 'models': []}
+        return {**status, 'status': 'success', 'catalogStatus': 'loaded', 'models': models,
+                'message': '已加载模型清单。选择模型后可检测原文读取能力。'}
 
     def prepare(self, payload):
-        with self.install_lock:
-            status = self.inspect(payload)
-            if payload.get('runtimePath') and status['status'] == 'unavailable':
-                return status  # An explicit broken path is never silently replaced.
-            module = 'deepseek_harness' if status['backend'] == 'deepseek' else 'codex_cli_bin'
-            needs_sdk = status['backend'] == 'deepseek' and importlib.util.find_spec(module) is None
-            if status['status'] == 'installed' and not needs_sdk:
-                return status
-            package = 'deepseek-harness-sdk' if status['backend'] == 'deepseek' else 'openai-codex'
-            try:
-                # An existing external DSH must not cause a hidden bundled copy
-                # to be installed merely to obtain the Python protocol client.
-                options = ['--no-deps'] if needs_sdk and status['status'] == 'installed' else []
-                if options:
-                    subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-input', 'pydantic>=2.12,<3'],
-                                   capture_output=True, timeout=240, check=True)
-                subprocess.run([sys.executable, '-m', 'pip', 'install', '--no-input', *options, package],
-                               capture_output=True, timeout=240, check=True)
-                importlib.invalidate_caches()
-            except (OSError, subprocess.SubprocessError):
-                return {**status, 'status': 'failed', 'message': '依赖安装失败，请检查网络后重试此 Backend。'}
-            return self.inspect(payload)
-
-    @contextmanager
-    def codex_account_runtime(self, status):
-        env = backend_environment('codex')
-        for key in ('OPENAI_API_KEY', 'CODEX_API_KEY'):
-            env.pop(key, None)
-        with tempfile.TemporaryDirectory(prefix='focus-account-') as temporary:
-            command = self.registry.resolve_command(status['backend'], status['runtimePath'])
-            rpc = AppServer([*command, '-c', 'forced_login_method="chatgpt"'], temporary, env=env)
-            try:
-                rpc.initialize()
-                rpc.send({'method': 'initialized', 'params': {}})
-                yield rpc
-            finally:
-                rpc.close()
+        """Compatibility action for older readers. Only discover the executable."""
+        return self.inspect(payload)
 
     def login_operation(self, action, payload):
         with self.login_lock:
             status = self.inspect(payload)
-            if status['backend'] != 'codex' or status['status'] == 'unavailable':
-                raise ValueError('请选择已安装的 Codex Runtime。')
+            if status['status'] != 'installed':
+                return self._operation_error(status, BackendConfigurationError(status['message']))
+            spec = self.registry.get_spec(status['backend'])
+            if spec.capabilities.get('authMode') != 'interactive-oauth':
+                return {**status, 'status': 'external-login',
+                        'message': spec.login_hint or '请通过本机 CLI 完成登录。'}
+            command = self.registry.resolve_command(spec.id, status['runtimePath'])
+            identity = spec.id, command, payload.get('credentialFile')
             if action == 'login-start':
                 self.close()
-                context = self.codex_account_runtime(status)
-                rpc = context.__enter__()
+                stack = ExitStack()
                 try:
-                    result = rpc.request('account/login/start', {'type': 'chatgpt'}, timeout=15)
-                    url = urlsplit(result['authUrl'])
-                    if url.scheme != 'https' or url.hostname not in ('auth.openai.com', 'auth0.openai.com', 'auth.chatgpt.com'):
-                        raise ValueError('Runtime 返回了无效的授权地址。')
-                    self.login = {'context': context, 'rpc': rpc, 'id': result['loginId'],
-                                  'path': status['runtimePath'], 'deadline': time.monotonic()+300}
-                    expiry = threading.Timer(300, self.close)
+                    backend = self._runtime(stack, payload, status)
+                    result = backend.start_login()
+                    login = {'stack': stack, 'backend': backend, 'identity': identity, 'id': result['loginId']}
+                    expiry = threading.Timer(300, self._expire_login, args=(login,))
                     expiry.daemon = True
-                    self.login['expiry'] = expiry
+                    self.login = login
+                    login['expiry'] = expiry
                     expiry.start()
-                    return {**status, 'status': 'waiting', 'loginId': result['loginId'],
-                            'authUrl': result['authUrl'], 'message': '请在浏览器完成授权；打开页面不代表登录成功。'}
-                except Exception:
-                    context.__exit__(None, None, None)
-                    raise
+                    return {**status, **result, 'status': 'waiting', 'message': '请在浏览器完成授权。'}
+                except Exception as exc:
+                    stack.close()
+                    return self._operation_error(status, exc)
             login = self.login
-            if not login or payload.get('loginId') != login['id'] or status['runtimePath'] != login['path']:
+            if not login or payload.get('loginId') != login['id'] or identity != login['identity']:
                 return {**status, 'status': 'expired', 'message': '登录请求已失效，请重试。'}
-            if action == 'login-cancel' or time.monotonic() >= login['deadline']:
-                try:
-                    login['rpc'].request('account/login/cancel', {'loginId': login['id']}, timeout=10)
-                finally:
+            try:
+                if action == 'login-cancel':
+                    login['backend'].cancel_login(login['id'])
                     self.close()
-                return {**status, 'status': 'cancelled', 'message': '登录已取消，可以重试。'}
-            while True:
-                try:
-                    event = login['rpc'].events.get_nowait()
-                except queue.Empty:
+                    return {**status, 'status': 'cancelled', 'message': '登录已取消，可以重试。'}
+                success = login['backend'].poll_login(login['id'])
+                if success is None:
                     return {**status, 'status': 'waiting', 'message': '等待浏览器授权。', 'loginId': login['id']}
-                if event.get('method') == '_transport_error':
-                    self.close()
-                    return {**status, 'status': 'failed', 'message': '授权连接已关闭，请重试。'}
-                params = event.get('params', {})
-                if event.get('method') == 'account/login/completed' and params.get('loginId') == login['id']:
-                    try:
-                        account = login['rpc'].request('account/read', {'refreshToken': True}, timeout=15).get('account')
-                        success = bool(params.get('success') and account and account.get('type') == 'chatgpt')
-                        return {**status, 'status': 'authenticated' if success else 'failed',
-                                'message': '已确认 ChatGPT / Codex 登录。' if success else '授权未完成，请重试。'}
-                    finally:
-                        self.close()
+                self.close()
+                return {**status, 'status': 'authenticated' if success else 'failed',
+                        'message': '已确认登录。' if success else '授权未完成，请重试。'}
+            except Exception as exc:
+                self.close()
+                return self._operation_error(status, exc)
+
+    def _expire_login(self, login):
+        with self.login_lock:
+            if self.login is login:
+                self.close()
 
     def check(self, payload):
         with self.check_lock:
-            result = self.verification.verify(payload, registry=self.registry, reuse=False)
-            if result['status'] == 'success':
-                environment = self.environment_id(payload, result)
-                self.connections[environment] = result['checkedModel']
-            return result
+            return self.verification.verify(payload, registry=self.registry, reuse=False)
 
     def account(self, payload):
         status = self.inspect(payload)
-        if status['status'] == 'unavailable':
+        if status['status'] != 'installed':
             return status
-        if status['backend'] != 'codex':
-            raise ValueError('此账号操作仅适用于 Codex。')
-        with self.codex_account_runtime(status) as rpc:
-            account = rpc.request('account/read', {'refreshToken': True}, timeout=15).get('account')
-            authenticated = bool(account and account.get('type') == 'chatgpt')
-            return {**status, 'status': 'authenticated' if authenticated else 'not-configured',
-                    'message': '已登录 ChatGPT / Codex。' if authenticated else '请使用 ChatGPT / Codex 浏览器登录。'}
+        spec = self.registry.get_spec(status['backend'])
+        if spec.capabilities.get('authMode') != 'interactive-oauth':
+            return {**status, 'status': 'external-login',
+                    'message': spec.login_hint or '请通过本机 CLI 完成登录。'}
+        try:
+            with ExitStack() as stack:
+                authenticated = self._runtime(stack, payload, status).account()
+        except Exception as exc:
+            return self._operation_error(status, exc)
+        return {**status, 'status': 'authenticated' if authenticated else 'not-configured',
+                'message': '已确认登录。' if authenticated else (spec.login_hint or '请先登录此 Backend。')}
 
     def inspect(self, payload):
-        backend = payload.get('backend', 'codex')
+        backend = payload.get('backend')
         explicit = payload.get('runtimePath')
         try:
             selected, *_ = self.registry.resolve_command(backend, explicit)
@@ -281,4 +154,4 @@ class BackendSetup:
             login, self.login = self.login, None
             if login:
                 login['expiry'].cancel()
-                login['context'].__exit__(None, None, None)
+                login['stack'].close()

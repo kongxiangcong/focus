@@ -1,11 +1,16 @@
 """Official Harness SDK adapter with isolated, Host-owned tool capabilities."""
+import json
+import os
 import threading
 import uuid
 import tempfile
 from pathlib import Path
+from urllib.parse import urlsplit
+from urllib.request import Request, build_opener, ProxyHandler
 
-from .base import ACTIVITY, Backend, BackendError, MESSAGE_COMPLETED, SESSION_OPENED, TURN_COMPLETED, TURN_STARTED, safe_backend_error
-from ..proxy import backend_environment
+from .base import (ACTIVITY, Backend, BackendError, BackendConfigurationError, MESSAGE_COMPLETED,
+                   SESSION_OPENED, TURN_COMPLETED, TURN_STARTED, safe_backend_error)
+from ..proxy import backend_environment, file_credentials
 from .tool_bridge import ToolBridge
 from .task_tools import discussion_tools, library_tools
 
@@ -33,6 +38,16 @@ DISCUSSION_WEB_PATCH = """- insert:
 """
 
 
+def legacy_deepseek_key(credential_file=None):
+    name = 'DEEPSEEK_API_KEY'
+    if credential_file:
+        return file_credentials(credential_file, (name,))[name]
+    if os.getenv(name):
+        return os.environ[name]
+    path = Path(__file__).resolve().parents[2] / '.env'
+    return file_credentials(path, (name,))[name] if path.is_file() else ''
+
+
 class DeepSeekBackend(Backend):
     name = 'deepseek'
     unavailable_reason = None
@@ -51,6 +66,23 @@ class DeepSeekBackend(Backend):
         self._web_calls = {}
         self._close_done = threading.Event()
 
+    def discover_models(self):
+        if not self.api_key:
+            raise BackendConfigurationError('请先在 Host 环境或凭据文件中设置 DEEPSEEK_API_KEY。')
+        base = os.getenv('DEEPSEEK_BASE_URL', 'https://api.deepseek.com').rstrip('/')
+        if urlsplit(base).scheme != 'https':
+            raise BackendConfigurationError('模型服务地址必须使用 HTTPS。')
+        request = Request(base + '/models', headers={'Authorization': 'Bearer ' + self.api_key})
+        environment = backend_environment(self.name)
+        proxy = environment.get('HTTPS_PROXY') or environment.get('https_proxy')
+        proxies = {} if environment.get('NO_PROXY') == '*' else {'https': proxy} if proxy else None
+        with build_opener(ProxyHandler(proxies)).open(request, timeout=20) as response:
+            result = json.load(response)
+        # The SDK profile uses the supplier's Anthropic Messages endpoint.
+        return [item['id'] for item in result['data'] if isinstance(item.get('id'), str)
+                and 'text' in item.get('input_modalities', []) and 'text' in item.get('output_modalities', [])
+                and isinstance(item.get('api_capabilities', {}).get('anthropic_messages'), dict)]
+
     def open_session(self, resume_key, *, instructions, skills=()):
         with self._lifecycle_lock:
             if self.closed:
@@ -65,6 +97,8 @@ class DeepSeekBackend(Backend):
     def _open_session(self, resume_key, *, instructions, skills=()):
         if self.purpose not in ('connectivity', 'candidate', 'discussion', 'business'):
             raise BackendError('不支持此任务类型。')
+        if self.purpose == 'connectivity' and not self.api_key:
+            raise BackendConfigurationError('请先在 Host 环境或凭据文件中设置 DEEPSEEK_API_KEY。')
         if resume_key or skills:
             raise BackendError('新任务不接受原生会话续接或本机技能。')
         from deepseek_harness import DeepSeekHarness
@@ -86,6 +120,8 @@ class DeepSeekBackend(Backend):
                            f"        url: {self.bridge.url}\n        failOnStartupError: true\n")
         patch.write_text(patch_text, encoding='utf-8')
         env = backend_environment(self.name)
+        if self.api_key:
+            env['DEEPSEEK_API_KEY'] = self.api_key
         env['DSH_SYSTEM_PROMPT'] = instructions
         self.harness = DeepSeekHarness(
             cwd=str(root), dsh_home=str(root / 'runtime-home'), dsh_bin=self.runtime_path,
