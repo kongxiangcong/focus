@@ -28,6 +28,8 @@ class HarnessSpec:
     install_hint: str = ''
     login_hint: str = ''
     acp: dict = field(default_factory=dict)
+    runtime_path_version: int = 1
+    legacy_credential_file: Path | None = None
 
     @classmethod
     def read(cls, path, *, builtin=False):
@@ -38,8 +40,7 @@ class HarnessSpec:
         if not isinstance(backend_id, str) or not BACKEND_ID.fullmatch(backend_id):
             raise ValueError('Backend ID 无效。')
         driver = value.get('driver')
-        drivers = ('codex-app-server', 'acp', 'deepseek-sdk') if builtin else ('codex-app-server', 'acp')
-        if driver not in drivers:
+        if driver not in ('codex-app-server', 'acp'):
             raise ValueError('driver 必须是 acp 或 codex-app-server。')
         label = value.get('label')
         command = value.get('command')
@@ -72,9 +73,15 @@ class HarnessSpec:
         install_hint, login_hint = value.get('installHint', ''), value.get('loginHint', '')
         if not isinstance(install_hint, str) or not isinstance(login_hint, str):
             raise ValueError('installHint 与 loginHint 必须是字符串。')
+        runtime_path_version = value.get('runtimePathVersion', 1) if builtin else 1
+        fallback = value.get('legacyCredentialFile') if builtin else None
+        if type(runtime_path_version) is not int or runtime_path_version < 1:
+            raise ValueError('runtimePathVersion 必须为正整数。')
+        if fallback is not None and (not isinstance(fallback, str) or not fallback.strip()):
+            raise ValueError('legacyCredentialFile 必须为非空路径。')
         return cls(backend_id, label.strip(), driver, tuple(command), model.strip() if model else None,
                    path.parent, env, tuple(env_strip), tuple(credential_env), capabilities,
-                   install_hint, login_hint, acp)
+                   install_hint, login_hint, acp, runtime_path_version, (path.parent / fallback).resolve() if fallback else None)
 
 
 def _codex_bundled():
@@ -82,24 +89,11 @@ def _codex_bundled():
     return bundled_codex_path()
 
 
-def _legacy_dsh_bundled():
-    from deepseek_harness_runtime import bundled_runtime_path
-    return bundled_runtime_path()
-
-
 def _driver(driver):
     if driver == 'codex-app-server':
         from .codex import CodexBackend
         return CodexBackend
-    if driver == 'deepseek-sdk':
-        from .deepseek import DeepSeekBackend
-        return DeepSeekBackend
-    try:
-        from .acp import AcpBackend
-    except ModuleNotFoundError as exc:
-        if exc.name != f'{__package__}.acp':
-            raise
-        raise BackendError('此版本尚未提供 ACP 驱动。') from None
+    from .acp import AcpBackend
     return AcpBackend
 
 
@@ -147,23 +141,15 @@ class HarnessRegistry:
             path = spec.directory / command
             return str(path.resolve()) if _executable(path) else None
         # Maintain the bundled Codex selected by FOCUS before the manifest migration.
-        fallback = {('codex-app-server', 'codex'): _codex_bundled,
-                    ('deepseek-sdk', 'dsh'): _legacy_dsh_bundled}.get((spec.driver, spec.command[0]))
-        if fallback and spec.driver == 'codex-app-server':
+        if spec.driver == 'codex-app-server' and spec.command[0] == 'codex':
             try:
-                if _executable(Path(path := fallback())):
+                if _executable(Path(path := _codex_bundled())):
                     return str(Path(path).resolve())
             except (ImportError, OSError):
                 pass
         discovered = shutil.which(spec.command[0])
         if discovered:
             return str(Path(discovered).resolve())
-        if fallback and spec.driver == 'deepseek-sdk':
-            try:
-                if _executable(Path(path := fallback())):
-                    return str(Path(path).resolve())
-            except (ImportError, OSError):
-                pass
         return None
 
     def resolve_command(self, backend_id, explicit_path=None):
@@ -193,14 +179,8 @@ class HarnessRegistry:
         adapter = _driver(spec.driver)
         if spec.driver == 'codex-app-server' and not runtime_path:
             runtime_path = options.get('codex_bin')
-        if spec.driver == 'deepseek-sdk':
-            # Transitional adapter; ticket 11 replaces this driver after live ACP acceptance.
-            from .deepseek import legacy_deepseek_key
-            options.update(runtime_path=runtime_path or self.probe_binary(spec),
-                           api_key=options.get('api_key') or legacy_deepseek_key(credential_file))
-        else:
-            options.update(command=self.resolve_command(spec.id, runtime_path),
-                           manifest=spec, credential_file=credential_file)
+        options.update(command=self.resolve_command(spec.id, runtime_path),
+                       manifest=spec, credential_file=credential_file)
         if not options.get('model'):
             options['model'] = spec.default_model
         accepted = {key: value for key, value in options.items() if key in adapter.option_keys}

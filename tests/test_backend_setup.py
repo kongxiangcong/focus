@@ -4,12 +4,10 @@ import queue
 import json
 import os
 import sys
-from types import SimpleNamespace
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from urllib.request import ProxyHandler, Request, build_opener
-
+from acp_protocol_fixture import AcpProtocolFixture
 from workspace_fixture import HostService
 
 
@@ -44,35 +42,12 @@ class AccountRuntime:
         self.closed = True
 
 
-class HarnessRuntime:
+class CredentialRuntime(AcpProtocolFixture):
     instances = []
 
-    def __init__(self, **kwargs):
-        self.options = kwargs
-        self.closed = False
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.instances.append(self)
-
-    def start(self):
-        pass
-
-    def start_session(self, session_id):
-        self.start()
-        return self
-
-    def run(self, prompt):
-        config = Path(self.options['patches'][0]).read_text(encoding='utf-8')
-        url = next(line.split(': ', 1)[1] for line in config.splitlines() if line.strip().startswith('url: '))
-        request = Request(url, data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
-            'params': {'name': 'focus', 'arguments': {'action': 'read_range',
-                'arguments': '{"start":1,"end":1}'}}}).encode())
-        with build_opener(ProxyHandler({})).open(request, timeout=5) as response:
-            result = json.load(response)['result']
-        assert not result['isError'], result
-        text = json.loads(result['content'][0]['text'])['source_text']
-        return SimpleNamespace(final_response=text, finish_reason='completed', events=[])
-
-    def close(self):
-        self.closed = True
 
 
 class BackendSetupTests(unittest.TestCase):
@@ -113,17 +88,20 @@ class BackendSetupTests(unittest.TestCase):
     def test_deepseek_check_loads_host_credential_file_and_does_not_activate_or_append(self):
         binary = self.root / 'dsh.exe'
         binary.touch()
+        binary.chmod(0o700)
         secret = self.root / '.env'
         secret.write_text('DEEPSEEK_API_KEY="fixture-key"\n', encoding='utf-8')
         before = self.host.snapshot()
-        with patch('deepseek_harness.DeepSeekHarness', HarnessRuntime):
+        with patch('host.backends.acp.JsonRpcStdioClient', CredentialRuntime):
             result = self.host.backend_setup('check', {'backend': 'deepseek',
                 'runtimePath': str(binary), 'credentialFile': str(secret), 'model': 'deepseek-v4-flash'})
         self.assertEqual('success', result['status'])
         self.assertEqual(before, self.host.snapshot())
         self.assertNotIn('fixture-key', str(result))
-        self.assertEqual('fixture-key', HarnessRuntime.instances[-1].options['api_key'])
-        self.assertTrue(HarnessRuntime.instances[-1].closed)
+        runtime = CredentialRuntime.instances[-1]
+        self.assertEqual('fixture-key', runtime.env['DEEPSEEK_API_KEY'])
+        self.assertEqual(('--profile', 'acp'), runtime.command[1:])
+        self.assertTrue(runtime.closed)
 
     def test_browser_login_requires_completion_and_account_recheck_and_can_cancel(self):
         binary = self.root / 'codex.exe'
@@ -150,7 +128,8 @@ class BackendSetupTests(unittest.TestCase):
     def test_provider_failure_is_actionable_without_echoing_secret_diagnostics(self):
         binary = self.root / 'dsh.exe'
         binary.touch()
-        with patch('deepseek_harness.DeepSeekHarness', side_effect=RuntimeError('quota exhausted sk-private-token')), \
+        binary.chmod(0o700)
+        with patch('host.backends.acp.JsonRpcStdioClient', side_effect=RuntimeError('quota exhausted sk-private-token')), \
                 patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'fixture-key'}):
             result = self.host.backend_setup('check', {'backend': 'deepseek', 'runtimePath': str(binary)})
         self.assertEqual('failed', result['status'])
