@@ -3,6 +3,7 @@ import ctypes
 import json
 import os
 import sys
+import time
 import unittest
 from pathlib import Path
 
@@ -31,15 +32,36 @@ class AcpDiscussionTests(unittest.TestCase):
                                 registry=HarnessRegistry(manifests))
         self.addCleanup(self.host.close)
 
-    def turn(self, number):
+    def start(self, request, content):
         selected = self.host.select_discussion_source('fixture-paper')
-        self.host.start({'requestId': f'fixture-acp-turn-{number}', 'sourceId': 'fixture-paper',
-                         'sessionId': selected['sessionId'], 'content': f'Explain fixture question {number}.'})
+        self.host.start({'requestId': request, 'sourceId': 'fixture-paper',
+                         'sessionId': selected['sessionId'], 'content': content})
+
+    def finished(self, status):
         self.host.worker.join(12)
         self.assertFalse(self.host.worker.is_alive(), 'discussion did not finish')
         snapshot = self.host.snapshot()
-        self.assertEqual('completed', snapshot['agent']['run']['status'], snapshot['agent']['run'])
+        self.assertEqual(status, snapshot['agent']['run']['status'], snapshot['agent']['run'])
         return snapshot
+
+    def turn(self, number):
+        self.start(f'fixture-acp-turn-{number}', f'Explain fixture question {number}.')
+        return self.finished('completed')
+
+    def events(self):
+        if not self.log_path.exists():
+            return []
+        return [json.loads(line) for line in self.log_path.read_text(encoding='utf-8').splitlines()]
+
+    def approval(self, *, expired=False, timeout=5):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            run = self.host.snapshot()['agent']['run']
+            matched = [item for item in run['approvals'] if (item.get('status') == 'expired') == expired]
+            if matched:
+                return matched[0]
+            time.sleep(.03)
+        self.fail(f'Expected {"expired" if expired else "active"} approval: {run}')
 
     def test_fresh_sessions_use_host_history_and_both_mcp_transports(self):
         first = self.turn(1)
@@ -64,8 +86,7 @@ class AcpDiscussionTests(unittest.TestCase):
             self.assertTrue(any(activity['title'] == 'mcpToolCall' and activity['status'] == 'completed'
                                 for activity in run['activity']))
 
-        events = [json.loads(line) for line in self.log_path.read_text(encoding='utf-8').splitlines()]
-        turns = [event for event in events if event['kind'] == 'discussion']
+        turns = [event for event in self.events() if event['kind'] == 'discussion']
         self.assertEqual(['http', 'http', 'stdio'], [turn['transport'] for turn in turns])
         self.assertEqual(3, len({turn['pid'] for turn in turns}))
         self.assertEqual(3, len({turn['session'] for turn in turns}))
@@ -81,6 +102,57 @@ class AcpDiscussionTests(unittest.TestCase):
             self.assertTrue(turn['deniedWrite'])
             self.assertFalse(Path(turn['cwd']).exists())
             self.assertTrue(process_exited(turn['pid']))
+
+    def test_runtime_disconnect_expires_confirmation_and_retry_requires_a_new_answer(self):
+        self.start('fixture-acp-disconnect', 'expiry-disconnect')
+        old = self.approval()
+        self.assertEqual(['accept', 'decline'], old['choices'])
+        self.assertIn('Inspect selected fixture', old['detail'])
+        self.log_path.with_suffix('.release').touch()
+        failed = self.finished('failed')
+        self.assertEqual(old['id'], self.approval(expired=True)['id'])
+        with self.assertRaisesRegex(ValueError, '本次请求已过期，请重试'):
+            self.host.approve({'approvalId': old['id'], 'decision': 'accept'})
+        disconnected = next(event for event in self.events() if event['kind'] == 'expiry-disconnect')
+        self.assertTrue(process_exited(disconnected['pid']))
+        self.assertTrue(process_exited(disconnected['childPid']))
+        self.assertFalse(Path(disconnected['cwd']).exists())
+
+        self.start('fixture-acp-retry', 'retry-approval')
+        new = self.approval()
+        self.assertNotEqual(old['id'], new['id'])
+        with self.assertRaisesRegex(ValueError, '本次请求已过期，请重试'):
+            self.host.approve({'approvalId': old['id'], 'decision': 'accept'})
+        self.host.approve({'approvalId': new['id'], 'decision': 'accept'})
+        retry = self.finished('completed')
+        self.assertEqual(failed['conversation'][0]['discussionId'], retry['conversation'][-1]['discussionId'])
+        self.assertEqual('Fresh approval received.', retry['conversation'][-1]['content'])
+        answers = [event['decision'] for event in self.events() if event['kind'] == 'permission-answer']
+        self.assertEqual([{'outcome': 'selected', 'optionId': 'one'}], answers)
+
+    def test_stop_cancels_pending_permission_and_releases_descendant(self):
+        self.start('fixture-acp-cancel', 'cancel-approval')
+        approval = self.approval()
+        self.host.stop()
+        snapshot = self.finished('interrupted')
+        self.assertEqual(approval['id'], self.approval(expired=True)['id'])
+        self.assertEqual('process_closed', snapshot['agent']['run']['runtimeCleanup']['release'])
+        events = self.events()
+        self.assertIn({'outcome': 'cancelled'}, [event.get('decision') for event in events])
+        cancelled = next(event for event in events if event['kind'] == 'cancel-approval')
+        self.assertTrue(process_exited(cancelled['pid']))
+        self.assertTrue(process_exited(cancelled['childPid']))
+        self.assertFalse(Path(cancelled['cwd']).exists())
+
+    def test_mcp_timeout_expires_confirmation_while_the_acp_turn_is_still_alive(self):
+        self.start('fixture-acp-mcp-expiry', 'mcp-disconnect')
+        approval = self.approval()
+        self.assertEqual(approval['id'], self.approval(expired=True)['id'])
+        self.assertEqual('running', self.host.snapshot()['agent']['run']['status'])
+        with self.assertRaisesRegex(ValueError, '本次请求已过期，请重试'):
+            self.host.approve({'approvalId': approval['id'], 'decision': 'accept'})
+        self.log_path.with_suffix('.release').touch()
+        self.finished('completed')
 
 
 def process_exited(pid):

@@ -106,7 +106,8 @@ const ConversationComposer = memo(forwardRef<ComposerHandle, ComposerProps>(func
   }
 
   return <form className="source-composer focus-composer" onSubmit={e => { e.preventDefault(); void submit(); }}>
-    {agent && (running || !!agent.run?.error) && <AgentControls agent={agent} onStop={onStop} onAnswer={onApprove} />}
+    {agent && (running || !!agent.run?.error || agent.run?.approvals.some(approval => approval.status === "expired")) &&
+      <AgentControls agent={agent} onStop={onStop} onAnswer={onApprove} />}
     <textarea
       ref={textareaRef}
       rows={1}
