@@ -1,12 +1,14 @@
 """Backend setup through Host public operations; only external processes are doubled."""
 import tempfile
 import queue
+import json
 import os
 import sys
 from types import SimpleNamespace
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from urllib.request import ProxyHandler, Request, build_opener
 
 from workspace_fixture import HostService
 
@@ -58,7 +60,16 @@ class HarnessRuntime:
         return self
 
     def run(self, prompt):
-        return SimpleNamespace(final_response='FOCUS_OK', finish_reason='completed', events=[])
+        config = Path(self.options['patches'][0]).read_text(encoding='utf-8')
+        url = next(line.split(': ', 1)[1] for line in config.splitlines() if line.strip().startswith('url: '))
+        request = Request(url, data=json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call',
+            'params': {'name': 'focus', 'arguments': {'action': 'read_range',
+                'arguments': '{"start":1,"end":1}'}}}).encode())
+        with build_opener(ProxyHandler({})).open(request, timeout=5) as response:
+            result = json.load(response)['result']
+        assert not result['isError'], result
+        text = json.loads(result['content'][0]['text'])['source_text']
+        return SimpleNamespace(final_response=text, finish_reason='completed', events=[])
 
     def close(self):
         self.closed = True
@@ -180,29 +191,94 @@ class BackendSetupTests(unittest.TestCase):
         self.assertEqual('failed', self.host.snapshot()['agent']['run']['status'])
         self.assertFalse(any(method == 'turn/start' for method, _ in AccountRuntime.instances[-1].calls))
 
-    def test_connectivity_turn_keeps_no_tools_readonly_and_no_approval_policy(self):
+    def test_connectivity_requires_the_temporary_source_mark_in_the_final_answer(self):
         class ModelRuntime(AccountRuntime):
+            mode = 'final'
+
+            def __init__(self, command, cwd, *, env=None):
+                super().__init__(command, cwd, env=env)
+                self.cwd = Path(cwd)
+                self.marker = None
+
+            def complete(self, text, item='answer'):
+                self.events.put({'method': 'item/completed', 'params': {
+                    'item': {'type': 'agentMessage', 'id': item, 'text': text}}})
+
+            def finish(self):
+                self.events.put({'method': 'turn/completed', 'params': {'turn': {'status': 'completed'}}})
+
             def request(self, method, params, timeout=60):
                 if method == 'thread/start':
                     self.calls.append((method, params))
                     return {'thread': {'id': 'check-thread'}}
                 if method == 'turn/start':
                     self.calls.append((method, params))
-                    self.events.put({'method': 'item/completed', 'params': {
-                        'item': {'type': 'agentMessage', 'id': 'answer', 'text': 'FOCUS_OK'}}})
-                    self.events.put({'method': 'turn/completed', 'params': {'turn': {'status': 'completed'}}})
+                    if self.mode == 'text-only':
+                        self.complete('FOCUS_OK')
+                        self.finish()
+                    else:
+                        tools = dict(self.calls)['thread/start']['dynamicTools']
+                        if not tools:
+                            self.complete('The runtime has no source tool.')
+                            self.finish()
+                            return {'turn': {'id': 'check-turn'}}
+                        self.events.put({'id': 'read-source', 'method': 'item/tool/call', 'params': {'tool': 'focus',
+                            'arguments': {'action': 'search' if self.mode == 'wrong-action' else 'read_range',
+                                          'arguments': '{"start":1,"end":1}'}}})
                     return {'turn': {'id': 'check-turn'}}
                 return super().request(method, params, timeout)
+
+            def send(self, value):
+                if value.get('id') != 'read-source':
+                    return
+                result = value.get('result', {})
+                if self.mode == 'wrong-action':
+                    assert not result.get('success'), value
+                    self.complete('Wrong marker')
+                else:
+                    assert result['success'], value
+                    self.marker = json.loads(result['contentItems'][0]['text'])['source_text']
+                    if self.mode == 'wrong-answer':
+                        self.complete('Wrong marker')
+                    elif self.mode == 'superseded':
+                        self.complete(self.marker, item='commentary')
+                        self.complete('Final answer without the marker')
+                    elif self.mode == 'stream':
+                        for part in (self.marker[:5], self.marker[5:]):
+                            self.events.put({'method': 'item/agentMessage/delta',
+                                             'params': {'itemId': 'answer', 'delta': part}})
+                    else:
+                        self.complete(self.marker)
+                self.finish()
+
         binary = self.root / 'codex.exe'
         binary.touch()
         AccountRuntime.account_type = 'chatgpt'
-        with patch('host.backends.codex.AppServer', ModelRuntime):
-            result = self.host.backend_setup('check', {'backend': 'codex', 'runtimePath': str(binary)})
-        self.assertEqual('success', result['status'])
-        calls = dict(ModelRuntime.instances[-1].calls)
-        self.assertEqual([], calls['thread/start']['dynamicTools'])
-        self.assertEqual('readOnly', calls['turn/start']['sandboxPolicy']['type'])
-        self.assertEqual('never', calls['turn/start']['approvalPolicy'])
+        before = self.host.snapshot()
+        markers = set()
+        for mode, status in [('text-only', 'failed'), ('wrong-action', 'failed'), ('wrong-answer', 'failed'),
+                             ('superseded', 'failed'), ('final', 'success'), ('stream', 'success')]:
+            with self.subTest(mode=mode), patch('host.backends.codex.AppServer', ModelRuntime):
+                ModelRuntime.mode = mode
+                result = self.host.backend_setup('check', {'backend': 'codex', 'runtimePath': str(binary),
+                                                           'model': 'fixture-model'})
+                self.assertEqual(status, result['status'])
+                runtime = ModelRuntime.instances[-1]
+                calls = dict(runtime.calls)
+                tools = calls['thread/start']['dynamicTools']
+                self.assertEqual(['focus'], [tool['name'] for tool in tools])
+                self.assertEqual(['read_range'], tools[0]['inputSchema']['properties']['action']['enum'])
+                self.assertEqual('fixture-model', calls['thread/start']['model'])
+                self.assertEqual('readOnly', calls['turn/start']['sandboxPolicy']['type'])
+                self.assertEqual('never', calls['turn/start']['approvalPolicy'])
+                self.assertTrue(runtime.closed)
+                self.assertFalse(runtime.cwd.exists())
+                self.assertEqual(before, self.host.snapshot())
+                if runtime.marker:
+                    self.assertNotIn(runtime.marker, markers)
+                    self.assertNotIn(runtime.marker, str(calls))
+                    self.assertNotIn(runtime.marker, str(result))
+                    markers.add(runtime.marker)
 
     @unittest.skipUnless(os.name == 'nt', 'Windows command launcher lifecycle')
     def test_unresponsive_windows_launcher_child_is_released_after_check(self):

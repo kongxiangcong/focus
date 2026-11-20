@@ -103,7 +103,7 @@ class BackendOnboardingTests(unittest.TestCase):
             self.assertEqual('codex', app.configuration_status()['effective']['backend'])
             app.close()
 
-    def test_first_default_then_catalog_and_selected_model_receipts(self):
+    def test_check_runs_the_selected_model_without_installing_or_discovering_models(self):
         setup = BackendSetup()
         with test_directory() as root:
             binary = root / 'runtime.exe'
@@ -113,19 +113,14 @@ class BackendOnboardingTests(unittest.TestCase):
             def infer(value):
                 order.append(('infer', value['model']))
                 return {'backend': 'deepseek', 'runtimePath': str(binary), 'status': 'success', 'message': 'OK'}
-            def discover(*_):
-                order.append(('catalog', None))
-                return ['chosen', 'another']
-            with patch.object(setup, 'prepare', return_value=setup.inspect(payload)), \
-                    patch.object(setup, 'infer', side_effect=infer), patch.object(setup, 'discover', side_effect=discover):
+            with patch.object(setup, 'prepare', side_effect=AssertionError('no automatic installation')), \
+                    patch.object(setup, 'infer', side_effect=infer), \
+                    patch.object(setup, 'discover', side_effect=AssertionError('no automatic catalog')):
                 first = setup.check(payload)
-                self.assertEqual([('infer', DEFAULT_MODELS['deepseek']), ('catalog', None)], order)
-                self.assertEqual(DEFAULT_MODELS['deepseek'], first['checkedModel'])
-                second = setup.check(payload)
-                self.assertEqual('chosen', second['checkedModel'])
-                self.assertEqual(first['environmentId'], second['environmentId'])
+                self.assertEqual([('infer', 'chosen')], order)
+                self.assertEqual('chosen', first['checkedModel'])
                 binary.write_bytes(b'changed runtime')
-                changed = setup.check(payload)
+                changed = setup.check({**payload, 'model': None})
                 self.assertEqual(DEFAULT_MODELS['deepseek'], changed['checkedModel'])
                 self.assertNotEqual(first['environmentId'], changed['environmentId'])
 
@@ -134,12 +129,12 @@ class BackendOnboardingTests(unittest.TestCase):
         with test_directory() as root:
             binary = root / 'runtime.exe'; binary.touch()
             payload = {'backend': 'codex', 'runtimePath': str(binary)}
-            with patch.object(setup, 'prepare', return_value=setup.inspect(payload)), \
-                    patch.object(setup, 'infer', return_value={**setup.inspect(payload), 'status': 'success'}), \
-                    patch.object(setup, 'discover', side_effect=OSError('catalog')):
+            with patch.object(setup, 'infer', return_value={**setup.inspect(payload), 'status': 'success'}):
                 result = setup.check(payload)
                 self.assertEqual('success', result['status'])
-                self.assertEqual('failed', result['catalogStatus'])
+                self.assertNotIn('catalogStatus', result)
+            with patch.object(setup, 'discover', side_effect=OSError('catalog')):
+                self.assertEqual('failed', setup.models(payload)['catalogStatus'])
             with patch.object(setup, 'infer', side_effect=AssertionError()), patch.object(setup, 'discover', return_value=['selected']):
                 self.assertEqual(['selected'], setup.models(payload)['models'])
                 self.assertEqual('failed', setup.models({**payload, 'backend': 'deepseek'})['status'])
