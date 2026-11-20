@@ -1,4 +1,4 @@
-"""Versioned stdio JSON-RPC adapter for the official Codex App Server."""
+"""Stdio JSON-RPC transport and the Codex App Server handshake."""
 import json
 import os
 import queue
@@ -17,7 +17,7 @@ def codex_command(explicit=None):
     return [str(bundled_codex_path())]
 
 
-class AppServer:
+class JsonRpcStdioClient:
     def __init__(self, command, cwd, *, env=None):
         self.pending = {}
         self.events = queue.Queue()
@@ -26,7 +26,7 @@ class AppServer:
         self.next_id = 0
         self.closed = False
         self.deadline = None
-        self.process = subprocess.Popen([*command, 'app-server'], cwd=cwd, env=env,
+        self.process = subprocess.Popen(command, cwd=cwd, env=env,
                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.DEVNULL, text=True, encoding='utf-8', bufsize=1)
         self.reader = threading.Thread(target=self._read, daemon=True)
@@ -46,7 +46,7 @@ class AppServer:
         except Exception as exc:
             self.events.put({'method': '_transport_error', 'params': {'message': str(exc)}})
         finally:
-            error = {'error': {'message': 'Codex App Server exited; check installation, authentication and runtime version.'}}
+            error = {'error': {'message': 'Backend process exited; check installation, authentication and runtime version.'}}
             with self.lock:
                 self.closed = True
                 for waiter in self.pending.values():
@@ -56,7 +56,7 @@ class AppServer:
     def send(self, value):
         with self.write_lock:
             if self.closed:
-                raise RuntimeError('Codex App Server is not running')
+                raise RuntimeError('Backend process is not running')
             self.process.stdin.write(json.dumps(value, ensure_ascii=False) + '\n')
             self.process.stdin.flush()
 
@@ -64,10 +64,10 @@ class AppServer:
         if self.deadline is not None:
             timeout = min(timeout, self.deadline - time.monotonic())
             if timeout <= 0:
-                raise TimeoutError(f'Codex {method} timed out')
+                raise TimeoutError(f'{method} timed out')
         with self.lock:
             if self.closed:
-                raise RuntimeError('Codex App Server is not running')
+                raise RuntimeError('Backend process is not running')
             self.next_id += 1
             request_id = self.next_id
             waiter = queue.Queue()
@@ -77,17 +77,13 @@ class AppServer:
             try:
                 value = waiter.get(timeout=timeout)
             except queue.Empty as exc:
-                raise TimeoutError(f'Codex {method} timed out') from exc
+                raise TimeoutError(f'{method} timed out') from exc
             if 'error' in value:
                 raise RuntimeError(value['error'].get('message', str(value['error'])))
             return value['result']
         finally:
             with self.lock:
                 self.pending.pop(request_id, None)
-
-    def initialize(self):
-        return self.request('initialize', {'clientInfo': {'name': 'focus_web', 'version': '0.1.0'},
-                                          'capabilities': {'experimentalApi': True}}, timeout=15)
 
     def close(self):
         if self.process.poll() is None:
@@ -106,3 +102,9 @@ class AppServer:
         self.reader.join(timeout=2)
         self.process.stdin.close()
         self.process.stdout.close()
+
+
+class AppServer(JsonRpcStdioClient):
+    def initialize(self):
+        return self.request('initialize', {'clientInfo': {'name': 'focus_web', 'version': '0.1.0'},
+                                          'capabilities': {'experimentalApi': True}}, timeout=15)

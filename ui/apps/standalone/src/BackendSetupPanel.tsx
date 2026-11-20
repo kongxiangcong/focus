@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { createReaderId, type BackendConfigurationState, type BackendSetupInput, type BackendSetupResult, type ReaderHost, type ReadingWindow } from "@focus/reader-contracts";
+import { createReaderId, type BackendConfigurationState, type BackendDescriptor, type BackendSetupInput, type BackendSetupResult, type ReaderHost, type ReadingWindow } from "@focus/reader-contracts";
 
-type Backend = 'codex' | 'deepseek';
+const legacyBackends: readonly BackendDescriptor[] = [{ id: "codex", label: "Codex" }, { id: "deepseek", label: "DeepSeek" }];
 
 export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearance, onCancelAppearance, onDraft }: {
   host: ReaderHost; configuration?: BackendConfigurationState; onSaved?: (view: ReadingWindow) => void; onSaveAppearance?: () => boolean; onCancelAppearance?: () => void;
   onDraft?: (input: BackendSetupInput) => void;
 }) {
   const [input, setInput] = useState<BackendSetupInput>({ backend: "codex" });
-  const drafts = useRef<Partial<Record<Backend, BackendSetupInput>>>({});
-  const [catalog, setCatalog] = useState<Partial<Record<Backend, BackendSetupResult>>>({});
+  const drafts = useRef<Partial<Record<string, BackendSetupInput>>>({});
+  const [catalog, setCatalog] = useState<Partial<Record<string, BackendSetupResult>>>({});
   const [checked, setChecked] = useState<BackendSetupResult | null>(null);
   const [checking, setChecking] = useState(false);
   const [loginBusy, setLoginBusy] = useState(false);
@@ -19,6 +19,7 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
   const revision = useRef(0);
   const alive = useRef(true);
   const saved = configuration?.saved;
+  const backends = configuration?.backends ?? legacyBackends;
   useEffect(() => {
     if (saved) {
       revision.current++;
@@ -26,8 +27,8 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
       setFeedback(previous => previous.startsWith('连接检查通过') ? '' : previous);
       drafts.current = Object.fromEntries(Object.entries(configuration?.preferences ?? {}).map(([backend, preference]) =>
         [backend, { backend, model: preference?.model ?? undefined, runtimePath: preference?.runtimePath ?? undefined, credentialFile: preference?.credentialFile ?? undefined }]));
-      setInput(drafts.current[saved.backend] ?? (configuration?.preferences === undefined ? {
-        backend: saved.backend, model: saved.model, runtimePath: saved.runtimePath ?? undefined,
+      setInput((Object.hasOwn(drafts.current, saved.backend) ? drafts.current[saved.backend] : undefined) ?? (configuration?.preferences === undefined ? {
+        backend: saved.backend, model: saved.model ?? undefined, runtimePath: saved.runtimePath ?? undefined,
         credentialFile: saved.credentialFile ?? undefined,
       } : { backend: saved.backend }));
     }
@@ -115,16 +116,16 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
     finally { if (alive.current && version === revision.current) setChecking(false); }
   }
 
-  const currentCatalog = catalog[input.backend];
+  const currentCatalog = Object.hasOwn(catalog, input.backend) ? catalog[input.backend] : undefined;
   const options = [...new Set([...(currentCatalog?.models ?? []), input.model ?? ""])].filter(Boolean);
   return <section className="backend-setup focus-reader__appearance-panel" aria-label="后端设置">
     <h2>后端</h2>
     <fieldset disabled={loginBusy || !!login}>
       <legend>选择后端</legend>
-      {(["codex", "deepseek"] as Backend[]).map(backend => <label key={backend}>
-        <input type="radio" name="setup-backend" checked={input.backend === backend}
-          onChange={() => change(drafts.current[backend] ?? { backend })} />
-        {backend === "codex" ? "Codex" : "DeepSeek"}
+      {backends.map(({ id, label }) => <label key={id}>
+        <input type="radio" name="setup-backend" checked={input.backend === id}
+          onChange={() => change((Object.hasOwn(drafts.current, id) && drafts.current[id]) || { backend: id })} />
+        {label}
       </label>)}
       <label>模型<select value={input.model ?? ''} onChange={event => change({ ...input, model: event.target.value || undefined })}>
         <option value="">使用默认模型</option>

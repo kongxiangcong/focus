@@ -1,0 +1,17 @@
+{
+  "id": "codex",
+  "label": "Codex",
+  "driver": "codex-app-server",
+  "command": ["codex", "app-server"],
+  "defaultModel": "gpt-6-astra",
+  "envStrip": ["OPENAI_API_KEY", "CODEX_API_KEY"],
+  "capabilities": {
+    "authMode": "interactive-oauth",
+    "modelDiscovery": "codex-model-list",
+    "streaming": true,
+    "images": true,
+    "structuredOutput": "prompt-json"
+  },
+  "installHint": "请安装 Codex CLI，或选择已有的 Codex 可执行文件。",
+  "loginHint": "使用 ChatGPT / Codex 登录。"
+}

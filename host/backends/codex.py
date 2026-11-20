@@ -23,11 +23,14 @@ APPROVAL_DECISIONS = ('accept', 'decline', 'cancel')
 class CodexBackend(Backend):
     name = 'codex'
     image_input = True
-    option_keys = Backend.option_keys | {'codex_bin', 'purpose'}
+    option_keys = Backend.option_keys | {'codex_bin', 'command', 'manifest', 'purpose'}
 
-    def __init__(self, workspace, *, network=False, approval_policy='on-request', model=None, codex_bin=None, purpose='business', tools=None):
+    def __init__(self, workspace, *, network=False, approval_policy='on-request', model=None,
+                 codex_bin=None, command=None, manifest=None, purpose='business', tools=None):
         super().__init__(workspace, network=network, approval_policy=approval_policy, model=model, tools=tools)
         self.codex_bin = codex_bin
+        self.command = command
+        self.manifest = manifest
         self.rpc = None
         self.thread_id = None
         self.turn_id = None
@@ -45,8 +48,8 @@ class CodexBackend(Backend):
             raise BackendError(safe_backend_error(exc)) from exc
 
     def _open_session(self, resume_key, *, instructions, skills=()):
-        command = codex_command(self.codex_bin)
-        env = backend_environment(self.name)
+        command = list(self.command) if self.command else [*codex_command(self.codex_bin), 'app-server']
+        env = backend_environment(self.manifest or self.name)
         for key in ('OPENAI_API_KEY', 'CODEX_API_KEY'):
             env.pop(key, None)
         command += ['-c', 'forced_login_method="chatgpt"']

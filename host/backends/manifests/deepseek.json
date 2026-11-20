@@ -1,0 +1,16 @@
+{
+  "id": "deepseek",
+  "label": "DeepSeek",
+  "driver": "deepseek-sdk",
+  "command": ["dsh"],
+  "defaultModel": "deepseek-v4-flash",
+  "credentialEnv": ["DEEPSEEK_API_KEY"],
+  "capabilities": {
+    "authMode": "external-cli",
+    "modelDiscovery": "deepseek-models",
+    "streaming": true,
+    "structuredOutput": "prompt-json"
+  },
+  "installHint": "需要可用 DeepSeek Harness SDK、Runtime 与 Host 凭据。",
+  "loginHint": "请配置 DEEPSEEK_API_KEY。"
+}

@@ -49,11 +49,19 @@ def apply_proxy(backend, env=None):
 
 def backend_environment(backend):
     env = dict(os.environ)
-    if backend == 'codex':
-        for key in ('OPENAI_API_KEY', 'CODEX_API_KEY'):
+    if isinstance(backend, str):
+        from .backends import BACKENDS
+        spec = BACKENDS.get(backend)
+        name = backend
+    else:
+        spec = backend
+        name = spec.id
+    if spec:
+        for key in spec.env_strip:
             env.pop(key, None)
-    apply_proxy(backend, env)
+        env.update(spec.env)
+    apply_proxy(name, env)
     # SDK transports may merge env over os.environ. Empty values override inherited proxies.
-    if proxy_mode(backend) == BYPASS:
+    if proxy_mode(name) == BYPASS:
         env.update({key: '' for key in PROXY_KEYS})
     return env

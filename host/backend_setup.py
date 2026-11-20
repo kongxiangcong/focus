@@ -23,8 +23,8 @@ from pathlib import Path
 
 from .proxy import backend_environment
 from .runtime import AppServer
-from .backends.base import safe_backend_error
-from .configuration import DEFAULT_MODELS
+from .backends import DEFAULT_REGISTRY, BackendError
+from .backend_probe import verify_source_round_trip
 
 
 def deepseek_key(credential_file=None):
@@ -69,7 +69,8 @@ def runtime_path(backend, explicit=None):
 
 
 class BackendSetup:
-    def __init__(self):
+    def __init__(self, *, registry=None):
+        self.registry = registry or DEFAULT_REGISTRY
         self.login_lock = threading.RLock()
         self.login = None
         self.install_lock = threading.Lock()
@@ -167,7 +168,8 @@ class BackendSetup:
         for key in ('OPENAI_API_KEY', 'CODEX_API_KEY'):
             env.pop(key, None)
         with tempfile.TemporaryDirectory(prefix='focus-account-') as temporary:
-            rpc = AppServer([status['runtimePath'], '-c', 'forced_login_method="chatgpt"'], temporary, env=env)
+            command = self.registry.resolve_command(status['backend'], status['runtimePath'])
+            rpc = AppServer([*command, '-c', 'forced_login_method="chatgpt"'], temporary, env=env)
             try:
                 rpc.initialize()
                 rpc.send({'method': 'initialized', 'params': {}})
@@ -229,65 +231,32 @@ class BackendSetup:
 
     def check(self, payload):
         with self.check_lock:
-            status = self.prepare(payload)
+            status = self.inspect(payload)
             if status['status'] != 'installed':
                 return {**status, 'status': 'failed', 'dependencyStatus': status['status']}
-            environment = self.environment_id(payload, status)
-            model = (payload.get('model') or DEFAULT_MODELS[status['backend']]) if environment in self.connections else DEFAULT_MODELS[status['backend']]
+            model = payload.get('model') or self.registry.get_spec(status['backend']).default_model
             result = self.infer({**payload, 'runtimePath': status['runtimePath'], 'model': model})
-            result.update(environmentId=environment, checkedModel=model, dependencyStatus='installed')
+            result.update(checkedModel=model, dependencyStatus='installed')
             if result['status'] == 'success':
-                # Bind the receipt to the authentication state after refresh.
                 environment = self.environment_id(payload, status)
                 self.connections[environment] = model
-                catalog = self.models({**payload, 'runtimePath': status['runtimePath']})
-                result.update(environmentId=catalog.get('environmentId', environment), catalogStatus=catalog.get('catalogStatus'),
-                              models=catalog.get('models', []), catalogMessage=catalog['message'])
+                result['environmentId'] = environment
             return result
 
     def infer(self, payload):
-        from .backends import create_backend
         status = self.inspect(payload)
         if status['status'] == 'unavailable':
             return {**status, 'status': 'failed'}
-        key = deepseek_key(payload.get('credentialFile')) if status['backend'] == 'deepseek' else None
-        if status['backend'] == 'deepseek' and not key:
+        spec = self.registry.get_spec(status['backend'])
+        if spec.driver == 'deepseek-sdk' and not deepseek_key(payload.get('credentialFile')):
             return {**status, 'status': 'failed', 'message': '未配置 DeepSeek 凭据，请在 Host 的 .env 设置 DEEPSEEK_API_KEY。'}
-        # The private workspace is never passed to a diagnostic model request.
-        with tempfile.TemporaryDirectory(prefix='focus-connectivity-') as temporary:
-            backend = create_backend(status['backend'], Path(temporary), model=payload.get('model'),
-                codex_bin=status['runtimePath'], runtime_path=status['runtimePath'], api_key=key,
-                purpose='connectivity')
-            timer = threading.Timer(45, backend.close)
-            timer.start()
-            text = ''
-            try:
-                backend.open_session(None, instructions='Reply FOCUS_OK. No tools or source material are provided.')
-                backend.start_turn(prompt='Reply exactly FOCUS_OK. Do not use tools.')
-                deadline = time.monotonic() + 40
-                while time.monotonic() < deadline:
-                    event = backend.events.get(timeout=max(.01, deadline-time.monotonic()))
-                    method, params = event.get('method'), event.get('params', {})
-                    if 'id' in event:
-                        backend.send({'id': event['id'], 'error': {'message': 'Connectivity checks do not permit tools.'}})
-                    elif method == 'message/completed':
-                        text = params.get('text', '')
-                    elif method == 'message/delta':
-                        text += params.get('delta', '')
-                    elif method == 'turn/completed':
-                        if params.get('status') != 'completed' or text.strip() != 'FOCUS_OK':
-                            raise RuntimeError(params.get('error') or 'request failed')
-                        return {**status, 'status': 'success', 'message': '本次最小请求成功；不代表完整业务能力已通过验收。'}
-                    elif method == '_transport_error':
-                        raise RuntimeError(params.get('message') or 'transport failed')
-                raise TimeoutError()
-            except (TimeoutError, queue.Empty):
-                return {**status, 'status': 'failed', 'message': '请求超时，请检查网络和 Runtime。'}
-            except Exception as exc:
-                return {**status, 'status': 'failed', 'message': safe_backend_error(exc)}
-            finally:
-                timer.cancel()
-                backend.close()
+
+        def factory(workspace, **options):
+            return self.registry.create_backend(spec.id, workspace, model=payload.get('model'),
+                runtime_path=status['runtimePath'], credential_file=payload.get('credentialFile'), **options)
+
+        result, message = verify_source_round_trip(factory)
+        return {**status, 'status': result, 'message': message}
 
     def account(self, payload):
         status = self.inspect(payload)
@@ -303,11 +272,14 @@ class BackendSetup:
 
     def inspect(self, payload):
         backend = payload.get('backend', 'codex')
-        selected = runtime_path(backend, payload.get('runtimePath'))
-        available = bool(selected and Path(selected).is_file())
-        return {'backend': backend, 'runtimePath': selected,
-                'status': 'installed' if available else 'unavailable',
-                'message': '依赖已安装；尚未验证认证和连通性。' if available else 'Runtime 不存在，请检查指定路径或准备依赖。'}
+        explicit = payload.get('runtimePath')
+        try:
+            selected, *_ = self.registry.resolve_command(backend, explicit)
+        except BackendError as exc:
+            return {'backend': backend, 'runtimePath': str(Path(explicit).expanduser().absolute()) if explicit else None,
+                    'status': 'unavailable', 'message': str(exc)}
+        return {'backend': backend, 'runtimePath': selected, 'status': 'installed',
+                'message': '已找到可执行文件；尚未验证认证和连通性。'}
 
     def operate(self, action, payload):
         if action == 'inspect':
