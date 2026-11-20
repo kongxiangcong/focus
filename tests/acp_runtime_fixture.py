@@ -57,8 +57,10 @@ class McpClient:
 
 def run(transport, log_path):
     session = uuid.uuid4().hex
-    model = '["fixture-provider","default-model"]'
-    selected = '["fixture-provider","selected-model"]'
+    route = Path(log_path).with_suffix('.route')
+    provider = route.read_text(encoding='utf-8') if route.exists() else 'fixture-provider'
+    model = json.dumps([provider, 'default-model'], separators=(',', ':'))
+    selected = json.dumps([provider, 'selected-model'], separators=(',', ':'))
     servers = []
     approval_prompt = None
     approval_id = 'fixture-native-permission'

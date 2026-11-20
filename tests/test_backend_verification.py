@@ -1,5 +1,6 @@
 """First-send admission at the Host and selected Runtime protocol boundaries."""
 import json
+import os
 import queue
 import sys
 import tempfile
@@ -141,3 +142,25 @@ class BackendVerificationTests(unittest.TestCase):
                                      [runtime.probe for runtime in Protocol.instances[runtime_count:]])
                 finally:
                     host.close()
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows transient staging rename')
+    def test_a_transient_probe_staging_failure_retries_only_local_registration(self):
+        from host.backend_probe import import_markdown
+
+        error = PermissionError('fixture Windows staging lock')
+        error.winerror = 5
+        staged = []
+
+        def stage(workspace, *args, **options):
+            staged.append(workspace)
+            if len(staged) == 1:
+                raise error
+            return import_markdown(workspace, *args, **options)
+
+        Protocol.source_read = True
+        with patch('host.backend_probe.import_markdown', side_effect=stage):
+            checked = self.host.backend_setup('check', {'backend': 'codex', 'model': 'fixture-model'})
+        self.assertEqual('success', checked['status'], checked)
+        self.assertEqual(2, len(set(staged)))
+        self.assertTrue(all(not workspace.exists() for workspace in staged))
+        self.assertEqual(1, len(Protocol.instances))

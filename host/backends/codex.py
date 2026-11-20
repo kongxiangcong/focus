@@ -145,6 +145,7 @@ class CodexBackend(Backend):
         actual_model = result.get('model')
         if self.model and actual_model and actual_model != self.model:
             raise BackendConfigurationError('Backend 返回的实际模型与指定模型不同，请确认模型名称。')
+        self.actual_model = actual_model or self.model
         with self._lifecycle_lock:
             if self.closed:
                 raise BackendError('任务已关闭。')

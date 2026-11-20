@@ -136,6 +136,16 @@ class BackendApplyTests(unittest.TestCase):
             self.assertEqual('candidate-model', applied['value']['configuration']['saved']['model'])
             self.assertEqual(2, len(Protocol.instances), 'apply must reuse the matching read-range receipt')
 
+    def test_refresh_projects_disk_changes_without_activating_them(self):
+        document = json.loads(self.settings.read_text(encoding='utf-8'))
+        document['model'] = 'unverified-disk-edit'
+        self.settings.write_text(json.dumps(document), encoding='utf-8')
+        http, response = self.request('POST', '/reader/configuration/refresh', {})
+        self.assertEqual(200, http)
+        configuration = response['value']['configuration']
+        self.assertEqual('unverified-disk-edit', configuration['saved']['model'])
+        self.assertEqual('old-model', configuration['effective']['model'])
+
     def test_only_speculative_summary_can_be_cancelled_before_apply_and_late_result_is_ignored(self):
         host = self.app.host
         selected = host.select_discussion_source('fixture-paper')

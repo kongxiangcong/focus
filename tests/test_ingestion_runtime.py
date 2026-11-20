@@ -14,9 +14,11 @@ from unittest.mock import patch
 
 from host.backends.base import Backend, BackendError
 from host.backends.codex import CodexBackend
+from host.backends.registry import HarnessRegistry
 from host.ingestion_inspector import IngestionInspector
 from host.runtime import AppServer
 from host.service import HostService
+from acp_protocol_fixture import AcpProtocolFixture
 
 
 class TextRuntime(Backend):
@@ -106,6 +108,61 @@ class IngestionRuntimeCapabilityTests(unittest.TestCase):
 
         self.assertFalse(result["image_observed"])
         self.assertEqual("backend_image_input_unavailable", result["image_observation_reason"])
+
+    def test_acp_manifest_images_are_degraded_when_the_session_does_not_negotiate_images(self):
+        manifests = self.root / "backends"
+        manifests.mkdir()
+        (manifests / "fixture.json").write_text(json.dumps({
+            "id": "image-fixture", "label": "Fixture", "driver": "acp", "command": [sys.executable],
+            "capabilities": {"images": True},
+        }), encoding="utf-8")
+        class TextAcpProtocol(AcpProtocolFixture):
+            def request_event(self, method, params, **options):
+                self.prompt_blocks = params['prompt']
+                assert [block['type'] for block in self.prompt_blocks] == ['text']
+                return super().request_event(method, params, **options)
+
+            def output(self, content):
+                return json.dumps({"title_matches": True, "image_observed": False, "notes": "matches"}), 'end_turn'
+
+        registry = HarnessRegistry(manifests)
+        with patch("host.backends.acp.JsonRpcStdioClient", TextAcpProtocol):
+            inspector = IngestionInspector(lambda workspace, **options: registry.create_backend("image-fixture", workspace, **options))
+            result = inspector.inspect(self.candidate(images=1))
+        self.assertFalse(result['image_observed'])
+        self.assertEqual('backend_image_input_unavailable', result['image_observation_reason'])
+
+    def test_cancel_reaps_the_first_use_probe_before_it_can_admit_the_candidate(self):
+        entered, released = threading.Event(), threading.Event()
+        workspaces = []
+
+        class StalledProtocol:
+            def __init__(self, command, cwd, *, env):
+                workspaces.append(Path(cwd))
+
+            def initialize(self):
+                entered.set()
+                released.wait(4)
+                raise OSError("fixture closed")
+
+            def close(self):
+                released.set()
+
+        host = HostService(self.root / "workspace", None, codex_bin=sys.executable, model="unverified",
+                           settings_path=self.root / "settings.json")
+        self.addCleanup(host.close)
+        with patch("host.backends.codex.AppServer", StalledProtocol), ThreadPoolExecutor(2) as executor:
+            inspection = executor.submit(host.ingestion_inspector.inspect, self.candidate())
+            try:
+                self.assertTrue(entered.wait(2))
+                self.assertTrue(executor.submit(host.ingestion_inspector.cancel).result(timeout=2))
+                self.assertTrue(released.is_set())
+                with self.assertRaisesRegex(BackendError, "已取消"):
+                    inspection.result(timeout=2)
+            finally:
+                released.set()
+        self.assertEqual(1, len(workspaces))
+        self.assertFalse(workspaces[0].exists())
 
     def test_host_explicit_inspection_uses_the_active_backend_without_business_tools(self):
         launched = []
@@ -239,6 +296,31 @@ class IngestionRuntimeCapabilityTests(unittest.TestCase):
             self.assertLess(time.monotonic() - start, 8)
 
         process, directory = processes[0]
+        self.assertIsNotNone(process.poll())
+        self.assertFalse(directory.exists())
+
+    def test_inspection_deadline_includes_first_use_probe_handshake(self):
+        script = self.root / 'stalled-probe.py'
+        script.write_text('import time\ntime.sleep(10)\n', encoding='utf-8')
+        started = []
+
+        def launch(command, cwd, *, env):
+            transport = AppServer([sys.executable, str(script)], cwd, env=env)
+            started.append((transport.process, Path(cwd)))
+            return transport
+
+        host = HostService(self.root / 'workspace', None, codex_bin=sys.executable, model='unverified',
+                           settings_path=self.root / 'settings.json')
+        self.addCleanup(host.close)
+        host.ingestion_inspector.timeout = .5
+        with patch('host.backends.codex.AppServer', launch):
+            start = time.monotonic()
+            with self.assertRaisesRegex(TimeoutError, '等待超时'):
+                host.ingestion_inspector.inspect(self.candidate())
+            self.assertLess(time.monotonic() - start, 8)
+
+        self.assertEqual(1, len(started))
+        process, directory = started[0]
         self.assertIsNotNone(process.poll())
         self.assertFalse(directory.exists())
 

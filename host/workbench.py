@@ -70,8 +70,10 @@ class Workbench:
         target = self.service_factory(path, None, settings_path=self.settings.path, registry=self.registry,
                                       verification=self.setup.verification, allow_unconfigured=True,
                                       startup=self.host.startup if self.host else self.startup, **self.options)
-        if self.host and target._configuration() == self.host._configuration():
+        if self.host and target is not self.host:
+            target._apply_configuration(self.host._configuration())
             target.active_registry = self.host.active_registry
+            target._active_invocation = self.host._active_invocation
         return target
 
     def status(self):

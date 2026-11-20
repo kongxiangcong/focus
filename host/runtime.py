@@ -85,8 +85,10 @@ class JsonRpcStdioClient:
             self._disconnected()
             self.process.stdout.close()
 
-    def send(self, value):
+    def send(self, value, *, cancelled=None):
         with self.write_lock:
+            if cancelled is not None and cancelled.is_set():
+                raise RuntimeError('Backend request cancelled before submission')
             if self.closed:
                 raise RuntimeError('Backend process is not running')
             if self.jsonrpc:
@@ -94,7 +96,7 @@ class JsonRpcStdioClient:
             self.process.stdin.write(json.dumps(value, ensure_ascii=False) + '\n')
             self.process.stdin.flush()
 
-    def request_event(self, method, params):
+    def request_event(self, method, params, *, cancelled=None):
         """Receive the reply on events in transport order with notifications."""
         if self.deadline is not None and self.deadline <= time.monotonic():
             raise TimeoutError(f'{method} timed out')
@@ -105,7 +107,7 @@ class JsonRpcStdioClient:
             request_id = self.next_id
             self.event_requests.add(request_id)
         try:
-            self.send({'id': request_id, 'method': method, 'params': params})
+            self.send({'id': request_id, 'method': method, 'params': params}, cancelled=cancelled)
         except Exception:
             with self.lock:
                 self.event_requests.discard(request_id)

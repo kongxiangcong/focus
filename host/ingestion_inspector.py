@@ -9,8 +9,8 @@ from .candidates import CandidateTurns
 
 
 class IngestionInspector:
-    def __init__(self, backend_factory, *, timeout=180.0, admission=nullcontext):
-        self.turns = CandidateTurns(backend_factory)
+    def __init__(self, backend_factory, *, timeout=180.0, admission=nullcontext, guarded_factory=False):
+        self.turns = CandidateTurns(backend_factory, guarded_factory=guarded_factory)
         self.timeout = timeout
         self.admission = admission
 

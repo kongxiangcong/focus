@@ -89,6 +89,7 @@ class Backend:
         self.network = bool(network)
         self.approval_policy = approval_policy
         self.model = model
+        self.actual_model = None
         self.tools = tools
         self.deadline = None
         self.events = queue.Queue()

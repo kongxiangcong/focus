@@ -1,6 +1,7 @@
 """Verify one Backend can read a Host-owned temporary Source."""
 import copy
 import json
+import os
 import queue
 import secrets
 import tempfile
@@ -14,9 +15,10 @@ from .core_bridge import CoreBridge, TOOL, WorkspaceError
 from core.library_import import import_markdown
 
 
-def verify_source_round_trip(backend_factory, *, timeout=45, cancelled=None):
+def verify_source_round_trip(backend_factory, *, timeout=45, cancelled=None, deadline=None, on_backend=None):
     """Return a check result without reading or changing the user's workspace."""
     marker = secrets.token_hex(16)
+    deadline = min(deadline or float('inf'), time.monotonic() + timeout)
     tool = copy.deepcopy(TOOL)
     tool['description'] = ('Read the temporary FOCUS Source with action "read_range". '
                            'Encode the start and end line numbers as a JSON object in arguments.')
@@ -25,13 +27,26 @@ def verify_source_round_trip(backend_factory, *, timeout=45, cancelled=None):
     # Source registration adds nested staging names to the host's temp path.
     with tempfile.TemporaryDirectory(prefix='focus-') as temporary:
         root = Path(temporary)
-        workspace, source_workspace = root / 'runtime', root / 'kb'
+        workspace = root / 'runtime'
         workspace.mkdir()
-        source_workspace.mkdir()
         original = root / 'probe.md'
         original.write_text(marker + '\n', encoding='utf-8')
-        source = import_markdown(source_workspace, original, title='Backend connectivity probe',
-                                 short_name='probe', language='en')
+        for attempt in range(3):
+            if cancelled and cancelled():
+                return 'failed', 'Backend 检测已取消。'
+            if time.monotonic() >= deadline:
+                return 'failed', '请求超时，请检查网络和 Runtime。'
+            source_workspace = root / f'kb{attempt}'
+            source_workspace.mkdir()
+            try:
+                source = import_markdown(source_workspace, original, title='Backend connectivity probe',
+                                         short_name='probe', language='en')
+                break
+            except PermissionError as exc:
+                # A Windows scanner can briefly hold the new private staging directory.
+                if os.name != 'nt' or getattr(exc, 'winerror', None) not in (5, 32) or attempt == 2:
+                    raise
+                time.sleep(min(.05 * (attempt + 1), max(0, deadline - time.monotonic())))
         original.unlink()
         bridge = CoreBridge(source_workspace)
         try:
@@ -40,14 +55,17 @@ def verify_source_round_trip(backend_factory, *, timeout=45, cancelled=None):
             return 'failed', str(exc)
         except Exception as exc:
             return 'failed', safe_backend_error(exc)
-        timer = threading.Timer(timeout, backend.close)
+        timer = threading.Timer(max(0, deadline - time.monotonic()), backend.close)
         timer.daemon = True
-        timer.start()
         try:
-            deadline = time.monotonic() + timeout
             backend.deadline = deadline
+            if on_backend:
+                on_backend(backend)
+            timer.start()
             if cancelled and cancelled():
                 return 'failed', 'Backend 检测已取消。'
+            if time.monotonic() >= deadline:
+                raise TimeoutError()
             backend.open_session(None, instructions='This is a FOCUS Source access check.')
             if cancelled and cancelled():
                 return 'failed', 'Backend 检测已取消。'

@@ -3,12 +3,17 @@ import ctypes
 import json
 import os
 import sys
+import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from unittest.mock import patch
 
 import reading_fixture
 from host.backends.registry import HarnessRegistry
+from host.backends.base import BackendError
+from acp_protocol_fixture import AcpProtocolFixture
 from workspace_fixture import HostService
 
 
@@ -130,6 +135,20 @@ class AcpDiscussionTests(unittest.TestCase):
         answers = [event['decision'] for event in self.events() if event['kind'] == 'permission-answer']
         self.assertEqual([{'outcome': 'selected', 'optionId': 'one'}], answers)
 
+    def test_a_verified_bare_model_cannot_route_a_followup_to_a_different_provider(self):
+        self.turn(1)
+        self.log_path.with_suffix('.route').write_text('other-provider', encoding='utf-8')
+        # A deliberate setup check can show that the new route works. It only
+        # updates the candidate receipt and may not retarget an active discussion.
+        check = self.host.backend_setup('check', {'backend': 'acp-http', 'model': 'selected-model'})
+        self.assertEqual('success', check['status'], check)
+        self.start('fixture-model-drift', 'Follow-up must not reach the new provider.')
+        failed = self.finished('failed')
+        self.assertEqual('selected-model', failed['configuration']['effective']['model'])
+        self.assertIn('已验证的 ACP 模型', failed['agent']['run']['error'])
+        self.assertEqual(1, sum(event['kind'] == 'discussion' for event in self.events()))
+        self.assertNotIn('Follow-up must not reach', json.dumps(self.events()))
+
     def test_stop_cancels_pending_permission_and_releases_descendant(self):
         self.start('fixture-acp-cancel', 'cancel-approval')
         approval = self.approval()
@@ -143,6 +162,44 @@ class AcpDiscussionTests(unittest.TestCase):
         self.assertTrue(process_exited(cancelled['pid']))
         self.assertTrue(process_exited(cancelled['childPid']))
         self.assertFalse(Path(cancelled['cwd']).exists())
+
+    def test_stop_during_prompt_submission_closes_transport_without_sending_cancel_first(self):
+        entered, release, closed = threading.Event(), threading.Event(), threading.Event()
+        wire = []
+
+        class GatedProtocol(AcpProtocolFixture):
+            def request_event(self, method, params, **options):
+                entered.set()
+                release.wait(4)
+                cancelled = options.get('cancelled')
+                if self.closed or (cancelled and cancelled.is_set()):
+                    raise RuntimeError('Fixture writer interrupted')
+                wire.append(method)
+                return super().request_event(method, params)
+
+            def send(self, value):
+                wire.append(value.get('method'))
+                return super().send(value)
+
+            def close(self):
+                super().close()
+                closed.set()
+
+        backend = self.host.registry.create_backend('acp-http', self.workspace, purpose='candidate', tools=[])
+        self.addCleanup(backend.close)
+        with patch('host.backends.acp.JsonRpcStdioClient', GatedProtocol), ThreadPoolExecutor(2) as pool:
+            backend.open_session(None, instructions='Fixture')
+            turn = pool.submit(backend.start_turn, prompt='Do not send this content')
+            try:
+                self.assertTrue(entered.wait(2))
+                stopped = pool.submit(backend.interrupt)
+                self.assertTrue(closed.wait(1), wire)
+                stopped.result(timeout=2)
+            finally:
+                release.set()
+            with self.assertRaises((BackendError, RuntimeError)):
+                turn.result(timeout=2)
+        self.assertEqual([], wire)
 
     def test_mcp_timeout_expires_confirmation_while_the_acp_turn_is_still_alive(self):
         self.start('fixture-acp-mcp-expiry', 'mcp-disconnect')

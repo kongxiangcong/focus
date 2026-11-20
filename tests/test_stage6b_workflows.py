@@ -192,9 +192,9 @@ class SharedWorkflowTests(unittest.TestCase):
                     entered.set()
                     released.wait(5)
                 return super().request(method, params, **options)
-            def request_event(self, method, params):
+            def request_event(self, method, params, **options):
                 self.prompts += 1
-                return super().request_event(method, params)
+                return super().request_event(method, params, **options)
             def close(self):
                 super().close()
                 released.set()

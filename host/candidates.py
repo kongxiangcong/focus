@@ -6,16 +6,25 @@ import tempfile
 import threading
 import time
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 
-from .backends.base import BackendError, safe_backend_error
+from .backends.base import Backend, BackendError, safe_backend_error
+
+
+@dataclass(eq=False)
+class _CandidateAttempt:
+    scope: str | None
+    stopped: threading.Event = field(default_factory=threading.Event)
+    backend: Backend | None = None
 
 
 class CandidateTurns:
-    def __init__(self, backend_factory):
+    def __init__(self, backend_factory, *, guarded_factory=False):
         self.backend_factory = backend_factory
+        self.guarded_factory = guarded_factory
         self.lock = threading.Lock()
-        self.active = {}
+        self.active = set()
 
     def run(self, prompt, *, instructions, timeout=900, tools=None, tool_handler=None, scope=None, cancelled=None):
         result, _ = self._run(prompt, instructions=instructions, timeout=timeout, tools=tools,
@@ -31,23 +40,39 @@ class CandidateTurns:
             raise InterruptedError('任务已取消。')
         deadline = time.monotonic() + timeout if inspection else None
         with tempfile.TemporaryDirectory(prefix='focus-candidate-') as directory:
-            backend = self.backend_factory(workspace=Path(directory), purpose='candidate', tools=tools)
-            stopped = threading.Event()
+            backend = None
+            attempt = _CandidateAttempt(scope)
+            stopped = attempt.stopped
             with self.lock:
-                self.active[backend] = scope, stopped
+                self.active.add(attempt)
+
+            def track(runtime):
+                with self.lock:
+                    attempt.backend = runtime
+                    if stopped.is_set():
+                        raise InterruptedError('任务已取消。')
+
             try:
+                factory_options = {}
+                if inspection and self.guarded_factory:
+                    factory_options.update(deadline=deadline, cancelled=stopped.is_set, on_probe_backend=track)
+                backend = self.backend_factory(workspace=Path(directory), purpose='candidate', tools=tools,
+                                               **factory_options)
+                track(backend)
                 options = {}
                 if inspection:
                     backend.deadline = deadline
-                    if image is not None and backend.image_input:
-                        attachment = Path(directory) / ('figure' + image.suffix.lower())
-                        shutil.copyfile(image, attachment)
-                        options['images'] = (attachment,)
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError('任务等待超时。')
                 if stopped.is_set() or (cancelled and cancelled()):
                     raise BackendError('任务已取消。')
                 backend.open_session(None, instructions=instructions)
                 if stopped.is_set() or (cancelled and cancelled()):
                     raise InterruptedError('摘要已取消。')
+                if inspection and image is not None and backend.image_input:
+                    attachment = Path(directory) / ('figure' + image.suffix.lower())
+                    shutil.copyfile(image, attachment)
+                    options['images'] = (attachment,)
                 backend.start_turn(prompt=prompt, **options)
                 messages = {}
                 if deadline is None:
@@ -96,33 +121,34 @@ class CandidateTurns:
             except (BackendError, InterruptedError) as exc:
                 if stopped.is_set():
                     raise BackendError('任务已取消。') from exc
-                if inspection and time.monotonic() >= deadline and not backend.closed:
+                if inspection and time.monotonic() >= deadline:
                     raise TimeoutError('任务等待超时。') from exc
                 raise
             finally:
                 try:
-                    backend.close()
+                    if backend:
+                        backend.close()
                 finally:
                     with self.lock:
-                        self.active.pop(backend, None)
+                        self.active.discard(attempt)
 
     def cancel(self, *, scope=None, immediate=False, background=False):
         with self.lock:
-            active = []
-            for backend, (source, stopped) in self.active.items():
-                if (scope is None or source == scope) and not stopped.is_set():
-                    stopped.set()
-                    active.append(backend)
+            attempts = [attempt for attempt in self.active if (scope is None or attempt.scope == scope)
+                        and not attempt.stopped.is_set()]
+            for attempt in attempts:
+                attempt.stopped.set()
+            backends = [attempt.backend for attempt in attempts if attempt.backend is not None]
         def stop_active():
-            for backend in active:
+            for backend in backends:
                 try:
                     if not immediate:
                         backend.interrupt()
                 finally:
                     backend.close()
 
-        if active and background:
+        if backends and background:
             threading.Thread(target=stop_active, daemon=True).start()
         else:
             stop_active()
-        return bool(active)
+        return bool(attempts)

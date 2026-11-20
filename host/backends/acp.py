@@ -11,7 +11,8 @@ from pathlib import Path
 
 from .base import (ACTIVITY, COMMAND_APPROVAL, FILE_APPROVAL, MESSAGE_COMPLETED, MESSAGE_DELTA,
                    PERMISSIONS_APPROVAL, SESSION_OPENED, TRANSPORT_ERROR,
-                   TURN_COMPLETED, TURN_STARTED, Backend, BackendError, new_item_id, safe_backend_error)
+                   TURN_COMPLETED, TURN_STARTED, Backend, BackendConfigurationError, BackendError,
+                   new_item_id, safe_backend_error)
 from .task_tools import discussion_tools, library_tools
 from .tool_bridge import ToolBridge
 from ..proxy import backend_environment
@@ -42,14 +43,16 @@ def _bare_model(value):
 
 
 class AcpBackend(Backend):
-    option_keys = Backend.option_keys | {'command', 'manifest', 'credential_file', 'purpose'}
+    option_keys = Backend.option_keys | {'command', 'manifest', 'credential_file', 'purpose', 'model_pinned'}
 
-    def __init__(self, workspace, *, command, manifest, credential_file=None, purpose='business', **options):
+    def __init__(self, workspace, *, command, manifest, credential_file=None, purpose='business', model_pinned=False,
+                 **options):
         super().__init__(workspace, **options)
         self.command = command
         self.manifest = manifest
         self.credential_file = credential_file
         self.purpose = purpose
+        self.model_pinned = model_pinned
         self.stream_supported = manifest.capabilities.get('streaming', True)
         self.image_input = manifest.capabilities.get('images', False)
         self.rpc = None
@@ -64,6 +67,7 @@ class AcpBackend(Backend):
         self._tool_calls = {}
         self._permissions = {}
         self._cancel_requested = threading.Event()
+        self._prompt_sent = False
         self._prompt_finished = threading.Event()
         self._close_done = threading.Event()
 
@@ -74,7 +78,7 @@ class AcpBackend(Backend):
             session = self._open_session(self._tools())
             self.instructions = instructions
             if self.model:
-                self._select_model(session)
+                self.actual_model = self._select_model(session)
             self.emit(SESSION_OPENED, {'key': self.session_id})
             return self.session_id
         except (BackendError, TimeoutError):
@@ -113,6 +117,7 @@ class AcpBackend(Backend):
             raise BackendError('ACP 协议版本不兼容，请检查所选 Runtime。')
         self.cleanup['handshakeMs'] = round((time.monotonic() - started) * 1000)
         self.capabilities = result.get('agentCapabilities') or {}
+        self.image_input = self.image_input and (self.capabilities.get('promptCapabilities') or {}).get('image') is True
         with self._lifecycle_lock:
             if self.closed:
                 raise BackendError('任务已关闭。')
@@ -159,14 +164,16 @@ class AcpBackend(Backend):
         current = option.get('currentValue') if option else (session.get('models') or {}).get('currentModelId')
         models = self._catalog(session)
         value = self.model
-        if value not in models:
+        if self.model_pinned and (models or current is not None) and value not in models and value != current:
+            raise BackendConfigurationError('已验证的 ACP 模型当前不可用，请核对模型清单后重新检测并应用。')
+        if not self.model_pinned and value not in models and value != current:
             matches = [model for model in models if _bare_model(model) == value]
             if len(matches) > 1:
                 raise BackendError('模型名称对应多个 ACP 选项，请在模型清单中明确选择。')
             if matches:
                 value = matches[0]
         if value == current:
-            return
+            return value
         with self._lifecycle_lock:
             rpc = self.rpc
             if self.closed or not rpc:
@@ -179,25 +186,31 @@ class AcpBackend(Backend):
                 raise BackendError('ACP Runtime 未应用所选模型。')
         else:
             # Older ACP agents implement the pre-config-options model endpoint.
-            rpc.request('session/set_model', {**params, 'modelId': value}, timeout=20)
+            reply = rpc.request('session/set_model', {**params, 'modelId': value}, timeout=20)
+            actual = (reply.get('models') or {}).get('currentModelId') if isinstance(reply, dict) else None
+            if actual is not None and actual != value:
+                raise BackendConfigurationError('ACP Runtime 未应用所选模型。')
+        return value
 
     def start_turn(self, *, prompt, skills=(), images=()):
         if skills:
             raise BackendError('ACP 不接受本机技能。')
-        if images and (not self.image_input or not (self.capabilities.get('promptCapabilities') or {}).get('image')):
+        if images and not self.image_input:
             raise BackendError('当前 ACP Runtime 未启用图片输入。')
         content = [{'type': 'text', 'text': self.instructions + '\n\n' + prompt}]
         content.extend({'type': 'image', 'mimeType': mimetypes.guess_type(path.name)[0],
                         'data': base64.b64encode(path.read_bytes()).decode('ascii')} for path in images)
         with self._lifecycle_lock:
             rpc = self.rpc
-            if self.closed or not rpc or not self.session_id or self.turn_id:
+            if self.closed or self._cancel_requested.is_set() or not rpc or not self.session_id or self.turn_id:
                 raise BackendError('ACP 会话无法启动此轮。')
             self.turn_id = new_item_id()
         started = time.monotonic()
-        request_id = rpc.request_event('session/prompt', {'sessionId': self.session_id, 'prompt': content})
+        request_id = rpc.request_event('session/prompt', {'sessionId': self.session_id, 'prompt': content},
+                                       cancelled=self._cancel_requested)
         with self._lifecycle_lock:
-            if self.closed:
+            self._prompt_sent = True
+            if self.closed or self._cancel_requested.is_set():
                 raise BackendError('ACP 会话已关闭。')
             self.emit(TURN_STARTED, {'turnId': self.turn_id})
             self._pump_thread = threading.Thread(target=self._pump, args=(rpc, request_id, started),
@@ -399,19 +412,23 @@ class AcpBackend(Backend):
             self._cancel_requested.set()
             self._approval_ended.set()
             rpc = self.rpc
-            sent = False
-            if rpc and self.turn_id:
-                try:
-                    self.cleanup['stop'] = 'cancel_sent'
-                    for host_id, (native_id, _) in self._permissions.items():
-                        self.take_request(host_id)
-                        self._reply_permission(rpc, native_id)
-                    rpc.send({'method': 'session/cancel', 'params': {'sessionId': self.session_id}})
-                    sent = True
-                except (RuntimeError, OSError):
-                    pass
-                finally:
-                    self._permissions.clear()
+            can_cancel = rpc is not None and self._prompt_sent
+            pending = list(self._permissions.items())
+            self._permissions.clear()
+            for host_id, _ in pending:
+                self.take_request(host_id)
+        sent = False
+        if can_cancel:
+            try:
+                for _, (native_id, _) in pending:
+                    self._reply_permission(rpc, native_id)
+                rpc.send({'method': 'session/cancel', 'params': {'sessionId': self.session_id}})
+                self.cleanup['stop'] = 'cancel_sent'
+                sent = True
+            except (RuntimeError, OSError):
+                pass
+        # Before a complete prompt reaches the wire, terminate the transport.
+        # A cancel notification must never precede a still-pending prompt write.
         if not sent or not self._prompt_finished.wait(2):
             self.close()
 
@@ -419,6 +436,8 @@ class AcpBackend(Backend):
         with self._lifecycle_lock:
             already_closing = self.closed
             if not already_closing:
+                if self.turn_id and not self._prompt_finished.is_set():
+                    self._cancel_requested.set()
                 super().close()
                 rpc, self.rpc = self.rpc, None
                 bridge, self.bridge = self.bridge, None
@@ -434,7 +453,8 @@ class AcpBackend(Backend):
                     bridge.close()
             finally:
                 if rpc:
-                    if (self.session_id and 'close' in (self.capabilities.get('sessionCapabilities') or {})
+                    if (self.session_id and not self._cancel_requested.is_set()
+                            and 'close' in (self.capabilities.get('sessionCapabilities') or {})
                             and (not self.turn_id or self._prompt_finished.is_set())):
                         try:
                             rpc.request('session/close', {'sessionId': self.session_id}, timeout=1)

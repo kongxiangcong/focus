@@ -39,8 +39,10 @@ class AcpProtocolFixture:
             return {}
         raise AssertionError(method)
 
-    def request_event(self, method, params):
+    def request_event(self, method, params, *, cancelled=None):
         assert method == 'session/prompt'
+        if self.closed or (cancelled and cancelled.is_set()):
+            raise RuntimeError('Fixture writer interrupted')
         self.calls.append((method, params))
         self.pending_prompt = request_id = 1
         content = params['prompt'][0]['text']

@@ -9,6 +9,7 @@ import uuid
 import tempfile
 import copy
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 
 from .backends import DEFAULT_BACKEND, BackendError
@@ -101,9 +102,11 @@ class HostService:
         self.settings = UserSettings(settings_path, registry=registry)
         self.registry = self.settings.registry
         self.active_registry = self.registry
+        self._active_invocation = None
         self.setup = BackendSetup(registry=self.registry, verification=verification)
         self.discussion_summaries = CandidateTurns(self._build_backend)
-        self.ingestion_inspector = IngestionInspector(self._build_backend, admission=self._foreground_ai_operation)
+        self.ingestion_inspector = IngestionInspector(self._build_backend, admission=self._foreground_ai_operation,
+                                                      guarded_factory=True)
         # Speculative turns have a separate registry, so foreground cancellation
         # cannot accidentally interrupt a different summary backend.
         self.early_discussion_summaries = CandidateTurns(self._build_backend)
@@ -1564,12 +1567,15 @@ class HostService:
                 configuration = self._configuration()
                 verifier = self.setup.verification
                 invocation = None
+                verified = self._active_invocation
                 try:
                     invocation = verifier.resolve(self.active_registry, configuration)
+                    verified = verified or verifier.verified(invocation)
                 except BackendError:
                     pass  # Report the selected configuration's reason in the task.
-                selection = self.active_registry, configuration, invocation
-                needs_verification = not verifier.passed(invocation)
+                self._active_invocation = verified
+                selection = self.active_registry, configuration, verified or invocation
+                needs_verification = verified is None
             run_id = uuid.uuid4().hex
             if discussion:
                 discussion['requestMessageId'] = uuid.uuid4().hex
@@ -1693,10 +1699,16 @@ class HostService:
         with self.lock:
             normalized = self.settings.normalize(value)
             registry = self.registry
+        invocation = None
         if self.backend_factory is None:
-            checked = self.setup.verification.verify(normalized, registry=registry, reuse=True)
+            try:
+                invocation = self.setup.verification.resolve(registry, normalized)
+            except BackendError as exc:
+                raise ValueError('Backend 检测失败：' + str(exc)) from exc
+            checked = self.setup.verification.verify(normalized, registry=registry, invocation=invocation)
             if checked['status'] != 'success':
                 raise ValueError('Backend 检测失败：' + checked['message'])
+            invocation = replace(invocation, model=checked['verifiedModel'])
         with self.lock:
             if self.shutting_down:
                 raise BackendBusyError('工作区正在关闭，请稍后重试。')
@@ -1705,7 +1717,7 @@ class HostService:
             self.lease.require_current()
             old = {'backend_name': self.backend_name, 'models': self.models.copy(),
                    'runtime_paths': self.runtime_paths.copy(), 'credential_files': self.credential_files.copy(),
-                   'active_registry': self.active_registry}
+                   'active_registry': self.active_registry, '_active_invocation': self._active_invocation}
             thread_id, resume_backend = self.state.get('threadId'), self.state.get('resumeBackend')
             try:
                 self._apply_configuration(normalized)
@@ -1715,11 +1727,13 @@ class HostService:
                     setattr(self, name, previous)
                 self.state.update(threadId=thread_id, resumeBackend=resume_backend)
                 raise
+            self._active_invocation = invocation
             self.startup = None
             self.refresh_blocked = False
 
     def _apply_configuration(self, value):
         self.active_registry = self.registry
+        self._active_invocation = None
         self.backend_name = value['backend'] if value else None
         if value:
             self.models[self.backend_name] = value['model']
@@ -1729,24 +1743,24 @@ class HostService:
 
     def refresh_configuration(self):
         with self.lock:
-            if self.startup is not None:
-                return self.snapshot()
-            saved = self.settings.read()
-            if saved and saved != self._configuration():
-                if self._configuration_busy():
-                    self.refresh_blocked = True
-                else:
-                    self._apply_configuration(saved)
-                    self.refresh_blocked = False
-            self.changed()
+            self._publish_snapshot_locked()
             return self.snapshot()
 
-    def _build_backend(self, *, workspace=None, purpose='business', tools=None, selection=None):
+    def _pin_backend(self, registry, configuration, invocation):
+        with self.lock:
+            if registry is self.active_registry and configuration == self._configuration():
+                self._active_invocation = self._active_invocation or invocation
+                return self._active_invocation
+        return invocation
+
+    def _build_backend(self, *, workspace=None, purpose='business', tools=None, selection=None, deadline=None,
+                       cancelled=None, on_probe_backend=None):
         with self.lock:
             self._require_backend_admission()
             if self.startup and self.startup.error:
                 raise BackendError(self.startup.error)
-            registry, configuration, invocation = selection or (self.active_registry, self._configuration(), None)
+            registry, configuration, invocation = selection or (self.active_registry, self._configuration(),
+                                                                 self._active_invocation)
             if configuration is None and self.backend_factory is None:
                 raise BackendError('请先在设置中选择 Backend 并保存应用。')
             configuration = configuration or {}
@@ -1759,10 +1773,12 @@ class HostService:
         if self.backend_factory is not None:
             return self.backend_factory(workspace, **options)
         invocation = invocation or self.setup.verification.resolve(registry, configuration)
-        status = self.setup.verification.verify(configuration, registry=registry, invocation=invocation)
+        status = self.setup.verification.verify(configuration, registry=registry, invocation=invocation,
+                                                deadline=deadline, cancelled=cancelled, on_backend=on_probe_backend)
         if status['status'] != 'success':
             raise BackendError('Backend 检测失败：' + status['message'])
-        options.update(model=invocation.model, runtime_path=invocation.command[0])
+        invocation = self._pin_backend(registry, configuration, replace(invocation, model=status['verifiedModel']))
+        options.update(model=invocation.model, runtime_path=invocation.command[0], model_pinned=True)
         backend = registry.create_backend(invocation.backend, workspace, **options)
         receipt_id = uuid.uuid4().hex
         backend.cleanup_callback = lambda receipt: self.store.put('runtimeCleanup:' + receipt_id,
@@ -1906,6 +1922,8 @@ class HostService:
                                                         cancelled=lambda: self.stop_requested)
                 if status['status'] != 'success':
                     raise BackendError('Backend 检测失败：' + status['message'])
+                invocation = self._pin_backend(registry, configuration,
+                                               replace(invocation, model=status['verifiedModel']))
                 with self.lock:
                     if self.stop_requested:
                         raise InterruptedError('Backend 检测已取消。')
