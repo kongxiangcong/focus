@@ -4,6 +4,7 @@ import os
 import queue
 import subprocess
 import threading
+import time
 import shutil
 
 def codex_command(explicit=None):
@@ -24,6 +25,7 @@ class AppServer:
         self.write_lock = threading.Lock()
         self.next_id = 0
         self.closed = False
+        self.deadline = None
         self.process = subprocess.Popen([*command, 'app-server'], cwd=cwd, env=env,
                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.DEVNULL, text=True, encoding='utf-8', bufsize=1)
@@ -59,6 +61,10 @@ class AppServer:
             self.process.stdin.flush()
 
     def request(self, method, params, timeout=60):
+        if self.deadline is not None:
+            timeout = min(timeout, self.deadline - time.monotonic())
+            if timeout <= 0:
+                raise TimeoutError(f'Codex {method} timed out')
         with self.lock:
             if self.closed:
                 raise RuntimeError('Codex App Server is not running')

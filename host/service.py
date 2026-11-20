@@ -29,6 +29,7 @@ from .reading_runtime import AgentReadingRuntime
 from core.article_overview import ArticleOverview
 from core.source_reading import SourceReading
 from .candidates import CandidateTurns
+from .ingestion_inspector import IngestionInspector
 from .configuration import UserSettings, DEFAULT_MODELS, normalize
 from core.workspace_lifecycle import WorkspaceLease, create_workspace
 from core.source_management import SourceManagement
@@ -93,6 +94,7 @@ class HostService:
         self.backend_name, self.backend_factory = backend, backend_factory
         self.setup = BackendSetup()
         self.discussion_summaries = CandidateTurns(self._build_backend)
+        self.ingestion_inspector = IngestionInspector(self._build_backend)
         # Speculative turns have a separate registry, so foreground cancellation
         # cannot accidentally interrupt a different summary backend.
         self.early_discussion_summaries = CandidateTurns(self._build_backend)
@@ -2245,6 +2247,7 @@ class HostService:
             self.shutting_down = True
             self._cancel_early_summary_locked()
         self.setup.close()
+        self.ingestion_inspector.cancel()
         if self.batches:
             for batch in self.batches.list():
                 if batch['status'] in ('confirmed', 'running'):

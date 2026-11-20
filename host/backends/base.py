@@ -78,6 +78,7 @@ class Backend:
     name = 'abstract'
     option_keys = frozenset({'network', 'approval_policy', 'model', 'tools'})
     stream_supported = True
+    image_input = False
 
     def __init__(self, workspace, *, network=False, approval_policy='on-request', model=None, tools=None):
         self.workspace = workspace
@@ -85,6 +86,7 @@ class Backend:
         self.approval_policy = approval_policy
         self.model = model
         self.tools = tools
+        self.deadline = None
         self.events = queue.Queue()
         self.closed = False
         self._lifecycle_lock = threading.RLock()
@@ -109,7 +111,7 @@ class Backend:
         """Start (or resume) a conversation. Returns the resume key if already known."""
         raise NotImplementedError
 
-    def start_turn(self, *, prompt, skills=()):
+    def start_turn(self, *, prompt, skills=(), images=()):
         raise NotImplementedError
 
     def send(self, message):
