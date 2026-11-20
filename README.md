@@ -16,7 +16,7 @@ pnpm install --frozen-lockfile
 pnpm reader:build
 ```
 
-在仓库根目录新建 **`.env`**，按需填写这两个值，空着的可以保留：
+在仓库根目录按需新建 **`.env`**：
 
 ```dotenv
 MINERU_API_TOKEN=
@@ -25,7 +25,7 @@ DEEPSEEK_API_KEY=
 
 - **PDF 解析**：后端默认先检查它所在机器的本地 MinerU（`http://127.0.0.1:18765`，4.2.3 Standard Tasks V1）。本地服务可用时，`MINERU_API_TOKEN` 留空；没有本地 MinerU 时，填入 mineru.net 的 Token，使用远端精准解析 API。浏览器所在电脑的 MinerU 不参与选择。
   在后端机器的独立 Python 3.11–3.14 环境运行 `python -m pip install "mineru==4.2.3"`，再用 `mineru-api --host 127.0.0.1 --port 18765 --tier standard` 启动服务。首次解析需准备 Standard 模型。升级前先完成旧服务中尚在运行的任务；已提交的任务绑定原服务和协议。
-- **模型**：使用 DeepSeek 时填写 `DEEPSEEK_API_KEY`；使用 Codex 时在网页设置页点击“登录 Codex”完成授权，不需要 DeepSeek Key。`.env` 只保存在本机，已被 Git 忽略，不要提交密钥。
+- **模型**使用运行 Host 的电脑上已经安装的 CLI。Codex 复用本机 ChatGPT 登录，可在网页设置页发起或取消授权。DeepSeek 使用 `dsh --profile acp`。已有 DeepSeek 凭据文件路径和模型偏好会保留，也可在设置中指定包含 `DEEPSEEK_API_KEY` 的文件。`.env` 保存在本机，已被 Git 忽略。
 
 启动网页后端：
 
@@ -35,9 +35,17 @@ python -m host --network
 
 浏览器打开 <http://127.0.0.1:8765>。首次进入选择运行 Host 这台电脑上的父目录，新建可改名的 `knowledge-base`；已有新格式工作区可原地导入。路径手动输入与本机目录选择器均可使用。没有保存位置时不会自动建库；正常重启直接打开已选工作区，位置失效时可重新定位原库。设置页可在任务结束后更换工作区。Host 默认只允许本机访问。
 
-首次默认 Codex 和“使用默认模型”，可以改选 DeepSeek。连接检查和模型选择均可跳过，直接进入不会安装依赖、登录或调用模型。显式检查或首次使用 AI 时才准备所选 Backend 的缺失依赖，优先复用已有 SDK 配套 Runtime；明确指定的失效路径不会自动替换。连接检查先用 Host 发布规则的默认模型执行无业务工具的最小推理，通过后读取真实模型目录。清单加载失败可单独重试；更换模型不会自动推理，检查成功只验证本次模型请求。
+首次可直接进入知识库，在需要 AI 时从设置选择 Backend。内置预置包括 Codex、DeepSeek、Antigravity CLI 和 Cursor CLI。扫描只读取配置并查找本机可执行文件。设置支持重新扫描、填写已安装程序的路径、加载模型清单和手动输入模型。连接检查会让实际选中的模型通过 FOCUS 工具读取一段临时原文，模型清单加载与这项验证分别运行。首次发送时，如配置尚未通过验证，FOCUS 先检测，通过后自动继续原请求。
 
-两个 Backend 各自记住默认／手选模型偏好，跨工作区共用。设置页的“保存并应用”在空闲时一次保存并启用，不要求另行刷新，也不强制检查或推理；有活动任务时服务端拒绝切换。API 密钥等配置可在项目目录的 `.env` 文件中填写；Codex 使用已有登录，未登录时主动点击“登录 Codex”。工作区路径和 Backend／模型选项由应用另存到机器用户设置文件，不放在 `.env` 或工作区备份中。Windows 默认设置位置为 `%LOCALAPPDATA%/FOCUS/settings.json`，可用 `FOCUS_SETTINGS_FILE` 指定独立机器配置。
+“保存并应用”会复用匹配的检测回执，或先检测再切换。前台任务运行时暂缓切换。Backend 和模型偏好在同一个 Host 的工作区之间共用。Windows 默认设置位置为 `%LOCALAPPDATA%/FOCUS/settings.json`，可用 `FOCUS_SETTINGS_FILE` 指定独立配置。自定义 Backend 的 JSON Manifest 放在实际设置文件同级的 `backends/` 目录，也可指定其他目录。
+
+```bash
+python -m host --backend codex --model gpt-6-astra
+python -m host --backend codex --backend-bin /path/to/codex
+python -m host --backends-dir /path/to/backends --check-runtime
+```
+
+`--backend`、`--backend-bin`、`--model` 和 `--backends-dir` 优先于 `FOCUS_BACKEND`、`FOCUS_BACKEND_BIN`、`FOCUS_MODEL` 和 `FOCUS_BACKENDS_DIR`。命令行和环境变量只影响本次 Host 进程，跨工作区有效。设置页的“保存并应用”是持久化入口。启动指定的 Backend 或路径无效时仍可使用知识库，AI 操作会指出需要修正的配置。`--check-runtime` 只报告本机路径，可用 `--backend` 指定要检查的条目。
 
 来源、专题、Blog、阅读内容、笔记、进度、讨论和业务断点均保存在这个完整工作区。备份时退出所有持有该库的 FOCUS 进程，等待落盘，再复制整个目录；恢复目录到新位置后使用“导入工作区”。不要运行中单独复制数据库主文件。机器配置和 Runtime 登录独立保存，不需要另找 Host 历史来恢复讨论。旧格式目录会被拒绝，本轮不提供迁移。
 
@@ -55,7 +63,7 @@ python -m host --network
 2. 打开这篇来源，在阅读页提问“这篇论文的核心机制是什么？”；问题不会推进阅读位置。
 3. 点击“继续”进入下一段；需要保留结论时，在对话里说“把刚才的结论保存为一条笔记”。
 
-讨论会检索当前绑定论文／文章的原文，也可按问题需要联网补充资料。例如：“结合论文原文，搜索官方代码，解释这个调度策略如何实现。”回答会区分原文、外部资料与推断，并为外部资料附上链接；搜索不会推进阅读或自动保存笔记。Codex 使用原生实时搜索，DeepSeek 使用 Harness 原生网页搜索与页面读取，复用已有 `DEEPSEEK_API_KEY`，无需额外搜索 Key。此能力默认对讨论开放，不依赖 `--network`；Host 所在机器仍需能访问对应服务，搜索失败时会说明并继续依据原文回答。
+讨论可以读取当前绑定论文或文章的原文。所选 Backend 支持联网搜索时，也可提问“结合论文原文，搜索官方代码，解释这个调度策略如何实现。”阅读进度和笔记由 FOCUS 管理。
 
 开发或排查解析流程时使用 [Skills 与 Python CLI 调试说明](docs/FOCUS_Debug_CLI.md)；日常阅读无需这些命令。
 

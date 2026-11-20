@@ -6,7 +6,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from .configuration import UserSettings
+from .configuration import UserSettings, resolve_startup
 from .backends import HarnessRegistry
 from .backend_setup import BackendSetup
 from .core_bridge import WorkspaceError
@@ -36,9 +36,11 @@ class WorkspaceBinding:
 
 
 class Workbench:
-    def __init__(self, *, settings_path=None, backends_dir=None, workspace=None, service_factory=HostService, **options):
+    def __init__(self, *, settings_path=None, backends_dir=None, workspace=None, service_factory=HostService,
+                 backend=None, backend_bin=None, model=None, **options):
         self.settings = UserSettings(settings_path, backends_dir=backends_dir)
         self.registry = self.settings.registry
+        self.startup = resolve_startup(self.settings, backend=backend, backend_bin=backend_bin, model=model)
         self.binding = WorkspaceBinding(self.settings.path, settings=self.settings)
         self.lock = threading.RLock()
         self.host = None
@@ -66,7 +68,8 @@ class Workbench:
 
     def _open(self, path):
         target = self.service_factory(path, None, settings_path=self.settings.path, registry=self.registry,
-                                      verification=self.setup.verification, allow_unconfigured=True, **self.options)
+                                      verification=self.setup.verification, allow_unconfigured=True,
+                                      startup=self.host.startup if self.host else self.startup, **self.options)
         if self.host and target._configuration() == self.host._configuration():
             target.active_registry = self.host.active_registry
         return target
@@ -153,7 +156,7 @@ class Workbench:
 
     def configuration_status(self):
         with self.lock:
-            return self.host.configuration_status() if self.host else self.settings.projection()
+            return self.host.configuration_status() if self.host else self.settings.projection(startup=self.startup)
 
     def backend_setup(self, action, payload):
         with self.lock:

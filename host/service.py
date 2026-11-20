@@ -46,7 +46,7 @@ class HostService:
     def __init__(self, workspace, data, *, model=None, codex_bin=None, backend=None,
                  backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None,
                  blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None,
-                 registry=None, verification=None, allow_unconfigured=False, clock=time.time):
+                 registry=None, verification=None, allow_unconfigured=False, startup=None, clock=time.time):
         workspace = Path(workspace).resolve()
         if not workspace.exists() or not any(workspace.iterdir()):
             create_workspace(workspace)
@@ -56,7 +56,7 @@ class HostService:
                 backend_factory=backend_factory, network=network, approval_policy=approval_policy,
                 ingestion_parser=ingestion_parser, blog_runtime=blog_runtime, reading_runtime=reading_runtime,
                 progress_runtime=progress_runtime, settings_path=settings_path, registry=registry,
-                verification=verification, allow_unconfigured=allow_unconfigured, clock=clock)
+                verification=verification, allow_unconfigured=allow_unconfigured, startup=startup, clock=clock)
         except BaseException:
             try:
                 if hasattr(self, 'store'):
@@ -68,7 +68,7 @@ class HostService:
     def _initialize(self, workspace, data, *, model=None, codex_bin=None, backend=None,
                  backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None,
                  blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None,
-                 registry=None, verification=None, allow_unconfigured=False, clock=time.time):
+                 registry=None, verification=None, allow_unconfigured=False, startup=None, clock=time.time):
         workspace.mkdir(parents=True, exist_ok=True)
         self.workspace = workspace.resolve()
         self.core = CoreBridge(self.workspace)
@@ -95,6 +95,7 @@ class HostService:
         self.network, self.approval_policy = network, approval_policy
         backend = backend or (None if allow_unconfigured else DEFAULT_BACKEND)
         self.backend_name, self.backend_factory = backend, backend_factory
+        self.startup = startup
         self.settings = UserSettings(settings_path, registry=registry)
         self.registry = self.settings.registry
         self.active_registry = self.registry
@@ -127,7 +128,9 @@ class HostService:
         self.refresh_blocked = False
         self.batch_admissions = 0
         saved = self.settings.read()
-        if saved:
+        if self.startup is not None:
+            self._apply_configuration(self.startup.configuration)
+        elif saved:
             self._apply_configuration(saved)
         self.backend = None
         self.worker = None
@@ -147,7 +150,7 @@ class HostService:
         self.resetting = False
         self._snapshot_cache = None
         self._disk_memo = {}
-        if backend_factory is None and not saved and backend:
+        if backend_factory is None and not saved and backend and self.startup is None:
             self.registry.get_spec(backend)
         if not self.state['timeline'] and self.state['displayReading']:
             window = self.core.window()
@@ -1490,6 +1493,8 @@ class HostService:
                                  or receipt != original.get('receipt')):
                     raise ValueError('同一 requestId 的内容或讨论范围已改变。')
                 return self.snapshot()
+            if self.startup and self.startup.error:
+                raise ValueError(self.startup.error)
             if not self.backend_name and self.backend_factory is None:
                 raise ValueError('请先在设置中选择 Backend 并保存应用。')
             discussion = None
@@ -1611,7 +1616,7 @@ class HostService:
 
     def configuration_status(self):
         with self.lock:
-            return self.settings.projection(self._configuration(), self._configuration_busy())
+            return self.settings.projection(self._configuration(), self._configuration_busy(), startup=self.startup)
 
     def update_backend_registry(self, registry):
         with self.lock:
@@ -1638,6 +1643,7 @@ class HostService:
                 self.active_registry = old_registry
                 self.state.update(threadId=thread_id, resumeBackend=resume_backend)
                 raise
+            self.startup = None
             self.refresh_blocked = False
             self.changed()
             return self.snapshot()
@@ -1653,6 +1659,8 @@ class HostService:
 
     def refresh_configuration(self):
         with self.lock:
+            if self.startup is not None:
+                return self.snapshot()
             saved = self.settings.read()
             if saved and saved != self._configuration():
                 if self._configuration_busy():
@@ -1665,6 +1673,8 @@ class HostService:
 
     def _build_backend(self, *, workspace=None, purpose='business', tools=None, selection=None):
         with self.lock:
+            if self.startup and self.startup.error:
+                raise BackendError(self.startup.error)
             registry, configuration, invocation = selection or (self.active_registry, self._configuration(), None)
             if configuration is None and self.backend_factory is None:
                 raise BackendError('请先在设置中选择 Backend 并保存应用。')
