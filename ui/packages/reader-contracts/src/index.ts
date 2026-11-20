@@ -578,6 +578,7 @@ export interface BackendDescriptor {
   defaultModel?: string | null;
   installHint?: string;
   loginHint?: string;
+  credentialEnv?: readonly string[];
   unavailableReason?: string | null;
   capabilities?: {
     authMode?: string;

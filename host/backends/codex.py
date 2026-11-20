@@ -7,6 +7,7 @@ this file is visible to the Host above `host.backends.base`.
 """
 import queue
 import threading
+from urllib.parse import urlsplit
 from .task_tools import discussion_tools, library_tools
 
 from ..core_bridge import TOOL
@@ -22,14 +23,15 @@ APPROVAL_DECISIONS = ('accept', 'decline', 'cancel')
 
 class CodexBackend(Backend):
     name = 'codex'
-    option_keys = Backend.option_keys | {'codex_bin', 'command', 'manifest', 'purpose'}
+    option_keys = Backend.option_keys | {'codex_bin', 'command', 'manifest', 'credential_file', 'purpose'}
 
     def __init__(self, workspace, *, network=False, approval_policy='on-request', model=None,
-                 codex_bin=None, command=None, manifest=None, purpose='business', tools=None):
+                 codex_bin=None, command=None, manifest=None, credential_file=None, purpose='business', tools=None):
         super().__init__(workspace, network=network, approval_policy=approval_policy, model=model, tools=tools)
         self.codex_bin = codex_bin
         self.command = command
         self.manifest = manifest
+        self.credential_file = credential_file
         self.rpc = None
         self.thread_id = None
         self.turn_id = None
@@ -49,19 +51,68 @@ class CodexBackend(Backend):
             except Exception as exc:
                 raise BackendError(safe_backend_error(exc)) from exc
 
-    def _open_session(self, resume_key, *, instructions, skills=()):
+    def _start_rpc(self, *options):
         command = list(self.command) if self.command else [*codex_command(self.codex_bin), 'app-server']
-        env = backend_environment(self.manifest or self.name)
+        env = backend_environment(self.manifest or self.name, credential_file=self.credential_file)
         for key in ('OPENAI_API_KEY', 'CODEX_API_KEY'):
             env.pop(key, None)
-        command += ['-c', 'forced_login_method="chatgpt"']
-        if self.purpose in ('connectivity', 'candidate', 'discussion', 'business'):
-            command += ['-c', 'mcp_servers={}',
-                        '-c', 'features.shell_tool=false', '-c', 'features.apply_patch_freeform=false',
-                        '-c', 'web_search="live"' if self.purpose == 'discussion' else 'web_search="disabled"']
-        self.rpc = AppServer(command, self.workspace, env=env)
+        self.rpc = AppServer([*command, '-c', 'forced_login_method="chatgpt"', *options], self.workspace, env=env)
         self.rpc.initialize()
         self.rpc.send({'method': 'initialized', 'params': {}})
+
+    def account(self):
+        self._start_rpc()
+        account = self.rpc.request('account/read', {'refreshToken': True}, timeout=15).get('account')
+        return bool(account and account.get('type') == 'chatgpt')
+
+    def discover_models(self):
+        self._start_rpc()
+        models, cursor, seen = [], None, set()
+        while True:
+            result = self.rpc.request('model/list', {'limit': 100, 'cursor': cursor, 'includeHidden': False}, timeout=20)
+            models.extend(item['model'] for item in result.get('data', []) if isinstance(item.get('model'), str))
+            cursor = result.get('nextCursor')
+            if not cursor:
+                return list(dict.fromkeys(models))
+            if cursor in seen:
+                raise BackendError('model list pagination repeated')
+            seen.add(cursor)
+
+    def start_login(self):
+        self._start_rpc()
+        result = self.rpc.request('account/login/start', {'type': 'chatgpt'}, timeout=15)
+        url = urlsplit(result['authUrl'])
+        if (url.scheme != 'https' or url.hostname not in ('auth.openai.com', 'auth0.openai.com', 'auth.chatgpt.com')
+                or url.username or url.password):
+            raise BackendError('Runtime returned an invalid login URL.')
+        login_id = result['loginId']
+        if not isinstance(login_id, str) or not login_id:
+            raise BackendError('Runtime returned an invalid login ID.')
+        return {'loginId': login_id, 'authUrl': result['authUrl']}
+
+    def poll_login(self, login_id):
+        while True:
+            try:
+                event = self.rpc.events.get_nowait()
+            except queue.Empty:
+                return None
+            params = event.get('params', {})
+            if event.get('method') == TRANSPORT_ERROR:
+                return False
+            if event.get('method') == 'account/login/completed' and params.get('loginId') == login_id:
+                account = self.rpc.request('account/read', {'refreshToken': True}, timeout=15).get('account')
+                return bool(params.get('success') and account and account.get('type') == 'chatgpt')
+
+    def cancel_login(self, login_id):
+        self.rpc.request('account/login/cancel', {'loginId': login_id}, timeout=10)
+
+    def _open_session(self, resume_key, *, instructions, skills=()):
+        options = []
+        if self.purpose in ('connectivity', 'candidate', 'discussion', 'business'):
+            options = ['-c', 'mcp_servers={}',
+                       '-c', 'features.shell_tool=false', '-c', 'features.apply_patch_freeform=false',
+                       '-c', 'web_search="live"' if self.purpose == 'discussion' else 'web_search="disabled"']
+        self._start_rpc(*options)
         account = self.rpc.request('account/read', {'refreshToken': False}, timeout=15).get('account')
         if not account or account.get('type') != 'chatgpt':
             account = self.rpc.request('account/read', {'refreshToken': True}, timeout=15).get('account')

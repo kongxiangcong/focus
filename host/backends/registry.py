@@ -183,6 +183,7 @@ class HarnessRegistry:
             hint = spec.install_hint or '请安装 Runtime 或指定可执行文件。'
             result.append({'id': spec.id, 'label': spec.label, 'driver': spec.driver, 'available': bool(installed),
                            'runtimePath': installed, 'defaultModel': spec.default_model, 'installHint': hint,
+                           'credentialEnv': list(spec.credential_env),
                            'loginHint': spec.login_hint, 'capabilities': dict(spec.capabilities),
                            'unavailableReason': (None if installed else '指定的可执行文件不可用。' if explicit else hint)})
         return result
@@ -194,9 +195,9 @@ class HarnessRegistry:
             runtime_path = options.get('codex_bin')
         if spec.driver == 'deepseek-sdk':
             # Transitional adapter; ticket 11 replaces this driver after live ACP acceptance.
-            from ..backend_setup import deepseek_key
+            from .deepseek import legacy_deepseek_key
             options.update(runtime_path=runtime_path or self.probe_binary(spec),
-                           api_key=options.get('api_key') or deepseek_key(credential_file))
+                           api_key=options.get('api_key') or legacy_deepseek_key(credential_file))
         else:
             options.update(command=self.resolve_command(spec.id, runtime_path),
                            manifest=spec, credential_file=credential_file)
