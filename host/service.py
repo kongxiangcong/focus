@@ -11,14 +11,14 @@ import copy
 from contextlib import contextmanager
 from pathlib import Path
 
-from .backends import BACKENDS, DEFAULT_BACKEND, BackendError, create_backend
+from .backends import DEFAULT_BACKEND, BackendError
 from .backends.base import APPROVAL_TITLES, COMMAND_APPROVAL, FILE_APPROVAL, PERMISSIONS_APPROVAL, USER_INPUT
 from .core_bridge import CoreBridge, WorkspaceError, SourceLibrary, DiscussionApplication
 from .store import Store
 from .status_notifications import StatusNotifications, fingerprint
 from . import discussions
 from .source_clear import SourceClear
-from .backend_setup import BackendSetup, deepseek_key, runtime_path
+from .backend_setup import BackendSetup
 from .progress import CORE_LABELS, activity_label
 from core import INGESTION_SERVICES, BlogApplication, IngestionApplication, AutoMinerUParser
 from core.reading_application import ReadingApplication
@@ -29,7 +29,7 @@ from .reading_runtime import AgentReadingRuntime
 from core.article_overview import ArticleOverview
 from core.source_reading import SourceReading
 from .candidates import CandidateTurns
-from .configuration import UserSettings, DEFAULT_MODELS, normalize
+from .configuration import UserSettings
 from core.workspace_lifecycle import WorkspaceLease, create_workspace
 from core.source_management import SourceManagement
 from core.source_notes import check_sentence
@@ -43,7 +43,8 @@ ACTIVE = ('running', 'approval', 'stopping')
 class HostService:
     def __init__(self, workspace, data, *, model=None, codex_bin=None, backend=None,
                  backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None,
-                 blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None, clock=time.time):
+                 blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None,
+                 registry=None, clock=time.time):
         workspace = Path(workspace).resolve()
         if not workspace.exists() or not any(workspace.iterdir()):
             create_workspace(workspace)
@@ -52,7 +53,7 @@ class HostService:
             self._initialize(workspace, data, model=model, codex_bin=codex_bin, backend=backend,
                 backend_factory=backend_factory, network=network, approval_policy=approval_policy,
                 ingestion_parser=ingestion_parser, blog_runtime=blog_runtime, reading_runtime=reading_runtime,
-                progress_runtime=progress_runtime, settings_path=settings_path, clock=clock)
+                progress_runtime=progress_runtime, settings_path=settings_path, registry=registry, clock=clock)
         except BaseException:
             try:
                 if hasattr(self, 'store'):
@@ -63,7 +64,8 @@ class HostService:
 
     def _initialize(self, workspace, data, *, model=None, codex_bin=None, backend=None,
                  backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None,
-                 blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None, clock=time.time):
+                 blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None,
+                 registry=None, clock=time.time):
         workspace.mkdir(parents=True, exist_ok=True)
         self.workspace = workspace.resolve()
         self.core = CoreBridge(self.workspace)
@@ -87,11 +89,12 @@ class HostService:
         self.generation = int(time.time() * 1000)
         self.page_generation = self.generation
         self.stream_messages = {}
-        self.model, self.codex_bin = model, str(codex_bin) if codex_bin is not None else None
         self.network, self.approval_policy = network, approval_policy
         backend = backend or DEFAULT_BACKEND
         self.backend_name, self.backend_factory = backend, backend_factory
-        self.setup = BackendSetup()
+        self.settings = UserSettings(settings_path, registry=registry)
+        self.registry = self.settings.registry
+        self.setup = BackendSetup(registry=self.registry)
         self.discussion_summaries = CandidateTurns(self._build_backend)
         # Speculative turns have a separate registry, so foreground cancellation
         # cannot accidentally interrupt a different summary backend.
@@ -110,12 +113,12 @@ class HostService:
             AgentReadingRuntime(self._build_backend, self._backend_configuration))
         self.progress_workers = {}
         self.progress_serial = threading.Lock()
-        self.models = {name: os.getenv(f'FOCUS_{name.upper()}_MODEL') or DEFAULT_MODELS.get(name) for name in BACKENDS}
+        self.models = {spec.id: os.getenv(f'FOCUS_{spec.id.upper()}_MODEL') or spec.default_model
+                       for spec in self.registry.list_specs()}
         if model:
             self.models[backend] = model
-        self.settings = UserSettings(settings_path)
-        self.deepseek_bin = None
-        self.deepseek_credentials = None
+        self.runtime_paths = {DEFAULT_BACKEND: str(codex_bin)} if codex_bin is not None else {}
+        self.credential_files = {}
         self.refresh_blocked = False
         self.batch_admissions = 0
         saved = self.settings.read()
@@ -139,8 +142,8 @@ class HostService:
         self.resetting = False
         self._snapshot_cache = None
         self._disk_memo = {}
-        if backend_factory is None and backend not in BACKENDS:
-            raise BackendError(f'未知 Agent 后端 {backend!r}；可选：{", ".join(sorted(BACKENDS))}')
+        if backend_factory is None and not saved:
+            self.registry.get_spec(backend)
         if not self.state['timeline'] and self.state['displayReading']:
             window = self.core.window()
             selection = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8")).get('sources', {}).get(window['source']['sourceId'], {}) if (self.workspace / 'state.json').is_file() else {}
@@ -361,9 +364,7 @@ class HostService:
         window['clearBusySources'] = [source['sourceId'] for source in sources_overview if self.source_clear_busy(source['sourceId'])]
         window['agent'] = {'run': self.state['run'], 'catalog': self.core.catalog(),
                            'backend': self.backend_name,
-                           'backends': [{'id': name, 'label': {'codex': 'Codex', 'deepseek': 'DeepSeek'}[name],
-                                         'unavailableReason': getattr(adapter, 'unavailable_reason', None)}
-                                        for name, adapter in BACKENDS.items()]}
+                           'backends': window['configuration']['backends']}
         window['workItems'] = self.work_items(window, overview=sources_overview, state=selected_state)
         for item in window['workItems']:
             if item['kind'] == 'preparation' and item['dismissed']:
@@ -1564,10 +1565,9 @@ class HostService:
             return {'adapter': self.backend_name, 'model': self.models.get(self.backend_name)}
 
     def _configuration(self):
-        runtime = self.codex_bin if self.backend_name == 'codex' else self.deepseek_bin
         return {'backend': self.backend_name, 'model': self.models.get(self.backend_name),
-                'runtimePath': str(runtime) if runtime is not None else None,
-                'credentialFile': str(self.deepseek_credentials) if self.backend_name == 'deepseek' and self.deepseek_credentials else None}
+                'runtimePath': self.runtime_paths.get(self.backend_name),
+                'credentialFile': self.credential_files.get(self.backend_name)}
 
     def _configuration_busy(self):
         return bool(self.resetting or self.shutting_down or self.batch_admissions
@@ -1581,7 +1581,7 @@ class HostService:
             return self.settings.projection(self._configuration(), self._configuration_busy())
 
     def save_configuration(self, value):
-        normalized = normalize(value)
+        normalized = self.settings.normalize(value)
         with self.lock:
             if self._configuration_busy():
                 raise ValueError('任务运行中，不能保存后端配置。')
@@ -1602,11 +1602,8 @@ class HostService:
     def _apply_configuration(self, value):
         self.backend_name = value['backend']
         self.models[self.backend_name] = value['model']
-        if self.backend_name == 'codex':
-            self.codex_bin = value['runtimePath']
-        else:
-            self.deepseek_bin = value['runtimePath']
-            self.deepseek_credentials = value['credentialFile']
+        self.runtime_paths[self.backend_name] = value['runtimePath']
+        self.credential_files[self.backend_name] = value['credentialFile']
         self.state.update(threadId=None, resumeBackend=None)
 
     def refresh_configuration(self):
@@ -1625,19 +1622,14 @@ class HostService:
         with self.lock:
             name = self.backend_name
             options = {'network': self.network, 'approval_policy': self.approval_policy,
-                       'model': self.models.get(name), 'codex_bin': self.codex_bin, 'purpose': purpose}
+                       'model': self.models.get(name), 'purpose': purpose,
+                       'runtime_path': self.runtime_paths.get(name), 'credential_file': self.credential_files.get(name)}
             if tools is not None:
                 options['tools'] = tools
-            if name == 'deepseek':
-                options.update(runtime_path=runtime_path(name, self.deepseek_bin), api_key=deepseek_key(self.deepseek_credentials))
         workspace = workspace or self.workspace
         if self.backend_factory is not None:
             return self.backend_factory(workspace, **options)
-        prepared = self.setup.prepare({'backend': name, 'runtimePath': self.codex_bin if name == 'codex' else self.deepseek_bin})
-        if prepared['status'] != 'installed':
-            raise BackendError(prepared['message'])
-        options['codex_bin' if name == 'codex' else 'runtime_path'] = prepared['runtimePath']
-        backend = create_backend(name, workspace, **options)
+        backend = self.registry.create_backend(name, workspace, **options)
         receipt_id = uuid.uuid4().hex
         backend.cleanup_callback = lambda receipt: self.store.put('runtimeCleanup:' + receipt_id,
             {**receipt, 'purpose': purpose, 'recordedAt': self.clock()})
@@ -2176,8 +2168,9 @@ class HostService:
         return self.snapshot() if project else None
 
     def backend_setup(self, action, payload):
-        if payload.get('backend') == 'codex' and not payload.get('runtimePath') and self.codex_bin:
-            payload = {**payload, 'runtimePath': self.codex_bin}
+        runtime = self.runtime_paths.get(payload.get('backend'))
+        if 'runtimePath' not in payload and runtime:
+            payload = {**payload, 'runtimePath': runtime}
         try:
             return self.setup.operate(action, payload)
         except Exception:

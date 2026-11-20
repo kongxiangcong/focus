@@ -24,6 +24,7 @@ from pathlib import Path
 from .proxy import backend_environment
 from .runtime import AppServer
 from .backends.base import safe_backend_error
+from .backends import DEFAULT_REGISTRY, BackendError
 from .configuration import DEFAULT_MODELS
 
 
@@ -69,7 +70,8 @@ def runtime_path(backend, explicit=None):
 
 
 class BackendSetup:
-    def __init__(self):
+    def __init__(self, *, registry=None):
+        self.registry = registry or DEFAULT_REGISTRY
         self.login_lock = threading.RLock()
         self.login = None
         self.install_lock = threading.Lock()
@@ -167,7 +169,8 @@ class BackendSetup:
         for key in ('OPENAI_API_KEY', 'CODEX_API_KEY'):
             env.pop(key, None)
         with tempfile.TemporaryDirectory(prefix='focus-account-') as temporary:
-            rpc = AppServer([status['runtimePath'], '-c', 'forced_login_method="chatgpt"'], temporary, env=env)
+            command = self.registry.resolve_command(status['backend'], status['runtimePath'])
+            rpc = AppServer([*command, '-c', 'forced_login_method="chatgpt"'], temporary, env=env)
             try:
                 rpc.initialize()
                 rpc.send({'method': 'initialized', 'params': {}})
@@ -303,11 +306,14 @@ class BackendSetup:
 
     def inspect(self, payload):
         backend = payload.get('backend', 'codex')
-        selected = runtime_path(backend, payload.get('runtimePath'))
-        available = bool(selected and Path(selected).is_file())
-        return {'backend': backend, 'runtimePath': selected,
-                'status': 'installed' if available else 'unavailable',
-                'message': '依赖已安装；尚未验证认证和连通性。' if available else 'Runtime 不存在，请检查指定路径或准备依赖。'}
+        explicit = payload.get('runtimePath')
+        try:
+            selected, *_ = self.registry.resolve_command(backend, explicit)
+        except BackendError as exc:
+            return {'backend': backend, 'runtimePath': str(Path(explicit).expanduser().absolute()) if explicit else None,
+                    'status': 'unavailable', 'message': str(exc)}
+        return {'backend': backend, 'runtimePath': selected, 'status': 'installed',
+                'message': '已找到可执行文件；尚未验证认证和连通性。'}
 
     def operate(self, action, payload):
         if action == 'inspect':

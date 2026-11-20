@@ -5,33 +5,42 @@ import tempfile
 import uuid
 from pathlib import Path
 
-DEFAULT_MODELS = {'codex': 'gpt-6-astra', 'deepseek': 'deepseek-v4-flash'}
+from .backends import DEFAULT_BACKEND, DEFAULT_REGISTRY, BackendError, HarnessRegistry
+
+DEFAULT_MODELS = {spec.id: spec.default_model for spec in DEFAULT_REGISTRY.list_specs()}
 
 
-def normalize(value):
+def normalize(value, registry=DEFAULT_REGISTRY, *, allow_missing=False):
     if not isinstance(value, dict) or set(value) - {'backend', 'model', 'runtimePath', 'credentialFile', 'requestId', 'preferences'}:
         raise ValueError('后端配置字段无效。')
     backend = value.get('backend')
-    if backend not in DEFAULT_MODELS:
-        raise ValueError('请选择 Codex 或 DeepSeek。')
-    model = value.get('model') or DEFAULT_MODELS[backend]
-    if not isinstance(model, str) or not model.strip() or len(model) > 160 or '\n' in model or '\r' in model:
+    if not isinstance(backend, str) or not backend:
+        raise ValueError('请选择 Backend。')
+    try:
+        spec = registry.get_spec(backend)
+    except BackendError as exc:
+        if not allow_missing:
+            raise ValueError(str(exc)) from None
+        spec = None
+    model = value.get('model') or (spec.default_model if spec else None)
+    if model is not None and (not isinstance(model, str) or not model.strip() or len(model) > 160 or '\n' in model or '\r' in model):
         raise ValueError('模型名称无效。')
-    result = {'backend': backend, 'model': model.strip()}
+    result = {'backend': backend, 'model': model.strip() if model else None}
     for key in ('runtimePath', 'credentialFile'):
         path = value.get(key)
         if path is not None and not isinstance(path, str):
             raise ValueError('配置路径必须是字符串。')
         result[key] = str(Path(path.strip()).expanduser().absolute()) if path and path.strip() else None
-    if backend == 'codex':
+    if spec and not spec.credential_env:
         result['credentialFile'] = None
     return result
 
 
 class UserSettings:
-    def __init__(self, path=None):
+    def __init__(self, path=None, *, registry=None):
         base = Path(os.getenv('LOCALAPPDATA') or Path.home() / '.config') / 'FOCUS'
         self.path = Path(path or os.getenv('FOCUS_SETTINGS_FILE') or base / 'settings.json')
+        self.registry = registry or HarnessRegistry(self.path.parent / 'backends')
 
     def document(self):
         if not self.path.is_file():
@@ -46,7 +55,11 @@ class UserSettings:
 
     def read(self):
         value = self.document()
-        return normalize({k: value[k] for k in ('backend', 'model', 'runtimePath', 'credentialFile') if k in value}) if value.get('backend') else None
+        return self.normalize({k: value[k] for k in ('backend', 'model', 'runtimePath', 'credentialFile') if k in value},
+                              allow_missing=True) if value.get('backend') else None
+
+    def normalize(self, value, *, allow_missing=False):
+        return normalize(value, self.registry, allow_missing=allow_missing)
 
     def preferences(self):
         value = self.document()
@@ -57,22 +70,28 @@ class UserSettings:
         return preferences
 
     def projection(self, effective=None, busy=False):
-        saved = self.read() or effective or normalize({'backend': 'codex'})
+        saved = self.read() or effective or self.normalize({'backend': DEFAULT_BACKEND})
+        preferences = self.preferences()
+        runtime_paths = {backend: preference.get('runtimePath') for backend, preference in preferences.items()
+                         if isinstance(preference, dict)}
+        if effective and effective.get('runtimePath'):
+            runtime_paths[effective['backend']] = effective['runtimePath']
         return {'saved': saved, 'effective': effective or saved, 'preferences': self.preferences(),
+                'backends': self.registry.describe_all(runtime_paths), 'backendErrors': self.registry.errors,
                 'pending': False, 'busy': busy, 'refreshBlocked': False,
                 'operationId': self.document().get('configurationOperationId')}
 
     def configured_document(self, value):
         document = self.document()
         preferences = self.preferences()
-        normalized = normalize(value)
+        normalized = self.normalize(value)
         drafts = value.get('preferences', {})
-        if not isinstance(drafts, dict) or set(drafts) - set(DEFAULT_MODELS):
+        if not isinstance(drafts, dict):
             raise ValueError('Backend 偏好无效。')
         for backend, draft in drafts.items():
             if not isinstance(draft, dict):
                 raise ValueError('模型偏好无效。')
-            preference = normalize({**draft, 'backend': backend})
+            preference = self.normalize({**draft, 'backend': backend})
             preferences[backend] = {**preference, 'model': draft.get('model') or None}
         preferences[normalized['backend']] = {**normalized, 'model': value.get('model') or None}
         document.update(normalized, preferences=preferences,

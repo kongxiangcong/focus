@@ -14,8 +14,8 @@ from core.workspace_lifecycle import create_workspace, inspect_workspace
 
 
 class WorkspaceBinding:
-    def __init__(self, settings_path):
-        self.settings = UserSettings(settings_path)
+    def __init__(self, settings_path, *, settings=None):
+        self.settings = settings or UserSettings(settings_path)
         self.path = self.settings.path
 
     def read(self):
@@ -40,11 +40,12 @@ class WorkspaceBinding:
 class Workbench:
     def __init__(self, *, settings_path=None, workspace=None, service_factory=HostService, **options):
         self.settings = UserSettings(settings_path)
-        self.binding = WorkspaceBinding(self.settings.path)
+        self.registry = self.settings.registry
+        self.binding = WorkspaceBinding(self.settings.path, settings=self.settings)
         self.lock = threading.RLock()
         self.host = None
         self.generation = uuid.uuid4().hex
-        self.setup = BackendSetup()
+        self.setup = BackendSetup(registry=self.registry)
         self.error = None
         self.service_factory, self.options = service_factory, options
         try:
@@ -66,7 +67,7 @@ class Workbench:
                 self.error = str(exc)
 
     def _open(self, path):
-        return self.service_factory(path, None, settings_path=self.settings.path, **self.options)
+        return self.service_factory(path, None, settings_path=self.settings.path, registry=self.registry, **self.options)
 
     def status(self):
         with self.lock:
@@ -129,8 +130,7 @@ class Workbench:
                 selection = {'path': str(path), 'workspaceId': target.lease.manifest['workspaceId'],
                              'operationId': payload.get('requestId') or uuid.uuid4().hex}
                 if payload.get('configuration'):
-                    from .configuration import normalize
-                    target._apply_configuration(normalize(payload['configuration']))
+                    target._apply_configuration(self.settings.normalize(payload['configuration']))
                     selection['configuration'] = payload['configuration']
                 self.binding.save(selection)
                 saved = True

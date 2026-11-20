@@ -254,7 +254,7 @@ export interface ReaderApproval {
 
 export interface ReaderAgentState {
   backend?: string;
-  backends?: readonly { id: string; label: string; unavailableReason?: string | null }[];
+  backends?: readonly BackendDescriptor[];
   run: null | {
     runId: string;
     status: "running" | "approval" | "stopping" | "completed" | "failed" | "interrupted";
@@ -569,9 +569,27 @@ export function createReaderId(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 export type BackendSetupAction = "inspect" | "prepare" | "account" | "login-start" | "login-status" | "login-cancel" | "check" | "models";
+export interface BackendDescriptor {
+  id: string;
+  label: string;
+  driver?: string;
+  available?: boolean;
+  runtimePath?: string | null;
+  defaultModel?: string | null;
+  installHint?: string;
+  loginHint?: string;
+  unavailableReason?: string | null;
+  capabilities?: {
+    authMode?: string;
+    modelDiscovery?: string;
+    mcpTransport?: string;
+    streaming?: boolean;
+    images?: boolean;
+  };
+}
 export interface BackendConfiguration {
-  backend: "codex" | "deepseek";
-  model: string;
+  backend: string;
+  model: string | null;
   runtimePath: string | null;
   credentialFile: string | null;
 }
@@ -581,17 +599,19 @@ export interface BackendConfigurationState {
   pending: boolean;
   busy: boolean;
   refreshBlocked: boolean;
-  preferences?: Partial<Record<"codex" | "deepseek", Omit<Partial<BackendConfiguration>, 'model'> & { model?: string | null }>>;
+  preferences?: Partial<Record<string, Partial<BackendConfiguration>>>;
+  backends?: readonly BackendDescriptor[];
+  backendErrors?: readonly { file: string; message: string }[];
   operationId?: string;
 }
 export interface BackendSetupInput {
-  backend: "codex" | "deepseek";
+  backend: string;
   runtimePath?: string;
   model?: string;
   credentialFile?: string;
   loginId?: string;
   requestId?: string;
-  preferences?: Partial<Record<'codex' | 'deepseek', Pick<BackendSetupInput, 'model' | 'runtimePath' | 'credentialFile'>>>;
+  preferences?: Partial<Record<string, Pick<BackendSetupInput, 'model' | 'runtimePath' | 'credentialFile'>>>;
 }
 export interface BackendSetupResult {
   backend: string;
