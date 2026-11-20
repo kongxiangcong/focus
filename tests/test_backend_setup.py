@@ -98,7 +98,7 @@ class BackendSetupTests(unittest.TestCase):
         binary = self.root / 'codex.exe'
         binary.touch()
         AccountRuntime.account_type = 'chatgpt'
-        with patch('host.backend_setup.AppServer', AccountRuntime), patch.dict('os.environ', {
+        with patch('host.backends.codex.AppServer', AccountRuntime), patch.dict('os.environ', {
             'OPENAI_API_KEY': 'must-not-reach-runtime', 'CODEX_HOME': str(self.root / 'personal-codex'),
         }):
             result = self.host.backend_setup('account', {'backend': 'codex', 'runtimePath': str(binary)})
@@ -130,7 +130,7 @@ class BackendSetupTests(unittest.TestCase):
         binary.touch()
         config = {'backend': 'codex', 'runtimePath': str(binary)}
         AccountRuntime.account_type = None
-        with patch('host.backend_setup.AppServer', AccountRuntime):
+        with patch('host.backends.codex.AppServer', AccountRuntime):
             started = self.host.backend_setup('login-start', config)
             self.assertEqual('waiting', started['status'])
             runtime = AccountRuntime.instances[-1]
@@ -162,7 +162,7 @@ class BackendSetupTests(unittest.TestCase):
         binary.touch()
         config = {'backend': 'codex', 'runtimePath': str(binary)}
         for account_type, expected in [('apiKey', 'failed'), ('chatgpt', 'authenticated')]:
-            with self.subTest(account_type=account_type), patch('host.backend_setup.AppServer', AccountRuntime):
+            with self.subTest(account_type=account_type), patch('host.backends.codex.AppServer', AccountRuntime):
                 started = self.host.backend_setup('login-start', config)
                 AccountRuntime.account_type = account_type
                 runtime = AccountRuntime.instances[-1]
@@ -171,16 +171,15 @@ class BackendSetupTests(unittest.TestCase):
                 self.assertEqual(expected, result['status'])
                 self.assertTrue(runtime.closed)
 
-    def test_failed_install_is_independent_of_other_ready_backend(self):
+    def test_missing_runtime_is_independent_of_other_ready_backend(self):
         binary = self.root / 'codex.exe'
         binary.touch()
-        import subprocess
-        with patch('host.backend_setup.shutil.which', return_value=None), \
-                patch('deepseek_harness_runtime.bundled_runtime_path', side_effect=FileNotFoundError()), \
-                patch('subprocess.run', side_effect=subprocess.CalledProcessError(1, ['pip'])):
-            failed = self.host.backend_setup('prepare', {'backend': 'deepseek'})
+        with patch('subprocess.Popen') as process:
+            failed = self.host.backend_setup('prepare', {'backend': 'deepseek',
+                'runtimePath': str(self.root / 'missing.exe')})
             ready = self.host.backend_setup('prepare', {'backend': 'codex', 'runtimePath': str(binary)})
-        self.assertEqual('failed', failed['status'])
+            process.assert_not_called()
+        self.assertEqual('unavailable', failed['status'])
         self.assertEqual('installed', ready['status'])
 
     def test_business_turn_refuses_stored_api_key_authentication(self):

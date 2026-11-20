@@ -260,6 +260,8 @@ export interface ReaderAgentState {
     runId: string;
     status: "running" | "approval" | "stopping" | "completed" | "failed" | "interrupted";
     error: string | null;
+    backendVerification?: "checking" | "passed" | "failed";
+    pendingMessageId?: string;
     progress?: { label: string; startedAt: number; stageStartedAt?: number; updatedAt: number; finishedAt?: number };
     /** Numeric phase timestamps only; no source text, model reasoning, or credentials. */
     phaseTiming?: { sentAt?: number; sessionStart?: number; sessionReady?: number;
@@ -579,6 +581,7 @@ export interface BackendDescriptor {
   defaultModel?: string | null;
   installHint?: string;
   loginHint?: string;
+  credentialEnv?: readonly string[];
   unavailableReason?: string | null;
   capabilities?: {
     authMode?: string;

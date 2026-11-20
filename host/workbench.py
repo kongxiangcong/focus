@@ -67,7 +67,8 @@ class Workbench:
                 self.error = str(exc)
 
     def _open(self, path):
-        return self.service_factory(path, None, settings_path=self.settings.path, registry=self.registry, **self.options)
+        return self.service_factory(path, None, settings_path=self.settings.path, registry=self.registry,
+                                    verification=self.setup.verification, **self.options)
 
     def status(self):
         with self.lock:

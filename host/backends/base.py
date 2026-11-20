@@ -54,6 +54,10 @@ class BackendError(RuntimeError):
     """A backend cannot be selected, started or driven. Surfaced as a task failure."""
 
 
+class BackendConfigurationError(BackendError):
+    """An actionable, Host-generated configuration problem safe for display."""
+
+
 def safe_backend_error(error):
     """Classify diagnostics without returning provider-controlled text or secrets."""
     text = str(error).lower()
@@ -105,6 +109,21 @@ class Backend:
             except Exception:
                 # Diagnostics cannot strand the lifecycle completion event.
                 self.cleanup['receipt'] = 'persistence_failed'
+
+    def discover_models(self):
+        raise BackendConfigurationError('此 Backend 不提供模型清单，可手动输入模型。')
+
+    def account(self):
+        raise BackendConfigurationError('请通过本机 CLI 完成此 Backend 的登录。')
+
+    def start_login(self):
+        raise BackendConfigurationError('此 Backend 不支持在 FOCUS 内发起登录。')
+
+    def poll_login(self, login_id):
+        raise BackendConfigurationError('登录请求已失效，请重试。')
+
+    def cancel_login(self, login_id):
+        raise BackendConfigurationError('登录请求已失效，请重试。')
 
     # --- lifecycle -------------------------------------------------
 

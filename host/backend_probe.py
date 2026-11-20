@@ -8,13 +8,13 @@ import threading
 import time
 from pathlib import Path
 
-from .backends.base import (MESSAGE_COMPLETED, MESSAGE_DELTA, TOOL_CALL, TRANSPORT_ERROR,
+from .backends.base import (BackendConfigurationError, MESSAGE_COMPLETED, MESSAGE_DELTA, TOOL_CALL, TRANSPORT_ERROR,
                             TURN_COMPLETED, safe_backend_error)
 from .core_bridge import CoreBridge, TOOL, WorkspaceError
 from core.library_import import import_markdown
 
 
-def verify_source_round_trip(backend_factory, *, timeout=45):
+def verify_source_round_trip(backend_factory, *, timeout=45, cancelled=None):
     """Return a check result without reading or changing the user's workspace."""
     marker = secrets.token_hex(16)
     tool = copy.deepcopy(TOOL)
@@ -34,20 +34,35 @@ def verify_source_round_trip(backend_factory, *, timeout=45):
                                  short_name='probe', language='en')
         original.unlink()
         bridge = CoreBridge(source_workspace)
-        backend = backend_factory(workspace, purpose='connectivity', tools=[tool])
+        try:
+            backend = backend_factory(workspace, purpose='connectivity', tools=[tool])
+        except BackendConfigurationError as exc:
+            return 'failed', str(exc)
+        except Exception as exc:
+            return 'failed', safe_backend_error(exc)
         timer = threading.Timer(timeout, backend.close)
         timer.daemon = True
         timer.start()
         try:
             deadline = time.monotonic() + timeout
+            backend.deadline = deadline
+            if cancelled and cancelled():
+                return 'failed', 'Backend 检测已取消。'
             backend.open_session(None, instructions='This is a FOCUS Source access check.')
+            if cancelled and cancelled():
+                return 'failed', 'Backend 检测已取消。'
             backend.start_turn(prompt='Call the focus tool with action read_range and arguments '
                                       '{"start":1,"end":1}. Reply with the exact source_text value.')
             read_succeeded = False
             messages = {}
             final_item = None
             while time.monotonic() < deadline:
-                event = backend.events.get(timeout=max(0.01, deadline - time.monotonic()))
+                if cancelled and cancelled():
+                    return 'failed', 'Backend 检测已取消。'
+                try:
+                    event = backend.events.get(timeout=min(.25, max(.01, deadline - time.monotonic())))
+                except queue.Empty:
+                    continue
                 method, params = event.get('method'), event.get('params', {})
                 if 'id' in event:
                     if method == TOOL_CALL:
@@ -76,6 +91,8 @@ def verify_source_round_trip(backend_factory, *, timeout=45):
             raise TimeoutError()
         except (TimeoutError, queue.Empty):
             return 'failed', '请求超时，请检查网络和 Runtime。'
+        except BackendConfigurationError as exc:
+            return 'failed', str(exc)
         except Exception as exc:
             return 'failed', safe_backend_error(exc)
         finally:

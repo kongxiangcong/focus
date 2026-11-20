@@ -46,7 +46,7 @@ class HostService:
     def __init__(self, workspace, data, *, model=None, codex_bin=None, backend=None,
                  backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None,
                  blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None,
-                 registry=None, clock=time.time):
+                 registry=None, verification=None, clock=time.time):
         workspace = Path(workspace).resolve()
         if not workspace.exists() or not any(workspace.iterdir()):
             create_workspace(workspace)
@@ -55,7 +55,8 @@ class HostService:
             self._initialize(workspace, data, model=model, codex_bin=codex_bin, backend=backend,
                 backend_factory=backend_factory, network=network, approval_policy=approval_policy,
                 ingestion_parser=ingestion_parser, blog_runtime=blog_runtime, reading_runtime=reading_runtime,
-                progress_runtime=progress_runtime, settings_path=settings_path, registry=registry, clock=clock)
+                progress_runtime=progress_runtime, settings_path=settings_path, registry=registry,
+                verification=verification, clock=clock)
         except BaseException:
             try:
                 if hasattr(self, 'store'):
@@ -67,7 +68,7 @@ class HostService:
     def _initialize(self, workspace, data, *, model=None, codex_bin=None, backend=None,
                  backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None,
                  blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None,
-                 registry=None, clock=time.time):
+                 registry=None, verification=None, clock=time.time):
         workspace.mkdir(parents=True, exist_ok=True)
         self.workspace = workspace.resolve()
         self.core = CoreBridge(self.workspace)
@@ -96,7 +97,7 @@ class HostService:
         self.backend_name, self.backend_factory = backend, backend_factory
         self.settings = UserSettings(settings_path, registry=registry)
         self.registry = self.settings.registry
-        self.setup = BackendSetup(registry=self.registry)
+        self.setup = BackendSetup(registry=self.registry, verification=verification)
         self.discussion_summaries = CandidateTurns(self._build_backend)
         self.ingestion_inspector = IngestionInspector(self._build_backend)
         # Speculative turns have a separate registry, so foreground cancellation
@@ -1527,29 +1528,53 @@ class HostService:
             self.stop_requested = False
             if discussion:
                 self.state['noteFeedback'] = None
+            selection = None
+            needs_verification = False
+            if self.backend_factory is None:
+                configuration = self._configuration()
+                verifier = self.setup.verification
+                invocation = None
+                try:
+                    invocation = verifier.resolve(self.registry, configuration)
+                except BackendError:
+                    pass  # Report the selected configuration's reason in the task.
+                selection = self.registry, configuration, invocation
+                needs_verification = not verifier.passed(invocation)
             run_id = uuid.uuid4().hex
+            if discussion:
+                discussion['requestMessageId'] = uuid.uuid4().hex
+            message = {'messageId': discussion['requestMessageId'] if discussion else uuid.uuid4().hex,
+                       'chunkId': chunk_id, 'role': 'user', 'reference': receipt, 'sourceId': source_id,
+                       'bundle': discussion.get('bundle') if discussion else None,
+                       'discussionId': discussion.get('discussionId') if discussion else None,
+                       'readingPass': discussion.get('readingPass') if discussion else None,
+                       'content': display_content + ''.join('\n附件：' + f['name'] for f in attachments)}
             self.state['run'] = {'runId': run_id, 'status': 'running', 'turnId': None,
                                  'phaseTiming': {'sentAt': int(time.time() * 1000),
                                                  'summaryBatches': 0, 'summaryInputChars': 0},
                                  'sourceId': source_id,
                                  'error': None, 'approvals': [], 'activity': [],
-                                 'progress': {'label': '连接助手', 'startedAt': int(time.time() * 1000),
+                                 'progress': {'label': '正在检测 Backend' if needs_verification else '连接助手',
+                                              'startedAt': int(time.time() * 1000),
                                               'stageStartedAt': int(time.time() * 1000),
                                               'updatedAt': int(time.time() * 1000)}}
-            self.state['requests'][request_id] = {'discussion': discussion} if discussion else run_id
-            if discussion:
-                discussion['requestMessageId'] = uuid.uuid4().hex
-            self.state['conversation'].append({'messageId': discussion['requestMessageId'] if discussion else uuid.uuid4().hex, 'chunkId': chunk_id, 'role': 'user',
-                                               'reference': receipt, 'sourceId': source_id, 'bundle': discussion.get('bundle') if discussion else None,
-                                               'discussionId': discussion.get('discussionId') if discussion else None,
-                                               'readingPass': discussion.get('readingPass') if discussion else None,
-                                               'content': display_content + ''.join('\n附件：' + f['name'] for f in attachments)})
-            self.state['timeline'].append({'kind': 'message', 'messageId': self.state['conversation'][-1]['messageId']})
+            pending = None
+            if needs_verification:
+                self.state['run'].update(backendVerification='checking', pendingMessageId=message['messageId'])
+                pending = request_id, message
+            else:
+                self._accept_question(request_id, message, discussion)
             self.changed()
-            self.active_discussion = discussion
-            self.worker = threading.Thread(target=self._run, args=(content, attachments, receipt, discussion), daemon=True)
+            self.active_discussion = discussion if not pending else None
+            self.worker = threading.Thread(target=self._run, args=(content, attachments, receipt, discussion),
+                                           kwargs={'selection': selection, 'pending': pending}, daemon=True)
             self.worker.start()
             return self.snapshot()
+
+    def _accept_question(self, request_id, message, discussion):
+        self.state['requests'][request_id] = {'discussion': discussion} if discussion else self.state['run']['runId']
+        self.state['conversation'].append(message)
+        self.state['timeline'].append({'kind': 'message', 'messageId': message['messageId']})
 
     def _instructions(self):
         return ("You are the FOCUS assistant. Reply in the user's language. "
@@ -1621,18 +1646,24 @@ class HostService:
             self.changed()
             return self.snapshot()
 
-    def _build_backend(self, *, workspace=None, purpose='business', tools=None):
+    def _build_backend(self, *, workspace=None, purpose='business', tools=None, selection=None):
         with self.lock:
-            name = self.backend_name
+            registry, configuration, invocation = selection or (self.registry, self._configuration(), None)
+            name = configuration['backend']
             options = {'network': self.network, 'approval_policy': self.approval_policy,
-                       'model': self.models.get(name), 'purpose': purpose,
-                       'runtime_path': self.runtime_paths.get(name), 'credential_file': self.credential_files.get(name)}
+                       'model': configuration['model'], 'purpose': purpose,
+                       'runtime_path': configuration['runtimePath'], 'credential_file': configuration['credentialFile']}
             if tools is not None:
                 options['tools'] = tools
         workspace = workspace or self.workspace
         if self.backend_factory is not None:
             return self.backend_factory(workspace, **options)
-        backend = self.registry.create_backend(name, workspace, **options)
+        invocation = invocation or self.setup.verification.resolve(registry, configuration)
+        status = self.setup.verification.verify(configuration, registry=registry, invocation=invocation)
+        if status['status'] != 'success':
+            raise BackendError('Backend 检测失败：' + status['message'])
+        options.update(model=invocation.model, runtime_path=invocation.command[0])
+        backend = registry.create_backend(name, workspace, **options)
         receipt_id = uuid.uuid4().hex
         backend.cleanup_callback = lambda receipt: self.store.put('runtimeCleanup:' + receipt_id,
             {**receipt, 'purpose': purpose, 'recordedAt': self.clock()})
@@ -1761,16 +1792,33 @@ class HostService:
             self._summary_worker = thread
             thread.start()
 
-    def _run(self, content, attachments, receipt, discussion=None):
+    def _run(self, content, attachments, receipt, discussion=None, *, selection=None, pending=None):
         backend = None
-        temporary = tempfile.TemporaryDirectory(prefix='focus-discussion-') if discussion else None
-        self.active_discussion = discussion
+        temporary = None
         try:
             with self.lock:
                 if self.stop_requested:
                     raise InterruptedError('任务在启动前已停止。')
+            if pending:
+                registry, configuration, invocation = selection
+                invocation = invocation or self.setup.verification.resolve(registry, configuration)
+                status = self.setup.verification.verify(configuration, registry=registry, invocation=invocation,
+                                                        cancelled=lambda: self.stop_requested)
+                if status['status'] != 'success':
+                    raise BackendError('Backend 检测失败：' + status['message'])
+                with self.lock:
+                    if self.stop_requested:
+                        raise InterruptedError('Backend 检测已取消。')
+                    self._accept_question(*pending, discussion)
+                    self.active_discussion = discussion
+                    self.state['run']['backendVerification'] = 'passed'
+                    self._progress('连接助手')
+                    self.changed()
+                selection = registry, configuration, invocation
+            if discussion:
+                temporary = tempfile.TemporaryDirectory(prefix='focus-discussion-')
             backend = self._build_backend(workspace=Path(temporary.name) if temporary else None,
-                                          purpose='discussion' if discussion else 'business')
+                                          purpose='discussion' if discussion else 'business', selection=selection)
             with self.lock:
                 self.backend = backend
             instructions = ("You are the FOCUS Source discussion assistant. Reply in the reader's language. "
@@ -1857,7 +1905,9 @@ class HostService:
                     self.state['run']['phaseTiming']['completed'] = int(time.time() * 1000)
         except Exception as exc:
             with self.lock:
-                if discussion and discussion['saveIntent'] and (self.discussion_app.result(discussion) or {}).get('status') != 'saved':
+                if self.state['run'].get('backendVerification') == 'checking':
+                    self.state['run']['backendVerification'] = 'failed'
+                elif discussion and discussion['saveIntent'] and (self.discussion_app.result(discussion) or {}).get('status') != 'saved':
                     self.state['noteFeedback'] = {'sourceId': discussion['sourceId'], 'status': 'failed'}
                 self.state['run']['status'] = 'interrupted' if self.stop_requested else 'failed'
                 self.state['run']['error'] = str(exc)
