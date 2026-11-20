@@ -2,15 +2,22 @@
 import unittest
 import uuid
 import threading
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
 import reading_fixture
-from test_stage6b_workflows import HarnessHistory, CodexHistory, HarnessCandidates, HarnessBlog, CodexCandidates
+from test_stage6b_workflows import CodexHistory, CodexCandidates
 from workspace_fixture import HostService
+from host.backends.codex import CodexBackend
 from host.server import Server
 from test_blog_host import ParserDouble, ControlledBlogRuntime
+from test_stage4_reading import WaitingRuntime
 import test_stage5_ingestion as single
+
+
+def fixture_backend(workspace, *, purpose, model, tools=None, **options):
+    return CodexBackend(workspace, codex_bin=sys.executable, purpose=purpose, model=model, tools=tools)
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -27,8 +34,9 @@ class ConfigurationTests(unittest.TestCase):
         self.fixture.tearDown()
 
     def test_one_save_applies_backend_and_preserves_discussion(self):
-        with patch('host.backends.codex.AppServer', CodexHistory), patch('deepseek_harness.DeepSeekHarness', HarnessHistory):
-            self.host = HostService(self.workspace, self.fixture.root / 'host', backend='codex', settings_path=self.settings)
+        with patch('host.backends.codex.AppServer', CodexHistory):
+            self.host = HostService(self.workspace, self.fixture.root / 'host', backend='codex',
+                                    settings_path=self.settings, backend_factory=fixture_backend)
             before = self.host.select_discussion_source('fixture-paper')
             self.host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': '请记住量子香蕉'})
             self.host.worker.join(5)
@@ -44,32 +52,28 @@ class ConfigurationTests(unittest.TestCase):
             self.assertIn('量子香蕉', self.host.snapshot()['conversation'][-1]['content'])
 
     def test_busy_reading_blocks_apply_and_leaves_both_configurations_unchanged(self):
-        entered, released = threading.Event(), threading.Event()
-        class WaitingHarness(HarnessCandidates):
-            def run(self, prompt, **options):
-                entered.set()
-                released.wait(5)
-                return super().run(prompt, **options)
-        with patch('deepseek_harness.DeepSeekHarness', WaitingHarness):
-            self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek', settings_path=self.settings)
-            self.host.prepare_reading('fixture-paper', request_id=uuid.uuid4().hex)
-            self.assertTrue(entered.wait(3))
-            try:
-                with self.assertRaisesRegex(ValueError, '任务运行中'):
-                    self.host.save_configuration({'backend': 'codex', 'model': 'another-model'})
-                busy = self.host.refresh_configuration()['configuration']
-                self.assertFalse(busy['refreshBlocked'])
-                self.assertEqual('deepseek', busy['effective']['backend'])
-                self.assertEqual('deepseek', busy['effective']['backend'])
-            finally:
-                released.set()
-                self.host.reading_workers['fixture-paper'].join(10)
-            self.assertTrue(self.host.snapshot()['preparations']['fixture-paper']['ready'])
-            self.assertEqual('deepseek', self.host.snapshot()['agent']['backend'])
-            self.assertEqual('codex', self.host.save_configuration({'backend': 'codex'})['agent']['backend'])
+        runtime = WaitingRuntime()
+        self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek',
+                                settings_path=self.settings, backend_factory=fixture_backend,
+                                reading_runtime=runtime)
+        self.host.prepare_reading('fixture-paper', request_id=uuid.uuid4().hex)
+        self.assertTrue(runtime.entered.wait(3))
+        try:
+            with self.assertRaisesRegex(ValueError, '任务运行中'):
+                self.host.save_configuration({'backend': 'codex', 'model': 'another-model'})
+            busy = self.host.refresh_configuration()['configuration']
+            self.assertFalse(busy['refreshBlocked'])
+            self.assertEqual('deepseek', busy['effective']['backend'])
+        finally:
+            runtime.release.set()
+            self.host.reading_workers['fixture-paper'].join(10)
+        self.assertTrue(self.host.snapshot()['preparations']['fixture-paper']['ready'])
+        self.assertEqual('deepseek', self.host.snapshot()['agent']['backend'])
+        self.assertEqual('codex', self.host.save_configuration({'backend': 'codex'})['agent']['backend'])
 
     def test_reverting_saved_configuration_clears_pending_and_settings_cross_knowledge_bases(self):
-        self.host = HostService(self.workspace, self.fixture.root / 'host', backend='codex', settings_path=self.settings)
+        self.host = HostService(self.workspace, self.fixture.root / 'host', backend='codex',
+                                settings_path=self.settings, backend_factory=fixture_backend)
         original = self.host.snapshot()['configuration']['effective']
         self.host.save_configuration({'backend': 'deepseek', 'model': 'deepseek-v4-flash'})
         restored = self.host.save_configuration(original)
@@ -82,20 +86,18 @@ class ConfigurationTests(unittest.TestCase):
         finally:
             other.close()
 
-    def test_missing_runtime_can_be_saved_but_ai_reports_it_without_fallback(self):
+    def test_missing_runtime_is_rejected_without_altering_saved_or_effective_configuration(self):
         self.host = HostService(self.workspace, self.fixture.root / 'host', backend='codex', settings_path=self.settings)
-        self.host.save_configuration({'backend': 'deepseek', 'runtimePath': str(self.fixture.root / 'missing.exe')})
-        state = self.host.snapshot()['configuration']
-        self.assertEqual('deepseek', state['effective']['backend'])
-        self.assertFalse(state['pending'])
-        with self.assertRaisesRegex(Exception, 'Runtime'):
-            self.host._build_backend()
+        before = self.host.snapshot()['configuration']
+        with self.assertRaisesRegex(ValueError, '指定的可执行文件不可用'):
+            self.host.save_configuration({'backend': 'deepseek', 'runtimePath': str(self.fixture.root / 'missing.exe')})
+        self.assertEqual(before, self.host.snapshot()['configuration'])
 
     def test_standalone_blog_worker_blocks_configuration_until_cancellation_settles(self):
         runtime = ControlledBlogRuntime()
         runtime.release.clear()
         self.host = HostService(self.workspace, self.fixture.root / 'host', backend='codex',
-                                settings_path=self.settings, blog_runtime=runtime)
+                                settings_path=self.settings, blog_runtime=runtime, backend_factory=fixture_backend)
         self.host.save_configuration({'backend': 'deepseek'})
         self.host.blog_generate('fixture-paper', request_id=uuid.uuid4().hex)
         self.assertTrue(runtime.entered.wait(5))
@@ -117,7 +119,8 @@ class ConfigurationTests(unittest.TestCase):
         runtime = ProgressRuntime()
         runtime.pause = True
         self.host = HostService(self.workspace, self.fixture.root / 'host', backend='codex',
-                                settings_path=self.settings, reading_runtime=ReadingRuntimeDouble(), progress_runtime=runtime)
+                                settings_path=self.settings, reading_runtime=ReadingRuntimeDouble(), progress_runtime=runtime,
+                                backend_factory=fixture_backend)
         self.host.prepare_reading('fixture-paper', request_id=uuid.uuid4().hex)
         self.host.reading_workers['fixture-paper'].join(5)
         view = self.host.open_prepared_reading('fixture-paper', request_id=uuid.uuid4().hex)
@@ -158,29 +161,28 @@ class BatchConfigurationTests(unittest.TestCase):
         entered, release = threading.Event(), threading.Event()
         calls = []
 
-        class WaitingHarness(HarnessBlog):
-            def run(self, prompt, **options):
-                calls.append('deepseek')
-                if len(calls) == 4:  # three reading blogs are complete
-                    self.waiting = True
-                    entered.set()
-                    release.wait(20)
-                return super().run(prompt, **options)
+        class RecordingCodex(CodexCandidates):
+            def request(self, method, params, **options):
+                if method == 'thread/start':
+                    self.selected_model = params.get('model')
+                elif method == 'turn/start':
+                    calls.append('deepseek' if self.selected_model == 'deepseek-v4-flash' else 'codex')
+                    if len(calls) == 4:
+                        self.waiting = True
+                        entered.set()
+                        release.wait(20)
+                return super().request(method, params, **options)
 
             def close(self):
                 if getattr(self, 'waiting', False):
                     release.set()
+                super().close()
 
-        class RecordingCodex(CodexCandidates):
-            def request(self, method, params, **options):
-                if method == 'turn/start':
-                    calls.append('codex')
-                return super().request(method, params, **options)
-
-        with tempfile.TemporaryDirectory() as directory, patch('deepseek_harness.DeepSeekHarness', WaitingHarness), patch('host.backends.codex.AppServer', RecordingCodex):
+        with tempfile.TemporaryDirectory() as directory, patch('host.backends.codex.AppServer', RecordingCodex):
             root = Path(directory)
             host = HostService(root / 'kb', root / 'host', backend='deepseek',
-                               settings_path=root / 'settings.json', ingestion_parser=ParserDouble())
+                               settings_path=root / 'settings.json', ingestion_parser=ParserDouble(),
+                               backend_factory=fixture_backend)
             self.server = Server(('127.0.0.1', 0), host)
             server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
             server_thread.start()
@@ -193,7 +195,7 @@ class BatchConfigurationTests(unittest.TestCase):
                 preserved = {str(p): p.read_bytes() for item in snapshot['items'][:3]
                              for p in (host.workspace / 'sources' / item['sourceId']).rglob('*') if p.is_file()}
                 config = {'backend': 'codex', 'model': 'gpt-6-astra'}
-                self.request('POST', '/reader/configuration', config, expected_status=400)
+                self.request('POST', '/reader/configuration', config, expected_status=409)
                 self.request('POST', f"/library/batches/{batch['batchId']}/stop", {'requestId': 'stop'})
                 release.set()
                 for worker in list(host.batch_workers.values()):

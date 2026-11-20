@@ -94,6 +94,35 @@ class BackendStartupTests(unittest.TestCase):
                     self.assertIn(reason, error['message'])
                     self.assertEqual([], _request(connection, '/reader/window', headers=headers)['conversation'])
 
+    def test_successful_explicit_settings_apply_supersedes_the_launch_override(self):
+        with fixture_directory() as root:
+            settings = root / 'settings.json'
+            manifests = root / 'backends'
+            self._manifest(manifests, 'example')
+            real_fixture = ROOT / 'tests/acp_runtime_fixture.py'
+            fixture_log = root / 'runtime.jsonl'
+            (manifests / 'approved.json').write_text(json.dumps({
+                'id': 'approved', 'driver': 'acp', 'label': 'Approved',
+                'command': [sys.executable, str(real_fixture), 'http', str(fixture_log)],
+                'defaultModel': 'selected-model',
+            }), encoding='utf-8')
+            with _start_host(startup_environment(settings), '--backend', 'example') as connection:
+                binding = _request(connection, '/reader/workspace')
+                binding = _request(connection, '/reader/workspace', {
+                    'mode': 'create', 'path': str(root), 'name': 'first', 'generation': binding['generation'],
+                })
+                headers = {'X-FOCUS-Instance': binding['workspace']['instanceId']}
+                changed = _request(connection, '/reader/configuration', {'backend': 'approved'}, headers=headers)
+                config = changed['configuration']
+                self.assertFalse(config['startupOverride'])
+                self.assertEqual('approved', config['effective']['backend'])
+                self.assertEqual(config['saved'], config['effective'])
+                _request(connection, '/reader/workspace', {
+                    'mode': 'create', 'path': str(root), 'name': 'second', 'generation': binding['generation'],
+                })
+                self.assertEqual('approved', _request(connection, '/reader/configuration')['effective']['backend'])
+            self.assertEqual('approved', json.loads(settings.read_text(encoding='utf-8'))['backend'])
+
     @staticmethod
     def _manifest(folder, identifier):
         folder.mkdir(parents=True, exist_ok=True)

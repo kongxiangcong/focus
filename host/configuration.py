@@ -54,6 +54,10 @@ def resolve_startup(settings, *, backend=None, backend_bin=None, model=None):
     return StartupSelection({**value, 'runtimePath': path})
 
 
+class BackendBusyError(ValueError):
+    """A competing Backend operation can be retried when the Host is idle."""
+
+
 def normalize(value, registry=DEFAULT_REGISTRY, *, allow_missing=False):
     if not isinstance(value, dict) or set(value) - {'backend', 'model', 'runtimePath', 'credentialFile', 'requestId', 'preferences'}:
         raise ValueError('后端配置字段无效。')
