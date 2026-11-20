@@ -39,13 +39,14 @@ from core.source_notes import check_sentence
 BLOG_ARTIFACT_LABELS = {'reading_blog': '重新生成带读博客', 'html': '重新生成 HTML'}
 
 ACTIVE = ('running', 'approval', 'stopping')
+APPROVAL_EXPIRED = '本次请求已过期，请重试'
 
 
 class HostService:
     def __init__(self, workspace, data, *, model=None, codex_bin=None, backend=None,
                  backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None,
                  blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None,
-                 registry=None, verification=None, clock=time.time):
+                 registry=None, verification=None, allow_unconfigured=False, clock=time.time):
         workspace = Path(workspace).resolve()
         if not workspace.exists() or not any(workspace.iterdir()):
             create_workspace(workspace)
@@ -55,7 +56,7 @@ class HostService:
                 backend_factory=backend_factory, network=network, approval_policy=approval_policy,
                 ingestion_parser=ingestion_parser, blog_runtime=blog_runtime, reading_runtime=reading_runtime,
                 progress_runtime=progress_runtime, settings_path=settings_path, registry=registry,
-                verification=verification, clock=clock)
+                verification=verification, allow_unconfigured=allow_unconfigured, clock=clock)
         except BaseException:
             try:
                 if hasattr(self, 'store'):
@@ -67,7 +68,7 @@ class HostService:
     def _initialize(self, workspace, data, *, model=None, codex_bin=None, backend=None,
                  backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None,
                  blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None,
-                 registry=None, verification=None, clock=time.time):
+                 registry=None, verification=None, allow_unconfigured=False, clock=time.time):
         workspace.mkdir(parents=True, exist_ok=True)
         self.workspace = workspace.resolve()
         self.core = CoreBridge(self.workspace)
@@ -94,10 +95,11 @@ class HostService:
         self.page_generation = self.generation
         self.stream_messages = {}
         self.network, self.approval_policy = network, approval_policy
-        backend = backend or DEFAULT_BACKEND
+        backend = backend or (None if allow_unconfigured else DEFAULT_BACKEND)
         self.backend_name, self.backend_factory = backend, backend_factory
         self.settings = UserSettings(settings_path, registry=registry)
         self.registry = self.settings.registry
+        self.active_registry = self.registry
         self.setup = BackendSetup(registry=self.registry, verification=verification)
         self.discussion_summaries = CandidateTurns(self._build_backend)
         self.ingestion_inspector = IngestionInspector(self._build_backend, admission=self._foreground_ai_operation)
@@ -122,7 +124,7 @@ class HostService:
         self.progress_serial = threading.Lock()
         self.models = {spec.id: os.getenv(f'FOCUS_{spec.id.upper()}_MODEL') or spec.default_model
                        for spec in self.registry.list_specs()}
-        if model:
+        if model and backend:
             self.models[backend] = model
         self.runtime_paths = {DEFAULT_BACKEND: str(codex_bin)} if codex_bin is not None else {}
         self.credential_files = {}
@@ -149,7 +151,7 @@ class HostService:
         self.resetting = False
         self._snapshot_cache = None
         self._disk_memo = {}
-        if backend_factory is None and not saved:
+        if backend_factory is None and not saved and backend:
             self.registry.get_spec(backend)
         if not self.state['timeline'] and self.state['displayReading']:
             window = self.core.window()
@@ -1510,6 +1512,8 @@ class HostService:
                     raise ValueError('同一 requestId 的内容或讨论范围已改变。')
                 return self.snapshot()
             self._require_backend_admission()
+            if not self.backend_name and self.backend_factory is None:
+                raise ValueError('请先在设置中选择 Backend 并保存应用。')
             discussion = None
             if source_id is not None:
                 selected_source = self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']
@@ -1556,10 +1560,10 @@ class HostService:
                 verifier = self.setup.verification
                 invocation = None
                 try:
-                    invocation = verifier.resolve(self.registry, configuration)
+                    invocation = verifier.resolve(self.active_registry, configuration)
                 except BackendError:
                     pass  # Report the selected configuration's reason in the task.
-                selection = self.registry, configuration, invocation
+                selection = self.active_registry, configuration, invocation
                 needs_verification = not verifier.passed(invocation)
             run_id = uuid.uuid4().hex
             if discussion:
@@ -1614,6 +1618,8 @@ class HostService:
             return {'adapter': self.backend_name, 'model': self.models.get(self.backend_name)}
 
     def _configuration(self):
+        if self.backend_name is None:
+            return None
         return {'backend': self.backend_name, 'model': self.models.get(self.backend_name),
                 'runtimePath': self.runtime_paths.get(self.backend_name),
                 'credentialFile': self.credential_files.get(self.backend_name)}
@@ -1629,6 +1635,14 @@ class HostService:
     def configuration_status(self):
         with self.lock:
             return self.settings.projection(self._configuration(), self._configuration_busy())
+
+    def update_backend_registry(self, registry):
+        with self.lock:
+            self.registry = self.settings.registry = self.setup.registry = registry
+            self.generation += 1
+            self.page_generation = self.generation
+            self._snapshot_cache = None
+            self.condition.notify_all()
 
     def save_configuration(self, value):
         with self.configuration_transition():
@@ -1685,9 +1699,8 @@ class HostService:
                 raise BackendBusyError('Backend 列表已重新扫描，请重试保存。')
             self.lease.require_current()
             old = {'backend_name': self.backend_name, 'models': self.models.copy(),
-                   'runtime_paths': self.runtime_paths.copy(), 'credential_files': self.credential_files.copy()}
-            if hasattr(self, 'active_registry'):
-                old['active_registry'] = self.active_registry
+                   'runtime_paths': self.runtime_paths.copy(), 'credential_files': self.credential_files.copy(),
+                   'active_registry': self.active_registry}
             thread_id, resume_backend = self.state.get('threadId'), self.state.get('resumeBackend')
             try:
                 self._apply_configuration(normalized)
@@ -1700,10 +1713,12 @@ class HostService:
             self.refresh_blocked = False
 
     def _apply_configuration(self, value):
-        self.backend_name = value['backend']
-        self.models[self.backend_name] = value['model']
-        self.runtime_paths[self.backend_name] = value['runtimePath']
-        self.credential_files[self.backend_name] = value['credentialFile']
+        self.active_registry = self.registry
+        self.backend_name = value['backend'] if value else None
+        if value:
+            self.models[self.backend_name] = value['model']
+            self.runtime_paths[self.backend_name] = value['runtimePath']
+            self.credential_files[self.backend_name] = value['credentialFile']
         self.state.update(threadId=None, resumeBackend=None)
 
     def refresh_configuration(self):
@@ -1721,11 +1736,13 @@ class HostService:
     def _build_backend(self, *, workspace=None, purpose='business', tools=None, selection=None):
         with self.lock:
             self._require_backend_admission()
-            registry, configuration, invocation = selection or (self.registry, self._configuration(), None)
-            name = configuration['backend']
+            registry, configuration, invocation = selection or (self.active_registry, self._configuration(), None)
+            if configuration is None and self.backend_factory is None:
+                raise BackendError('请先在设置中选择 Backend 并保存应用。')
+            configuration = configuration or {}
             options = {'network': self.network, 'approval_policy': self.approval_policy,
-                       'model': configuration['model'], 'purpose': purpose,
-                       'runtime_path': configuration['runtimePath'], 'credential_file': configuration['credentialFile']}
+                       'model': configuration.get('model'), 'purpose': purpose,
+                       'runtime_path': configuration.get('runtimePath'), 'credential_file': configuration.get('credentialFile')}
             if tools is not None:
                 options['tools'] = tools
         workspace = workspace or self.workspace
@@ -1736,7 +1753,7 @@ class HostService:
         if status['status'] != 'success':
             raise BackendError('Backend 检测失败：' + status['message'])
         options.update(model=invocation.model, runtime_path=invocation.command[0])
-        backend = registry.create_backend(name, workspace, **options)
+        backend = registry.create_backend(invocation.backend, workspace, **options)
         receipt_id = uuid.uuid4().hex
         backend.cleanup_callback = lambda receipt: self.store.put('runtimeCleanup:' + receipt_id,
             {**receipt, 'purpose': purpose, 'recordedAt': self.clock()})
@@ -1997,7 +2014,8 @@ class HostService:
                 self.pending.clear()
                 if backend and hasattr(backend, 'cleanup'):
                     self.state['run']['runtimeCleanup'] = dict(backend.cleanup)
-                self.state['run']['approvals'] = []
+                self.state['run']['approvals'] = [
+                    approval for approval in self.state['run']['approvals'] if approval.get('status') == 'expired']
                 if self.state['run']['status'] in ACTIVE:
                     self.state['run']['status'] = 'interrupted'
                 if self.state['run'].get('progress'):
@@ -2031,7 +2049,7 @@ class HostService:
             return False
         if method == 'turn/completed':
             with self.lock:
-                status = params.get('status') or 'completed'
+                status = 'interrupted' if self.stop_requested else (params.get('status') or 'completed')
                 # Completion is published only after Host verification in _run.
                 self.state['run']['status'] = 'running' if status == 'completed' else status
                 self.state['run']['error'] = params.get('error')
@@ -2058,7 +2076,8 @@ class HostService:
             self._answer(request_id, {'answers': reply.get('answers', {}) if reply else {}})
         elif method == PERMISSIONS_APPROVAL:
             reply = self._wait_approval(event, params.get('title') or APPROVAL_TITLES[PERMISSIONS_APPROVAL],
-                                        json.dumps(params.get('permissions', {}), ensure_ascii=False, indent=2))
+                                        params.get('detail') or json.dumps(params.get('permissions', {}), ensure_ascii=False, indent=2),
+                                        choices=params.get('choices'))
             self._answer(request_id, {'accept': bool(reply and reply.get('decision') == 'accept')})
         else:
             self._refuse(request_id, params.get('message', 'FOCUS 不支持该运行时请求。'))
@@ -2166,7 +2185,7 @@ class HostService:
     def _notification(self, method, params):
         with self.lock:
             run = self.state['run']
-            if not run or run['status'] not in ACTIVE:
+            if not run or run['status'] not in ACTIVE or self.stop_requested:
                 return
             if method == 'message/delta':
                 self._conversation_entry(params['itemId'])['content'] += params.get('delta', '')
@@ -2223,26 +2242,41 @@ class HostService:
     def _wait_approval(self, event, title, detail, *, kind='approval', questions=None, choices=None):
         approval_id = uuid.uuid4().hex
         waiter = queue.Queue()
+        backend = self.backend
+
+        def available():
+            if self.stop_requested or backend is None or self.backend is not backend:
+                return False
+            check = getattr(backend, 'approval_available', None)
+            return check(event['id']) if check else not backend.closed
+
+        approval = {'id': approval_id, 'title': title, 'detail': detail,
+                    'kind': kind, 'questions': questions or [], 'choices': choices or ['accept', 'decline']}
         with self.lock:
-            self.pending[approval_id] = waiter
-            self.state['run']['approvals'].append({'id': approval_id, 'title': title, 'detail': detail,
-                                                   'kind': kind, 'questions': questions or [],
-                                                   'choices': choices or ['accept', 'decline']})
+            if not available():
+                return False
+            self.pending[approval_id] = (waiter, available)
+            self.state['run']['approvals'].append(approval)
             self.state['run']['status'] = 'approval'
             self.changed()
+        answered = False
         try:
-            while True:
+            while available():
                 try:
-                    response = waiter.get(timeout=0.5)
-                    break
+                    response = waiter.get(timeout=.1)
                 except queue.Empty:
-                    if self.stop_requested or self.backend is None or self.backend.closed:
-                        return False
-            return response
+                    continue
+                if available():
+                    answered = True
+                    return response
+            return False
         finally:
             with self.lock:
                 self.pending.pop(approval_id, None)
-                self.state['run']['approvals'] = [a for a in self.state['run']['approvals'] if a['id'] != approval_id]
+                if answered:
+                    self.state['run']['approvals'].remove(approval)
+                else:
+                    approval['status'] = 'expired'
                 self.state['run']['status'] = 'stopping' if self.stop_requested else 'running'
                 self._progress('继续处理')
                 self.changed()
@@ -2250,8 +2284,9 @@ class HostService:
     def approve(self, payload):
         with self.lock:
             approval = next((a for a in self.state['run']['approvals'] if a['id'] == payload.get('approvalId')), None) if self.state['run'] else None
-            if not approval or approval['id'] not in self.pending:
-                raise ValueError('审批已过期，请刷新。')
+            pending = self.pending.get(approval['id']) if approval else None
+            if not pending or not pending[1]():
+                raise ValueError(APPROVAL_EXPIRED)
             if approval['kind'] == 'input':
                 answers = payload.get('answers')
                 if not isinstance(answers, dict) or any(not isinstance(v, dict) or not isinstance(v.get('answers'), list)
@@ -2260,7 +2295,7 @@ class HostService:
             elif payload.get('decision') not in approval['choices']:
                 raise ValueError('Invalid approval decision')
             # Claim once; double clicks and stale tabs cannot answer again.
-            waiter = self.pending.pop(approval['id'])
+            waiter, _ = self.pending.pop(approval['id'])
             waiter.put(payload if approval['kind'] != 'continue' else payload.get('decision') == 'accept')
             return self.snapshot()
 

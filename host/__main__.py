@@ -23,6 +23,7 @@ def main():
     parser.add_argument('--public-origin', default=os.getenv('FOCUS_PUBLIC_ORIGIN'))
     parser.add_argument('--backend', default=os.getenv('FOCUS_BACKEND'), choices=backend_names(),
                         help='Agent runtime that serves reading turns; UI and Core stay identical')
+    parser.add_argument('--backends-dir', type=Path, help='Directory containing additional Backend manifests')
     parser.add_argument('--check-runtime', action='store_true', help='Verify the selected backend and exit')
     args = parser.parse_args()
     if args.check_runtime:
@@ -33,7 +34,7 @@ def main():
     token = os.getenv('FOCUS_HOST_TOKEN')
     if args.bind not in ('127.0.0.1', 'localhost') and (not token or not args.public_origin):
         raise ValueError('Non-loopback requires FOCUS_HOST_TOKEN and --public-origin; use a trusted private network or HTTPS proxy')
-    service = Workbench(workspace=args.workspace, model=args.model, codex_bin=args.codex_bin,
+    service = Workbench(workspace=args.workspace, backends_dir=args.backends_dir, model=args.model, codex_bin=args.codex_bin,
                         backend=args.backend, network=args.network, approval_policy=args.approval_policy)
     server = Server((args.bind, args.port), service, token=token, public_origin=args.public_origin)
     print(f'FOCUS http://{args.bind}:{args.port}', flush=True)

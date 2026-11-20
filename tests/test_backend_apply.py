@@ -44,6 +44,14 @@ class BackendApplyTests(unittest.TestCase):
         finally:
             client.close()
 
+    def read_snapshot(self, stream):
+        while line := stream.readline():
+            if line == b'event: snapshot\n':
+                frame = stream.readline()
+                self.assertTrue(frame.startswith(b'data: '))
+                return json.loads(frame[6:])['value']['configuration']
+        self.fail('snapshot stream closed')
+
     def test_browsing_remains_live_and_second_tab_cannot_send_apply_or_rebind(self):
         entered = threading.Event()
         release = threading.Event()
@@ -60,6 +68,8 @@ class BackendApplyTests(unittest.TestCase):
 
         target = {'backend': 'codex', 'model': 'checked-model', 'runtimePath': sys.executable,
                   'requestId': 'apply-test-request'}
+        reader = http.client.HTTPConnection(*self.server.server_address, timeout=3)
+        self.addCleanup(reader.close)
         with patch('host.backends.codex.AppServer', StalledProbe), ThreadPoolExecutor() as pool:
             applying = pool.submit(self.request, 'POST', '/reader/configuration', target)
             try:
@@ -69,6 +79,10 @@ class BackendApplyTests(unittest.TestCase):
                 self.assertEqual(200, status)
                 self.assertEqual('old-model', window['value']['configuration']['effective']['model'])
                 self.assertEqual('old-model', json.loads(self.settings.read_text(encoding='utf-8'))['model'])
+                reader.request('GET', '/reader/events', headers={'X-FOCUS-Instance': self.instance})
+                stream = reader.getresponse()
+                self.addCleanup(stream.close)
+                self.assertEqual('old-model', self.read_snapshot(stream)['effective']['model'])
                 for path, value in (
                     ('/reader/messages', {'requestId': 'second-tab-message', 'content': 'Do not send yet'}),
                     ('/reader/configuration', {**target, 'model': 'second-model'}),
@@ -91,6 +105,7 @@ class BackendApplyTests(unittest.TestCase):
         self.assertEqual(200, status)
         self.assertEqual(first['effective'], second['value']['effective'])
         self.assertEqual(first['saved'], second['value']['saved'])
+        self.assertEqual(first['effective'], self.read_snapshot(stream)['effective'])
         self.assertEqual('checked-model', first['effective']['model'])
         self.assertFalse(first['busy'])
 

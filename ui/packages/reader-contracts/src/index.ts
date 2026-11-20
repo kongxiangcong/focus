@@ -245,6 +245,7 @@ export interface ReadingPreparation {
 
 export interface ReaderApproval {
   id: string;
+  status?: "expired";
   title: string;
   detail: string;
   kind: "approval" | "continue" | "input";
@@ -253,7 +254,7 @@ export interface ReaderApproval {
 }
 
 export interface ReaderAgentState {
-  backend?: string;
+  backend?: string | null;
   backends?: readonly BackendDescriptor[];
   run: null | {
     runId: string;
@@ -570,7 +571,7 @@ export function createReaderId(): string {
   const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
-export type BackendSetupAction = "inspect" | "prepare" | "account" | "login-start" | "login-status" | "login-cancel" | "check" | "models";
+export type BackendSetupAction = "inspect" | "prepare" | "account" | "login-start" | "login-status" | "login-cancel" | "check" | "models" | "rescan";
 export interface BackendDescriptor {
   id: string;
   label: string;
@@ -597,8 +598,8 @@ export interface BackendConfiguration {
   credentialFile: string | null;
 }
 export interface BackendConfigurationState {
-  saved: BackendConfiguration;
-  effective: BackendConfiguration;
+  saved: BackendConfiguration | null;
+  effective: BackendConfiguration | null;
   pending: boolean;
   busy: boolean;
   refreshBlocked: boolean;
@@ -609,7 +610,7 @@ export interface BackendConfigurationState {
 }
 export interface BackendSetupInput {
   backend: string;
-  runtimePath?: string;
+  runtimePath?: string | null;
   model?: string;
   credentialFile?: string;
   loginId?: string;
@@ -629,4 +630,6 @@ export interface BackendSetupResult {
   catalogStatus?: string;
   catalogMessage?: string;
   models?: string[];
+  backends?: BackendConfigurationState["backends"];
+  backendErrors?: BackendConfigurationState["backendErrors"];
 }

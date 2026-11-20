@@ -10,11 +10,13 @@ function catalogKey(input: BackendSetupInput) {
   return JSON.stringify([input.backend, input.runtimePath ?? "", input.credentialFile ?? ""]);
 }
 
-export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearance, onCancelAppearance, onDraft }: {
+export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearance, onCancelAppearance }: {
   host: ReaderHost; configuration?: BackendConfigurationState; onSaved?: (view: ReadingWindow) => void; onSaveAppearance?: () => boolean; onCancelAppearance?: () => void;
-  onDraft?: (input: BackendSetupInput) => void;
 }) {
-  const [input, setInput] = useState<BackendSetupInput>({ backend: "codex" });
+  const [input, setInput] = useState<BackendSetupInput>({ backend: "" });
+  const [scan, setScan] = useState<BackendSetupResult | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const manualChoice = useRef(false);
   const drafts = useRef<Partial<Record<string, BackendSetupInput>>>({});
   const [catalog, setCatalog] = useState<Partial<Record<string, BackendSetupResult>>>({});
   const [checked, setChecked] = useState<BackendSetupResult | null>(null);
@@ -26,11 +28,17 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
   const [error, setError] = useState("");
   const revision = useRef(0);
   const alive = useRef(true);
-  const saved = configuration?.saved;
-  const backends = configuration?.backends ?? legacyBackends;
+  const saved = configuration?.saved ?? configuration?.effective;
+  const discovered = scan?.backends ?? configuration?.backends;
+  const backends = discovered ?? legacyBackends;
+  const available = backends.filter(backend => backend.available);
+  const suggested = available.length === 1 ? available[0].id : discovered ? "" : legacyBackends[0].id;
   const selectedBackend = backends.find(backend => backend.id === input.backend);
+  const needsModel = selectedBackend?.defaultModel === null && !input.model?.trim();
+  useEffect(() => { setScan(null); }, [configuration?.backends]);
   useEffect(() => {
     if (saved) {
+      manualChoice.current = false;
       revision.current++;
       setChecked(null); setChecking(false);
       setFeedback(previous => previous.startsWith('连接检查通过') ? '' : previous);
@@ -42,14 +50,37 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
       } : { backend: saved.backend }));
     }
   }, [saved?.backend, saved?.model, saved?.runtimePath, saved?.credentialFile, configuration?.operationId]);
-  useEffect(() => { onDraft?.({ ...input, preferences: drafts.current }); }, [input, onDraft]);
+  useEffect(() => {
+    if (saved || (manualChoice.current && selectedBackend)) return;
+    manualChoice.current = false;
+    if (input.backend !== suggested) setInput({ backend: suggested });
+  }, [saved?.backend, selectedBackend?.id, suggested, input.backend]);
   useEffect(() => { alive.current = true; return () => { alive.current = false; revision.current++; }; }, []);
 
-  function change(next: BackendSetupInput) {
+  function change(next: BackendSetupInput, manuallySelected = true) {
     revision.current++;
-    drafts.current[next.backend] = next;
+    manualChoice.current = manuallySelected;
+    if (next.backend) drafts.current[next.backend] = next;
     setInput(next); setChecking(false); setFeedback(""); setError("");
     setChecked(null);
+  }
+  async function rescan() {
+    if (!host.backendSetup) return;
+    setScanning(true); setError(""); setFeedback("");
+    try {
+      const result = await host.backendSetup("rescan", { backend: "" });
+      if (!alive.current) return;
+      if (result.ok && result.value.status === "success") {
+        setScan(result.value);
+        setCatalog({});
+        setChecked(null);
+        setFeedback(result.value.message);
+      } else setError(result.ok ? result.value.message : result.error.message);
+    } catch {
+      if (alive.current) setError("扫描失败，请重试。");
+    } finally {
+      if (alive.current) setScanning(false);
+    }
   }
   async function loginOperation(action: "login-start" | "login-status" | "login-cancel") {
     if (!host.backendSetup || (action !== "login-start" && !login?.loginId)) return;
@@ -150,50 +181,65 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
 
   const currentCatalog = catalog[catalogKey(input)];
   const options = [...new Set([...(currentCatalog?.models ?? []), input.model ?? ""])].filter(Boolean);
+  const manifestErrors = scan?.backendErrors ?? configuration?.backendErrors ?? [];
   return <section className="backend-setup focus-reader__appearance-panel" aria-label="后端设置">
     <h2>后端</h2>
+    {discovered && available.length === 0 && <p>未找到可用的 Backend。请安装，或选择一项后指定可执行文件。</p>}
+    {!!manifestErrors.length && <ul aria-label="Backend 配置错误">{manifestErrors.map(({ file, message }) =>
+      <li key={file}>{file} · {message}</li>)}</ul>}
     <fieldset disabled={loginBusy || !!login}>
       <legend>选择后端</legend>
-      {backends.map(({ id, label }) => <label key={id}>
+      {backends.map(({ id, label, available: installed, installHint }) => <label key={id}
+        title={installed === undefined ? undefined : installed ? "已找到可执行文件" : installHint}>
         <input type="radio" name="setup-backend" checked={input.backend === id}
           onChange={() => change((Object.hasOwn(drafts.current, id) && drafts.current[id]) || { backend: id })} />
         {label}
       </label>)}
-      <label>模型<select value={input.model ?? ''} onChange={event => change({ ...input, model: event.target.value || undefined })}>
-        <option value="">使用默认模型</option>
+      <label>模型<select disabled={!input.backend} value={input.model ?? ''} onChange={event => change({ ...input, model: event.target.value || undefined })}>
+        <option value="">{selectedBackend?.defaultModel === null ? "请选择或手动输入模型" : "使用默认模型"}</option>
         {options.map(model => <option key={model} value={model}>{model}</option>)}
       </select></label>
       <details>
         <summary>手动设置模型</summary>
-        <label>手动输入模型<input value={input.model ?? ""} onChange={event => change({ ...input, model: event.target.value || undefined })} /></label>
+        <label>手动输入模型<input disabled={!input.backend} value={input.model ?? ""} onChange={event => change({ ...input, model: event.target.value || undefined })} /></label>
       </details>
       {!!selectedBackend?.credentialEnv?.length && <label>凭据文件路径<input value={input.credentialFile ?? ""}
         onChange={event => change({ ...input, credentialFile: event.target.value || undefined })} /></label>}
+      {discovered && input.backend && <details open={selectedBackend?.available === false || undefined}>
+        <summary>可执行文件</summary>
+        <label>可执行文件路径<input value={input.runtimePath ?? ""} placeholder={selectedBackend?.runtimePath ?? "输入本机安装路径"}
+          onChange={event => change({ ...input, runtimePath: event.target.value || null })} /></label>
+      </details>}
     </fieldset>
+    {selectedBackend?.available === false && <p>{selectedBackend.unavailableReason ?? selectedBackend.installHint}</p>}
     {selectedBackend?.capabilities?.authMode === "external-cli" && selectedBackend.loginHint && <p>{selectedBackend.loginHint}</p>}
     <div className="backend-setup__actions">
-    <button type="button" disabled={checking || loginBusy || !!login || !host.backendSetup}
+    {discovered && <button type="button" disabled={scanning || checking || loginBusy || !!login || !host.backendSetup}
+      onClick={() => void rescan()}>{scanning ? "正在扫描…" : "重新扫描 Backend"}</button>}
+    <button type="button" disabled={!input.backend || needsModel || scanning || checking || loginBusy || !!login || !host.backendSetup}
       onClick={() => void check()}>{checking ? "检查中…" : "连接检查"}</button>
     {selectedBackend?.capabilities?.modelDiscovery && selectedBackend.capabilities.modelDiscovery !== "none" &&
-      <button type="button" disabled={checking || loginBusy || !!login || !host.backendSetup} onClick={() => void loadModels()}>
+      <button type="button" disabled={scanning || checking || loginBusy || !!login || !host.backendSetup} onClick={() => void loadModels()}>
         {currentCatalog?.catalogStatus === "failed" ? "重试模型清单" : "加载模型清单"}
       </button>}
     {selectedBackend?.capabilities?.authMode === "interactive-oauth" &&
-      <button type="button" disabled={checking || loginBusy || !!login || !host.backendSetup}
+      <button type="button" disabled={scanning || checking || loginBusy || !!login || !host.backendSetup}
         onClick={() => void loginOperation("login-start")}>{loginBusy ? "登录处理中…" : `登录 ${selectedBackend.label}`}</button>}
     </div>
     {input.model && currentCatalog?.catalogStatus === 'loaded' && !currentCatalog.models?.includes(input.model) && <p role="status">已保存的模型不在当前清单中；保留选择，可重检或返回默认。</p>}
     <p>{checked && checked.backend === input.backend && (!input.model || checked.checkedModel === input.model) ? '当前模型已验证（仅本次最小请求）。' : '当前模型尚未验证。'}</p>
     {login?.authUrl && <p><a href={login.authUrl} target="_blank" rel="noopener noreferrer">打开浏览器授权</a>
       <button type="button" disabled={loginBusy} onClick={() => void loginOperation("login-cancel")}>取消登录</button></p>}
-    {!onDraft && <div className="backend-setup__actions backend-setup__save-actions">
-    <button type="button" className="workspace-primary" disabled={checking || loginBusy || !!login || configuration?.busy }
+    <div className="backend-setup__actions backend-setup__save-actions">
+    <button type="button" className="workspace-primary" disabled={!input.backend || needsModel || scanning || checking || loginBusy || !!login || configuration?.busy }
       onClick={() => void save()}>保存并应用</button>
     <button type="button" disabled={checking || loginBusy || !!login} onClick={() => {
       onCancelAppearance?.();
-      const backend = saved?.backend ?? 'codex';
-      change({ backend, model: configuration?.preferences?.[backend]?.model ?? undefined });
-    }}>取消修改</button></div>}
+      const backend = saved?.backend ?? suggested;
+      const preference = configuration?.preferences?.[backend];
+      change({ backend, model: preference?.model ?? undefined, runtimePath: preference?.runtimePath ?? undefined,
+        credentialFile: preference?.credentialFile ?? undefined }, false);
+    }}>取消修改</button></div>
     {configuration?.busy && <p role="status">当前任务正在使用后端，请等待任务结束后保存；可先编辑设置。</p>}
     {feedback && <p role="status">{feedback}</p>}
     {error && <p role="alert">{error}</p>}

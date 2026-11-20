@@ -5,7 +5,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
-from .backends import DEFAULT_BACKEND, DEFAULT_REGISTRY, BackendError, HarnessRegistry
+from .backends import DEFAULT_REGISTRY, BackendError, HarnessRegistry
 
 DEFAULT_MODELS = {spec.id: spec.default_model for spec in DEFAULT_REGISTRY.list_specs()}
 
@@ -41,10 +41,10 @@ def normalize(value, registry=DEFAULT_REGISTRY, *, allow_missing=False):
 
 
 class UserSettings:
-    def __init__(self, path=None, *, registry=None):
+    def __init__(self, path=None, *, registry=None, backends_dir=None):
         base = Path(os.getenv('LOCALAPPDATA') or Path.home() / '.config') / 'FOCUS'
         self.path = Path(path or os.getenv('FOCUS_SETTINGS_FILE') or base / 'settings.json')
-        self.registry = registry or HarnessRegistry(self.path.parent / 'backends')
+        self.registry = registry or HarnessRegistry(backends_dir if backends_dir is not None else self.path.parent / 'backends')
 
     def document(self):
         if not self.path.is_file():
@@ -74,13 +74,13 @@ class UserSettings:
         return preferences
 
     def projection(self, effective=None, busy=False):
-        saved = self.read() or effective or self.normalize({'backend': DEFAULT_BACKEND})
+        saved = self.read()
         preferences = self.preferences()
         runtime_paths = {backend: preference.get('runtimePath') for backend, preference in preferences.items()
                          if isinstance(preference, dict)}
         if effective and effective.get('runtimePath'):
             runtime_paths[effective['backend']] = effective['runtimePath']
-        return {'saved': saved, 'effective': effective or saved, 'preferences': self.preferences(),
+        return {'saved': saved, 'effective': effective or saved, 'preferences': preferences,
                 'backends': self.registry.describe_all(runtime_paths), 'backendErrors': self.registry.errors,
                 'pending': False, 'busy': busy, 'refreshBlocked': False,
                 'operationId': self.document().get('configurationOperationId')}
@@ -95,7 +95,7 @@ class UserSettings:
         for backend, draft in drafts.items():
             if not isinstance(draft, dict):
                 raise ValueError('模型偏好无效。')
-            preference = self.normalize({**draft, 'backend': backend})
+            preference = self.normalize({**draft, 'backend': backend}, allow_missing=True)
             preferences[backend] = {**preference, 'model': draft.get('model') or None}
         preferences[normalized['backend']] = {**normalized, 'model': value.get('model') or None}
         document.update(normalized, preferences=preferences,

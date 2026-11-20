@@ -660,7 +660,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       </article>)}</section>}
       {managementBusy && <p role="status">部分操作暂不可用：当前任务正在使用材料。可在任务详情停止对应任务后重试。</p>}
       </div>}
-      {view?.agent?.run?.status === "approval" && <AgentControls agent={view.agent} onStop={() => host.stop && void host.stop().then(result => { if (result.ok) acceptView(result.value); })} onAnswer={async input => {
+      {view?.agent?.run && (view.agent.run.status === "approval" || view.agent.run.approvals.some(approval => approval.status === "expired")) &&
+        <AgentControls agent={view.agent} onStop={() => host.stop && void host.stop().then(result => { if (result.ok) acceptView(result.value); })} onAnswer={async input => {
         const result = await host.approve?.(input); if (result?.ok) { acceptView(result.value); return true; } return false;
       }} />}
       {!uploadOpen && error && <div className="workspace-error" role="alert">{error}<button onClick={() => { setError(""); if (retryAction) retryAction(); else void refresh(); }}>{retryAction ? "重试此操作" : "刷新状态"}</button></div>}
