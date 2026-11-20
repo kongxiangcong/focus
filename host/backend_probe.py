@@ -14,7 +14,7 @@ from .core_bridge import CoreBridge, TOOL, WorkspaceError
 from core.library_import import import_markdown
 
 
-def verify_source_round_trip(backend_factory, *, timeout=45):
+def verify_source_round_trip(backend_factory, *, timeout=45, cancelled=None):
     """Return a check result without reading or changing the user's workspace."""
     marker = secrets.token_hex(16)
     tool = copy.deepcopy(TOOL)
@@ -40,14 +40,24 @@ def verify_source_round_trip(backend_factory, *, timeout=45):
         timer.start()
         try:
             deadline = time.monotonic() + timeout
+            backend.deadline = deadline
+            if cancelled and cancelled():
+                return 'failed', 'Backend 检测已取消。'
             backend.open_session(None, instructions='This is a FOCUS Source access check.')
+            if cancelled and cancelled():
+                return 'failed', 'Backend 检测已取消。'
             backend.start_turn(prompt='Call the focus tool with action read_range and arguments '
                                       '{"start":1,"end":1}. Reply with the exact source_text value.')
             read_succeeded = False
             messages = {}
             final_item = None
             while time.monotonic() < deadline:
-                event = backend.events.get(timeout=max(0.01, deadline - time.monotonic()))
+                if cancelled and cancelled():
+                    return 'failed', 'Backend 检测已取消。'
+                try:
+                    event = backend.events.get(timeout=min(.25, max(.01, deadline - time.monotonic())))
+                except queue.Empty:
+                    continue
                 method, params = event.get('method'), event.get('params', {})
                 if 'id' in event:
                     if method == TOOL_CALL:

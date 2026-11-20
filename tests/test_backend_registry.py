@@ -22,6 +22,12 @@ class BackendRegistryTests(unittest.TestCase):
         script = fixture.root / 'app_server.py'
         script.write_text("""
 import json, sys
+def complete(text):
+    print(json.dumps({'method': 'item/completed', 'params': {'item': {
+        'id': 'answer-1', 'type': 'agentMessage', 'text': text}}}), flush=True)
+    print(json.dumps({'method': 'turn/completed', 'params': {'turn': {'status': 'completed'}}}), flush=True)
+
+probe = False
 with open(sys.argv[1], 'a', encoding='utf-8') as log:
     print(json.dumps(sys.argv[2:]), file=log, flush=True)
     for line in sys.stdin:
@@ -29,6 +35,10 @@ with open(sys.argv[1], 'a', encoding='utf-8') as log:
         params = request.get('params', {})
         method = request.get('method')
         print(json.dumps([method, params]), file=log, flush=True)
+        if request.get('id') == 401 and 'result' in request:
+            reply = json.loads(request['result']['contentItems'][0]['text'])
+            complete(reply['source_text'])
+            continue
         if 'id' not in request:
             continue
         result = {
@@ -37,11 +47,14 @@ with open(sys.argv[1], 'a', encoding='utf-8') as log:
             'turn/start': {'turn': {'id': 'turn-1'}},
         }.get(method, {})
         print(json.dumps({'id': request['id'], 'result': result}), flush=True)
+        if method == 'thread/start':
+            probe = params['dynamicTools'][0]['inputSchema']['properties']['action']['enum'] == ['read_range']
         if method == 'turn/start':
-            print(json.dumps({'method': 'item/completed', 'params': {'item': {
-                'id': 'answer-1', 'type': 'agentMessage', 'text': 'Manifest discussion answer.'}}}), flush=True)
-            print(json.dumps({'method': 'turn/completed', 'params': {
-                'turn': {'status': 'completed'}}}), flush=True)
+            if probe:
+                print(json.dumps({'id': 401, 'method': 'item/tool/call', 'params': {'tool': 'focus',
+                    'arguments': {'action': 'read_range', 'arguments': '{"start":1,"end":1}'}}}), flush=True)
+            else:
+                complete('Manifest discussion answer.')
 """, encoding='utf-8')
         (backends / 'custom-codex.json').write_text(json.dumps({
             'id': 'custom-codex', 'label': 'Codex (custom)', 'driver': 'codex-app-server',
@@ -68,6 +81,11 @@ with open(sys.argv[1], 'a', encoding='utf-8') as log:
         result = app.host.snapshot()
         self.assertEqual('completed', result['agent']['run']['status'])
         self.assertIn('Manifest discussion answer.', json.dumps(result))
-        arguments, *calls = map(json.loads, log.read_text(encoding='utf-8').splitlines())
-        self.assertEqual(['--first', '--second', 'app-server'], arguments[:3])
-        self.assertEqual('saved-model', next(params['model'] for method, params in calls if method == 'thread/start'))
+        records = list(map(json.loads, log.read_text(encoding='utf-8').splitlines()))
+        self.assertEqual([['--first', '--second', 'app-server']] * 2,
+                         [record[:3] for record in records if record[0] == '--first'])
+        self.assertEqual(['saved-model'] * 2,
+                         [record[1]['model'] for record in records if record[0] == 'thread/start'])
+        prompts = [record[1]['input'][0]['text'] for record in records if record[0] == 'turn/start']
+        self.assertNotIn('Explain this source.', prompts[0])
+        self.assertIn('Explain this source.', prompts[1])

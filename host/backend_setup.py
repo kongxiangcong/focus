@@ -24,7 +24,7 @@ from pathlib import Path
 from .proxy import backend_environment
 from .runtime import AppServer
 from .backends import DEFAULT_REGISTRY, BackendError
-from .backend_probe import verify_source_round_trip
+from .backend_verification import BackendVerification
 
 
 def deepseek_key(credential_file=None):
@@ -69,8 +69,9 @@ def runtime_path(backend, explicit=None):
 
 
 class BackendSetup:
-    def __init__(self, *, registry=None):
+    def __init__(self, *, registry=None, verification=None):
         self.registry = registry or DEFAULT_REGISTRY
+        self.verification = verification or BackendVerification()
         self.login_lock = threading.RLock()
         self.login = None
         self.install_lock = threading.Lock()
@@ -231,32 +232,11 @@ class BackendSetup:
 
     def check(self, payload):
         with self.check_lock:
-            status = self.inspect(payload)
-            if status['status'] != 'installed':
-                return {**status, 'status': 'failed', 'dependencyStatus': status['status']}
-            model = payload.get('model') or self.registry.get_spec(status['backend']).default_model
-            result = self.infer({**payload, 'runtimePath': status['runtimePath'], 'model': model})
-            result.update(checkedModel=model, dependencyStatus='installed')
+            result = self.verification.verify(payload, registry=self.registry, reuse=False)
             if result['status'] == 'success':
-                environment = self.environment_id(payload, status)
-                self.connections[environment] = model
-                result['environmentId'] = environment
+                environment = self.environment_id(payload, result)
+                self.connections[environment] = result['checkedModel']
             return result
-
-    def infer(self, payload):
-        status = self.inspect(payload)
-        if status['status'] == 'unavailable':
-            return {**status, 'status': 'failed'}
-        spec = self.registry.get_spec(status['backend'])
-        if spec.driver == 'deepseek-sdk' and not deepseek_key(payload.get('credentialFile')):
-            return {**status, 'status': 'failed', 'message': '未配置 DeepSeek 凭据，请在 Host 的 .env 设置 DEEPSEEK_API_KEY。'}
-
-        def factory(workspace, **options):
-            return self.registry.create_backend(spec.id, workspace, model=payload.get('model'),
-                runtime_path=status['runtimePath'], credential_file=payload.get('credentialFile'), **options)
-
-        result, message = verify_source_round_trip(factory)
-        return {**status, 'status': result, 'message': message}
 
     def account(self, payload):
         status = self.inspect(payload)

@@ -90,6 +90,9 @@ class CodexBackend(Backend):
                 params['dynamicTools'] = self.tools
             params['dynamicTools'] = [dict(tool, type='function') for tool in params['dynamicTools']]
             result = rpc.request('thread/start', params)
+        actual_model = result.get('model')
+        if self.model and actual_model and actual_model != self.model:
+            raise BackendError('Backend 返回的实际模型与指定模型不同，请确认模型名称。')
         with self._lifecycle_lock:
             if self.closed:
                 raise BackendError('任务已关闭。')
