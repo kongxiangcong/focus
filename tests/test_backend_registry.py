@@ -16,7 +16,6 @@ class BackendRegistryTests(unittest.TestCase):
     def test_first_workspace_binding_does_not_launch_or_select_a_backend(self):
         with fixture_directory() as root, patch('host.backends.registry.shutil.which', return_value=None), \
                 patch('host.backends.registry._codex_bundled', side_effect=FileNotFoundError), \
-                patch('host.backends.registry._legacy_dsh_bundled', side_effect=FileNotFoundError), \
                 patch('subprocess.Popen') as runtime:
             app = Workbench(settings_path=root / 'settings.json')
             try:

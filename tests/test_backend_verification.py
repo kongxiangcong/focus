@@ -95,7 +95,7 @@ class BackendVerificationTests(unittest.TestCase):
 
         Protocol.source_read = True
         _, accepted = self.send('fixture-first', 'PRIVATE-QUESTION')
-        self.assertEqual('completed', accepted['agent']['run']['status'])
+        self.assertEqual('completed', accepted['agent']['run']['status'], accepted['agent']['run'])
         self.assertEqual([True, True, False], [runtime.probe for runtime in Protocol.instances])
         self.assertEqual(['PRIVATE-QUESTION'], [m['content'] for m in accepted['conversation'] if m['role'] == 'user'])
         self.assertIn('PRIVATE-QUESTION', Protocol.instances[-1].prompt)
