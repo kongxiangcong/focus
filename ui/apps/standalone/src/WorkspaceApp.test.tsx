@@ -81,10 +81,10 @@ afterEach(cleanup);
 it("shows the selected PDF backend and queued progress in the visible Inbox", async () => {
   const item: IngestionItem = { itemId: "pdf-1", fileName: "paper.pdf", status: "processing", topicTitle: null,
     topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started",
-    parserBackend: "local-mineru", selectionReason: "本地 MinerU 4.0.8 Standard V1 可用", parserProgress: { status: "queued" } };
+    parserBackend: "local-mineru", selectionReason: "本地 MinerU 4.2.3 Standard Tasks V1 可用", parserProgress: { status: "queued" } };
   setup([item]);
   fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
-  await screen.findByText(/本地 MinerU · 本地 MinerU 4.0.8 Standard V1 可用 · 排队中/);
+  await screen.findByText(/本地 MinerU · 本地 MinerU 4.2.3 Standard Tasks V1 可用 · 排队中/);
 });
 it.each(["check", "open"])("retains the newest shared configuration when a late %s response arrives after another page refreshed", async action => {
   history.replaceState(null, "", action === "check" ? "/settings" : "/library");

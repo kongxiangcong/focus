@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from .mineru import MinerUIngestionParser, ParserError, _token
-from .local_mineru import LocalMinerUParser
+from .local_mineru import LegacyMinerUContinuation, LocalMinerUParser
 
 
 class AutoMinerUParser:
@@ -65,6 +65,11 @@ class AutoMinerUParser:
         metadata["selection_reason"] = reason
         path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+    def _pinned_local(self, checkpoint):
+        parser = LegacyMinerUContinuation if checkpoint.get("version") == "4.0.8" else LocalMinerUParser
+        return parser(checkpoint.get("base_url", self.local_url), language=checkpoint.get("language", "auto"),
+                      ocr=checkpoint.get("ocr", False), timeout=self.local.timeout, interval=self.local.interval)
+
     def resume(self, source: Path, candidate: Path, *, checkpoint: dict, on_checkpoint=None):
         backend = checkpoint.get("backend")
         if backend is None and checkpoint.get("reference_kind", "").startswith("local_"):
@@ -72,9 +77,10 @@ class AutoMinerUParser:
         if backend is None and checkpoint.get("reference_kind") == "batch_id":
             backend = "cloud"  # historical hosted checkpoints
         if backend == "local-mineru":
-            config = checkpoint
-            local = LocalMinerUParser(config.get("base_url", self.local_url), language=config.get("language", "auto"),
-                                      ocr=config.get("ocr", False), timeout=self.local.timeout, interval=self.local.interval)
+            if checkpoint.get("version") == "4.0.8" and checkpoint.get("reference_kind") == "local_selection":
+                # No job was submitted. Keep the endpoint and select the current Tasks protocol.
+                checkpoint = {**checkpoint, "version": LocalMinerUParser.version}
+            local = self._pinned_local(checkpoint)
             local.selection_reason = checkpoint.get("selection_reason", "本地优先")
             return local.resume(source, candidate, checkpoint=checkpoint, on_checkpoint=on_checkpoint)
         if backend == "cloud":
@@ -94,6 +100,6 @@ class AutoMinerUParser:
         if checkpoint.get("backend") == "cloud" or checkpoint.get("reference_kind") == "batch_id":
             return self.remote.cancel(checkpoint)
         if checkpoint.get("reference_kind") == "local_mineru_job":
-            local = LocalMinerUParser(checkpoint["base_url"], ocr=checkpoint.get("ocr", False))
+            local = self._pinned_local(checkpoint)
             return local.cancel(checkpoint)
         return False
