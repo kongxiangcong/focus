@@ -179,6 +179,9 @@ class IngestionCore:
             return dict(requests[request_id])
         if state["version"] != expected_version:
             return {"status": "version_conflict", "version": state["version"]}
+        if _source_kind(item) == "paper_pdf":
+            from .pdf_layout import layout
+            layout(candidate, persist=True)
         result = SourceLibrary(self.workspace).register(
             candidate,
             source_kind=_source_kind(item),

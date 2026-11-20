@@ -30,7 +30,7 @@ function answer(evidence: readonly ValidatedAnswerEvidence[], revision = 3): Rea
   return { ...initial, revision, conversation: [{ role: "assistant", chunkId: "", messageId: "answer", sourceId: "paper",
     discussionId: "discussion", answerRevision: "r1", content: evidence.map(e => `Claim [[e:${e.evidenceId}]]`).join("\n\n"), evidence }] };
 }
-function setup(start = initial) {
+function setup(start = initial, overrides: Partial<ReaderHost> = {}) {
   let listener: ((r: ReturnType<typeof readerSuccess<ReadingWindow>>) => void) | undefined;
   const host: ReaderHost = {
     getReadingWindow: vi.fn(async () => readerSuccess(start)),
@@ -38,6 +38,7 @@ function setup(start = initial) {
     subscribe: callback => { listener = callback; return () => { listener = undefined; }; },
     sendMessage: vi.fn(async () => readerSuccess({ ...initial, revision: 2 })),
     continueReading: vi.fn(async () => readerSuccess(initial)),
+    ...overrides,
   };
   const reader = render(<ConversationReader host={host} />);
   const display = (visible: boolean, fullscreen = false) => reader.rerender(<ConversationReader host={host} visible={visible} fullscreen={fullscreen} />);
@@ -99,4 +100,23 @@ it("does not replay evidence when a reply arrives after leaving chat", async () 
   await screen.findByRole("button", { name: "返回回答证据 1" });
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
   expect(scrolling).not.toHaveBeenCalled();
+});
+
+it("opens the saved PDF and projects a citation into the shared translated chunk", async () => {
+  const cited = { ...first, layoutVersion: "old-layout", blockIds: ["0-1"] };
+  setup(answer([cited]), {
+    sourceOriginalUrl: () => "/paper.pdf",
+    getSourceDocument: async () => readerSuccess({
+      sourceId: "paper", bundleVersion: "v1", title: "Paper", markdown: "# Paper\n\nFirst evidence.", lineCount: 3,
+      pdf: { version: "new-layout", pdfHash: "abc", blocks: [] },
+      translation: { status: "ready", chunks: [{ id: "chunk-1", text: "已检查的译文。", blockIds: [], sourceLines: [1, 3] }] },
+    }),
+  });
+  expect(await screen.findByRole("button", { name: "原版 PDF" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(window.document.querySelector<HTMLElement>("[data-citation]")!);
+  expect(await screen.findByText(/版面位置暂不可用/)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "中文译文" }));
+  expect(screen.getByText("已检查的译文。")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "返回回答证据 1" }));
+  await waitFor(() => expect(window.document.querySelector("[data-citation]")).toHaveFocus());
 });

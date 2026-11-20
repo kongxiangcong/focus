@@ -207,3 +207,34 @@
 }
 :root[data-reduced-motion=true] :is(.reading-mode-layer, .source-turn, .source-evidence-card) { animation:none; }
 :root[data-reduced-motion=true] :is(.source-turn, .source-evidence, .source-original .focus-markdown > *) { transition:none; }
+
+.source-original-pane[data-paper=true] { display:flex; flex-direction:column; }
+.source-original-pane[data-paper=true] > .source-original { flex:1; min-height:0; }
+.source-original:has(.paper-pages) { padding:12px; background:var(--reader-surface-muted,#e9e8e5); }
+.paper-view-controls { display:flex; gap:6px; padding:6px 12px; }
+.paper-view-controls button[aria-pressed=true] { font-weight:700; text-decoration:underline; text-underline-offset:4px; }
+.paper-pages { display:grid; gap:14px; }
+.paper-pdf-page { position:relative; background:white; }
+.paper-pdf-page canvas { display:block; width:100%; height:100%; }
+.paper-region { position:absolute; pointer-events:none; border:0; padding:0; }
+.paper-region[data-active=true]:not([data-page-only=true]) { outline:2px solid #926124; background:#eaac3833; }
+.paper-region button { pointer-events:auto; vertical-align:top; }
+.source-original section[data-evidence-block].is-active { outline:2px solid currentColor; }
+.paper-text {
+  position:absolute; inset:0; overflow:clip; line-height:1; text-align:initial; transform-origin:0 0;
+  --min-font-size:1;
+}
+.paper-text :is(span,br) {
+  position:absolute; white-space:pre; color:transparent; cursor:text; transform-origin:0 0;
+  font-size:calc(var(--total-scale-factor) * var(--min-font-size) * var(--font-height));
+  transform:rotate(var(--rotate,0deg)) scaleX(var(--scale-x,1)) scale(calc(1 / var(--min-font-size)));
+}
+.paper-text .markedContent { display:contents; }
+.paper-text[data-main-rotation="90"] { transform:rotate(90deg) translateY(-100%); }
+.paper-text[data-main-rotation="180"] { transform:rotate(180deg) translate(-100%,-100%); }
+.paper-text[data-main-rotation="270"] { transform:rotate(270deg) translateX(-100%); }
+@keyframes paper-region-flash {
+  0%,65% { outline-color:#926124; background-color:#eaac3833; }
+  100% { outline-color:transparent; background-color:transparent; }
+}
+.paper-region[data-active=true]:not([data-page-only=true]) { animation:paper-region-flash 2.4s linear forwards; }

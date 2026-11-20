@@ -230,7 +230,7 @@ export class HttpReaderHost implements ReaderHost {
   }
 
   async startBatch(itemIds: readonly string[], requestId: string, generateBlog = true): Promise<ReaderHostResult<ProcessingBatch>> {
-    return this.batchRequest('/library/batches', { itemIds, requestId, generateBlog });
+    return this.batchRequest('/library/batches', { itemIds, requestId, generateBlog, prepareReading: generateBlog });
   }
 
   controlBatch(batchId: string, action: Parameters<NonNullable<ReaderHost['controlBatch']>>[1], requestId: string, itemId?: string, riskChoiceId?: string): Promise<ReaderHostResult<ProcessingBatch>> {

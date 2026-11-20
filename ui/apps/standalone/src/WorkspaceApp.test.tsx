@@ -196,7 +196,7 @@ it("freezes a mixed selection into one Topic batch and exposes each result", asy
       { itemId: "two.html", fileName: "two.html", sourceId: null, status: "failed", ingestionStatus: "failed", blog: null, error: { error_id: "article_image_missing", message: "图片缺失" } },
     ],
   }]));
-  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传并准备阅读" }));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["one.pdf", "two.html"], expect.any(String), true));
   expect(host.stageIngestion).toHaveBeenNthCalledWith(1, files[0], { topicTitle: "编译" });
   expect(host.stageIngestion).toHaveBeenNthCalledWith(2, files[1], { topicTitle: "编译" });
@@ -230,7 +230,7 @@ it("starts parsing and blog with one explicit confirmation", async () => {
   fireEvent.change(screen.getByRole("combobox", { name: "专题" }), { target: { value: "编译" } });
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [pdf] } });
   expect(host.stageIngestion).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传并准备阅读" }));
   await waitFor(() => expect(host.stageIngestion).toHaveBeenCalledWith(pdf, { topicTitle: "编译" }));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String), true));
   expect(host.confirmIngestion).not.toHaveBeenCalled();
@@ -294,7 +294,7 @@ it("shows the original unfinished task instead of a new one when the same file i
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
   fireEvent.change(screen.getByRole("combobox", { name: "专题" }), { target: { value: "编译" } });
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF test"], "test.pdf", { type: "application/pdf" })] } });
-  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传并准备阅读" }));
 
   const notice = await screen.findByText(/该原件已有未完成任务/);
   expect(notice.closest("[role=status]")).not.toBeNull();
@@ -515,7 +515,7 @@ it("T23/T24 allows unclassified parse-only upload with an explicit immutable sco
   fireEvent.click(within(screen.getByRole('listbox', { name: '已有专题' })).getByRole('option', { name: '不关联专题' }));
   expect(screen.getByRole('combobox', { name: '专题' })).toHaveValue('');
   fireEvent.click(screen.getByRole("checkbox", { name: "仅解析入库" }));
-  const file = new File(["%PDF test"], "unclassified.pdf");
+  const file = new File(["<html>test</html>"], "unclassified.html");
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [file] } });
   fireEvent.click(screen.getByRole("button", { name: "仅解析入库" }));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String), false));
@@ -549,7 +549,7 @@ it.each(["existing", "new", "unclassified"] as const)("uploads with a %s topic f
   expect(parseOnly).not.toBeChecked();
   const file = new File(["%PDF test"], "topic.pdf");
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [file] } });
-  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传并准备阅读" }));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String), true));
   expect(host.stageIngestion).toHaveBeenCalledWith(file, mode === "unclassified" ? {} : { topicTitle: mode === "new" ? "架构探索" : "编译" });
 });
@@ -944,7 +944,7 @@ it.each([false, true])("restores a cleared duplicate and focuses retry (batch=%s
   fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF failed"], failed.fileName)] } });
-  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传并准备阅读" }));
   const taskFrame = await screen.findByRole("region", { name: "任务框" });
   const retryName = batched ? "重试未完成步骤" : "重试解析";
   const retry = await within(taskFrame).findByRole("button", { name: retryName });
@@ -980,7 +980,7 @@ it("starts only new files in a mixed upload and restores existing confirmed task
   await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF old"], "old.pdf"), new File(["%PDF fresh"], "fresh.pdf")] } });
-  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传并准备阅读" }));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["fresh"], expect.any(String), true));
   expect(host.startBatch).toHaveBeenCalledTimes(1);
   expect(await screen.findByRole("region", { name: "任务框" })).toBeVisible();
@@ -1000,7 +1000,7 @@ it("refreshes restored tasks after an older list request and identifies an alrea
   fireEvent.click(screen.getByRole("button", { name: "刷新状态" }));
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF"], item.fileName)] } });
-  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传并准备阅读" }));
   await waitFor(() => expect(host.stageIngestion).toHaveBeenCalledTimes(1));
   await act(async () => { finishOldRequest(readerSuccess([{ ...item, dismissed: true }])); });
   const panel = await screen.findByRole("region", { name: "任务框" });

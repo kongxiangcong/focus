@@ -489,7 +489,13 @@ class HostService:
     def source_document(self, source_id):
         with self.lock:
             self.source_clear.recover()
-            return SourceReading(self.workspace).document(source_id)
+            document = SourceReading(self.workspace).document(source_id)
+            bundle = self.workspace / 'sources' / source_id / 'parser-bundle'
+            if (bundle / 'source.pdf').is_file():
+                from core.pdf_layout import layout
+                document['pdf'] = layout(bundle)
+                document['translation'] = self.reading_app.core.shared_translation(source_id, document)
+            return document
 
     def complete_source(self, source_id, payload):
         with self.lock:
@@ -507,6 +513,9 @@ class HostService:
                 legacy = ArticleOverview(self.workspace, self.reading_app).status(source_id)
                 if legacy.get('status') == 'ready':
                     return {**result, 'status': 'ready', 'structure': legacy['structure'], 'guide': legacy['guide']}
+                worker = self.reading_workers.get(source_id)
+                if worker and worker.is_alive() and hasattr(self.reading_app.runtime, 'overview_structure'):
+                    return {**result, 'status': 'running'}
             workers = getattr(self, 'opening_workers', {})
             self.opening_workers = workers
             errors = getattr(self, 'opening_errors', {})
@@ -889,9 +898,31 @@ class HostService:
             )
             return confirmed
 
+    def _prepare_uploaded_pdf(self, source_id, *, start_allowed):
+        with self.lock:
+            if start_allowed and not start_allowed():
+                return
+            status = self.reading_app.status(source_id)
+            if status and (status['ready'] or status['selected_ready']):
+                return
+            request_id = 'upload-' + uuid.uuid4().hex
+            if status and status['status'] in ('failed', 'interrupted', 'cancelled'):
+                self.resume_preparation(source_id, request_id=request_id)
+            else:
+                self.prepare_reading(source_id, request_id=request_id)
+            worker = self.reading_workers.get(source_id)
+
+        def wait_for_translation():
+            if worker:
+                worker.join()
+            result = self.reading_app.status(source_id)
+            if not result or not (result['ready'] or result['selected_ready']):
+                raise WorkspaceError('translation_failed', '译文准备未完成，可重试未完成步骤。')
+        return wait_for_translation
+
     def _processing_app(self):
         if self.processing is None:
-            self.processing = ProcessingApplication(self.ingestion, self._blog_app())
+            self.processing = ProcessingApplication(self.ingestion, self._blog_app(), self._prepare_uploaded_pdf)
         return self.processing
 
     def inbox_start(self, item_id, *, request_id):
@@ -917,7 +948,9 @@ class HostService:
                 batch.update(StatusNotifications(self.store).project('batch', batch['batchId'], batch))
         return batches
 
-    def batch_start(self, item_ids, *, request_id, generate_blog=True):
+    def batch_start(self, item_ids, *, request_id, generate_blog=True, prepare_reading=False):
+        if type(prepare_reading) is not bool or (prepare_reading and not generate_blog):
+            raise ValueError('阅读准备范围无效。')
         if type(generate_blog) is not bool:
             raise ValueError('生成博客选项无效。')
         app = self._batch_app()
@@ -925,7 +958,7 @@ class HostService:
             with self.lock:
                 if isinstance(item_ids, list) and any(self.ingestion_workers.get(i) and self.ingestion_workers[i].is_alive() for i in item_ids if isinstance(i, str)):
                     raise WorkspaceError('batch_item_busy', '材料正在处理中，请等待原任务结束。')
-            batch = app.create(item_ids, request_id=request_id, generate_blog=generate_blog)
+            batch = app.create(item_ids, request_id=request_id, generate_blog=generate_blog, prepare_reading=prepare_reading)
             return self._launch_batch(app, batch)
 
     def _cancel_batch_item(self, item_id):
@@ -934,6 +967,10 @@ class HostService:
             self.ingestion.cancel(item_id)
         if item.get('source_id'):
             with self.lock:
+                preparation = self.reading_app.status(item['source_id'])
+                if (preparation and preparation['status'] == 'running' and
+                        preparation.get('request_id', '').startswith('upload-')):
+                    self.reading_app.cancel(item['source_id'], request_id=uuid.uuid4().hex)
                 worker = self.blog_workers.get(item['source_id'])
                 if worker and worker.is_alive() and self._blog_app().status(item['source_id']).get('runStatus') == 'running':
                     self._blog_app().cancel(item['source_id'])

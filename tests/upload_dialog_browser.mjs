@@ -48,7 +48,7 @@ try {
   await dialog.getByRole('option', { name: '架构探索', exact: true }).click();
   assert.equal(await topic.inputValue(), '架构探索');
   await checkbox.check();
-  await dialog.getByLabel('上传材料').setInputFiles({ name: 'parse-only.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF test') });
+  await dialog.getByLabel('上传材料').setInputFiles({ name: 'parse-only.html', mimeType: 'text/html', buffer: Buffer.from('<html>test</html>') });
   await page.screenshot({ path: `${output}/upload-desktop.png` });
   await dialog.getByRole('button', { name: '仅解析入库', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });

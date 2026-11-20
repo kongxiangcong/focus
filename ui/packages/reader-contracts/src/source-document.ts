@@ -4,11 +4,17 @@ export interface SourceScope { sourceId: string; bundleVersion: string }
 /** Host-validated source bytes. Rendering must still resolve the exact visible range. */
 export interface ValidatedAnswerEvidence extends SourceScope {
   evidenceId: string; messageId: string; discussionId: string; answerRevision: string;
+  layoutVersion?: string; blockIds?: readonly string[];
   displayNumber: number; sourceLines: readonly [number, number];
   quote: { exact: string; prefix: string; suffix: string };
   relation: "supports" | "contradicts" | "context";
 }
-export interface ReadingDocument extends SourceScope { generation?: number; title: string; markdown: string; lineCount: number }
+export interface ReadingDocument extends SourceScope { generation?: number; title: string; markdown: string; lineCount: number;
+  pdf?: { version: string; pdfHash: string; blocks: readonly {
+    blockId: string; page: number; bbox: readonly [number, number, number, number] | null; sourceLines: readonly [number, number]
+  }[] };
+  translation?: { status: string; planId?: string; chunks: readonly { id: string; text: string; blockIds: readonly string[]; sourceLines: readonly [number, number] }[] };
+}
 export interface ReadingOpening extends SourceScope {
   status: "missing" | "running" | "ready" | "failed"; error?: string;
   structure?: readonly { id: string; parentId: string | null; title: string; sourceLines: readonly [number, number] }[];

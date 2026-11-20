@@ -1,0 +1,115 @@
+"""PDF upload, shared translations and version-bound layout evidence."""
+import json
+import tempfile
+from contextlib import closing
+import unittest
+from pathlib import Path
+
+from workspace_fixture import HostService
+from core.pdf_layout import align, layout
+from core.source_reading import SourceReading
+from test_blog_host import ControlledBlogRuntime, ParserDouble
+from test_stage4_reading import PlanningRuntime
+
+
+def page(number, *blocks):
+    return {'page_idx': number, 'blocks': [
+        {'index': index, 'type': 'text', 'content': [{'type': 'text', 'content': text}], 'bbox': bbox}
+        for index, (text, bbox) in enumerate(blocks)]}
+
+
+class IndexedParser(ParserDouble):
+    def parse(self, source, candidate, **kwargs):
+        result = super().parse(source, candidate, **kwargs)
+        (candidate / 'mineru').mkdir()
+        pages = [page(0, ('The workload stalls on the interconnect.', [0.1, 0.2, 0.45, 0.3])),
+                 page(1, ('Table 1 reports throughput for every baseline.', [0.53, 0.2, 0.9, 0.35]))]
+        (candidate / 'mineru/middle_json.json').write_text(json.dumps({'pages': pages}))
+        return result
+
+
+def reading_runtime():
+    return PlanningRuntime({'glossary': [], 'chunks': [
+        {'section_path': ['Fixture Paper', section], 'source_lines': lines, 'images': images}
+        for section, lines, images in [('1 Introduction', [1, 6], []), ('2 Method', [7, 12], ['images/image-001.png']),
+                                      ('3 Experiments', [13, 15], [])]]})
+
+
+class PdfReadingTests(unittest.TestCase):
+    def test_page_column_offsets_and_conservative_fallback(self):
+        md = 'Left: shared term. Right: shared term.\n\nTable continues\non another page.'
+        blocks = align(md, [page(0, ('Left: shared term.', [0, 0, .4, .2]), ('Right: shared term.', [.5, 0, 1, .2]),
+                                     ('Table continues', [0, .8, 1, 1])),
+                            page(1, ('on another page.', None), ('absent OCR text', [0, 0, 1, 1]))])
+        self.assertEqual(['0-0', '0-1', '0-2', '1-0'], [b['blockId'] for b in blocks])
+        self.assertEqual('Right: shared term.', md[slice(*blocks[1]['offsets'])])
+        self.assertEqual([4, 4], blocks[-1]['sourceLines'])
+        self.assertIsNone(blocks[-1]['bbox'])
+        self.assertEqual([], align('same\nsame', [page(0, ('same', None))]))
+
+    def test_one_upload_produces_shared_plan_and_versioned_evidence(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        runtime = reading_runtime()
+        host = HostService(root / 'workspace', root / 'host', ingestion_parser=IndexedParser(),
+                           blog_runtime=ControlledBlogRuntime(), reading_runtime=runtime)
+        self.enterContext(closing(host))
+        original = root / 'paper.pdf'
+        original.write_bytes(b'%PDF example')
+        item = host.inbox_stage_file(original)
+        batch = host.batch_start([item['item_id']], request_id='one-upload', prepare_reading=True)
+        host.batch_workers[batch['batchId']].join(15)
+        status = host.batch_list()[0]
+        sid = status['items'][0]['sourceId']
+        document = host.source_document(sid)
+        self.assertEqual('ready', document['translation']['status'], host.reading_app.status(sid))
+        self.assertEqual('completed', status['status'])
+        self.assertEqual(3, runtime.calls.count('translate'))
+        self.assertTrue(all(c['text'] == '已准备的译文' for c in document['translation']['chunks']))
+        self.assertEqual(['1-0'], document['translation']['chunks'][-1]['blockIds'])
+        self.assertIsNone(host.reading_app.status(sid)['selected_plan_id'])
+        scope = host.discussion_app.bind(source_id=sid, request_id='cite-test-pdf', content='实验')
+        citation = SourceReading(host.workspace).cite(scope, {'start': 15, 'end': 15, 'quote': 'throughput'})
+        self.assertEqual(['1-0'], citation['blockIds'])
+        self.assertEqual(document['pdf']['version'], citation['layoutVersion'])
+        host.batch_start([item['item_id']], request_id='one-upload', prepare_reading=True)
+        self.assertEqual(3, runtime.calls.count('translate'))
+        bundle = host.workspace / 'sources' / sid / 'parser-bundle'
+        (bundle / 'source.pdf').write_bytes(b'%PDF repaginated')
+        self.assertNotEqual(citation['layoutVersion'], layout(bundle)['version'])
+
+    def test_repeated_paragraphs_and_split_table_wrappers(self):
+        pages = [page(0, ('Repeated paragraph', [0, 0, .4, .3]), ('Repeated paragraph', [.5, 0, 1, .3]))]
+        blocks = align('Repeated paragraph\n\nRepeated paragraph', pages)
+        self.assertEqual([[1, 1], [3, 3]], [b['sourceLines'] for b in blocks])
+        rows = ['<tr><td>A</td></tr>', '<tr><td>B</td></tr>']
+        pages = [{'page_idx': n, 'blocks': [{'type': 'table', 'index': 0, 'content': [
+            {'type': 'table_body', 'content': '<table>' + row + '</table>'}]}]} for n, row in enumerate(rows)]
+        blocks = align('<table>\n' + '\n'.join(rows) + '\n</table>', pages)
+        self.assertEqual([(1, [2, 2]), (2, [3, 3])], [(b['page'], b['sourceLines']) for b in blocks])
+
+    def test_translation_retry_keeps_original_and_completed_blog(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        runtime = reading_runtime()
+        translate = runtime.translate
+        def unavailable(**kwargs):
+            raise RuntimeError('translation offline')
+        runtime.translate = unavailable
+        blog = ControlledBlogRuntime()
+        host = self.enterContext(closing(HostService(root / 'workspace', root / 'host', ingestion_parser=IndexedParser(),
+                                                     reading_runtime=runtime, blog_runtime=blog)))
+        pdf = root / 'paper.pdf'
+        pdf.write_bytes(b'%PDF retry')
+        item = host.inbox_stage_file(pdf)
+        batch = host.batch_start([item['item_id']], request_id='first-upload', prepare_reading=True)
+        host.batch_workers[batch['batchId']].join(15)
+        first = host.batch_list()[0]
+        self.assertEqual('partial', first['status'])
+        source = first['items'][0]['sourceId']
+        self.assertEqual('failed', host.source_document(source)['translation']['status'])
+        calls = list(blog.calls)
+        runtime.translate = translate
+        host.batch_control(batch['batchId'], 'retry-item', item_id=item['item_id'], request_id='retry-translation')
+        host.batch_workers[batch['batchId']].join(15)
+        self.assertEqual('ready', host.source_document(source)['translation']['status'])
+        self.assertEqual('completed', host.batch_list()[0]['status'])
+        self.assertEqual(calls, blog.calls)

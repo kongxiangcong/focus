@@ -462,6 +462,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     } catch (e) { setError(String(e)); setRetryAction(() => () => void controlBatch(batchId, action, itemId, riskChoiceId)); }
     finally { locked.current = false; setBusy(""); }
   }
+  const includesPdf = selectedFiles.some(file => /\.pdf$/i.test(file.name));
   async function uploadAndStart() {
     if (locked.current || !selectedFiles.length || !host.stageIngestion || !host.startBatch) return;
     const files = [...selectedFiles], topicTitle = uploadTopic.trim();
@@ -469,19 +470,28 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     try {
       const ids: string[] = [];
       const duplicates: IngestionItem[] = [];
+      const failures: {file: File; message: string}[] = [];
       for (const file of files) {
         const staged = await host.stageIngestion(file, { ...(topicTitle ? { topicTitle } : {}) });
-        if (!staged.ok) { setError(staged.error.message); return; }
+        if (!staged.ok) { failures.push({ file, message: staged.error.message }); continue; }
         replaceInbox(staged.value);
-        if (staged.value.duplicate) {
+        const unsubmitted = staged.value.status === "awaiting_confirmation" && !staged.value.topicId &&
+          (staged.value.topicTitle ?? "") === topicTitle;
+        if (staged.value.duplicate && !unsubmitted) {
           duplicates.push(staged.value);
           continue;
         }
-        ids.push(staged.value.itemId);
+        if (!ids.includes(staged.value.itemId)) ids.push(staged.value.itemId);
       }
       if (ids.length) {
-        const started = await identified(`upload:${ids.join(",")}`, id => host.startBatch!(ids, id, generateOnUpload));
+        const started = await identified(`upload:${ids.join(",")}`, id => host.startBatch!(ids, id, includesPdf || generateOnUpload));
         if (!started.ok) { setError(started.error.message); return; }
+      }
+      if (failures.length) {
+        setSelectedFiles(failures.map(failure => failure.file));
+        await refresh();
+        setError(failures.map(({ file, message }) => file.name + "：" + message).join("；"));
+        return;
       }
       setUploadOpen(false); setSelectedFiles([]);
       if (duplicates.length) await revealIngestion(duplicates);
@@ -772,10 +782,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <form onSubmit={e => { e.preventDefault(); void uploadAndStart(); }}>
         <h2>上传材料</h2>
         <UploadTopicPicker topics={topics} value={uploadTopic} onChange={setUploadTopic} disabled={!!busy} />
-        <label className="upload-parse-only"><input type="checkbox" disabled={!!busy} checked={!generateOnUpload} onChange={e => setGenerateOnUpload(!e.target.checked)} />仅解析入库</label>
+        {!includesPdf && <label className="upload-parse-only"><input type="checkbox" disabled={!!busy} checked={!generateOnUpload} onChange={e => setGenerateOnUpload(!e.target.checked)} />仅解析入库</label>}
         <label className="upload-file">{selectedFiles.map(f => f.name).join("、") || "PDF / HTML"}<input aria-label="上传材料" type="file" multiple disabled={!!busy} accept=".pdf,.html,application/pdf,text/html" onChange={e => setSelectedFiles(Array.from(e.target.files ?? []))} /></label>
         {error && <p role="alert">{error}</p>}
-        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length}>{busy ? "开始中…" : generateOnUpload ? "开始解析并生成博客" : "仅解析入库"}</button></div>
+        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length}>{busy ? "开始中…" : includesPdf ? "上传并准备阅读" : generateOnUpload ? "开始解析并生成博客" : "仅解析入库"}</button></div>
       </form>
     </dialog>
     {blogViewer && host.blogUrl && <dialog className="workspace-blog-viewer" ref={blogDialog} aria-labelledby="blog-viewer-title" onCancel={e => { e.preventDefault(); closeBlogViewer(); }}>

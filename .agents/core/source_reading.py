@@ -128,7 +128,16 @@ class SourceReading:
             # ID is run-bound; the model cannot mint a valid ID by writing a marker.
             identity = f"{scope['requestId']}:{start}:{end}:{quote}:{prefix}:{suffix}"
             key = hashlib.sha256(identity.encode()).hexdigest()[:24]
-            return {'evidenceId': key, 'sourceId': doc['sourceId'], 'bundleVersion': doc['bundleVersion'],
+            pdf_anchor = {}
+            bundle = self.notes._root(scope['sourceId']) / 'parser-bundle'
+            if (bundle / 'source.pdf').is_file():
+                from .pdf_layout import layout
+                index = layout(bundle)
+                offset = sum(len(line) + 1 for line in doc['markdown'].split('\n')[:start - 1]) + positions[0]
+                pdf_anchor = {'layoutVersion': index['version'], 'blockIds': list(dict.fromkeys(
+                    block['blockId'] for block in index['blocks']
+                    if block['offsets'][0] < offset + len(quote) and offset < block['offsets'][1]))}
+            return {**pdf_anchor, 'evidenceId': key, 'sourceId': doc['sourceId'], 'bundleVersion': doc['bundleVersion'],
                     'sourceLines': [quote_start, quote_end], 'quote': {'exact': quote, 'prefix': prefix, 'suffix': suffix},
                     'relation': relation, 'marker': '[[e:' + key + ']]'}
 

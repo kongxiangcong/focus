@@ -15,7 +15,7 @@ try {
   for (const [name, retryLabel] of [[scenario, scenario === 'single' ? '重试解析' : '重试未完成步骤']]) {
     await page.getByRole('button', { name: '上传', exact: true }).click();
     await page.getByLabel('上传材料', { exact: true }).setInputFiles({ name: name + '.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF ' + name) });
-    await page.getByRole('button', { name: '开始解析并生成博客', exact: true }).click();
+    await page.getByRole('button', { name: '上传并准备阅读', exact: true }).click();
     const panel = page.getByRole('region', { name: '任务框' });
     const retry = panel.getByRole('button', { name: retryLabel, exact: true });
     await retry.waitFor();
