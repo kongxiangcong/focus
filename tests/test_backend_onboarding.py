@@ -1,7 +1,7 @@
 """Machine preferences and diagnostics through the public Host seams."""
 import json
 import unittest
-import io
+import sys
 from unittest.mock import patch
 from pathlib import Path
 from test_workspace_portability import test_directory
@@ -10,6 +10,7 @@ from host.configuration import DEFAULT_MODELS
 from host.backend_setup import BackendSetup
 from test_backend_setup import AccountRuntime
 from test_backend_verification import Protocol
+from acp_protocol_fixture import AcpProtocolFixture
 
 
 def unexpected_runtime(*args, **kwargs):
@@ -17,21 +18,34 @@ def unexpected_runtime(*args, **kwargs):
 
 
 class BackendOnboardingTests(unittest.TestCase):
-    def test_catalog_intersects_supplier_models_with_text_and_current_protocol(self):
-        setup = BackendSetup()
-        body = {'data': [
-            {'id': 'supported', 'input_modalities': ['text'], 'output_modalities': ['text'], 'api_capabilities': {'anthropic_messages': {}}},
-            {'id': 'image-only', 'input_modalities': ['image'], 'output_modalities': ['text'], 'api_capabilities': {'anthropic_messages': {}}},
-            {'id': 'different-protocol', 'input_modalities': ['text'], 'output_modalities': ['text'], 'api_capabilities': {'responses': {}}},
-        ]}
-        with test_directory() as root, patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'fixture-key'}):
-            binary = root / 'runtime.exe'
-            binary.touch()
-            payload = {'backend': 'deepseek', 'runtimePath': str(binary)}
-            with patch('host.backends.deepseek.build_opener') as opener:
-                opener.return_value.open.return_value = io.BytesIO(json.dumps(body).encode())
-                result = setup.models(payload)
-            self.assertEqual(['supported'], result['models'])
+    def test_acp_catalog_returns_model_options_without_inference(self):
+        runtimes = []
+
+        class CatalogRuntime(AcpProtocolFixture):
+            def __init__(self, *args, **options):
+                super().__init__(*args, **options)
+                runtimes.append(self)
+
+            def request(self, method, params, **options):
+                result = super().request(method, params, **options)
+                if method == 'session/new':
+                    result['configOptions'] = [
+                        {'type': 'select', 'id': 'mode', 'category': 'mode', 'options': [{'value': 'chat'}]},
+                        {'type': 'select', 'id': 'model', 'category': 'model', 'options': [
+                            {'group': 'fixture', 'options': [{'value': 'one'}, {'value': 'two'}]},
+                            {'value': 'two'}, {'value': 3},
+                        ]},
+                    ]
+                return result
+
+        with patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'fixture-key'}), \
+                patch('host.backends.acp.JsonRpcStdioClient', CatalogRuntime):
+            result = BackendSetup().models({'backend': 'deepseek', 'runtimePath': sys.executable})
+        self.assertEqual('loaded', result['catalogStatus'])
+        self.assertEqual(['one', 'two'], result['models'])
+        self.assertNotIn('checkedModel', result)
+        self.assertTrue(runtimes[0].closed)
+        self.assertEqual(['initialize', 'session/new'], [method for method, _ in runtimes[0].calls])
 
     def test_skip_default_binds_once_without_optional_actions_and_restart(self):
         with test_directory() as root, patch.object(BackendSetup, 'operate', side_effect=AssertionError('not authorized')), \
