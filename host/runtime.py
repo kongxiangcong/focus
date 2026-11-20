@@ -18,8 +18,10 @@ def codex_command(explicit=None):
 
 
 class JsonRpcStdioClient:
-    def __init__(self, command, cwd, *, env=None):
+    def __init__(self, command, cwd, *, env=None, jsonrpc=False):
         self.pending = {}
+        self.event_requests = set()
+        self.jsonrpc = jsonrpc
         self.events = queue.Queue()
         self.lock = threading.Lock()
         self.write_lock = threading.Lock()
@@ -38,9 +40,14 @@ class JsonRpcStdioClient:
                 value = json.loads(line)
                 if 'method' not in value and 'id' in value:
                     with self.lock:
-                        waiter = self.pending.get(value['id'])
+                        request_id = value['id']
+                        waiter = self.pending.get(request_id)
+                        deliver_event = request_id in self.event_requests
+                        self.event_requests.discard(request_id)
                     if waiter:
                         waiter.put(value)
+                    elif deliver_event:
+                        self.events.put(value)
                 else:
                     self.events.put(value)
         except Exception as exc:
@@ -57,8 +64,28 @@ class JsonRpcStdioClient:
         with self.write_lock:
             if self.closed:
                 raise RuntimeError('Backend process is not running')
+            if self.jsonrpc:
+                value = {'jsonrpc': '2.0', **value}
             self.process.stdin.write(json.dumps(value, ensure_ascii=False) + '\n')
             self.process.stdin.flush()
+
+    def request_event(self, method, params):
+        """Receive the reply on events in transport order with notifications."""
+        if self.deadline is not None and self.deadline <= time.monotonic():
+            raise TimeoutError(f'{method} timed out')
+        with self.lock:
+            if self.closed:
+                raise RuntimeError('Backend process is not running')
+            self.next_id += 1
+            request_id = self.next_id
+            self.event_requests.add(request_id)
+        try:
+            self.send({'id': request_id, 'method': method, 'params': params})
+        except Exception:
+            with self.lock:
+                self.event_requests.discard(request_id)
+            raise
+        return request_id
 
     def request(self, method, params, timeout=60):
         if self.deadline is not None:
