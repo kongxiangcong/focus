@@ -104,8 +104,22 @@ class UserSettings:
 
     def read(self):
         value = self.document()
-        return self.normalize({k: value[k] for k in ('backend', 'model', 'runtimePath', 'credentialFile') if k in value},
-                              allow_missing=True) if value.get('backend') else None
+        backend = value.get('backend')
+        if not backend:
+            return None
+        config = {k: value[k] for k in ('backend', 'model', 'runtimePath', 'credentialFile') if k in value}
+        return self.normalize(self._migrated_paths(backend, config, value), allow_missing=True)
+
+    def _migrated_paths(self, backend, config, document):
+        try:
+            spec = self.registry.get_spec(backend)
+        except BackendError:
+            return config
+        versions = document.get('runtimePathVersions')
+        stored = versions.get(backend, 1) if isinstance(versions, dict) else 1
+        if stored != spec.runtime_path_version:
+            return {**config, 'runtimePath': None}
+        return config
 
     def normalize(self, value, *, allow_missing=False):
         return normalize(value, self.registry, allow_missing=allow_missing)
@@ -116,7 +130,8 @@ class UserSettings:
         # Existing explicit machine selections remain explicit.
         if not preferences and value.get('backend'):
             preferences = {value['backend']: {k: value.get(k) for k in ('model', 'runtimePath', 'credentialFile')}}
-        return preferences
+        return {backend: self._migrated_paths(backend, preference, value) if isinstance(preference, dict) else preference
+                for backend, preference in preferences.items()}
 
     def projection(self, effective=_USE_SAVED, busy=False, *, startup=None):
         saved = self.read()
@@ -146,7 +161,12 @@ class UserSettings:
             preference = self.normalize({**draft, 'backend': backend}, allow_missing=True)
             preferences[backend] = {**preference, 'model': draft.get('model') or None}
         preferences[normalized['backend']] = {**normalized, 'model': value.get('model') or None}
-        document.update(normalized, preferences=preferences,
+        versions = document.get('runtimePathVersions')
+        versions = dict(versions) if isinstance(versions, dict) else {}
+        updated = {*drafts, normalized['backend']}
+        versions.update({spec.id: spec.runtime_path_version
+                         for spec in self.registry.list_specs() if spec.id in updated})
+        document.update(normalized, preferences=preferences, runtimePathVersions=versions,
                         configurationOperationId=value.get('requestId') or uuid.uuid4().hex)
         return document
 

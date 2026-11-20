@@ -93,8 +93,16 @@ def backend_environment(backend, *, credential_file=None):
         env.update(spec.env)
         if credential_file:
             env.update(file_credentials(credential_file, spec.credential_env))
+        elif spec.legacy_credential_file:
+            missing = [name for name in spec.credential_env if not env.get(name)]
+            try:
+                env.update(file_credentials(spec.legacy_credential_file, missing))
+            except BackendConfigurationError:
+                # The old implicit file was optional. Without a key, let the CLI
+                # use its own authentication and report its actual status.
+                pass
     apply_proxy(name, env)
-    # SDK transports may merge env over os.environ. Empty values override inherited proxies.
+    # Empty values make bypass explicit in the child environment.
     if proxy_mode(name) == BYPASS:
         env.update({key: '' for key in PROXY_KEYS})
     return env

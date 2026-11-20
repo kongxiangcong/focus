@@ -1,11 +1,12 @@
 """Backend registry and proxy routing contracts for the supported web backends."""
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 
 from host.backends import BACKENDS, BackendError, create_backend
 from host.backends.codex import CodexBackend
-from host.backends.deepseek import DeepSeekBackend
+from host.backends.acp import AcpBackend
 from host.proxy import apply_proxy, proxy_mode, backend_environment
 
 
@@ -16,8 +17,9 @@ class BackendRegistryTests(unittest.TestCase):
             create_backend('workbuddy', Path(tempfile.gettempdir()))
 
     def test_options_are_filtered_per_adapter(self):
-        backend = create_backend('deepseek', Path(tempfile.gettempdir()), codex_bin='unused', model='m')
-        self.assertIsInstance(backend, DeepSeekBackend)
+        backend = create_backend('deepseek', Path(tempfile.gettempdir()), runtime_path=sys.executable,
+                                 codex_bin='unused', model='m')
+        self.assertIsInstance(backend, AcpBackend)
         self.assertEqual('m', backend.model)
         self.assertFalse(hasattr(backend, 'codex_bin'))
         backend.close()

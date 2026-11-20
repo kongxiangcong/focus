@@ -1,16 +1,19 @@
 {
   "id": "deepseek",
   "label": "DeepSeek",
-  "driver": "deepseek-sdk",
-  "command": ["dsh"],
+  "driver": "acp",
+  "command": ["dsh", "--profile", "acp"],
+  "runtimePathVersion": 2,
   "defaultModel": "deepseek-v4-flash",
   "credentialEnv": ["DEEPSEEK_API_KEY"],
+  "legacyCredentialFile": "../../../.env",
   "capabilities": {
     "authMode": "external-cli",
-    "modelDiscovery": "deepseek-models",
+    "modelDiscovery": "acp-config-option",
+    "mcpTransport": "streamable-http",
     "streaming": true,
     "structuredOutput": "prompt-json"
   },
-  "installHint": "需要可用 DeepSeek Harness SDK、Runtime 与 Host 凭据。",
-  "loginHint": "请配置 DEEPSEEK_API_KEY。"
+  "installHint": "请安装 DeepSeek Harness CLI（dsh），或指定已安装的可执行文件。",
+  "loginHint": "请在本机完成 dsh 认证，或提供含 DEEPSEEK_API_KEY 的凭据文件。"
 }

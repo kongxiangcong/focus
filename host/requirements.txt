@@ -1,6 +1,3 @@
-# AI SDK/Runtime dependencies are prepared only for the selected backend when
-# explicitly checking connectivity or first using AI. HTTP Host uses stdlib.
-
 # Offline SingleFile HTML article extraction (also required without an AI backend).
 beautifulsoup4==4.13.4
 lxml==6.1.3
