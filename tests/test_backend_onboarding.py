@@ -9,6 +9,7 @@ from host.workbench import Workbench
 from host.configuration import DEFAULT_MODELS
 from host.backend_setup import BackendSetup
 from test_backend_setup import AccountRuntime
+from test_backend_verification import Protocol
 
 
 class BackendOnboardingTests(unittest.TestCase):
@@ -99,21 +100,19 @@ class BackendOnboardingTests(unittest.TestCase):
         with test_directory() as root:
             binary = root / 'runtime.exe'
             binary.touch()
-            payload = {'backend': 'deepseek', 'runtimePath': str(binary), 'model': 'chosen'}
-            order = []
-            def infer(value):
-                order.append(('infer', value['model']))
-                return {'backend': 'deepseek', 'runtimePath': str(binary), 'status': 'success', 'message': 'OK'}
+            payload = {'backend': 'codex', 'runtimePath': str(binary), 'model': 'chosen'}
             with patch.object(setup, 'prepare', side_effect=AssertionError('no automatic installation')), \
-                    patch.object(setup, 'infer', side_effect=infer), \
+                    patch.object(Protocol, 'source_read', True), patch.object(Protocol, 'instances', []), \
+                    patch('host.backends.codex.AppServer', Protocol), \
                     patch.object(setup, 'models', side_effect=AssertionError('no automatic catalog')):
                 first = setup.check(payload)
-                self.assertEqual([('infer', 'chosen')], order)
+                self.assertEqual('success', first['status'])
                 self.assertEqual('chosen', first['checkedModel'])
-                binary.write_bytes(b'changed runtime')
                 changed = setup.check({**payload, 'model': None})
-                self.assertEqual(DEFAULT_MODELS['deepseek'], changed['checkedModel'])
+                self.assertEqual('success', changed['status'])
+                self.assertEqual(DEFAULT_MODELS['codex'], changed['checkedModel'])
                 self.assertNotEqual(first['environmentId'], changed['environmentId'])
+                self.assertEqual(['chosen', DEFAULT_MODELS['codex']], [runtime.model for runtime in Protocol.instances])
 
     def test_catalog_retry_requires_no_inference(self):
         class CatalogRuntime(AccountRuntime):

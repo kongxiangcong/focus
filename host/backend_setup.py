@@ -1,32 +1,21 @@
 """Host-owned settings operations for a registered Backend."""
-import hashlib
-import hmac
-import json
-import secrets
 import tempfile
 import threading
 from contextlib import ExitStack
 from pathlib import Path
 
 from .backends import DEFAULT_REGISTRY, BackendError
+from .backend_verification import BackendVerification
 from .backends.base import BackendConfigurationError, safe_backend_error
-from .backend_probe import verify_source_round_trip
 
 
 class BackendSetup:
-    def __init__(self, *, registry=None):
+    def __init__(self, *, registry=None, verification=None):
         self.registry = registry or DEFAULT_REGISTRY
+        self.verification = verification or BackendVerification()
         self.login_lock = threading.RLock()
         self.login = None
         self.check_lock = threading.RLock()
-        self.authentication_salt = secrets.token_bytes(32)
-        self.connections = {}
-
-    def environment_id(self, payload, status):
-        path = Path(status['runtimePath']) if status.get('runtimePath') else None
-        runtime = (str(path.resolve()), path.stat().st_size, path.stat().st_mtime_ns) if path and path.is_file() else None
-        value = json.dumps([status['backend'], runtime, payload.get('credentialFile')])
-        return hmac.new(self.authentication_salt, value.encode(), hashlib.sha256).hexdigest()
 
     def _runtime(self, stack, payload, status):
         workspace = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix='focus-setup-')))
@@ -116,29 +105,7 @@ class BackendSetup:
 
     def check(self, payload):
         with self.check_lock:
-            status = self.inspect(payload)
-            if status['status'] != 'installed':
-                return {**status, 'status': 'failed', 'dependencyStatus': status['status']}
-            model = payload.get('model') or self.registry.get_spec(status['backend']).default_model
-            result = self.infer({**payload, 'runtimePath': status['runtimePath'], 'model': model})
-            result.update(checkedModel=model, dependencyStatus='installed')
-            if result['status'] == 'success':
-                environment = self.environment_id(payload, status)
-                self.connections[environment] = model
-                result['environmentId'] = environment
-            return result
-
-    def infer(self, payload):
-        status = self.inspect(payload)
-        if status['status'] == 'unavailable':
-            return {**status, 'status': 'failed'}
-
-        def factory(workspace, **options):
-            return self.registry.create_backend(status['backend'], workspace, model=payload.get('model'),
-                runtime_path=status['runtimePath'], credential_file=payload.get('credentialFile'), **options)
-
-        result, message = verify_source_round_trip(factory)
-        return {**status, 'status': result, 'message': message}
+            return self.verification.verify(payload, registry=self.registry, reuse=False)
 
     def account(self, payload):
         status = self.inspect(payload)

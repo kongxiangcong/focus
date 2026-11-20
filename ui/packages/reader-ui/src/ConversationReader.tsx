@@ -98,10 +98,10 @@ const ConversationComposer = memo(forwardRef<ComposerHandle, ComposerProps>(func
     if (!content || sending || running) return;
     const sentDraft = draft;
     const ok = await onSend(content);
-    if (ok) {
+    if (ok && prevKey.current === draftKey && textareaRef.current?.value === sentDraft) {
       if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
       safeWrite(draftKey, "");
-      setDraft(current => (current === sentDraft ? "" : current));
+      setDraft("");
     }
   }
 

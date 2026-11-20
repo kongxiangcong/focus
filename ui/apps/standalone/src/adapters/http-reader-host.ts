@@ -1,6 +1,6 @@
 import type { ReadingDocument, ReadingOpening } from "@focus/reader-contracts";
 import { mergeText } from "./text-stream";
-import { createReaderId, type CreateSourceNoteInput, type CreateHighlightInput, type HighlightOperation,
+import { createReaderId, readerFailure, type CreateSourceNoteInput, type CreateHighlightInput, type HighlightOperation,
   type BackendSetupAction, type BackendSetupInput, type BackendSetupResult,
   type BlogRegenerationTarget,
   type BlogStatus,
@@ -541,16 +541,35 @@ export class HttpReaderHost implements ReaderHost {
     }
   }
 
-  sendMessage(
+  async sendMessage(
     input: SendReaderMessageInput,
     signal?: AbortSignal,
   ): Promise<ReaderHostResult<ReadingWindow>> {
-    return this.request("/reader/messages", {
+    const initial = await this.request("/reader/messages", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...input, requestId: input.requestId ?? createReaderId() }),
       signal,
     });
+    if (!initial.ok) return initial;
+    const pending = initial.value.agent?.run;
+    if (pending?.backendVerification !== "checking") return initial;
+    // The Host continues the original request itself. Keep the composer draft until
+    // the admitted message or the verification failure appears in its snapshot.
+    const deadline = Date.now() + 90_000;
+    while (!signal?.aborted && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 250));
+      const result = await this.getReadingWindow(signal);
+      if (!result.ok) return result;
+      if (pending.pendingMessageId && result.value.conversation.some(message => message.messageId === pending.pendingMessageId)) return result;
+      const run = result.value.agent?.run;
+      if (run?.runId !== pending.runId) break;
+      if (run.backendVerification === "passed") return result;
+      if (run.backendVerification === "failed" || run.status === "failed" || run.status === "interrupted") {
+        return readerFailure("unavailable", run.error ?? "Backend 检测未完成，请重试。", true);
+      }
+    }
+    return readerFailure("unavailable", "未能确认 Backend 检测结果，请重试。", true);
   }
 
   newSession(sessionId: string): Promise<ReaderHostResult<ReadingWindow>> {

@@ -34,6 +34,7 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
   const available = backends.filter(backend => backend.available);
   const suggested = available.length === 1 ? available[0].id : discovered ? "" : legacyBackends[0].id;
   const selectedBackend = backends.find(backend => backend.id === input.backend);
+  const needsModel = selectedBackend?.defaultModel === null && !input.model?.trim();
   useEffect(() => { setScan(null); }, [configuration?.backends]);
   useEffect(() => {
     if (saved) {
@@ -195,7 +196,7 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
         {label}
       </label>)}
       <label>模型<select disabled={!input.backend} value={input.model ?? ''} onChange={event => change({ ...input, model: event.target.value || undefined })}>
-        <option value="">使用默认模型</option>
+        <option value="">{selectedBackend?.defaultModel === null ? "请选择或手动输入模型" : "使用默认模型"}</option>
         {options.map(model => <option key={model} value={model}>{model}</option>)}
       </select></label>
       <details>
@@ -215,7 +216,7 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
     <div className="backend-setup__actions">
     {discovered && <button type="button" disabled={scanning || checking || loginBusy || !!login || !host.backendSetup}
       onClick={() => void rescan()}>{scanning ? "正在扫描…" : "重新扫描 Backend"}</button>}
-    <button type="button" disabled={!input.backend || scanning || checking || loginBusy || !!login || !host.backendSetup}
+    <button type="button" disabled={!input.backend || needsModel || scanning || checking || loginBusy || !!login || !host.backendSetup}
       onClick={() => void check()}>{checking ? "检查中…" : "连接检查"}</button>
     {selectedBackend?.capabilities?.modelDiscovery && selectedBackend.capabilities.modelDiscovery !== "none" &&
       <button type="button" disabled={scanning || checking || loginBusy || !!login || !host.backendSetup} onClick={() => void loadModels()}>
@@ -230,7 +231,7 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
     {login?.authUrl && <p><a href={login.authUrl} target="_blank" rel="noopener noreferrer">打开浏览器授权</a>
       <button type="button" disabled={loginBusy} onClick={() => void loginOperation("login-cancel")}>取消登录</button></p>}
     <div className="backend-setup__actions backend-setup__save-actions">
-    <button type="button" className="workspace-primary" disabled={!input.backend || scanning || checking || loginBusy || !!login || configuration?.busy }
+    <button type="button" className="workspace-primary" disabled={!input.backend || needsModel || scanning || checking || loginBusy || !!login || configuration?.busy }
       onClick={() => void save()}>保存并应用</button>
     <button type="button" disabled={checking || loginBusy || !!login} onClick={() => {
       onCancelAppearance?.();

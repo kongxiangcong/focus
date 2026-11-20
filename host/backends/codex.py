@@ -13,7 +13,7 @@ from .task_tools import discussion_tools, library_tools
 from ..core_bridge import TOOL
 from ..runtime import AppServer, codex_command
 from ..proxy import backend_environment
-from .base import (ACTIVITY, Backend, BackendError, COMMAND_APPROVAL, FILE_APPROVAL, MESSAGE_COMPLETED,
+from .base import (ACTIVITY, Backend, BackendConfigurationError, BackendError, COMMAND_APPROVAL, FILE_APPROVAL, MESSAGE_COMPLETED,
                    MESSAGE_DELTA, PERMISSIONS_APPROVAL, SESSION_OPENED, TOOL_CALL, TRANSPORT_ERROR,
                    TURN_COMPLETED, TURN_STARTED, USER_INPUT, UNSUPPORTED_REQUEST, safe_backend_error)
 
@@ -142,6 +142,9 @@ class CodexBackend(Backend):
                 params['dynamicTools'] = self.tools
             params['dynamicTools'] = [dict(tool, type='function') for tool in params['dynamicTools']]
             result = rpc.request('thread/start', params)
+        actual_model = result.get('model')
+        if self.model and actual_model and actual_model != self.model:
+            raise BackendConfigurationError('Backend 返回的实际模型与指定模型不同，请确认模型名称。')
         with self._lifecycle_lock:
             if self.closed:
                 raise BackendError('任务已关闭。')

@@ -66,7 +66,7 @@ class Workbench:
 
     def _open(self, path):
         target = self.service_factory(path, None, settings_path=self.settings.path, registry=self.registry,
-                                      allow_unconfigured=True, **self.options)
+                                      verification=self.setup.verification, allow_unconfigured=True, **self.options)
         if self.host and target._configuration() == self.host._configuration():
             target.active_registry = self.host.active_registry
         return target

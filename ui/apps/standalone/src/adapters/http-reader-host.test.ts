@@ -177,6 +177,28 @@ describe("HttpReaderHost", () => {
 
 
 afterEach(() => vi.unstubAllGlobals());
+it.each([true, false])("holds draft acceptance until the Backend probe resolves (success %s)", async success => {
+  const run = { runId: "first-run", status: "running", backendVerification: "checking",
+    pendingMessageId: "first-question", error: null, approvals: [], activity: [] };
+  const checking = { ...completedWindow, agent: { run, catalog: { sources: [], topics: [] } } };
+  const resolved = { ...checking, agent: { ...checking.agent, run: {
+    ...run, backendVerification: success ? "passed" : "failed",
+    status: success ? "completed" : "failed", error: success ? null : "无法读取临时原文。",
+  } } };
+  const fetch = vi.fn<typeof globalThis.fetch>()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, value: checking })))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, value: resolved })));
+  const host = new HttpReaderHost({ baseUrl: "", fetch });
+  const result = await host.sendMessage({ receipt: null, content: "保留这条草稿", requestId: "first-question" });
+
+  expect(fetch.mock.calls.map(([url, options]) => [url, options?.method])).toEqual([
+    ["/reader/messages", "POST"], ["/reader/window", "GET"],
+  ]);
+  expect(result).toEqual(success ? { ok: true, value: resolved } : {
+    ok: false, error: { code: "unavailable", message: "无法读取临时原文。", retryable: true },
+  });
+});
+
 it("sends both HTTP actions without randomUUID and preserves supplied retry IDs", async () => {
   const getRandomValues = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
   vi.stubGlobal("crypto", { getRandomValues });
