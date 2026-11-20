@@ -1,4 +1,4 @@
-"""Private MCP transport for the official Harness SDK's Host-owned tools.
+"""Private MCP transport for the Host-owned tools.
 
 The bridge owns transport only. Application permissions and writes remain in the
 existing Host event handler. Every invocation waits for that handler's answer.
@@ -6,8 +6,9 @@ existing Host event handler. Every invocation waits for that handler's answer.
 import json
 import queue
 import secrets
+import select
+import socket
 import threading
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -16,6 +17,8 @@ class ToolBridge:
         self.backend = backend
         self.tools = {tool['name']: tool for tool in tools}
         self.pending = {}
+        self.rpc_ids = {}
+        self.cancelled_rpc_ids = set()
         self.lock = threading.Lock()
         self.closed = False
         self.token = secrets.token_urlsafe(32)
@@ -35,11 +38,14 @@ class ToolBridge:
                         raise ValueError()
                     value = json.loads(self.rfile.read(size))
                     if 'id' not in value:
+                        if value.get('method') == 'notifications/cancelled':
+                            bridge.cancel(value.get('params', {}).get('requestId'))
                         self.send_response(202)
                         self.send_header('Content-Length', '0')
                         self.end_headers()
                         return
-                    result = bridge.dispatch(value.get('method'), value.get('params', {}))
+                    result = bridge.dispatch(value.get('method'), value.get('params', {}),
+                                             rpc_id=value['id'], connected=self.connected)
                     body = json.dumps({'jsonrpc': '2.0', 'id': value['id'], 'result': result}).encode()
                 except (ValueError, TypeError):
                     self.send_error(400)
@@ -53,13 +59,20 @@ class ToolBridge:
                 except OSError:
                     pass
 
+            def connected(self):
+                try:
+                    readable, _, _ = select.select([self.connection], [], [], 0)
+                    return not readable or bool(self.connection.recv(1, socket.MSG_PEEK))
+                except (OSError, ValueError):
+                    return False
+
         self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
         self.server.daemon_threads = True
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.url = f'http://127.0.0.1:{self.server.server_port}/{self.token}'
 
-    def dispatch(self, method, params):
+    def dispatch(self, method, params, *, rpc_id=None, connected=None):
         if method == 'initialize':
             return {'protocolVersion': '2024-11-05', 'capabilities': {'tools': {}},
                     'serverInfo': {'name': 'focus', 'version': '1'}}
@@ -72,17 +85,19 @@ class ToolBridge:
         with self.lock:
             if self.closed:
                 return self.result(False, 'Task is closed.')
+            if rpc_id in self.cancelled_rpc_ids:
+                return self.result(False, 'Tool request cancelled.')
             request_id = self.backend.next_request_id()
             waiter = queue.Queue(maxsize=1)
-            self.pending[request_id] = waiter
+            self.pending[request_id] = (waiter, connected)
+            if rpc_id is not None:
+                self.rpc_ids[rpc_id] = request_id
         self.backend.emit('tool/call', {'tool': params['name'], 'arguments': params.get('arguments', {})},
                           request_id=request_id)
         try:
-            # Host owns approval lifetime. Candidate deadlines and Stop close
-            # this bridge; a displayed user question cannot expire invisibly.
-            while not self.closed:
+            while self.available(request_id):
                 try:
-                    answer = waiter.get(timeout=.25)
+                    answer = waiter.get(timeout=.1)
                     result = answer.get('result', {})
                     return self.result(bool(result.get('success')), result.get('text') or
                                        answer.get('error', {}).get('message', 'Tool refused.'))
@@ -92,23 +107,38 @@ class ToolBridge:
         finally:
             with self.lock:
                 self.pending.pop(request_id, None)
+                if self.rpc_ids.get(rpc_id) == request_id:
+                    del self.rpc_ids[rpc_id]
             self.backend.take_request(request_id)
 
     @staticmethod
     def result(success, text):
         return {'content': [{'type': 'text', 'text': text}], 'isError': not success}
 
+    def available(self, request_id):
+        with self.lock:
+            pending = self.pending.get(request_id)
+            return bool(not self.closed and pending and (not pending[1] or pending[1]()))
+
+    def cancel(self, rpc_id):
+        if not isinstance(rpc_id, (int, str)):
+            return
+        with self.lock:
+            self.cancelled_rpc_ids.add(rpc_id)
+            self.pending.pop(self.rpc_ids.pop(rpc_id, None), None)
+
     def send(self, message):
         with self.lock:
-            waiter = self.pending.get(message.get('id'))
-            if waiter:
+            pending = self.pending.get(message.get('id'))
+            if not self.closed and pending and (not pending[1] or pending[1]()):
                 try:
-                    waiter.put_nowait(message)
+                    pending[0].put_nowait(message)
                 except queue.Full:
                     pass
 
     def close(self):
-        self.closed = True
+        with self.lock:
+            self.closed = True
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=2)

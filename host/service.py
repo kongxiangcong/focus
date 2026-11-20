@@ -39,6 +39,7 @@ from core.source_notes import check_sentence
 BLOG_ARTIFACT_LABELS = {'reading_blog': '重新生成带读博客', 'html': '重新生成 HTML'}
 
 ACTIVE = ('running', 'approval', 'stopping')
+APPROVAL_EXPIRED = '本次请求已过期，请重试'
 
 
 class HostService:
@@ -1942,7 +1943,8 @@ class HostService:
                 self.pending.clear()
                 if backend and hasattr(backend, 'cleanup'):
                     self.state['run']['runtimeCleanup'] = dict(backend.cleanup)
-                self.state['run']['approvals'] = []
+                self.state['run']['approvals'] = [
+                    approval for approval in self.state['run']['approvals'] if approval.get('status') == 'expired']
                 if self.state['run']['status'] in ACTIVE:
                     self.state['run']['status'] = 'interrupted'
                 if self.state['run'].get('progress'):
@@ -1976,7 +1978,7 @@ class HostService:
             return False
         if method == 'turn/completed':
             with self.lock:
-                status = params.get('status') or 'completed'
+                status = 'interrupted' if self.stop_requested else (params.get('status') or 'completed')
                 # Completion is published only after Host verification in _run.
                 self.state['run']['status'] = 'running' if status == 'completed' else status
                 self.state['run']['error'] = params.get('error')
@@ -2003,7 +2005,8 @@ class HostService:
             self._answer(request_id, {'answers': reply.get('answers', {}) if reply else {}})
         elif method == PERMISSIONS_APPROVAL:
             reply = self._wait_approval(event, params.get('title') or APPROVAL_TITLES[PERMISSIONS_APPROVAL],
-                                        json.dumps(params.get('permissions', {}), ensure_ascii=False, indent=2))
+                                        params.get('detail') or json.dumps(params.get('permissions', {}), ensure_ascii=False, indent=2),
+                                        choices=params.get('choices'))
             self._answer(request_id, {'accept': bool(reply and reply.get('decision') == 'accept')})
         else:
             self._refuse(request_id, params.get('message', 'FOCUS 不支持该运行时请求。'))
@@ -2111,7 +2114,7 @@ class HostService:
     def _notification(self, method, params):
         with self.lock:
             run = self.state['run']
-            if not run or run['status'] not in ACTIVE:
+            if not run or run['status'] not in ACTIVE or self.stop_requested:
                 return
             if method == 'message/delta':
                 self._conversation_entry(params['itemId'])['content'] += params.get('delta', '')
@@ -2168,26 +2171,41 @@ class HostService:
     def _wait_approval(self, event, title, detail, *, kind='approval', questions=None, choices=None):
         approval_id = uuid.uuid4().hex
         waiter = queue.Queue()
+        backend = self.backend
+
+        def available():
+            if self.stop_requested or backend is None or self.backend is not backend:
+                return False
+            check = getattr(backend, 'approval_available', None)
+            return check(event['id']) if check else not backend.closed
+
+        approval = {'id': approval_id, 'title': title, 'detail': detail,
+                    'kind': kind, 'questions': questions or [], 'choices': choices or ['accept', 'decline']}
         with self.lock:
-            self.pending[approval_id] = waiter
-            self.state['run']['approvals'].append({'id': approval_id, 'title': title, 'detail': detail,
-                                                   'kind': kind, 'questions': questions or [],
-                                                   'choices': choices or ['accept', 'decline']})
+            if not available():
+                return False
+            self.pending[approval_id] = (waiter, available)
+            self.state['run']['approvals'].append(approval)
             self.state['run']['status'] = 'approval'
             self.changed()
+        answered = False
         try:
-            while True:
+            while available():
                 try:
-                    response = waiter.get(timeout=0.5)
-                    break
+                    response = waiter.get(timeout=.1)
                 except queue.Empty:
-                    if self.stop_requested or self.backend is None or self.backend.closed:
-                        return False
-            return response
+                    continue
+                if available():
+                    answered = True
+                    return response
+            return False
         finally:
             with self.lock:
                 self.pending.pop(approval_id, None)
-                self.state['run']['approvals'] = [a for a in self.state['run']['approvals'] if a['id'] != approval_id]
+                if answered:
+                    self.state['run']['approvals'].remove(approval)
+                else:
+                    approval['status'] = 'expired'
                 self.state['run']['status'] = 'stopping' if self.stop_requested else 'running'
                 self._progress('继续处理')
                 self.changed()
@@ -2195,8 +2213,9 @@ class HostService:
     def approve(self, payload):
         with self.lock:
             approval = next((a for a in self.state['run']['approvals'] if a['id'] == payload.get('approvalId')), None) if self.state['run'] else None
-            if not approval or approval['id'] not in self.pending:
-                raise ValueError('审批已过期，请刷新。')
+            pending = self.pending.get(approval['id']) if approval else None
+            if not pending or not pending[1]():
+                raise ValueError(APPROVAL_EXPIRED)
             if approval['kind'] == 'input':
                 answers = payload.get('answers')
                 if not isinstance(answers, dict) or any(not isinstance(v, dict) or not isinstance(v.get('answers'), list)
@@ -2205,7 +2224,7 @@ class HostService:
             elif payload.get('decision') not in approval['choices']:
                 raise ValueError('Invalid approval decision')
             # Claim once; double clicks and stale tabs cannot answer again.
-            waiter = self.pending.pop(approval['id'])
+            waiter, _ = self.pending.pop(approval['id'])
             waiter.put(payload if approval['kind'] != 'continue' else payload.get('decision') == 'accept')
             return self.snapshot()
 

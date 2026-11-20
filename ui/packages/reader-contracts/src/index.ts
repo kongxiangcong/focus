@@ -245,6 +245,7 @@ export interface ReadingPreparation {
 
 export interface ReaderApproval {
   id: string;
+  status?: "expired";
   title: string;
   detail: string;
   kind: "approval" | "continue" | "input";

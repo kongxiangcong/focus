@@ -3,8 +3,11 @@ import json
 import os
 import subprocess
 import sys
+import time
 import uuid
 from contextlib import ExitStack
+from pathlib import Path
+from urllib.error import URLError
 from urllib.request import ProxyHandler, Request, build_opener
 
 
@@ -33,7 +36,7 @@ class McpClient:
         self.process.wait(timeout=3)
         self.process.stdout.close()
 
-    def rpc(self, method, params, *, notify=False):
+    def rpc(self, method, params, *, notify=False, timeout=6):
         self.sequence += 1
         request = {'jsonrpc': '2.0', 'method': method, 'params': params}
         if not notify:
@@ -44,7 +47,7 @@ class McpClient:
             return None if notify else json.loads(self.process.stdout.readline())['result']
         with self.http.open(Request(self.url, data=json.dumps(request).encode(), headers={
             'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream',
-        }), timeout=6) as response:
+        }), timeout=timeout) as response:
             return None if notify else json.load(response)['result']
 
     def focus(self, action, arguments):
@@ -57,6 +60,20 @@ def run(transport, log_path):
     model = '["fixture-provider","default-model"]'
     selected = '["fixture-provider","selected-model"]'
     servers = []
+    approval_prompt = None
+    approval_id = 'fixture-native-permission'
+    gate = Path(log_path).with_suffix('.release')
+
+    def log_event(**fields):
+        with open(log_path, 'a', encoding='utf-8') as log:
+            log.write(json.dumps(fields) + '\n')
+
+    def wait_for_release():
+        deadline = time.monotonic() + 10
+        while not gate.exists():
+            if time.monotonic() >= deadline:
+                raise TimeoutError('test fixture did not release the session')
+            time.sleep(.02)
 
     def options():
         return [{'type': 'select', 'id': 'model', 'category': 'model', 'currentValue': model,
@@ -69,6 +86,15 @@ def run(transport, log_path):
     for line in sys.stdin:
         message = json.loads(line)
         assert message['jsonrpc'] == '2.0'
+        if 'method' not in message:
+            assert message['id'] == approval_id
+            decision = message['result']['outcome']
+            log_event(kind='permission-answer', session=session, decision=decision)
+            if decision.get('outcome') == 'selected' and approval_prompt:
+                update(sessionUpdate='agent_message_chunk', content={'type': 'text', 'text': 'Fresh approval received.'})
+                emit(id=approval_prompt, result={'stopReason': 'end_turn'})
+                approval_prompt = None
+            continue
         method, params = message['method'], message.get('params', {})
         if method == 'initialize':
             assert params['protocolVersion'] == 1
@@ -87,6 +113,43 @@ def run(transport, log_path):
         elif method == 'session/prompt':
             prompt = '\n'.join(block['text'] for block in params['prompt'] if block['type'] == 'text')
             probe = 'FOCUS Source access check' in prompt
+            instruction = next((flag for flag in ('expiry-disconnect', 'retry-approval', 'cancel-approval')
+                                if f'\n\n{flag}\n' in prompt), None)
+            if instruction and not probe:
+                approval_prompt = message['id']
+                update(sessionUpdate='tool_call', toolCallId='native', title='Inspect selected fixture',
+                       kind='execute', status='pending')
+                emit(method='session/request_permission', id=approval_id, params={
+                    'sessionId': session, 'toolCall': {'toolCallId': 'native'},
+                    'options': [{'optionId': 'one', 'kind': 'allow_once', 'name': 'Allow once'},
+                                {'optionId': 'always', 'kind': 'allow_always', 'name': 'Allow always'},
+                                {'optionId': 'deny', 'kind': 'reject_once', 'name': 'Reject'}],
+                })
+                child = None
+                if instruction in ('expiry-disconnect', 'cancel-approval'):
+                    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])
+                log_event(kind=instruction, session=session, pid=os.getpid(), cwd=cwd,
+                          childPid=child.pid if child else None)
+                if instruction == 'expiry-disconnect':
+                    wait_for_release()
+                    return
+                continue
+            if '\n\nmcp-disconnect\n' in prompt and not probe:
+                with ExitStack() as stack:
+                    mcp = McpClient(servers[0], stack)
+                    assert mcp.transport == 'http'
+                    log_event(kind='mcp-disconnect', session=session, pid=os.getpid(), cwd=cwd)
+                    try:
+                        mcp.rpc('tools/call', {'name': 'focus_confirm', 'arguments': {
+                            'title': 'Confirm the fixture', 'detail': 'This connection expires.'
+                        }}, timeout=1.5)
+                        raise AssertionError('expected the MCP HTTP request to time out')
+                    except (TimeoutError, URLError):
+                        log_event(kind='mcp-expired', session=session)
+                    wait_for_release()
+                result = {'stopReason': 'end_turn'}
+                emit(id=message['id'], result=result)
+                continue
             with ExitStack() as stack:
                 mcp = McpClient(servers[0], stack)
                 assert mcp.transport == transport
@@ -104,11 +167,13 @@ def run(transport, log_path):
             for chunk in chunks:
                 update(sessionUpdate='agent_message_chunk', messageId='native-answer',
                        content={'type': 'text', 'text': chunk})
-            with open(log_path, 'a', encoding='utf-8') as log:
-                log.write(json.dumps({'kind': 'probe' if probe else 'discussion', 'transport': transport,
-                    'session': session, 'pid': os.getpid(), 'cwd': cwd, 'model': model,
-                    'read': read, 'deniedWrite': denied, 'prompt': prompt}) + '\n')
+            log_event(kind='probe' if probe else 'discussion', transport=transport, session=session,
+                      pid=os.getpid(), cwd=cwd, model=model, read=read, deniedWrite=denied, prompt=prompt)
             result = {'stopReason': 'end_turn'}
+        elif method == 'session/cancel':
+            if approval_prompt:
+                emit(id=approval_prompt, result={'stopReason': 'cancelled'})
+            continue
         elif method == 'session/close':
             result = {}
         else:

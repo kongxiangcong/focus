@@ -93,6 +93,7 @@ class Backend:
         self.deadline = None
         self.events = queue.Queue()
         self.closed = False
+        self._approval_ended = threading.Event()
         self._lifecycle_lock = threading.RLock()
         self._requests = {}
         self._request_lock = threading.Lock()
@@ -142,10 +143,16 @@ class Backend:
 
     def close(self):
         self.closed = True
+        self._approval_ended.set()
+
+    def approval_available(self, request_id):
+        return not self._approval_ended.is_set()
 
     # --- shared helpers --------------------------------------------
 
     def emit(self, method, params=None, request_id=None):
+        if method in (TURN_COMPLETED, TRANSPORT_ERROR):
+            self._approval_ended.set()
         if method == TURN_COMPLETED:
             self.cleanup['stop'] = 'terminal_event'
         event = {'method': method, 'params': params or {}}

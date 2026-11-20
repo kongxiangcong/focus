@@ -9,7 +9,8 @@ import threading
 import time
 from pathlib import Path
 
-from .base import (ACTIVITY, MESSAGE_COMPLETED, MESSAGE_DELTA, SESSION_OPENED, TRANSPORT_ERROR,
+from .base import (ACTIVITY, COMMAND_APPROVAL, FILE_APPROVAL, MESSAGE_COMPLETED, MESSAGE_DELTA,
+                   PERMISSIONS_APPROVAL, SESSION_OPENED, TRANSPORT_ERROR,
                    TURN_COMPLETED, TURN_STARTED, Backend, BackendError, new_item_id, safe_backend_error)
 from .task_tools import discussion_tools, library_tools
 from .tool_bridge import ToolBridge
@@ -60,6 +61,9 @@ class AcpBackend(Backend):
         self.instructions = ''
         self._pump_thread = None
         self._thinking = False
+        self._tool_calls = {}
+        self._permissions = {}
+        self._cancel_requested = threading.Event()
         self._prompt_finished = threading.Event()
         self._close_done = threading.Event()
 
@@ -88,8 +92,7 @@ class AcpBackend(Backend):
         return []
 
     def _open_session(self, tools):
-        env = (backend_environment(self.manifest, credential_file=self.credential_file)
-               if self.credential_file else backend_environment(self.manifest))
+        env = backend_environment(self.manifest, credential_file=self.credential_file)
         if tools:
             inherited = env.get('NO_PROXY') or env.get('no_proxy', '')
             env['NO_PROXY'] = env['no_proxy'] = ','.join(filter(None, (inherited, '127.0.0.1', 'localhost')))
@@ -102,7 +105,7 @@ class AcpBackend(Backend):
                 # FOCUS remains the sole holder of the business workspace path.
                 self.temporary = tempfile.TemporaryDirectory(prefix='focus-acp-')
                 workspace = Path(self.temporary.name)
-            rpc = self.rpc = JsonRpcStdioClient(self.command, workspace, env=env, jsonrpc=True)
+            rpc = self.rpc = JsonRpcStdioClient(self.command, workspace, env=env, jsonrpc=True, isolated_process=True)
             rpc.deadline = self.deadline
         result = rpc.request('initialize', {'protocolVersion': 1, 'clientCapabilities': {},
             'clientInfo': {'name': 'focus', 'version': '0.1.0'}}, timeout=30)
@@ -214,19 +217,27 @@ class AcpBackend(Backend):
                 if method == TRANSPORT_ERROR:
                     raise RuntimeError(event.get('params', {}).get('message'))
                 if method is None and event.get('id') == request_id:
-                    self._prompt_finished.set()
+                    self._approval_ended.set()
+                    if self._cancel_requested.is_set() or (event.get('error') or {}).get('code') == -32800:
+                        self._prompt_finished.set()
+                        self._complete_prompt('cancelled')
+                        return
                     if 'error' in event:
                         raise RuntimeError(event['error'].get('message'))
                     self._finish_thinking()
                     for item, text in messages.values():
                         self.emit(MESSAGE_COMPLETED, {'itemId': item, 'text': text})
                     reason = event.get('result', {}).get('stopReason')
+                    self._prompt_finished.set()
                     self._complete_prompt(reason)
                     return
                 params = event.get('params') or {}
                 if 'id' in event and method:
                     self._client_request(rpc, event['id'], method, params)
-                elif method == 'session/update' and params.get('sessionId') == self.session_id:
+                elif method == '$/cancel_request':
+                    self._cancel_permission(rpc, params.get('requestId', params.get('id')))
+                elif (not self._cancel_requested.is_set() and method == 'session/update'
+                        and params.get('sessionId') == self.session_id):
                     self._session_update(params.get('update') or {}, messages, started)
         except (TimeoutError, queue.Empty):
             if not self.closed:
@@ -235,6 +246,7 @@ class AcpBackend(Backend):
             if not self.closed:
                 self.fail(safe_backend_error(exc))
         finally:
+            self._approval_ended.set()
             self._prompt_finished.set()
 
     def _session_update(self, update, messages, started):
@@ -258,7 +270,8 @@ class AcpBackend(Backend):
             self._thinking = True
             self.emit(ACTIVITY, {'id': self.turn_id + '-thought', 'title': 'reasoning',
                                  'status': 'inProgress', 'detail': ''})
-        elif kind in ('tool_call', 'tool_call_update') and update.get('toolCallId'):
+        elif kind in ('tool_call', 'tool_call_update') and isinstance(update.get('toolCallId'), str):
+            self._tool_calls.setdefault(update['toolCallId'], {}).update(update)
             state = update.get('status')
             if state:
                 self.emit(ACTIVITY, {'id': update['toolCallId'], 'title': 'mcpToolCall',
@@ -283,26 +296,124 @@ class AcpBackend(Backend):
             result = {'status': 'failed', 'error': error}
         self.emit(TURN_COMPLETED, result)
 
-    @staticmethod
-    def _client_request(rpc, request_id, method, params):
-        if method == 'session/request_permission':
-            rpc.send({'id': request_id, 'result': {'outcome': {'outcome': 'cancelled'}}})
-        else:
+    def _client_request(self, rpc, request_id, method, params):
+        if method != 'session/request_permission':
             rpc.send({'id': request_id, 'error': {'code': -32601, 'message': 'Client capability unavailable.'}})
+            return
+        options = {option.get('kind'): option['optionId'] for option in params.get('options') or ()
+                   if isinstance(option, dict) and isinstance(option.get('kind'), str)
+                   and isinstance(option.get('optionId'), str)}
+        call = params.get('toolCall')
+        if not isinstance(call, dict) or not isinstance(call.get('toolCallId'), str):
+            self._reply_permission(rpc, request_id)
+            return
+        call = {**self._tool_calls.get(call['toolCallId'], {}), **call}
+        kind = call.get('kind')
+        denied = (params.get('sessionId') != self.session_id or self.purpose not in ('discussion', 'business')
+                  or self.approval_policy == 'never' or kind == 'switch_mode'
+                  or self.manifest.acp.get('permissionPolicy', 'forward-to-host') != 'forward-to-host')
+        with self._lifecycle_lock:
+            if self.closed or self._cancel_requested.is_set():
+                self._reply_permission(rpc, request_id)
+            elif any(native_id == request_id for native_id, _ in self._permissions.values()):
+                return
+            elif denied or 'allow_once' not in options:
+                self._reply_permission(rpc, request_id, options.get('reject_once'))
+            else:
+                if kind == 'execute':
+                    approval = COMMAND_APPROVAL
+                elif kind in ('edit', 'delete', 'move'):
+                    approval = FILE_APPROVAL
+                else:
+                    approval = PERMISSIONS_APPROVAL
+                host_id = 'acp-' + new_item_id()
+                decisions = {'accept': options['allow_once']}
+                if 'reject_once' in options:
+                    decisions['decline'] = options['reject_once']
+                else:
+                    decisions['cancel'] = None
+                self._permissions[host_id] = (request_id, decisions)
+                self.emit(approval, {'detail': self._permission_detail(call), 'choices': list(decisions)}, request_id=host_id)
+
+    @staticmethod
+    def _permission_detail(call):
+        detail = []
+        if isinstance(call.get('title'), str):
+            detail.append(call['title'])
+        raw = call.get('rawInput')
+        command = raw.get('command') if isinstance(raw, dict) else None
+        if isinstance(command, str):
+            detail.append(command)
+        for location in call.get('locations') or ():
+            if isinstance(location, dict) and isinstance(location.get('path'), str):
+                detail.append(location['path'])
+        return '\n'.join(dict.fromkeys(detail))[:4000]
+
+    @staticmethod
+    def _reply_permission(rpc, request_id, option_id=None):
+        outcome = {'outcome': 'cancelled'}
+        if option_id is not None:
+            outcome = {'outcome': 'selected', 'optionId': option_id}
+        rpc.send({'id': request_id, 'result': {'outcome': outcome}})
+
+    def _cancel_permission(self, rpc, request_id):
+        with self._lifecycle_lock:
+            for host_id, (native_id, _) in tuple(self._permissions.items()):
+                if native_id == request_id:
+                    del self._permissions[host_id]
+                    self.take_request(host_id)
+                    self._reply_permission(rpc, native_id)
+
+    def approval_available(self, request_id):
+        with self._lifecycle_lock:
+            if (not super().approval_available(request_id) or self._cancel_requested.is_set()
+                    or self.rpc is None or self.rpc.closed or self.rpc.process.poll() is not None):
+                return False
+            if isinstance(request_id, str):
+                return request_id in self._permissions
+            return bool(self.bridge and self.bridge.available(request_id))
 
     def send(self, message):
-        bridge = self.bridge
-        if not self.closed and bridge:
-            bridge.send(message)
+        request_id = message.get('id')
+        with self._lifecycle_lock:
+            if not self.approval_available(request_id):
+                return
+            if request_id not in self._permissions:
+                self.bridge.send(message)
+                return
+            native_id, decisions = self._permissions.pop(request_id)
+            self.take_request(request_id)
+            answer = message.get('result') or {}
+            decision = answer.get('decision')
+            if 'accept' in answer:
+                decision = 'accept' if answer['accept'] else 'decline'
+            try:
+                self._reply_permission(self.rpc, native_id, decisions.get(decision))
+            except (OSError, RuntimeError):
+                self.fail('ACP 连接已关闭。')
 
     def interrupt(self):
-        rpc = self.rpc
-        if not self.closed and rpc and self.turn_id and not self._prompt_finished.is_set():
-            try:
-                rpc.send({'method': 'session/cancel', 'params': {'sessionId': self.session_id}})
-                self.cleanup['stop'] = 'cancel_sent'
-            except (RuntimeError, OSError):
-                pass
+        with self._lifecycle_lock:
+            if self.closed or self._prompt_finished.is_set() or self._cancel_requested.is_set():
+                return
+            self._cancel_requested.set()
+            self._approval_ended.set()
+            rpc = self.rpc
+            sent = False
+            if rpc and self.turn_id:
+                try:
+                    self.cleanup['stop'] = 'cancel_sent'
+                    for host_id, (native_id, _) in self._permissions.items():
+                        self.take_request(host_id)
+                        self._reply_permission(rpc, native_id)
+                    rpc.send({'method': 'session/cancel', 'params': {'sessionId': self.session_id}})
+                    sent = True
+                except (RuntimeError, OSError):
+                    pass
+                finally:
+                    self._permissions.clear()
+        if not sent or not self._prompt_finished.wait(2):
+            self.close()
 
     def close(self):
         with self._lifecycle_lock:
@@ -311,6 +422,9 @@ class AcpBackend(Backend):
                 super().close()
                 rpc, self.rpc = self.rpc, None
                 bridge, self.bridge = self.bridge, None
+                for host_id in self._permissions:
+                    self.take_request(host_id)
+                self._permissions.clear()
         if already_closing:
             self._close_done.wait()
             return

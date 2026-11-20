@@ -6,7 +6,10 @@ function Approval({ approval, onAnswer }: { approval: ReaderApproval; onAnswer: 
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(false);
+  const expired = approval.status === "expired";
+  const disabled = sent || expired;
   async function respond(value: ReaderApprovalResponse) {
+    if (disabled) return;
     setSent(true); setError(false);
     try { if (await onAnswer(value)) return; } catch { /* allow retry */ }
     setSent(false); setError(true);
@@ -15,16 +18,17 @@ function Approval({ approval, onAnswer }: { approval: ReaderApproval; onAnswer: 
     <strong>{approval.title}</strong>
     {approval.detail && <details><summary>查看详情</summary><pre>{approval.detail}</pre></details>}
     {approval.questions.map(q => <fieldset key={q.id}><legend>{q.question}</legend>
-      {q.options?.map(o => <button type="button" key={o.label} disabled={sent} aria-pressed={answers[q.id] === o.label}
+      {q.options?.map(o => <button type="button" key={o.label} disabled={disabled} aria-pressed={answers[q.id] === o.label}
         onClick={() => setAnswers({ ...answers, [q.id]: o.label })}>{o.label} — {o.description}</button>)}
-      <input aria-label={q.question} value={answers[q.id] ?? ""} onChange={e => setAnswers({ ...answers, [q.id]: e.target.value })} />
+      <input aria-label={q.question} disabled={disabled} value={answers[q.id] ?? ""} onChange={e => setAnswers({ ...answers, [q.id]: e.target.value })} />
     </fieldset>)}
-    {approval.kind === "input" ? <button disabled={sent} onClick={() => void respond({ approvalId: approval.id,
+    {approval.kind === "input" ? <button disabled={disabled} onClick={() => void respond({ approvalId: approval.id,
       answers: Object.fromEntries(approval.questions.map(q => [q.id, { answers: [answers[q.id] ?? ""] }])) })}>提交回答</button> :
-      approval.choices.map(choice => <button disabled={sent} key={choice} onClick={() => void respond({ approvalId: approval.id, decision: choice })}>
+      approval.choices.map(choice => <button disabled={disabled} key={choice} onClick={() => void respond({ approvalId: approval.id, decision: choice })}>
         {choice === "accept" ? "允许本次" : choice === "decline" ? "拒绝" : "取消"}</button>)}
-    {sent && <span role="status">已提交，等待处理</span>}
-    {error && <p role="alert">提交失败，请重试。</p>}
+    {expired && <span role="status">本次请求已过期，请重试</span>}
+    {sent && !expired && <span role="status">已提交，等待处理</span>}
+    {error && !expired && <p role="alert">提交失败，请重试。</p>}
   </section>;
 }
 export function AgentControls({ agent, onStop, onAnswer, showStop = true }: { agent: ReaderAgentState; onStop: () => void; onAnswer: (input: ReaderApprovalResponse) => Promise<boolean>; showStop?: boolean }) {
