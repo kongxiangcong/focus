@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from host.backends.registry import HarnessRegistry
-from host.configuration import UserSettings
+from host.configuration import UserSettings, resolve_startup
 from host.proxy import backend_environment
 
 
@@ -38,6 +38,10 @@ class DeepSeekCutoverTests(unittest.TestCase):
             self.assertEqual(original, path.read_text(encoding='utf-8'))
             self.assertEqual('acp', registry.get_spec('deepseek').driver)
             self.assertEqual((str(detected.resolve()), '--profile', 'acp'), registry.resolve_command('deepseek'))
+            with patch.dict(os.environ, {'FOCUS_BACKEND_BIN': '', 'FOCUS_MODEL': ''}):
+                startup = resolve_startup(settings, backend='deepseek')
+            self.assertIsNone(startup.error)
+            self.assertEqual({**expected, 'runtimePath': str(detected.resolve())}, startup.configuration)
             settings.save({**old, 'runtimePath': str(explicit)})
             reloaded = UserSettings(path, registry=registry)
             self.assertEqual(str(explicit), reloaded.read()['runtimePath'])
