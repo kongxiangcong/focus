@@ -12,6 +12,10 @@ from test_backend_setup import AccountRuntime
 from test_backend_verification import Protocol
 
 
+def unexpected_runtime(*args, **kwargs):
+    raise AssertionError('This settings-only test does not execute a Runtime')
+
+
 class BackendOnboardingTests(unittest.TestCase):
     def test_catalog_intersects_supplier_models_with_text_and_current_protocol(self):
         setup = BackendSetup()
@@ -34,17 +38,16 @@ class BackendOnboardingTests(unittest.TestCase):
                 patch.object(BackendSetup, 'prepare', side_effect=AssertionError('not authorized')):
             app = Workbench(settings_path=root / 'machine/settings.json')
             app.bind({'mode': 'create', 'path': str(root), 'configuration': {'backend': 'deepseek'}})
-            self.assertEqual('deepseek', app.host.backend_name)
-            self.assertEqual(DEFAULT_MODELS['deepseek'], app.host.models['deepseek'])
-            self.assertIsNone(app.settings.preferences()['deepseek']['model'])
+            self.assertIsNone(app.host.backend_name)
+            self.assertEqual({}, app.settings.preferences())
             app.close()
             app = Workbench(settings_path=root / 'machine/settings.json')
-            self.assertEqual('deepseek', app.host.backend_name)
+            self.assertIsNone(app.host.backend_name)
             app.close()
 
     def test_each_preference_and_return_to_default_removes_override(self):
         with test_directory() as root:
-            app = Workbench(settings_path=root / 'machine/settings.json')
+            app = Workbench(settings_path=root / 'machine/settings.json', backend_factory=unexpected_runtime)
             app.bind({'mode': 'create', 'path': str(root)})
             host = app.host
             host.save_configuration({'backend': 'codex', 'model': 'custom-codex'})
@@ -62,8 +65,9 @@ class BackendOnboardingTests(unittest.TestCase):
 
     def test_apply_and_disk_failure_keep_old_saved_and_effective(self):
         with test_directory() as root:
-            app = Workbench(settings_path=root / 'machine/settings.json')
+            app = Workbench(settings_path=root / 'machine/settings.json', backend_factory=unexpected_runtime)
             app.bind({'mode': 'create', 'path': str(root), 'configuration': {'backend': 'codex'}})
+            app.host.save_configuration({'backend': 'codex'})
             before = app.host.configuration_status()
             for point in ('save', 'apply'):
                 with self.subTest(point=point):
@@ -84,7 +88,7 @@ class BackendOnboardingTests(unittest.TestCase):
             self.assertEqual('codex', app.host.backend_name)
             app.close()
 
-    def test_initial_configuration_and_binding_disk_failure_are_one_commit(self):
+    def test_initial_binding_disk_failure_leaves_no_bound_workspace(self):
         with test_directory() as root:
             app = Workbench(settings_path=root / 'machine/settings.json')
             with patch.object(app.binding.settings, 'write', side_effect=OSError('disk')), self.assertRaises(OSError):
@@ -92,7 +96,7 @@ class BackendOnboardingTests(unittest.TestCase):
             self.assertFalse(app.status()['bound'])
             self.assertFalse(app.settings.path.exists())
             app.bind({'mode': 'import', 'path': str(root / 'knowledge-base'), 'configuration': {'backend': 'codex'}})
-            self.assertEqual('codex', app.configuration_status()['effective']['backend'])
+            self.assertIsNone(app.configuration_status()['effective'])
             app.close()
 
     def test_check_runs_the_selected_model_without_installing_or_discovering_models(self):

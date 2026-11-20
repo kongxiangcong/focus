@@ -1,6 +1,7 @@
 """Explicit candidate inspection using the currently selected Host Backend."""
 
 import json
+from contextlib import nullcontext
 from pathlib import Path
 
 from .backends.base import BackendError
@@ -8,11 +9,16 @@ from .candidates import CandidateTurns
 
 
 class IngestionInspector:
-    def __init__(self, backend_factory, *, timeout=180.0):
+    def __init__(self, backend_factory, *, timeout=180.0, admission=nullcontext):
         self.turns = CandidateTurns(backend_factory)
         self.timeout = timeout
+        self.admission = admission
 
     def inspect(self, candidate):
+        with self.admission():
+            return self._inspect(candidate)
+
+    def _inspect(self, candidate):
         candidate = Path(candidate).resolve()
         content_path = candidate / 'content.md'
         metadata_path = candidate / 'metadata.json'

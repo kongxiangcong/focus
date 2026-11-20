@@ -64,7 +64,6 @@ class ConfigurationTests(unittest.TestCase):
                 busy = self.host.refresh_configuration()['configuration']
                 self.assertFalse(busy['refreshBlocked'])
                 self.assertEqual('deepseek', busy['effective']['backend'])
-                self.assertEqual('deepseek', busy['effective']['backend'])
             finally:
                 released.set()
                 self.host.reading_workers['fixture-paper'].join(10)
@@ -91,8 +90,7 @@ class ConfigurationTests(unittest.TestCase):
         before = self.host.snapshot()['configuration']
         with self.assertRaisesRegex(ValueError, 'DeepSeek.*指定的可执行文件'):
             self.host.save_configuration({'backend': 'deepseek', 'runtimePath': str(self.fixture.root / 'missing.exe')})
-        self.assertEqual(before['effective'], self.host.snapshot()['configuration']['effective'])
-        self.assertEqual(before['saved'], self.host.snapshot()['configuration']['saved'])
+        self.assertEqual(before, self.host.snapshot()['configuration'])
 
     def test_standalone_blog_worker_blocks_configuration_until_cancellation_settles(self):
         runtime = ControlledBlogRuntime()
@@ -197,7 +195,7 @@ class BatchConfigurationTests(unittest.TestCase):
                 preserved = {str(p): p.read_bytes() for item in snapshot['items'][:3]
                              for p in (host.workspace / 'sources' / item['sourceId']).rglob('*') if p.is_file()}
                 config = {'backend': 'codex', 'model': 'gpt-6-astra'}
-                self.request('POST', '/reader/configuration', config, expected_status=400)
+                self.request('POST', '/reader/configuration', config, expected_status=409)
                 self.request('POST', f"/library/batches/{batch['batchId']}/stop", {'requestId': 'stop'})
                 release.set()
                 for worker in list(host.batch_workers.values()):

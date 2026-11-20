@@ -3,10 +3,11 @@ import json
 import os
 import threading
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 from .configuration import UserSettings
+from .backends import HarnessRegistry
 from .backend_setup import BackendSetup
 from .core_bridge import WorkspaceError
 from .service import HostService
@@ -30,16 +31,13 @@ class WorkspaceBinding:
 
     def save(self, value):
         document = self.settings.document()
-        configuration = value.get('configuration')
-        if configuration:
-            document = self.settings.configured_document(configuration)
-        document['workspace'] = {k: v for k, v in value.items() if k != 'configuration'}
+        document['workspace'] = value
         self.settings.write(document)
 
 
 class Workbench:
-    def __init__(self, *, settings_path=None, workspace=None, service_factory=HostService, **options):
-        self.settings = UserSettings(settings_path)
+    def __init__(self, *, settings_path=None, backends_dir=None, workspace=None, service_factory=HostService, **options):
+        self.settings = UserSettings(settings_path, backends_dir=backends_dir)
         self.registry = self.settings.registry
         self.binding = WorkspaceBinding(self.settings.path, settings=self.settings)
         self.lock = threading.RLock()
@@ -67,8 +65,11 @@ class Workbench:
                 self.error = str(exc)
 
     def _open(self, path):
-        return self.service_factory(path, None, settings_path=self.settings.path, registry=self.registry,
-                                    verification=self.setup.verification, **self.options)
+        target = self.service_factory(path, None, settings_path=self.settings.path, registry=self.registry,
+                                      verification=self.setup.verification, allow_unconfigured=True, **self.options)
+        if self.host and target._configuration() == self.host._configuration():
+            target.active_registry = self.host.active_registry
+        return target
 
     def status(self):
         with self.lock:
@@ -93,12 +94,25 @@ class Workbench:
         with self.lock:
             yield self.require_instance(instance)
 
+    def save_backend_configuration(self, instance, payload):
+        with ExitStack() as transition:
+            with self.lock:
+                host = self.require_instance(instance)
+                transition.enter_context(host.configuration_transition())
+            host._save_reserved_configuration(payload)
+            with self.lock:
+                transition.close()
+                return host.snapshot()
+
     def bind(self, payload, *, expected_generation=None):
         with self.lock:
             if expected_generation is not None and expected_generation != self.generation:
                 raise WorkspaceError('workspace_instance_changed', '工作区已更换，请重新载入；旧草稿未提交。')
-            if self.host and self.host._configuration_busy():
-                raise WorkspaceError('workspace_busy', '任务或批次运行中，请停止并等待后更换工作区。')
+            if self.host:
+                with self.host.lock:
+                    self.host._require_backend_admission()
+                    if self.host._configuration_busy():
+                        raise WorkspaceError('workspace_busy', '任务或批次运行中，请停止并等待后更换工作区。')
             mode = payload.get('mode')
             text = payload.get('path')
             if not isinstance(text, str) or not text.strip():
@@ -130,9 +144,6 @@ class Workbench:
                 target.snapshot()
                 selection = {'path': str(path), 'workspaceId': target.lease.manifest['workspaceId'],
                              'operationId': payload.get('requestId') or uuid.uuid4().hex}
-                if payload.get('configuration'):
-                    target._apply_configuration(self.settings.normalize(payload['configuration']))
-                    selection['configuration'] = payload['configuration']
                 self.binding.save(selection)
                 saved = True
                 if old:
@@ -149,7 +160,6 @@ class Workbench:
                 target.close()
                 raise
             self.host = target
-            selection.pop('configuration', None)
             self.saved_workspace, self.error = selection, None
             self.generation = uuid.uuid4().hex
             return self.status()
@@ -160,6 +170,14 @@ class Workbench:
 
     def backend_setup(self, action, payload):
         with self.lock:
+            if action == 'rescan':
+                registry = HarnessRegistry(self.registry.directory)
+                self.registry = self.settings.registry = self.setup.registry = registry
+                if self.host:
+                    self.host.update_backend_registry(registry)
+                state = self.configuration_status()
+                return {'backend': '', 'runtimePath': None, 'status': 'success', 'message': '已重新扫描 Backend。',
+                        'backends': state['backends'], 'backendErrors': state['backendErrors']}
             host = self.host
         if host:
             return host.backend_setup(action, payload)
