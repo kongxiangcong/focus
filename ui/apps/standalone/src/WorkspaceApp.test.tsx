@@ -215,7 +215,7 @@ it("lands in Library and persists the chosen font across remounts", async () => 
   fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
   expect(screen.getByLabelText("阅读字体预览")).toHaveStyle({ fontSize: "26px" });
   expect(screen.getByRole("radio", { name: "DeepSeek" })).toBeEnabled();
-  fireEvent.click(screen.getByRole("button", { name: "保存外观" }));
+  await waitFor(() => expect(localStorage.getItem("focus.fontSize")).toBe("extra"));
   app.unmount(); setup();
   expect(await screen.findByRole("slider", { name: "字号" })).toHaveValue("3");
   fireEvent.click(screen.getByRole("link", { name: "阅读" }));
@@ -282,7 +282,6 @@ it("omits brightness and ignores the retired saved preference", async () => {
   setup(); await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   expect(screen.queryByRole("slider", { name: "亮度" })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "保存外观" }));
   expect(document.querySelector<HTMLElement>(".workspace-app")!.style.getPropertyValue("--reader-brightness")).toBe("");
   expect(screen.queryByRole("switch", { name: "网络" })).not.toBeInTheDocument();
 });
@@ -579,16 +578,14 @@ it('clears terminal statuses while an active chat continues, and keeps source ma
   expect(host.clearFinishedStatuses).toHaveBeenCalledWith(expect.any(String));
 });
 
-it("T2 appearance previews can be cancelled without touching saved settings", async () => {
+it("T2 appearance changes auto-save immediately and show feedback", async () => {
   setup(); await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
   fireEvent.change(screen.getByRole("combobox", { name: "正文字体" }), { target: { value: "source-han-sans" } });
-  expect(localStorage.getItem("focus.fontSize")).toBeNull();
-  expect(localStorage.getItem("focus.readingFont")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "还原外观" }));
-  expect(screen.getByRole("slider", { name: "字号" })).toHaveValue("1");
-  expect(screen.getByRole("combobox", { name: "正文字体" })).toHaveValue("default");
+  await waitFor(() => expect(localStorage.getItem("focus.fontSize")).toBe("extra"));
+  expect(localStorage.getItem("focus.readingFont")).toBe("source-han-sans");
+  expect(screen.getByText("已自动保存")).toBeInTheDocument();
 });
 
 it("saves the reading font and restores it after reopening the app", async () => {
@@ -600,14 +597,9 @@ it("saves the reading font and restores it after reopening the app", async () =>
   fireEvent.change(select, { target: { value: "neo-zhisong-screen" } });
   expect(screen.getByLabelText("阅读字体预览")).toHaveTextContent("Reading brings ideas into focus.");
   expect(container.querySelector<HTMLElement>(".workspace-app")!.style.getPropertyValue("--reader-body-font")).toContain("FOCUS Neo ZhiSong Screen");
-  expect(localStorage.getItem("focus.readingFont")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "保存外观" }));
-  expect(localStorage.getItem("focus.readingFont")).toBe("neo-zhisong-screen");
+  await waitFor(() => expect(localStorage.getItem("focus.readingFont")).toBe("neo-zhisong-screen"));
   cleanup();
   render(<WorkspaceApp host={host} />);
-  expect(screen.getByRole("combobox", { name: "正文字体" })).toHaveValue("neo-zhisong-screen");
-  fireEvent.change(screen.getByRole("combobox", { name: "正文字体" }), { target: { value: "source-han-serif" } });
-  fireEvent.click(screen.getByRole("button", { name: "还原外观" }));
   expect(screen.getByRole("combobox", { name: "正文字体" })).toHaveValue("neo-zhisong-screen");
 });
 

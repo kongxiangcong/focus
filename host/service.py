@@ -137,6 +137,8 @@ class HostService:
         self.stop_requested = False
         self.shutting_down = False
         self.resetting = False
+        self._snapshot_cache = None
+        self._disk_memo = {}
         if backend_factory is None and backend not in BACKENDS:
             raise BackendError(f'未知 Agent 后端 {backend!r}；可选：{", ".join(sorted(BACKENDS))}')
         if not self.state['timeline'] and self.state['displayReading']:
@@ -180,6 +182,7 @@ class HostService:
         self.store.save()
         self.generation += 1
         self.page_generation = self.generation
+        self._snapshot_cache = None
         self.stream_messages.clear()
         self.condition.notify_all()
 
@@ -206,6 +209,21 @@ class HostService:
             self._reconcile_deleted_sources()
             return self._project_snapshot()
 
+    def _path_stamp(self, path):
+        try:
+            st = path.stat()
+            return (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return None
+
+    def _memo_disk(self, key, stamp, compute):
+        cached = self._disk_memo.get(key)
+        if cached is not None and cached[0] == stamp:
+            return copy.deepcopy(cached[1])
+        value = compute()
+        self._disk_memo[key] = (stamp, copy.deepcopy(value))
+        return value
+
     def _project_snapshot(self):
         window = self.core.window()
         discussion_source = self.state.get('discussionSourceId')
@@ -225,11 +243,23 @@ class HostService:
         window['configuration'] = self.configuration_status()
         window['sessionFresh'] = not self.state['displayReading']
         window['navigationCurrent'] = window['current']
-        selected_state = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8")) if (self.workspace / 'state.json').is_file() else {}
+        state_path = self.workspace / 'state.json'
+        state_stamp = self._path_stamp(state_path)
+        selected_state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
         window['readingStarted'] = bool(selected_state.get('sources', {}).get(note_source, {}).get('reading_started'))
         window['structureIntro'] = bool(window.get('structure') and window['navigationCurrent'] and not window['readingStarted'])
         if note_source and window.get('structure'):
-            window['articleOverview'] = self.article_overview(note_source)
+            reading_dir = self.workspace / 'sources' / note_source / 'reading'
+            overview_stamp = (
+                state_stamp,
+                self._path_stamp(reading_dir / 'overview.json'),
+                self._path_stamp(reading_dir / 'preparation.json'),
+                self._path_stamp(self.workspace / 'sources' / note_source / 'source.json'),
+                bool(self.reading_workers.get(note_source) and self.reading_workers[note_source].is_alive()),
+            )
+            window['articleOverview'] = self._memo_disk(
+                ('article_overview', note_source), overview_stamp, lambda: self.article_overview(note_source)
+            )
             overview = window['articleOverview']
             if overview['status'] == 'ready':
                 window['structure'] = overview['structure']
@@ -302,11 +332,20 @@ class HostService:
         window['noteFeedback'] = self.state.get('noteFeedback') if note_source and (self.state.get('noteFeedback') or {}).get('sourceId') == note_source else None
         window['noteOperation'] = self.state.get('noteOperation') if note_source and (self.state.get('noteOperation') or {}).get('sourceId') == note_source else None
         window['highlightOperation'] = self.state.get('highlightOperation') if note_source and (self.state.get('highlightOperation') or {}).get('sourceId') == note_source else None
-        window['blog'] = self._blog_summary()
+        sources_overview = SourceLibrary(self.workspace).overview()
+        window['blog'] = self._blog_summary(overview=sources_overview)
         preparations = {}
         for path in (self.workspace / 'sources').glob('*/reading/preparation.json'):
             source_id = path.parent.parent.name
-            preparation = self.reading_app.status(source_id)
+            prep_stamp = (
+                state_stamp,
+                self._path_stamp(path),
+                self._path_stamp(path.parent.parent / 'source.json'),
+                bool(self.reading_workers.get(source_id) and self.reading_workers[source_id].is_alive()),
+            )
+            preparation = self._memo_disk(
+                ('preparation', source_id), prep_stamp, lambda sid=source_id: self.reading_app.status(sid)
+            )
             if preparation:
                 preparations[source_id] = {key: preparation.get(key) for key in
                     ('source_id', 'status', 'step', 'total', 'completed', 'ready', 'error', 'plan_id', 'attempt',
@@ -319,13 +358,13 @@ class HostService:
                 projected['dismissed'] = dismissed == {
                     'run_id': preparation['run_id'], 'attempt': preparation['attempt']}
         window['preparations'] = preparations
-        window['clearBusySources'] = [source['sourceId'] for source in SourceLibrary(self.workspace).overview() if self.source_clear_busy(source['sourceId'])]
+        window['clearBusySources'] = [source['sourceId'] for source in sources_overview if self.source_clear_busy(source['sourceId'])]
         window['agent'] = {'run': self.state['run'], 'catalog': self.core.catalog(),
                            'backend': self.backend_name,
                            'backends': [{'id': name, 'label': {'codex': 'Codex', 'deepseek': 'DeepSeek'}[name],
                                          'unavailableReason': getattr(adapter, 'unavailable_reason', None)}
                                         for name, adapter in BACKENDS.items()]}
-        window['workItems'] = self.work_items(window)
+        window['workItems'] = self.work_items(window, overview=sources_overview, state=selected_state)
         for item in window['workItems']:
             if item['kind'] == 'preparation' and item['dismissed']:
                 window['preparations'][item['targetId']]['dismissed'] = True
@@ -342,7 +381,13 @@ class HostService:
             with self.lock:
                 page = self.page_generation
                 state_path = self.workspace / 'state.json'
-                core_state = json.loads(state_path.read_text(encoding='utf-8')) if state_path.exists() else {}
+                state_bytes = state_path.read_bytes() if state_path.exists() else b''
+                version = (state_path.stat().st_mtime_ns, len(state_bytes), hash(state_bytes)) if state_bytes else None
+                cached = self._snapshot_cache
+                if (cached is not None and cached[0] == (page, version, self.generation)
+                        and time.monotonic() - cached[1] < 1.0):
+                    return page, copy.deepcopy(cached[2])
+                core_state = json.loads(state_bytes.decode('utf-8')) if state_bytes else {}
                 source_id = self.state.get('discussionSourceId') or core_state.get('current_source_id')
                 if source_id:
                     # Selection allocates identity and binds legacy messages. It
@@ -355,12 +400,12 @@ class HostService:
                 view.lock = threading.RLock()
                 view.store = copy.copy(self.store)
                 view.store.state = copy.deepcopy(self.state)
-                state_path = self.workspace / 'state.json'
-                version = state_path.stat().st_mtime_ns if state_path.exists() else None
             window = view._project_snapshot()
             with self.lock:
-                current_version = state_path.stat().st_mtime_ns if state_path.exists() else None
+                after_bytes = state_path.read_bytes() if state_path.exists() else b''
+                current_version = (state_path.stat().st_mtime_ns, len(after_bytes), hash(after_bytes)) if after_bytes else None
                 if page == self.page_generation and version == current_version:
+                    self._snapshot_cache = ((page, version, self.generation), time.monotonic(), copy.deepcopy(window))
                     return page, window
         raise ValueError('Workspace is closing')
 
@@ -373,10 +418,11 @@ class HostService:
                 'messages': copy.deepcopy(list(self.stream_messages.values())),
                 'run': copy.deepcopy(self.state['run'])}
 
-    def work_items(self, window):
+    def work_items(self, window, *, overview=None, state=None):
         """Project durable business attempts; never infer work from the last log line."""
         items = []
-        titles = {s['sourceId']: s.get('shortName') or s['title'] for s in SourceLibrary(self.workspace).overview()}
+        sources_overview = overview if overview is not None else SourceLibrary(self.workspace).overview()
+        titles = {s['sourceId']: s.get('shortName') or s['title'] for s in sources_overview}
         def add(kind, target, status, label, error=None, record=None):
             item = {'kind': kind, 'targetId': target, 'status': status,
                     'label': label, 'error': error, 'notificationId': fingerprint(record or {}),
@@ -395,8 +441,9 @@ class HostService:
         for item in self.ingestion.list_inbox():
             if not item.get('deleted') and item['status'] not in ('completed', 'awaiting_confirmation'):
                 add('ingestion', item['item_id'], item['status'], '正在解析 ' + item['file_name'] if item['status'] in ('processing', 'confirmed') else '解析待处理 · ' + item['file_name'], (item.get('error') or {}).get('message'), item)
-        state_path = self.workspace / 'state.json'
-        state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
+        if state is None:
+            state_path = self.workspace / 'state.json'
+            state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
         for entry in state.get('reading_progress', {}).values():
             if not entry['deleted'] and entry['status'] in ('pending', 'generating', 'failed', 'interrupted'):
                 attempts = [receipt.get('result', {}).get('attempt')
@@ -1059,15 +1106,28 @@ class HostService:
                 )
             return self.blog
 
-    def _blog_summary(self):
+    def _blog_summary(self, *, overview=None):
         """One compact Blog Output projection per Source, for the Workbench list."""
         from .core_bridge import SourceLibrary
         try:
-            app = self._blog_app()
+            self._blog_app()
         except Exception:
             return {}
         try:
-            return {entry['sourceId']: self.blog_status(entry['sourceId']) for entry in SourceLibrary(self.workspace).overview()}
+            entries = overview if overview is not None else SourceLibrary(self.workspace).overview()
+            result = {}
+            for entry in entries:
+                sid = entry['sourceId']
+                blog_dir = self.workspace / 'sources' / sid / 'blog'
+                stamp = (
+                    self._path_stamp(blog_dir / 'status.json'),
+                    self._path_stamp(blog_dir / 'blog.md'),
+                    self._path_stamp(blog_dir / 'blog.html'),
+                    bool(self.blog_workers.get(sid) and self.blog_workers[sid].is_alive()),
+                    self.blog_errors.get(sid),
+                )
+                result[sid] = self._memo_disk(('blog_status', sid), stamp, lambda s=sid: self.blog_status(s))
+            return result
         except Exception:
             return {}
 
@@ -2111,8 +2171,9 @@ class HostService:
             self._cancel_early_summary_locked()
             worker = self.worker
         try:
-            self.stop()
-            if worker:
+            if (worker and worker.is_alive()) or self.backend is not None:
+                self.stop()
+            if worker and worker.is_alive():
                 worker.join(timeout=15)
                 if worker.is_alive():
                     raise ValueError('任务尚未停止，请稍后重试新建会话。')

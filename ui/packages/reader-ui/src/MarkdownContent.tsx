@@ -51,7 +51,13 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
       }
     };
   }
-  const evidenceKey = JSON.stringify(sourceEvidence);
+  const evidenceKey = sourceEvidence
+    ? JSON.stringify([
+        sourceEvidence.document.sourceId,
+        sourceEvidence.document.bundleVersion,
+        sourceEvidence.evidence.map(e => [e.evidenceId, e.sourceLines, e.quote, e.displayNumber]),
+      ])
+    : "";
   const evidencePlugins = useMemo(() => sourceEvidence ? [[rehypeSourceEvidence, sourceEvidence] as [typeof rehypeSourceEvidence, typeof sourceEvidence]] : [], [evidenceKey]);
   const markKey = JSON.stringify(marks ?? []);
   const annotationPlugins = useMemo(() => marks?.length ? [[rehypeAnnotations, { items: marks }] as [typeof rehypeAnnotations, { items: readonly RenderMark[] }]] : [], [markKey]);

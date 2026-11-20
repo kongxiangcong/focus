@@ -1,7 +1,8 @@
 export { FocusReader } from "./FocusReader";
 export { AgentControls } from "./AgentControls";
 export { TaskProgress } from "./TaskProgress";
-export type { FocusReaderProps } from "./FocusReader";
+export type { FocusReaderProps, ReadingMode } from "./FocusReader";
 export { readingFontSizes } from "./typography";
+export { BookOpen, ChatBubble, DocText } from "./ReaderIcons";
 
 export { ArticleOverviewPanel } from "./ArticleOverviewPanel";
