@@ -23,6 +23,7 @@ APPROVAL_DECISIONS = ('accept', 'decline', 'cancel')
 
 class CodexBackend(Backend):
     name = 'codex'
+    image_input = True
     option_keys = Backend.option_keys | {'codex_bin', 'command', 'manifest', 'credential_file', 'purpose'}
 
     def __init__(self, workspace, *, network=False, approval_policy='on-request', model=None,
@@ -41,35 +42,38 @@ class CodexBackend(Backend):
     # --- lifecycle -------------------------------------------------
 
     def open_session(self, resume_key, *, instructions, skills=()):
-        with self._lifecycle_lock:
-            if self.closed:
-                raise BackendError('任务已关闭。')
-            try:
-                return self._open_session(resume_key, instructions=instructions, skills=skills)
-            except BackendError:
-                raise
-            except Exception as exc:
-                raise BackendError(safe_backend_error(exc)) from exc
+        try:
+            return self._open_session(resume_key, instructions=instructions, skills=skills)
+        except BackendError:
+            raise
+        except Exception as exc:
+            raise BackendError(safe_backend_error(exc)) from exc
 
     def _start_rpc(self, *options):
         command = list(self.command) if self.command else [*codex_command(self.codex_bin), 'app-server']
         env = backend_environment(self.manifest or self.name, credential_file=self.credential_file)
         for key in ('OPENAI_API_KEY', 'CODEX_API_KEY'):
             env.pop(key, None)
-        self.rpc = AppServer([*command, '-c', 'forced_login_method="chatgpt"', *options], self.workspace, env=env)
-        self.rpc.initialize()
-        self.rpc.send({'method': 'initialized', 'params': {}})
+        with self._lifecycle_lock:
+            if self.closed:
+                raise BackendError('任务已关闭。')
+            self.rpc = rpc = AppServer([*command, '-c', 'forced_login_method="chatgpt"', *options], self.workspace, env=env)
+            if self.deadline is not None:
+                rpc.deadline = self.deadline
+        rpc.initialize()
+        rpc.send({'method': 'initialized', 'params': {}})
+        return rpc
 
     def account(self):
-        self._start_rpc()
-        account = self.rpc.request('account/read', {'refreshToken': True}, timeout=15).get('account')
+        rpc = self._start_rpc()
+        account = rpc.request('account/read', {'refreshToken': True}, timeout=15).get('account')
         return bool(account and account.get('type') == 'chatgpt')
 
     def discover_models(self):
-        self._start_rpc()
+        rpc = self._start_rpc()
         models, cursor, seen = [], None, set()
         while True:
-            result = self.rpc.request('model/list', {'limit': 100, 'cursor': cursor, 'includeHidden': False}, timeout=20)
+            result = rpc.request('model/list', {'limit': 100, 'cursor': cursor, 'includeHidden': False}, timeout=20)
             models.extend(item['model'] for item in result.get('data', []) if isinstance(item.get('model'), str))
             cursor = result.get('nextCursor')
             if not cursor:
@@ -79,8 +83,8 @@ class CodexBackend(Backend):
             seen.add(cursor)
 
     def start_login(self):
-        self._start_rpc()
-        result = self.rpc.request('account/login/start', {'type': 'chatgpt'}, timeout=15)
+        rpc = self._start_rpc()
+        result = rpc.request('account/login/start', {'type': 'chatgpt'}, timeout=15)
         url = urlsplit(result['authUrl'])
         if (url.scheme != 'https' or url.hostname not in ('auth.openai.com', 'auth0.openai.com', 'auth.chatgpt.com')
                 or url.username or url.password):
@@ -112,10 +116,10 @@ class CodexBackend(Backend):
             options = ['-c', 'mcp_servers={}',
                        '-c', 'features.shell_tool=false', '-c', 'features.apply_patch_freeform=false',
                        '-c', 'web_search="live"' if self.purpose == 'discussion' else 'web_search="disabled"']
-        self._start_rpc(*options)
-        account = self.rpc.request('account/read', {'refreshToken': False}, timeout=15).get('account')
+        rpc = self._start_rpc(*options)
+        account = rpc.request('account/read', {'refreshToken': False}, timeout=15).get('account')
         if not account or account.get('type') != 'chatgpt':
-            account = self.rpc.request('account/read', {'refreshToken': True}, timeout=15).get('account')
+            account = rpc.request('account/read', {'refreshToken': True}, timeout=15).get('account')
         if not account or account.get('type') != 'chatgpt':
             raise BackendError('请先使用 ChatGPT / Codex 登录。')
         params = {'cwd': str(self.workspace), 'approvalPolicy': self.approval_policy,
@@ -127,7 +131,7 @@ class CodexBackend(Backend):
             params.update(sandbox='read-only', approvalPolicy='never', ephemeral=True)
         if resume_key:
             params['threadId'] = resume_key
-            result = self.rpc.request('thread/resume', params)
+            result = rpc.request('thread/resume', params)
         else:
             params['dynamicTools'] = [] if self.purpose in ('connectivity', 'candidate') else [TOOL]
             if self.purpose == 'discussion':
@@ -137,35 +141,45 @@ class CodexBackend(Backend):
             if self.tools is not None:
                 params['dynamicTools'] = self.tools
             params['dynamicTools'] = [dict(tool, type='function') for tool in params['dynamicTools']]
-            result = self.rpc.request('thread/start', params)
-        self.thread_id = result['thread']['id']
-        self.cleanup.update(nativeSessionId=self.thread_id, persistence='ephemeral_requested')
-        threading.Thread(target=self._pump, daemon=True).start()
-        self.emit(SESSION_OPENED, {'key': self.thread_id})
-        return self.thread_id
-
-    def start_turn(self, *, prompt, skills=()):
+            result = rpc.request('thread/start', params)
         with self._lifecycle_lock:
             if self.closed:
                 raise BackendError('任务已关闭。')
-            try:
-                return self._start_turn(prompt=prompt, skills=skills)
-            except Exception as exc:
-                raise BackendError(safe_backend_error(exc)) from exc
+            self.thread_id = result['thread']['id']
+            self.cleanup.update(nativeSessionId=self.thread_id, persistence='ephemeral_requested')
+            threading.Thread(target=self._pump, daemon=True).start()
+            self.emit(SESSION_OPENED, {'key': self.thread_id})
+            return self.thread_id
 
-    def _start_turn(self, *, prompt, skills=()):
+    def start_turn(self, *, prompt, skills=(), images=()):
+        try:
+            return self._start_turn(prompt=prompt, skills=skills, images=images)
+        except BackendError:
+            raise
+        except Exception as exc:
+            raise BackendError(safe_backend_error(exc)) from exc
+
+    def _start_turn(self, *, prompt, skills=(), images=()):
+        with self._lifecycle_lock:
+            rpc = self.rpc
+            if self.closed or rpc is None:
+                raise BackendError('任务已关闭。')
         inputs = [{'type': 'text', 'text': prompt}]
         inputs += [{'type': 'skill', 'name': name, 'path': path} for name, path in skills]
+        inputs += [{'type': 'localImage', 'path': str(path)} for path in images]
         policy = {'type': 'workspaceWrite', 'writableRoots': [str(self.workspace)],
                   'networkAccess': self.network, 'excludeTmpdirEnvVar': True, 'excludeSlashTmp': True}
         if self.purpose in ('connectivity', 'candidate', 'discussion', 'business'):
             policy = {'type': 'readOnly'}
-        result = self.rpc.request('turn/start', {'threadId': self.thread_id, 'input': inputs,
+        result = rpc.request('turn/start', {'threadId': self.thread_id, 'input': inputs,
                                                 'cwd': str(self.workspace),
                                                 'approvalPolicy': 'never' if self.purpose in ('connectivity', 'candidate', 'discussion', 'business') else self.approval_policy,
                                                 'sandboxPolicy': policy})
-        self.turn_id = result['turn']['id']
-        self.emit(TURN_STARTED, {'turnId': self.turn_id})
+        with self._lifecycle_lock:
+            if self.closed:
+                raise BackendError('任务已关闭。')
+            self.turn_id = result['turn']['id']
+            self.emit(TURN_STARTED, {'turnId': self.turn_id})
 
     def send(self, message):
         request_id = message.get('id')
