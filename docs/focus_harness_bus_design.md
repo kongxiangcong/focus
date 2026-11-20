@@ -258,7 +258,7 @@ Focus 当前以本地 Python HTTP Host（`host/server.py`）配合 React/TypeScr
 | 阶段 | 核心交付物 | 验收标准（DoD） |
 | :--- | :--- | :--- |
 | **Phase 1：控制面去硬编码** | `HarnessRegistry` + 内置 Manifest + 泛化 `configuration.py` / `service.py` / `proxy.py` / `__main__.py` / 前端契约与面板 + 独立候选检查器迁移；取消自动安装 | 全仓 `host/`（除驱动目录外）与 `ui/` 零 `codex`/`deepseek` 业务硬编码；验收覆盖临时来源标记往返、回执复用与失效、启动覆盖失败且不回退、跨页面并发应用与迟到摘要、默认 Codex 的登录入口和免装 ACP、无 Backend 时正常导入且零模型请求、首次探针失败时保留输入且不发送文章或问题；按新契约更新的 `test_agent_backends.py`、`test_backend_setup.py`、`test_stage6b_*` 全量通过。 |
-| **Phase 2：通用 ACP 主驱动落地** | `JsonRpcStdioClient` + `AcpBackend` + `mcp_stdio_proxy.py`；以 `dsh --profile acp` 替换 `deepseek.py`；配置接入 `agy acp` 与 `agent acp` | 真机必测 `dsh`，另选 `agy` 或 Cursor CLI。两者经同一 `AcpBackend` 跑通阅读讨论、真实 `focus(action="read_range")` 往返、取消与资源释放。DSH 验收通过后移除 SDK。 |
+| **Phase 2：通用 ACP 主驱动落地** | `JsonRpcStdioClient` + `AcpBackend` + `mcp_stdio_proxy.py`；以 `dsh --profile acp` 替换 `deepseek.py`；配置接入 `agy acp` 与 `agent acp` | 真机验证 `dsh` 经 `AcpBackend` 完成阅读讨论、真实 `focus(action="read_range")` 往返、取消与资源释放，验收通过后移除 SDK。2026-11-21 用户豁免 Antigravity 和 Cursor 的真机端到端验收，保留预验收记录。 |
 | **Phase 3：真实 CLI 验收** | 自定义 Manifest 接入与生命周期验证 | 验证独立 ID 注册、冲突提示、超时或断开后拒绝迟到答复及手动重试。每轮启动并回收进程，验证无遗留句柄与子进程；分别记录从启动到握手完成、从用户发问到首段回答的耗时。报告逐项记录平台、CLI 版本与两项耗时；默认 Codex 单独进行 `codex-app-server` 兼容回归，其余未经真机验证的预置标为「未实测」。根据实测影响另行决定是否引入进程池。 |
 
 ---
