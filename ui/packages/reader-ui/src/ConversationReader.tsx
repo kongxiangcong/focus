@@ -181,6 +181,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const [pdfRevision, setPdfRevision] = useState(0);
   const pdfReady = useCallback(() => setPdfRevision(v => v + 1), []);
   const position = useRef<{line: number; block?: string; fraction: number} | null>(null);
+  const movedSinceSwitch = useRef(false);
   const lastPdfScroll = useRef(0);
   const [positionNotice, setPositionNotice] = useState("");
   const pointerX = useRef<number | undefined>(undefined);
@@ -249,23 +250,23 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const cited = !manual.current && activeEvidence ?
       pane.querySelectorAll<HTMLElement>(`[data-evidence-block~="${activeEvidence}"]`)[regionNumber] : null;
     const current = cited || anchors.sort((a,b) => dist(a)-dist(b))[0];
-    if (current) {
+    if (current && (next || movedSinceSwitch.current)) {
       const r = current.getBoundingClientRect();
       const line = Number(current.dataset.sourceLine);
       const remembered = position.current;
       position.current = next || !remembered || remembered.line < line || remembered.line > Number(current.dataset.sourceEnd)
         ? { line, block: current.dataset.blockId, fraction: Math.max(0, Math.min(1, (y-r.top)/Math.max(1,r.height))) } : remembered;
-    } else {
+    } else if (!current) {
       position.current = null;
       if (next && page) setPositionNotice(`第 ${page.dataset.pdfPage} 页暂无对应译块`);
     }
-    cancelAuto(); setSelection(""); setTranslated(next);
+    cancelAuto(); movedSinceSwitch.current = false; setSelection(""); setTranslated(next);
   }
   useLayoutEffect(() => {
     const anchor = position.current, pane = original.current;
     if (!pane) return;
     if (!anchor) {
-      if (!translated && positionNotice) pane.scrollTop = lastPdfScroll.current;
+      if (!translated && pdfRevision) pane.scrollTop = lastPdfScroll.current;
       return;
     }
     const candidates = [...pane.querySelectorAll<HTMLElement>("[data-source-line]")].filter(el => el.getClientRects().length);
@@ -329,6 +330,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   }, [turns.length]);
 
   const cancelAuto = useCallback(() => {
+    movedSinceSwitch.current = true;
     pendingJump.current = null;
     jumpOrigin.current = null; setReturnPosition(null);
     if (scrollAnimation.current !== null) { cancelAnimationFrame(scrollAnimation.current); scrollAnimation.current = null; }
@@ -343,6 +345,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const el = target(id), pane = original.current;
     if (!el || !pane) return;
     if (jumpOrigin.current === null) { jumpOrigin.current = pane.scrollTop; setReturnPosition(pane.scrollTop); }
+    movedSinceSwitch.current = true;
     manual.current = false; setActiveEvidence(id);
     if (!automatic) setMobile("original");
     if (scrollAnimation.current !== null) cancelAnimationFrame(scrollAnimation.current);
@@ -484,7 +487,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const regions = original.current.querySelectorAll<HTMLElement>(`[data-evidence-block~="${activeEvidence}"]`);
     if (!regions.length) return;
     const next = (regionNumber + 1) % regions.length;
-    manual.current = false;
+    manual.current = false; movedSinceSwitch.current = true;
     regions[next].scrollIntoView({ block: "center", behavior: reduced() ? "instant" : "smooth" });
     setRegionNumber(next);
   }
