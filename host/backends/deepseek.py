@@ -92,8 +92,8 @@ class DeepSeekBackend(Backend):
             profile='sdk-minimal', patches=(str(patch),), api_key=self.api_key or '',
             env=env, model=self.model or 'deepseek-v4-flash',
             # Full-source structured candidates need room for reasoning plus JSON.
-            # Connectivity remains a small request; discussions retain their cap.
-            max_tokens={'connectivity': 64, 'candidate': 65536}.get(self.purpose, 16000),
+            # The connectivity turn needs room for a tool call before its answer.
+            max_tokens={'connectivity': 1024, 'candidate': 65536}.get(self.purpose, 16000),
             initialize_timeout_seconds=15, request_timeout_seconds=15,
         )
         self.session_id = 'focus-' + self.purpose + '-' + uuid.uuid4().hex
