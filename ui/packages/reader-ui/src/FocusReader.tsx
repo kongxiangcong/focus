@@ -1,3 +1,4 @@
+import { ConversationReader } from "./ConversationReader";
 import { useLatestNotice } from "./latest-notice";
 import { discussionFoldKey, useDiscussionFolds } from "./discussion-fold";
 import { AnnotationRail } from "./annotations/AnnotationRail";
@@ -30,7 +31,9 @@ import { chunkFigures, figureChunk, extractFigures, figureNumber, imageIdentity,
 type DraftReference = ReaderChunk & { excerpt?: string };
 type Upload = { id: string; file: File; state: "uploading" | "ready" | "failed"; attachment?: ReaderAttachment; error?: string };
 type Failure = { message: string; label: string; retry: () => void };
-export interface FocusReaderProps { host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
+type ReadingMode = "chunks" | "chat" | "blog";
+export type { ReadingMode };
+export interface FocusReaderProps { renderModeNavigation?: (mode: ReadingMode, select: (next: ReadingMode) => void, disabled: boolean) => ReactNode; renderBlog?: (sourceId: string) => ReactNode; host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
 
 // Capture entry eligibility only on mount, never on streaming updates.
 function TimelineEvent({ identity, fresh, current, streaming, children }: { identity: string; fresh: boolean; current: boolean; streaming?: boolean; children: ReactNode }) {
@@ -57,7 +60,7 @@ export function groupReadingDiscussion<C extends { chunkId: string }>(
   return groups;
 }
 
-export function FocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange }: FocusReaderProps) {
+function LegacyFocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange }: FocusReaderProps) {
   const mist = appearance === "mist";
   const [attachNotes, setAttachNotes] = useState(() => {
     try { localStorage.removeItem("focus.attachDiscussion"); return localStorage.getItem("focus.attachNotes") !== "false"; } catch { return true; }
@@ -866,7 +869,7 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
           </form>
         </div>
         </div>
-        {!mist && view?.status !== "completed" && current && !reviewChunk && <div className="focus-next"><button disabled={blocked} onClick={current.index === current.total ? finish : next}>{current.index === current.total ? "完成本篇" : operation === "下一段" ? "正在打开…" : "下一段 →"}</button></div>}
+        {!mist && view?.status !== "completed" && current && !reviewChunk && current.index < current.total && <div className="focus-next"><button disabled={blocked} onClick={next}>{operation === "下一段" ? "正在打开…" : "下一段 →"}</button></div>}
       </div>
     </div>
     {mist && <nav className="mist-reading-actions" aria-label="阅读功能控制区">
@@ -899,8 +902,8 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       <button className="reader-fullscreen-toggle" aria-label={fullscreen ? "退出全屏" : "全屏"} aria-pressed={fullscreen} onClick={() => onFullscreenChange?.(!fullscreen)}>{fullscreen ? <Collapse /> : <Expand />}<span className="mist-action-label">{fullscreen ? "退出全屏" : "全屏"}</span></button>
       <button type="button" className="mist-composer-toggle" aria-expanded={!collapsed} aria-controls="focus-composer-form" onClick={() => toggleComposer(!collapsed)}><ChevronDown />{collapsed ? "提问" : "收起"}{collapsed && draft && <span aria-hidden="true" className="mist-composer-toggle__draft" />}</button>
       {collapsed && active && host.stop && <button className="focus-reader__stop" onClick={() => void perform("停止", () => host.stop!())}><StopSquare />停止</button>}
-      {view?.status !== "completed" && <button className="focus-reader__continue" aria-label={continueLabel} disabled={showStructure || blocked || (!frontier && !reviewChunk)}
-        onClick={() => { follow.current = true; view?.sessionFresh ? (view.readingStarted && frontier?.index === frontier?.total ? finishFresh() : freshContinue()) : displayed?.index === displayed?.total && !reviewChunk ? finish() : next(); }}>
+      {view?.status !== "completed" && continueLabel !== "完成本篇" && <button className="focus-reader__continue" aria-label={continueLabel} disabled={showStructure || blocked || (!frontier && !reviewChunk)}
+        onClick={() => { follow.current = true; view?.sessionFresh ? freshContinue() : next(); }}>
         {continueLabel === "继续" ? <>继续<span className="reader-continue-detail"> · 第 {view?.sessionFresh ? view.readingStarted ? (frontier?.index ?? 0) + 1 : frontier?.index ?? 1 : (displayed?.index ?? 0) + 1} 段</span></> : continueLabel}<ArrowRight /></button>}
       </div>
       {blocked && <span className="mist-reading-actions__status">{active ? "请等待回答完成，或停止此问答" : `${operation}中`}</span>}
@@ -925,4 +928,117 @@ export function FocusReader({ host, appearance = "conversation", fontSize = "sta
       {renderedPanel === "settings" && <label><input type="checkbox" checked={largeText} onChange={e => setLargeText(e.target.checked)} /> 使用较大正文字号</label>}
     </dialog>
   </div></AssetInstanceContext.Provider>;
+}
+
+export function FocusReader(props: FocusReaderProps) {
+  return props.host.getSourceDocument ? <UnifiedReader {...props} /> : <LegacyFocusReader {...props} />;
+}
+
+function readSavedMode(hasBlog: boolean): ReadingMode {
+  try {
+    const saved = localStorage.getItem("focus.readingMode");
+    if (saved === "chunks" || saved === "chat" || (saved === "blog" && hasBlog)) return saved;
+  } catch { /* ignore */ }
+  return "chat";
+}
+
+function UnifiedReader(props: FocusReaderProps) {
+  const hasBlog = !!props.renderBlog;
+  const [mode, setMode] = useState<ReadingMode>(() => readSavedMode(hasBlog));
+  const [mounted, setMounted] = useState<{ chunks: boolean; chat: boolean; blog: boolean }>(() => {
+    const initial = readSavedMode(hasBlog);
+    return { chunks: initial === "chunks", chat: initial === "chat", blog: initial === "blog" };
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [sourceId, setSourceId] = useState<string | null>(null);
+  const sourceRef = useRef<string | null>(null);
+  const syncedModeRef = useRef<{ sourceId: string; chunks: boolean; chat: boolean }>({ sourceId: "", chunks: false, chat: false });
+
+  useEffect(() => {
+    let live = true;
+    const receive = (result: ReaderHostResult<ReadingWindow>) => {
+      if (!live || !result.ok) return;
+      const next = result.value.source.sourceId;
+      if (sourceRef.current !== next) {
+        sourceRef.current = next;
+        syncedModeRef.current = { sourceId: next ?? "", chunks: false, chat: true };
+        setSourceId(next);
+        const preferred = readSavedMode(hasBlog);
+        setMode(preferred);
+        setMounted({ chunks: preferred === "chunks", chat: preferred === "chat", blog: preferred === "blog" });
+        setError("");
+      }
+    };
+    void props.host.getReadingWindow().then(receive);
+    const off = props.host.subscribe?.(receive);
+    return () => { live = false; off?.(); };
+  }, [props.host, hasBlog]);
+
+  const selectMode = useCallback(async (next: ReadingMode) => {
+    if (next === mode || !sourceId) return;
+    setError("");
+    // Optimistic instant switch + keep-alive mount: zero teardown/reparse lag.
+    setMode(next);
+    setMounted(prev => (prev[next] ? prev : { ...prev, [next]: true }));
+    try { localStorage.setItem("focus.readingMode", next); } catch { /* ignore */ }
+    if (next === "blog") return;
+
+    const selectedSource = sourceId;
+    const alreadySynced = syncedModeRef.current.sourceId === selectedSource && syncedModeRef.current[next];
+    if (alreadySynced) return;
+
+    setBusy(true);
+    try {
+      const result = next === "chunks"
+        ? await props.host.openSource?.(selectedSource, createReaderId())
+        : await props.host.selectDiscussionSource?.(selectedSource);
+      if (sourceRef.current !== selectedSource || !result) return;
+      if (!result.ok) { setError(result.error.message); return; }
+      const preparation = result.value.preparations?.[selectedSource];
+      if (next === "chunks" && preparation && !preparation.selected_ready && !preparation.ready) {
+        setError(preparation.error || "正在准备逐段精读，完成后可再次打开。");
+        return;
+      }
+      if (syncedModeRef.current.sourceId === selectedSource) syncedModeRef.current[next] = true;
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setBusy(false);
+    }
+  }, [mode, sourceId, props.host]);
+
+  const modeTabs: readonly ReadingMode[] = hasBlog ? ["chunks", "chat", "blog"] : ["chunks", "chat"];
+  const modeLabel = (m: ReadingMode) => m === "chunks" ? "精读" : m === "chat" ? "对话" : "带读博客";
+
+  return <div className="unified-reader" hidden={props.visible === false}>
+    {props.renderModeNavigation
+      ? (!props.fullscreen && props.renderModeNavigation(mode, selectMode, !sourceId || !props.host.openSource || !props.host.selectDiscussionSource))
+      : <div className="reading-mode-tabs" role="tablist" aria-label="阅读方式">
+          {modeTabs.map((value, index) => <button key={value}
+            id={`reading-tab-${value}`} role="tab" aria-selected={mode === value}
+            aria-controls="reading-mode-panel" disabled={busy || !sourceId || !props.host.openSource || !props.host.selectDiscussionSource}
+            onClick={() => void selectMode(value)}
+            onKeyDown={event => {
+              if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                event.preventDefault();
+                const buttons = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("[role=tab]");
+                const nextIndex = (index + (event.key === "ArrowRight" ? 1 : modeTabs.length - 1)) % modeTabs.length;
+                buttons?.[nextIndex]?.focus();
+              }
+            }}>{value === "chunks" ? "逐段精读" : modeLabel(value)}</button>)}
+        </div>}
+    {error && <p role="alert" className="source-reader-error">{error}</p>}
+    <div id="reading-mode-panel" className="reading-mode-panel" role={props.renderModeNavigation ? "region" : "tabpanel"} aria-label={modeLabel(mode)} aria-busy={busy}>
+      {mounted.chunks && <div className="reading-mode-layer" hidden={mode !== "chunks"}>
+        <LegacyFocusReader {...props} visible={props.visible !== false && mode === "chunks"} />
+      </div>}
+      {mounted.chat && <div className="reading-mode-layer" hidden={mode !== "chat"}>
+        <ConversationReader {...props} visible={props.visible !== false && mode === "chat"} />
+      </div>}
+      {hasBlog && mounted.blog && sourceId && <div className="reading-mode-layer" hidden={mode !== "blog"}>
+        {props.renderBlog!(sourceId)}
+      </div>}
+    </div>
+  </div>;
 }

@@ -11,7 +11,8 @@ export function preparationFailed(preparation: ReadingPreparation | undefined) {
 }
 const labels: Record<Phase, string> = { invalid: "解析失败", preparing: "准备中", prepFailed: "准备失败", completed: "已读完", reading: "阅读中", ready: "可阅读", unplanned: "待准备" };
 const tones: Record<Phase, Tone> = { invalid: "danger", preparing: "accent", prepFailed: "warning", completed: "success", reading: "accent", ready: "muted", unplanned: "muted" };
-export function sourceStatus(source: LibrarySource, preparation?: ReadingPreparation, hidden = false): SourceStatus {
+export function sourceStatus(source: LibrarySource, preparation?: ReadingPreparation, hidden = false, direct = false): SourceStatus {
+  if (direct && source.parseStatus === "ready") { const phase = readingStatus(source) === "completed" ? "completed" : "ready"; return { phase, label: labels[phase], tone: tones[phase], detail: "", ratio: phase === "completed" ? 1 : 0 }; }
   const phase: Phase = source.parseStatus !== "ready" ? "invalid"
     : preparation?.status === "running" && !preparation.selected_ready ? "preparing"
     : preparationFailed(preparation) && !preparation?.selected_ready && !hidden ? "prepFailed"
@@ -22,10 +23,11 @@ export function sourceStatus(source: LibrarySource, preparation?: ReadingPrepara
   const detail = phase === "preparing" ? `${progress.completed}/${progress.total} 段` : phase === "reading" ? `${progress.completed}/${progress.total}` : phase === "ready" || phase === "completed" ? `${source.progress.total} 段` : "";
   return { phase, label: labels[phase], tone: tones[phase], detail, ratio: phase === "completed" ? 1 : Math.max(0, Math.min(1, progress.completed / Math.max(1, progress.total))) };
 }
-export function primaryAction(source: LibrarySource, preparation: ReadingPreparation | undefined, hidden: boolean, options: { busy: string; active: boolean; canOpen: boolean }) {
+export function primaryAction(source: LibrarySource, preparation: ReadingPreparation | undefined, hidden: boolean, options: { busy: string; active: boolean; canOpen: boolean; direct?: boolean }) {
   const { busy, active, canOpen } = options;
   const title = active ? "请先完成或停止当前问答" : busy ? `${busy}中` : undefined;
   if (source.parseStatus !== "ready") return { kind: "inspect" as const, label: "查看问题", disabled: false, title: undefined };
+  if (options.direct) return { kind: "read" as const, label: "阅读", disabled: !!busy || active || !canOpen, title };
   const running = preparation?.status === "running" && !preparation.selected_ready;
   const label = running ? "阅读准备中…" : preparationFailed(preparation) && !preparation?.selected_ready ? hidden ? "准备阅读" : "重试准备" : readingStatus(source) === "completed" ? "查看已读" : source.progress.completed > 0 ? "继续阅读" : preparation?.selected_ready || preparation?.ready ? "开始阅读" : "准备阅读";
   return { kind: "read" as const, label, disabled: !!busy || active || !canOpen || running, title };

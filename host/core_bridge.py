@@ -29,13 +29,13 @@ TOOL = {
                    'with explicit user save intent; Host/Core owns validation and persistence. Reading preparation and navigation use ReaderHost operations. '
                    'Arguments is a JSON object encoded as a string. Fields: ' + json.dumps({k: ACTIONS[k][1] for k in
                        ('search', 'read_range', 'topic_search', 'topic_range', 'topic_notes')}) +
-                   ' source_note fields: {content:string, kind:example|conclusion|question|thought|concept, '
+                   ' cite fields: {start:integer,end:integer,quote:string,prefix?:string,suffix?:string,relation?:supports|contradicts|context}. Use exact original text from read_range; cite returns a validated marker to insert after a claim. source_note fields: {content:string, kind:example|conclusion|question|thought|concept, '
                    'origin:user|dialogue, evidence_role:source_claim|explanation|unresolved_question, '
                    'anchor?:{sourceId:string,bundle:string,sourceLines:[start,end],quote?:string}}. '
                    'source_claim requires an anchor matching the bound scope. Use search/read_range to verify exact lines first. '
                    'Do not include request IDs or intent fields; the Host supplies them. Only a saved tool result proves success.',
     'inputSchema': {'type': 'object', 'properties': {
-        'action': {'type': 'string', 'enum': ['catalog', 'search', 'read_range', 'topic_search', 'topic_range', 'topic_notes', 'source_note']},
+        'action': {'type': 'string', 'enum': ['catalog', 'search', 'read_range', 'topic_search', 'topic_range', 'topic_notes', 'source_note', 'cite']},
         'arguments': {'type': 'string'}}, 'required': ['action', 'arguments'], 'additionalProperties': False},
 }
 

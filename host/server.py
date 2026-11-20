@@ -1,5 +1,6 @@
 """Same-origin HTTP + SSE boundary. Intended for one trusted owner, one workspace."""
 import hmac
+import hashlib
 import json
 import mimetypes
 import os
@@ -115,7 +116,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(404, b'Build the UI with pnpm reader:build, then open /.', content_type='text/plain')
                     return
                 self._send(200, target.read_bytes(), content_type=mimetypes.guess_type(target)[0] or 'application/octet-stream',
-                           headers={'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"})
+                           headers={'Content-Security-Policy': "default-src 'self'; " +
+                                    ("script-src 'self' 'wasm-unsafe-eval'; " if target.name.startswith('pdf.worker.') else "") +
+                                    "img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'"})
             else:
                 self._send(404, {'ok': False})
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError):
@@ -252,8 +255,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if method == 'GET' and path.startswith('/reader/assets/'):
             source, relative = unquote(path[len('/reader/assets/'):]).split('/', 1)
-            target = service.core.image(source, relative)
-            self._send(200, target.read_bytes(), content_type=mimetypes.guess_type(target)[0] or 'image/png')
+            expected = parse_qs(urlsplit(self.path).query).get('bundle', [None])[0]
+            with service.lock:
+                if expected and service.source_notes.bundle_version(source) != expected:
+                    raise WorkspaceError('source_bundle_changed', '图片原文版本已改变，请重新打开。')
+                target = service.core.image(source, relative)
+                data = target.read_bytes()
+                if expected and service.source_notes.bundle_version(source) != expected:
+                    raise WorkspaceError('source_bundle_changed', '图片原文版本已改变，请重新打开。')
+            self._send(200, data, content_type=mimetypes.guess_type(target)[0] or 'image/png')
             return
         if method == 'GET' and path.startswith('/reader/historical-assets/'):
             source, version, relative = unquote(path[len('/reader/historical-assets/'):]).split('/', 2)
@@ -280,7 +290,9 @@ class Handler(BaseHTTPRequestHandler):
             result = service.batch_list()
         elif method == 'POST' and path == '/library/batches':
             payload = self._body()
-            result = service.batch_start(payload.get('itemIds'), request_id=payload.get('requestId'), generate_blog=payload.get('generateBlog', True))
+            result = service.batch_start(payload.get('itemIds'), request_id=payload.get('requestId'),
+                                         generate_blog=payload.get('generateBlog', True),
+                                         prepare_reading=payload.get('prepareReading', False))
         elif method == 'POST' and path.startswith('/library/batches/'):
             parts = path[len('/library/batches/'):].split('/')
             if len(parts) != 2:
@@ -375,6 +387,17 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, {'ok': True, 'value': result})
                     return
                 raise ValueError('Unknown Reading Preparation operation')
+            if len(parts) == 2 and parts[1] == 'completion' and method == 'POST':
+                self._send(200, {'ok': True, 'value': service.complete_source(source_id, self._body())})
+                return
+            if len(parts) == 2 and parts[1] == 'document' and method == 'GET':
+                self._send(200, {'ok': True, 'value': service.source_document(source_id)})
+                return
+            if len(parts) == 2 and parts[1] == 'opening' and method in ('GET', 'POST'):
+                if method == 'POST':
+                    self._body()
+                self._send(200, {'ok': True, 'value': service.source_opening(source_id, prepare=method == 'POST')})
+                return
             if len(parts) == 2 and parts[1] == 'overview' and method in ('GET', 'POST'):
                 with service.lock:
                     result = (service.article_overview(source_id) if method == 'GET' else
@@ -396,7 +419,11 @@ class Handler(BaseHTTPRequestHandler):
                 if parts[1] == 'original' and target.suffix.lower() == '.html':
                     # Preserve original bytes without granting saved pages Host privileges.
                     headers['Content-Security-Policy'] = "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'"
-                self._send(200, target.read_bytes(), content_type=content_type,
+                data = target.read_bytes()
+                expected = parse_qs(urlsplit(self.path).query).get('pdfHash', [None])[0]
+                if expected and hashlib.sha256(data).hexdigest() != expected:
+                    raise WorkspaceError('source_bundle_changed', '原版 PDF 已更新，请重新打开。')
+                self._send(200, data, content_type=content_type,
                            headers=headers)
                 return
             elif method == 'POST' and len(parts) == 2 and parts[1] == 'discuss':

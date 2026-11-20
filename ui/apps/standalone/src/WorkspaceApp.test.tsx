@@ -81,10 +81,10 @@ afterEach(cleanup);
 it("shows the selected PDF backend and queued progress in the visible Inbox", async () => {
   const item: IngestionItem = { itemId: "pdf-1", fileName: "paper.pdf", status: "processing", topicTitle: null,
     topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started",
-    parserBackend: "local-mineru", selectionReason: "本地 MinerU 4.0.8 Standard V1 可用", parserProgress: { status: "queued" } };
+    parserBackend: "local-mineru", selectionReason: "本地 MinerU 4.2.3 Standard Tasks V1 可用", parserProgress: { status: "queued" } };
   setup([item]);
   fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
-  await screen.findByText(/本地 MinerU · 本地 MinerU 4.0.8 Standard V1 可用 · 排队中/);
+  await screen.findByText(/本地 MinerU · 本地 MinerU 4.2.3 Standard Tasks V1 可用 · 排队中/);
 });
 it.each(["check", "open"])("retains the newest shared configuration when a late %s response arrives after another page refreshed", async action => {
   history.replaceState(null, "", action === "check" ? "/settings" : "/library");
@@ -196,7 +196,7 @@ it("freezes a mixed selection into one Topic batch and exposes each result", asy
       { itemId: "two.html", fileName: "two.html", sourceId: null, status: "failed", ingestionStatus: "failed", blog: null, error: { error_id: "article_image_missing", message: "图片缺失" } },
     ],
   }]));
-  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传并准备阅读" }));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["one.pdf", "two.html"], expect.any(String), true));
   expect(host.stageIngestion).toHaveBeenNthCalledWith(1, files[0], { topicTitle: "编译" });
   expect(host.stageIngestion).toHaveBeenNthCalledWith(2, files[1], { topicTitle: "编译" });
@@ -215,7 +215,7 @@ it("lands in Library and persists the chosen font across remounts", async () => 
   fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
   expect(screen.getByLabelText("阅读字体预览")).toHaveStyle({ fontSize: "26px" });
   expect(screen.getByRole("radio", { name: "DeepSeek" })).toBeEnabled();
-  fireEvent.click(screen.getByRole("button", { name: "保存外观" }));
+  await waitFor(() => expect(localStorage.getItem("focus.fontSize")).toBe("extra"));
   app.unmount(); setup();
   expect(await screen.findByRole("slider", { name: "字号" })).toHaveValue("3");
   fireEvent.click(screen.getByRole("link", { name: "阅读" }));
@@ -230,7 +230,7 @@ it("starts parsing and blog with one explicit confirmation", async () => {
   fireEvent.change(screen.getByRole("combobox", { name: "专题" }), { target: { value: "编译" } });
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [pdf] } });
   expect(host.stageIngestion).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传并准备阅读" }));
   await waitFor(() => expect(host.stageIngestion).toHaveBeenCalledWith(pdf, { topicTitle: "编译" }));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String), true));
   expect(host.confirmIngestion).not.toHaveBeenCalled();
@@ -282,7 +282,6 @@ it("omits brightness and ignores the retired saved preference", async () => {
   setup(); await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   expect(screen.queryByRole("slider", { name: "亮度" })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "保存外观" }));
   expect(document.querySelector<HTMLElement>(".workspace-app")!.style.getPropertyValue("--reader-brightness")).toBe("");
   expect(screen.queryByRole("switch", { name: "网络" })).not.toBeInTheDocument();
 });
@@ -295,7 +294,7 @@ it("shows the original unfinished task instead of a new one when the same file i
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
   fireEvent.change(screen.getByRole("combobox", { name: "专题" }), { target: { value: "编译" } });
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF test"], "test.pdf", { type: "application/pdf" })] } });
-  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传并准备阅读" }));
 
   const notice = await screen.findByText(/该原件已有未完成任务/);
   expect(notice.closest("[role=status]")).not.toBeNull();
@@ -516,7 +515,7 @@ it("T23/T24 allows unclassified parse-only upload with an explicit immutable sco
   fireEvent.click(within(screen.getByRole('listbox', { name: '已有专题' })).getByRole('option', { name: '不关联专题' }));
   expect(screen.getByRole('combobox', { name: '专题' })).toHaveValue('');
   fireEvent.click(screen.getByRole("checkbox", { name: "仅解析入库" }));
-  const file = new File(["%PDF test"], "unclassified.pdf");
+  const file = new File(["<html>test</html>"], "unclassified.html");
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [file] } });
   fireEvent.click(screen.getByRole("button", { name: "仅解析入库" }));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String), false));
@@ -550,7 +549,7 @@ it.each(["existing", "new", "unclassified"] as const)("uploads with a %s topic f
   expect(parseOnly).not.toBeChecked();
   const file = new File(["%PDF test"], "topic.pdf");
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [file] } });
-  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传并准备阅读" }));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String), true));
   expect(host.stageIngestion).toHaveBeenCalledWith(file, mode === "unclassified" ? {} : { topicTitle: mode === "new" ? "架构探索" : "编译" });
 });
@@ -579,16 +578,14 @@ it('clears terminal statuses while an active chat continues, and keeps source ma
   expect(host.clearFinishedStatuses).toHaveBeenCalledWith(expect.any(String));
 });
 
-it("T2 appearance previews can be cancelled without touching saved settings", async () => {
+it("T2 appearance changes auto-save immediately and show feedback", async () => {
   setup(); await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("link", { name: "设置" }));
   fireEvent.change(screen.getByRole("slider", { name: "字号" }), { target: { value: "3" } });
   fireEvent.change(screen.getByRole("combobox", { name: "正文字体" }), { target: { value: "source-han-sans" } });
-  expect(localStorage.getItem("focus.fontSize")).toBeNull();
-  expect(localStorage.getItem("focus.readingFont")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "还原外观" }));
-  expect(screen.getByRole("slider", { name: "字号" })).toHaveValue("1");
-  expect(screen.getByRole("combobox", { name: "正文字体" })).toHaveValue("default");
+  await waitFor(() => expect(localStorage.getItem("focus.fontSize")).toBe("extra"));
+  expect(localStorage.getItem("focus.readingFont")).toBe("source-han-sans");
+  expect(screen.getByText("已自动保存")).toBeInTheDocument();
 });
 
 it("saves the reading font and restores it after reopening the app", async () => {
@@ -600,14 +597,9 @@ it("saves the reading font and restores it after reopening the app", async () =>
   fireEvent.change(select, { target: { value: "neo-zhisong-screen" } });
   expect(screen.getByLabelText("阅读字体预览")).toHaveTextContent("Reading brings ideas into focus.");
   expect(container.querySelector<HTMLElement>(".workspace-app")!.style.getPropertyValue("--reader-body-font")).toContain("FOCUS Neo ZhiSong Screen");
-  expect(localStorage.getItem("focus.readingFont")).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "保存外观" }));
-  expect(localStorage.getItem("focus.readingFont")).toBe("neo-zhisong-screen");
+  await waitFor(() => expect(localStorage.getItem("focus.readingFont")).toBe("neo-zhisong-screen"));
   cleanup();
   render(<WorkspaceApp host={host} />);
-  expect(screen.getByRole("combobox", { name: "正文字体" })).toHaveValue("neo-zhisong-screen");
-  fireEvent.change(screen.getByRole("combobox", { name: "正文字体" }), { target: { value: "source-han-serif" } });
-  fireEvent.click(screen.getByRole("button", { name: "还原外观" }));
   expect(screen.getByRole("combobox", { name: "正文字体" })).toHaveValue("neo-zhisong-screen");
 });
 
@@ -952,7 +944,7 @@ it.each([false, true])("restores a cleared duplicate and focuses retry (batch=%s
   fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF failed"], failed.fileName)] } });
-  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传并准备阅读" }));
   const taskFrame = await screen.findByRole("region", { name: "任务框" });
   const retryName = batched ? "重试未完成步骤" : "重试解析";
   const retry = await within(taskFrame).findByRole("button", { name: retryName });
@@ -988,7 +980,7 @@ it("starts only new files in a mixed upload and restores existing confirmed task
   await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF old"], "old.pdf"), new File(["%PDF fresh"], "fresh.pdf")] } });
-  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传并准备阅读" }));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["fresh"], expect.any(String), true));
   expect(host.startBatch).toHaveBeenCalledTimes(1);
   expect(await screen.findByRole("region", { name: "任务框" })).toBeVisible();
@@ -1008,7 +1000,7 @@ it("refreshes restored tasks after an older list request and identifies an alrea
   fireEvent.click(screen.getByRole("button", { name: "刷新状态" }));
   fireEvent.click(screen.getByRole("button", { name: "上传" }));
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [new File(["%PDF"], item.fileName)] } });
-  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  fireEvent.click(screen.getByRole("button", { name: "上传并准备阅读" }));
   await waitFor(() => expect(host.stageIngestion).toHaveBeenCalledTimes(1));
   await act(async () => { finishOldRequest(readerSuccess([{ ...item, dismissed: true }])); });
   const panel = await screen.findByRole("region", { name: "任务框" });
@@ -1018,4 +1010,21 @@ it("refreshes restored tasks after an older list request and identifies an alrea
   expect(screen.queryByText(/文档尚未入库/)).not.toBeInTheDocument();
   expect(host.startBatch).not.toHaveBeenCalled();
   expect(host.continueIngestion).not.toHaveBeenCalled();
+});
+
+it("opens unified reading without a Plan or a separate overview action", async () => {
+  const selected: ReadingWindow = { ...empty, source: { sourceId: "a-paper", title: "A Paper", topicId: null }, discussionId: "discussion" };
+  const { host } = setup([], empty, {
+    getReadingWindow: vi.fn(async () => readerSuccess(selected)),
+    getSourceDocument: vi.fn(async () => readerSuccess({ sourceId: "a-paper", bundleVersion: "v1", title: "A Paper", markdown: "# A Paper\n\nOriginal full article.", lineCount: 3 })),
+    getSourceOpening: vi.fn(async () => readerSuccess({ sourceId: "a-paper", bundleVersion: "v1", status: "ready" as const, structure: [{ id: "one", parentId: null, title: "论证", sourceLines: [1, 3] as const }], guide: "中文导读。" })),
+    selectDiscussionSource: vi.fn(async () => readerSuccess(selected)),
+  });
+  await screen.findByRole("heading", { name: "A Paper" });
+  expect(screen.queryByRole("button", { name: "文章结构" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "阅读" }));
+  await waitFor(() => expect(host.selectDiscussionSource).toHaveBeenCalledWith("a-paper"));
+  expect(host.openSource).not.toHaveBeenCalled();
+  expect(await screen.findByText("Original full article.")).toBeInTheDocument();
+  expect(await screen.findByText("中文导读。")).toBeInTheDocument();
 });

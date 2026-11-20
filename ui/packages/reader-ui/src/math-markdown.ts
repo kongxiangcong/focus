@@ -13,8 +13,11 @@ const texCommand = /\\[a-zA-Z]+/;
 /** Normalize TeX notation before CommonMark consumes delimiter backslashes.
  * Code, links, raw HTML and existing dollar math remain byte for byte intact.
  */
-export function normalizeMathMarkdown(markdown: string): string {
-  if (!markdown.includes("\\")) return markdown;
+export function normalizeMathMarkdown(markdown: string): string { return normalizeMathWithLines(markdown).markdown; }
+
+/** Maps normalized parser lines back to the canonical original, including inserted display-math lines. */
+export function normalizeMathWithLines(markdown: string): { markdown: string; lines: readonly (readonly [number, number])[] } {
+  if (!markdown.includes("\\")) return { markdown, lines: markdown.split("\n").map((_, i) => [i + 1, i + 1]) };
   const protectedRanges: Range[] = [];
   function visit(node: Node) {
     if (protectedTypes.has(node.type) && node.position?.start.offset !== undefined && node.position.end.offset !== undefined) {
@@ -51,10 +54,26 @@ export function normalizeMathMarkdown(markdown: string): string {
   }
   let end = 0;
   const result: string[] = [];
+  const lines: [number, number][] = [[1, 1]];
+  let sourceLine = 1;
+  function unchanged(value: string) {
+    result.push(value);
+    for (const character of value) {
+      if (character === "\n") { sourceLine++; lines.push([sourceLine, sourceLine]); }
+      else lines[lines.length - 1][1] = Math.max(lines[lines.length - 1][1], sourceLine);
+    }
+  }
   for (const edit of edits.sort((a, b) => a.start - b.start)) {
-    result.push(markdown.slice(end, edit.start), edit.value);
+    unchanged(markdown.slice(end, edit.start));
+    const finalLine = sourceLine + (markdown.slice(edit.start, edit.end).match(/\n/g)?.length ?? 0);
+    result.push(edit.value);
+    for (const character of edit.value) {
+      lines[lines.length - 1][1] = Math.max(lines[lines.length - 1][1], finalLine);
+      if (character === "\n") lines.push([sourceLine, finalLine]);
+    }
+    sourceLine = finalLine;
     end = edit.end;
   }
-  result.push(markdown.slice(end));
-  return result.join("");
+  unchanged(markdown.slice(end));
+  return { markdown: result.join(""), lines };
 }

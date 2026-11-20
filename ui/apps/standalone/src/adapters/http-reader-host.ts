@@ -1,3 +1,4 @@
+import type { ReadingDocument, ReadingOpening } from "@focus/reader-contracts";
 import { mergeText } from "./text-stream";
 import { createReaderId, type CreateSourceNoteInput, type CreateHighlightInput, type HighlightOperation,
   type BackendSetupAction, type BackendSetupInput, type BackendSetupResult,
@@ -229,7 +230,7 @@ export class HttpReaderHost implements ReaderHost {
   }
 
   async startBatch(itemIds: readonly string[], requestId: string, generateBlog = true): Promise<ReaderHostResult<ProcessingBatch>> {
-    return this.batchRequest('/library/batches', { itemIds, requestId, generateBlog });
+    return this.batchRequest('/library/batches', { itemIds, requestId, generateBlog, prepareReading: generateBlog });
   }
 
   controlBatch(batchId: string, action: Parameters<NonNullable<ReaderHost['controlBatch']>>[1], requestId: string, itemId?: string, riskChoiceId?: string): Promise<ReaderHostResult<ProcessingBatch>> {
@@ -362,6 +363,29 @@ export class HttpReaderHost implements ReaderHost {
   rereadSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/reread`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   }
+  completeSource(sourceId: string, bundleVersion: string, generation: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/completion`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ bundleVersion, generation, requestId }) });
+  }
+  getSourceDocument(sourceId: string): Promise<ReaderHostResult<ReadingDocument>> {
+    return this.sourceAsset<ReadingDocument>(sourceId, "document", false);
+  }
+  getSourceOpening(sourceId: string, prepare = false): Promise<ReaderHostResult<ReadingOpening>> {
+    return this.sourceAsset<ReadingOpening>(sourceId, "opening", prepare);
+  }
+  private async sourceAsset<T>(sourceId: string, asset: string, prepare: boolean): Promise<ReaderHostResult<T>> {
+    try {
+      const response = await this.fetch(`${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/${asset}`, {
+        method: prepare ? "POST" : "GET", headers: { "content-type": "application/json" },
+        ...(prepare ? { body: "{}" } : {}), cache: "no-store",
+      });
+      const body = await response.json();
+      if (response.ok && body.ok && body.value?.sourceId === sourceId && typeof body.value.bundleVersion === "string" &&
+        (asset === "document" ? typeof body.value.markdown === "string" : ["missing", "running", "ready", "failed"].includes(body.value.status)))
+        return { ok: true, value: body.value };
+      throw new Error(body.error?.message ?? "文章响应无效");
+    } catch (error) { return { ok: false, error: { code: "unavailable", message: String(error), retryable: true } }; }
+  }
+
   getArticleOverview(sourceId: string): Promise<ReaderHostResult<ArticleOverview>> {
     return this.overviewRequest(sourceId, false);
   }

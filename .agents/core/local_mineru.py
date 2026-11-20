@@ -1,4 +1,4 @@
-"""FOCUS PDF candidates from the local MinerU 4.0.8 Standard V1 API."""
+"""FOCUS PDF candidates from the local MinerU 4.2.3 Standard V1 API."""
 from __future__ import annotations
 
 import hashlib
@@ -33,11 +33,11 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 class LocalMinerUParser:
     """Submit once, checkpoint the task, and publish only model-backed results.
 
-    This adapter supports the qualified 4.0.8 Standard / V1 jobs contract.
+    This adapter supports the qualified 4.2.3 Standard / V1 Tasks contract.
     The service stays on loopback; it does not consume cloud credentials.
     """
 
-    version = "4.0.8"
+    version = "4.2.3"
     model = "standard"
     ocr = False
 
@@ -104,7 +104,7 @@ class LocalMinerUParser:
     def _health(self):
         health = self._request("/v1/health")
         if health.get("status") != "ok" or health.get("version") != self.version:
-            raise ParserError("Local MinerU requires healthy 4.0.8 Standard / V1", recoverable=False,
+            raise ParserError(f"Local MinerU requires healthy {self.version} Standard / V1", recoverable=False,
                               error_id="local_mineru_version_mismatch")
 
     def probe(self) -> LocalProbe:
@@ -115,15 +115,15 @@ class LocalMinerUParser:
             if health.get("status") != "ok":
                 return LocalProbe("starting", "本地 MinerU 正在启动", version)
             if version != self.version:
-                return LocalProbe("incompatible", f"本地 MinerU 版本 {version or '未知'} 不兼容，要求 4.0.8", version)
+                return LocalProbe("incompatible", f"本地 MinerU 版本 {version or '未知'} 不兼容，要求 4.2.3", version)
             features = health.get("features") or {}
-            if (not isinstance(features, dict) or "file_id" not in (features.get("sources") or [])
-                    or "zip" not in (features.get("output_formats") or [])):
+            if (not isinstance(features, dict) or "upload" not in (features.get("sources") or [])
+                    or "default" not in (features.get("task_output_formats") or [])):
                 return LocalProbe("incompatible", "本地 MinerU 缺少文件上传或 ZIP 产物能力", version)
             tiers = self._request("/v1/tiers", timeout=self.probe_timeout)
             if "standard" not in {tier.get("id") for tier in tiers.get("data", []) if isinstance(tier, dict)}:
                 return LocalProbe("incompatible", "本地 MinerU 不支持 Standard 解析", version)
-            return LocalProbe("available", "本地 MinerU 4.0.8 Standard V1 可用", version)
+            return LocalProbe("available", "本地 MinerU 4.2.3 Standard V1 可用", version)
         except ParserError as exc:
             if exc.error_id == "local_mineru_busy":
                 return LocalProbe("busy", "本地 MinerU 暂时繁忙")
@@ -146,36 +146,18 @@ class LocalMinerUParser:
                         "reference_id": "selection", "selection_reason": getattr(self, "selection_reason", "本地优先")})
         with source.open("rb") as pdf:
             digest = hashlib.file_digest(pdf, "sha256").hexdigest()
-        upload = self._request("/v1/uploads", json_body={
-            "filename": "source.pdf", "bytes": source.stat().st_size,
-            "mime_type": "application/pdf", "purpose": "parse", "sha256sum": digest})
-        upload_id = upload.get("id")
-        self._validate_id(upload_id)
-        if upload.get("status") == "completed":
-            # V1 SHA-256 dedup returns a ready file without a new PUT.
-            completed = upload
-        elif upload.get("status") == "pending":
-            # Derive the loopback endpoint; never follow a server-provided upload URL.
-            with source.open("rb") as pdf:
-                self._request(f"/v1/uploads/{upload_id}/content", data=pdf,
-                              content_type="application/octet-stream", method="PUT")
-            completed = self._request(f"/v1/uploads/{upload_id}/complete", json_body={"sha256sum": digest})
-        else:
-            raise ParserError("Local MinerU returned an invalid upload state", recoverable=False)
-        file_id = (completed.get("file") or {}).get("id")
-        self._validate_id(file_id)
         if checkpoint:
             checkpoint({**self._reference_settings(), "reference_kind": "local_submission_unknown",
-                        "reference_id": file_id, "file_id": file_id,
-                        "selection_reason": getattr(self, "selection_reason", "本地优先")})
+                        "reference_id": "submission"})
         try:
-            submitted = self._request("/v1/parse/jobs", json_body={
-                "files": [{"source": {"type": "file_id", "file_id": file_id}}],
-                "tier": self.model, "ocr_mode": "ocr" if self.ocr else "auto", "output_formats": ["zip"]})
-            job_id = submitted.get("job_id")
+            submitted = self._request("/v1/tasks", json_body={
+                "files": [{"file_name": "source.pdf", "bytes": source.stat().st_size, "sha256sum": digest}],
+                "tier": self.model, "ocr_mode": "ocr" if self.ocr else "auto", "output_formats": ["default"]})
+            job_id = submitted.get("task_id")
             self._validate_id(job_id)
+            file_id = self._task_file(submitted).get("file_id")
+            self._validate_id(file_id)
         except ParserError as exc:
-            # A lost job response must never silently submit the same PDF again.
             raise IngestionExternalError(exc.error_id, str(exc), acceptance_unknown=True) from exc
         reference = {**self._reference_settings(), "reference_id": job_id, "file_id": file_id,
                      "selection_reason": getattr(self, "selection_reason", "本地优先")}
@@ -192,9 +174,16 @@ class LocalMinerUParser:
         if not isinstance(task_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", task_id):
             raise ParserError("Invalid local MinerU task ID", recoverable=False)
 
+    @staticmethod
+    def _task_file(state):
+        files = state.get("files")
+        if not isinstance(files, list) or len(files) != 1 or not isinstance(files[0], dict):
+            raise ParserError("Expected one local MinerU task file", recoverable=False)
+        return files[0]
+
     def resume(self, source: Path, candidate: Path, *, checkpoint, on_checkpoint=None):
         expected = self._reference_settings()
-        if any(checkpoint.get(k) != v for k, v in expected.items()):
+        if any(checkpoint.get(k) != v for k, v in expected.items() if k != "reference_kind"):
             raise ParserError("Local MinerU checkpoint does not match this parser", recoverable=False)
         if checkpoint.get("reference_kind") == "local_selection":
             # No upload was accepted before this checkpoint.
@@ -202,6 +191,8 @@ class LocalMinerUParser:
         if checkpoint.get("reference_kind") == "local_submission_unknown":
             raise ParserError("本地任务提交结果未知，请检查服务端；不会自动重复提交", recoverable=False,
                               error_id="submission_unknown")
+        if checkpoint.get("reference_kind") != "local_mineru_job":
+            raise ParserError("Unknown local MinerU checkpoint", recoverable=False)
         task_id = checkpoint.get("reference_id")
         self._validate_id(task_id)
         file_id = checkpoint.get("file_id")
@@ -212,30 +203,36 @@ class LocalMinerUParser:
     def _complete(self, source, candidate, task_id, source_file_id, on_checkpoint=None):
         deadline = time.monotonic() + self.timeout
         while True:
-            state = self._request(f"/v1/parse/jobs/{task_id}")
-            if state.get("job_id") != task_id or state.get("tier") != self.model:
-                raise ParserError("Local MinerU task identity or backend mismatch", recoverable=False)
+            state = self._task_state(task_id)
             status = state.get("status")
-            if status == "completed":
-                break
+            if status in {"completed", "waiting-file"}:
+                item = self._task_file(state)
+                if item.get("file_id") != source_file_id:
+                    raise ParserError("Local MinerU task file mismatch", recoverable=False)
+                if status == "completed":
+                    break
+            if status == "waiting-file" and item.get("status") == "waiting-file" and item.get("upload"):
+                with Path(source).open("rb") as pdf:
+                    receipt = self._request(f"/v1/tasks/{task_id}/uploads/{source_file_id}", data=pdf,
+                                            content_type="application/octet-stream", method="PUT")
+                if receipt.get("task_id") != task_id or receipt.get("file_id") != source_file_id:
+                    raise ParserError("Local MinerU upload receipt mismatch", recoverable=False)
             if status in {"failed", "partial", "canceled"}:
                 raise ParserError("Local MinerU model parsing failed; inspect the server log", recoverable=False,
                                   error_id="local_mineru_parse_failed")
-            if status not in {"queued", "running"}:
+            if status not in {"queued", "running", "waiting-file", "pending"}:
                 raise ParserError("Unknown local MinerU task status", recoverable=False)
             if on_checkpoint:
+                progress_status = "queued" if status in {"waiting-file", "pending"} else status
                 on_checkpoint({**self._reference_settings(), "reference_id": task_id, "file_id": source_file_id,
                                "selection_reason": getattr(self, "selection_reason", "本地优先"),
-                               "progress": {"status": status, **(state.get("progress") if isinstance(state.get("progress"), dict) else {})}})
+                               "progress": {"status": progress_status, **(state.get("progress") if isinstance(state.get("progress"), dict) else {})}})
             if time.monotonic() >= deadline:
                 raise ParserError("Local MinerU is still running; resume this task", error_id="parse_timeout")
             time.sleep(self.interval)
-        files = state.get("files", [])
-        if (len(files) != 1 or files[0].get("status") != "completed"
-                or files[0].get("file_id") != source_file_id
-                or (files[0].get("parse") or {}).get("parser_version") != self.version):
-            raise ParserError("Local MinerU completed job has invalid file evidence", recoverable=False)
-        output_id = ((files[0].get("output_files") or {}).get("zip") or {}).get("file_id")
+        if item.get("status") != "completed" or (item.get("parse") or {}).get("parser_version") != self.version:
+            raise ParserError("Local MinerU completed task has invalid file evidence", recoverable=False)
+        output_id = self._output_id(item)
         self._validate_id(output_id)
         candidate = Path(candidate)
         candidate.parent.mkdir(parents=True, exist_ok=True)
@@ -263,11 +260,24 @@ class LocalMinerUParser:
         persist_candidate_result(candidate, result)
         return result
 
+    def _task_state(self, task_id):
+        state = self._request(f"/v1/tasks/{task_id}")
+        if state.get("task_id") != task_id or state.get("output_formats") != ["default"]:
+            raise ParserError("Local MinerU task identity or formats mismatch", recoverable=False)
+        return state
+
+    def _output_id(self, item):
+        if not item.get("result_url") or (item.get("parse") or {}).get("tier") != self.model:
+            raise ParserError("Missing local MinerU Standard result", recoverable=False)
+        return item["file_id"]
+
+    evidence_files = ("middle_json.json", "structured_content.json")
+
     def _evidence(self, archive):
         try:
             with zipfile.ZipFile(archive) as bundle:
                 evidence, raw_evidence = {}, {}
-                for name in ("model_output.json", "middle_json.json", "structured_content.json"):
+                for name in self.evidence_files:
                     matches = [info for info in bundle.infolist() if info.filename == name]
                     if len(matches) != 1 or matches[0].file_size > 64 * 1024 * 1024:
                         raise ValueError("Missing or oversized model evidence")
@@ -287,7 +297,7 @@ class LocalMinerUParser:
                                                   "sha256": hashlib.sha256(raw).hexdigest()}
                 return evidence, raw_evidence
         except (zipfile.BadZipFile, ValueError, UnicodeError, AttributeError) as exc:
-            raise ParserError("Local MinerU output lacks valid 4.0.8 Standard model evidence", recoverable=False,
+            raise ParserError(f"Local MinerU output lacks valid {self.version} Standard model evidence", recoverable=False,
                               error_id="local_mineru_evidence_missing") from exc
 
     def cancel(self, checkpoint):
@@ -295,6 +305,29 @@ class LocalMinerUParser:
             raise ParserError("Local MinerU checkpoint does not match this parser", recoverable=False)
         job_id = checkpoint.get("reference_id")
         self._validate_id(job_id)
+        return self._cancel_task(job_id)
+
+    def _cancel_task(self, job_id):
+        result = self._request(f"/v1/tasks/{job_id}/cancel", method="POST")
+        return result.get("task_id") == job_id and result.get("status") == "canceled"
+
+
+class LegacyMinerUContinuation(LocalMinerUParser):
+    """Read or cancel an already-submitted 4.0.8 job on its original server."""
+
+    version = "4.0.8"
+    evidence_files = ("model_output.json", "middle_json.json", "structured_content.json")
+
+    def _task_state(self, task_id):
+        state = self._request(f"/v1/parse/jobs/{task_id}")
+        if state.get("job_id") != task_id or state.get("tier") != self.model:
+            raise ParserError("Local MinerU job identity or tier mismatch", recoverable=False)
+        return state
+
+    def _output_id(self, item):
+        return ((item.get("output_files") or {}).get("zip") or {}).get("file_id")
+
+    def _cancel_task(self, job_id):
         result = self._request(f"/v1/parse/jobs/{job_id}", method="DELETE")
         return result.get("job_id") == job_id and result.get("status") == "canceled"
 

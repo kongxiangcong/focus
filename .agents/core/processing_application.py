@@ -9,7 +9,8 @@ from .source_library import SourceLibrary
 
 
 class ProcessingApplication:
-    def __init__(self, ingestion, blog):
+    def __init__(self, ingestion, blog, prepare_reading=None):
+        self.prepare_reading = prepare_reading
         self.ingestion = ingestion
         self.blog = blog
         self.path = ingestion.workspace / 'ingestion' / 'processing.json'
@@ -26,7 +27,7 @@ class ProcessingApplication:
         return {'fingerprint': item['fingerprint'], 'topic_id': item['topic_id'],
                 'services': item['services'], 'blog_config': _component_config(self.blog.runtime)}
 
-    def confirm(self, item_id, *, request_id, generate_blog=True):
+    def confirm(self, item_id, *, request_id, generate_blog=True, prepare_reading=False):
         if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 160:
             raise WorkspaceError('request_id_invalid', 'A stable request identity is required')
         with self.lock:
@@ -36,9 +37,10 @@ class ProcessingApplication:
                 raise WorkspaceError('source_deleted', '来源已删除，旧任务不能恢复。')
             if any(key != item_id and value['request_id'] == request_id for key, value in scopes.items()):
                 raise WorkspaceError('request_conflict', 'Request identity belongs to another original')
+            translate = prepare_reading and item.get('source_kind', 'paper_pdf') == 'paper_pdf'
             existing = scopes.get(item_id)
             if existing:
-                if ('reading_blog' in existing['scope']) != generate_blog:
+                if ('reading_blog' in existing['scope']) != generate_blog or ('translation' in existing['scope']) != translate:
                     raise WorkspaceError('processing_scope_conflict', '原任务的处理范围已确认，请恢复原任务。')
                 if existing['fingerprint'] != item['fingerprint'] or existing['topic_id'] != item['topic_id']:
                     raise WorkspaceError('confirmation_required', 'The confirmed original or Topic has changed')
@@ -61,9 +63,14 @@ class ProcessingApplication:
                 self.ingestion.update_staged(item_id, topic_id=topic['topicId'], topic_title=None)
             item = self.ingestion.confirm(item_id, services=item['services'],
                                           purpose='register source and generate blog', scope='ingestion')
+            steps = ['ingestion']
+            if generate_blog:
+                steps.extend(['reading_blog', 'html'])
+                if translate:
+                    steps.append('translation')
             scopes[item_id] = {
                 'request_id': request_id, **self._binding(item),
-                'scope': ['ingestion', 'reading_blog', 'html'] if generate_blog else ['ingestion'],
+                'scope': steps,
             }
             _write_document(self.path, scopes)
             return item
@@ -93,8 +100,15 @@ class ProcessingApplication:
                 else:
                     item = self.ingestion.process(item_id, request_id=execution_id, start_allowed=start_allowed)
             if item['status'] == 'completed' and 'reading_blog' in scope['scope']:
-                (submit_blog or self.blog.generate)(item['source_id'], request_id=execution_id + ':blog',
-                                                    authorized_by='ingestion_confirmation')
+                wait = None
+                try:
+                    if 'translation' in scope['scope']:
+                        wait = self.prepare_reading(item['source_id'], start_allowed=start_allowed)
+                finally:
+                    (submit_blog or self.blog.generate)(item['source_id'], request_id=execution_id + ':blog',
+                                                        authorized_by='ingestion_confirmation')
+                if wait:
+                    wait()
             return item
         finally:
             with self.lock:

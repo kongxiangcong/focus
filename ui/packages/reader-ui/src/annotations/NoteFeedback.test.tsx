@@ -36,7 +36,7 @@ it("announces a whole-source note when no paragraph can own it", async () => {
 it("automatically expands the saved paragraph note while attachment is off", async () => {
   await saveFromDiscussion(true, true);
   const toggle = await screen.findByRole("button", { name: /小段笔记 · 1/ });
-  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await waitFor(() => expect(toggle).toHaveAttribute("aria-expanded", "true"));
   const target = document.querySelector<HTMLElement>(".focus-stream [data-chunk-note-id='n1']");
   expect(target).toBeVisible();
   fireEvent.click(toggle); expect(toggle).toHaveAttribute("aria-expanded", "false");

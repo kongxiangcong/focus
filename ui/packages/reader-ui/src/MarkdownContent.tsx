@@ -1,3 +1,5 @@
+import { rehypeSourceEvidence } from "./source-evidence";
+import type { ReadingDocument, ValidatedAnswerEvidence } from "@focus/reader-contracts";
 import { useCallback, memo, useContext, useLayoutEffect, useMemo, useRef } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import "katex/dist/katex.min.css";
@@ -22,12 +24,20 @@ const components: Components = {
   a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
   img: ({ src, alt }) => <img src={src} alt={alt ?? ""} loading="lazy" />,
 };
-export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, figures, onFigure, inlineFigures = false, marks, annotation, onAnnotations }: {
+export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, figures, onFigure, inlineFigures = false, marks, annotation, onAnnotations, sourceEvidence, onCitation, onCitationHover }: {
   text: string; sourceId?: string; figures?: readonly Figure[]; onFigure?: (figure: Figure) => void; inlineFigures?: boolean;
+  onCitationHover?: (id: string | undefined) => void;
+  onCitation?: (id: string, keyboard: boolean) => void;
+  sourceEvidence?: { document: ReadingDocument; evidence: readonly ValidatedAnswerEvidence[]; active?: string };
   marks?: readonly RenderMark[];
   annotation?: MarkdownAnnotationInput;
   onAnnotations?: (marks: readonly ResolvedMark[], lost: readonly Located[], text: string) => void;
 }) {
+  const citationRef = useRef(onCitation); citationRef.current = onCitation;
+  const hoverRef = useRef(onCitationHover); hoverRef.current = onCitationHover;
+  // Stable component identity prevents hover/focus updates from replacing the focused button.
+  const renderLink = useMemo<Components["a"]>(() => ({ children, href }) => href?.startsWith("#e-") && citationRef.current ?
+    <button className="answer-evidence-number" data-citation={href.slice(3)} onPointerEnter={() => hoverRef.current?.(href.slice(3))} onPointerLeave={() => hoverRef.current?.(undefined)} onFocus={() => hoverRef.current?.(href.slice(3))} onBlur={() => hoverRef.current?.(undefined)} onClick={event => { event.stopPropagation(); citationRef.current?.(href.slice(3), event.detail === 0); }}>{children}</button> : <a href={href} target="_blank" rel="noreferrer">{children}</a>, []);
   const instanceId = useContext(AssetInstanceContext);
   const figureHandler = useRef(onFigure); figureHandler.current = onFigure;
   const showFigure = useCallback((figure: Figure) => figureHandler.current?.(figure), []);
@@ -41,6 +51,14 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
       }
     };
   }
+  const evidenceKey = sourceEvidence
+    ? JSON.stringify([
+        sourceEvidence.document.sourceId,
+        sourceEvidence.document.bundleVersion,
+        sourceEvidence.evidence.map(e => [e.evidenceId, e.sourceLines, e.quote, e.displayNumber]),
+      ])
+    : "";
+  const evidencePlugins = useMemo(() => sourceEvidence ? [[rehypeSourceEvidence, sourceEvidence] as [typeof rehypeSourceEvidence, typeof sourceEvidence]] : [], [evidenceKey]);
   const markKey = JSON.stringify(marks ?? []);
   const annotationPlugins = useMemo(() => marks?.length ? [[rehypeAnnotations, { items: marks }] as [typeof rehypeAnnotations, { items: readonly RenderMark[] }]] : [], [markKey]);
   const resultRef = useRef<{ marks: readonly ResolvedMark[]; lost: readonly Located[]; text: string } | null>(null);
@@ -66,13 +84,21 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
     if (annotation && resultRef.current) onAnnotations?.(resultRef.current.marks, resultRef.current.lost, resultRef.current.text);
   }, [annotationKey, text, onAnnotations]);
   // Parent handlers may change on each token; retain the parsed tree for stable content.
-  const rendered = useMemo(() => <Markdown remarkPlugins={remarkPlugins} rehypePlugins={[...rehypePlugins, markFigures, ...annotationPlugins, ...(annotation ? [probe] : [])]}
-    components={{ ...components, img: ({ node, src, alt }) => {
+  const rendered = useMemo(() => <Markdown remarkPlugins={remarkPlugins} rehypePlugins={[...rehypePlugins, markFigures, ...evidencePlugins, ...annotationPlugins, ...(annotation ? [probe] : [])]}
+    components={{ ...components, a: renderLink, img: ({ node, src, alt }) => {
       const figure = (node as FigureNode | undefined)?.data?.readerFigure;
       return figure && onFigure ? <button data-anno-ui="" className="reader-figure-link" onClick={() => showFigure(figure)}>查看{figure.label}</button> : <img src={src} alt={alt ?? ""} loading="lazy" />;
     } }} urlTransform={(url, key) => {
-      if (sourceId && key === "src") return imageUrl(url, sourceId, instanceId);
+      if (sourceId && key === "src") {
+        const resolved = imageUrl(url, sourceId, instanceId);
+        if (sourceEvidence && resolved.startsWith("/reader/assets/")) {
+          const bound = new URL(resolved, "https://focus.invalid");
+          bound.searchParams.set("bundle", sourceEvidence.document.bundleVersion);
+          return bound.pathname + bound.search + bound.hash;
+        }
+        return resolved;
+      }
       return defaultUrlTransform(url);
-    }}>{markdown}</Markdown>, [markdown, sourceId, instanceId, inlineFigures, JSON.stringify(figures), !!onFigure, markKey, annotationKey]);
+    }}>{markdown}</Markdown>, [markdown, sourceId, instanceId, inlineFigures, JSON.stringify(figures), !!onFigure, markKey, annotationKey, evidenceKey, !!onCitation]);
   return <div className="focus-markdown">{rendered}</div>;
 });

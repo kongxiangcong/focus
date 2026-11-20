@@ -59,7 +59,9 @@ class CodexBackend(Backend):
         self.rpc = AppServer(command, self.workspace, env=env)
         self.rpc.initialize()
         self.rpc.send({'method': 'initialized', 'params': {}})
-        account = self.rpc.request('account/read', {'refreshToken': True}, timeout=15).get('account')
+        account = self.rpc.request('account/read', {'refreshToken': False}, timeout=15).get('account')
+        if not account or account.get('type') != 'chatgpt':
+            account = self.rpc.request('account/read', {'refreshToken': True}, timeout=15).get('account')
         if not account or account.get('type') != 'chatgpt':
             raise BackendError('请先使用 ChatGPT / Codex 登录。')
         params = {'cwd': str(self.workspace), 'approvalPolicy': self.approval_policy,

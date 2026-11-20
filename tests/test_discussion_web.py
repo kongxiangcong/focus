@@ -53,7 +53,7 @@ class DiscussionWebTests(unittest.TestCase):
                     tools = rpc.calls['thread/start']['dynamicTools']
                     if purpose == 'discussion':
                         focus = next(t for t in tools if t['name'] == 'focus')
-                        self.assertEqual(['search', 'read_range', 'source_note'], focus['inputSchema']['properties']['action']['enum'])
+                        self.assertEqual(['search', 'read_range', 'cite', 'source_note'], focus['inputSchema']['properties']['action']['enum'])
                     if purpose in ('candidate', 'connectivity'):
                         self.assertEqual([], tools)
                 finally:

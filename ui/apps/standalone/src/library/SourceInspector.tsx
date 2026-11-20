@@ -33,10 +33,10 @@ export function SourceInspector({ source: s, page, presentation, onClose, docked
     <header className="library-inspector-head"><SourceKind source={s} /><button aria-label="关闭详情" onClick={onClose}>×</button></header>
     <div className="library-inspector-body"><h2>{s.displayTitle || s.title}</h2>{s.displayTitle && <p className="library-inspector-original">{s.title}</p>}
       <div className="library-inspector-primary"><SourceState {...presentation} bar={false} /><SourcePrimary {...presentation} solid />
-        {view?.preparations?.[s.sourceId]?.candidate && view.preparations[s.sourceId].ready && <button className="workspace-primary" disabled={!!busy || active || !host.activateReadingCandidate || view.readingRevision === undefined} onClick={() => void activateCandidate(s.sourceId)}>打开新计划</button>}
-        {preparationHidden(s.sourceId) && preparationFailed(s.sourceId) && view?.preparations?.[s.sourceId]?.selected_ready && <button disabled={!!busy || active || (!host.resumePreparation && !host.replanSource)} onClick={() => void retryPreparation(s.sourceId)}>准备阅读</button>}
+        {!host.getSourceDocument && view?.preparations?.[s.sourceId]?.candidate && view.preparations[s.sourceId].ready && <button className="workspace-primary" disabled={!!busy || active || !host.activateReadingCandidate || view.readingRevision === undefined} onClick={() => void activateCandidate(s.sourceId)}>打开新计划</button>}
+        {!host.getSourceDocument && preparationHidden(s.sourceId) && preparationFailed(s.sourceId) && view?.preparations?.[s.sourceId]?.selected_ready && <button disabled={!!busy || active || (!host.resumePreparation && !host.replanSource)} onClick={() => void retryPreparation(s.sourceId)}>准备阅读</button>}
       </div>
-      {preparationNotice(s.sourceId)}{s.parseStatus !== "ready" && s.error && <p className="library-inspector-error">{s.error}</p>}
+      {!host.getSourceDocument && preparationNotice(s.sourceId)}{s.parseStatus !== "ready" && s.error && <p className="library-inspector-error">{s.error}</p>}
       <section className="library-inspector-section" aria-label="专题标签"><h3>专题</h3><SourceMeta source={{ ...s, venue: null, publishedAt: null }} topics={page.topics} onTopic={page.setTopic} /><button disabled={managementBusy || !host.saveSourceDetails} onClick={() => openManagement("source", s.sourceId, s.title)}>编辑</button></section>
       <section className="library-inspector-section library-blog" aria-label={`${s.title} 博客`}><h3>博客</h3>
         <ul className="blog-statuses">{blogArtifacts.map(([name, label]) => <li key={name} data-status={blog?.artifacts?.[name]?.status ?? "pending"}><span>{label}</span><small>{blogStatusText[(blog?.artifacts?.[name]?.status ?? "pending") as BlogArtifactStatus]}</small></li>)}</ul>

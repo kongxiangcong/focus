@@ -1,7 +1,9 @@
+import { createPortal } from "react-dom";
+import { Fragment } from "react";
 import { NavigationResize } from "./NavigationResize";
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
 import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
-import { FocusReader, AgentControls, TaskProgress, readingFontSizes } from "@focus/reader-ui";
+import { FocusReader, AgentControls, TaskProgress, readingFontSizes, BookOpen, ChatBubble, DocText, type ReadingMode } from "@focus/reader-ui";
 import { BackendSetupPanel } from "./BackendSetupPanel";
 import { WorkspaceSelection } from './WorkspaceSelection';
 import { UploadTopicPicker } from "./UploadTopicPicker";
@@ -62,6 +64,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     media?.addEventListener?.("change", update);
     return () => media?.removeEventListener?.("change", update);
   }, [theme, density, reducedMotion]);
+  const [readingBranchOpen, setReadingBranchOpen] = useState(true);
+  const [branchSlot, setBranchSlot] = useState<HTMLDivElement | null>(null);
+  const [pickerSlot, setPickerSlot] = useState<HTMLDivElement | null>(null);
   const [readingFullscreen, setReadingFullscreen] = useState(false);
   const [managementTopics, setManagementTopics] = useState<readonly string[]>([]);
   const [generateOnUpload, setGenerateOnUpload] = useState(true);
@@ -145,11 +150,15 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [moreSource]);
-  function cancelAppearance() {
-    setFontSize(savedAppearance.current.fontSize);
-    setReadingFont(savedAppearance.current.readingFont); setTheme(savedAppearance.current.theme);
-    setDensity(savedAppearance.current.density); setReducedMotion(savedAppearance.current.reducedMotion);
-  }
+  const appearanceMounted = useRef(false);
+  useEffect(() => {
+    if (!appearanceMounted.current) { appearanceMounted.current = true; return; }
+    const ok = saveAppearance();
+    setAppearanceFeedback(ok ? "已自动保存" : "外观保存失败，请重试");
+    if (!ok) return;
+    const timer = setTimeout(() => setAppearanceFeedback(""), 1800);
+    return () => clearTimeout(timer);
+  }, [fontSize, readingFont, theme, density, reducedMotion]);
   function navigate(next: Route) { history.pushState(null, "", next); setRoute(next); setError(""); setRetryAction(null); }
   async function refresh(afterCurrent = false): Promise<void> {
     if (!host.listSources || !host.listTopics) { setLoading(false); return; }
@@ -291,6 +300,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     </section>;
   }
   async function enterReading(sourceId: string) {
+    if (host.getSourceDocument && host.selectDiscussionSource) {
+      await operate("阅读", () => host.selectDiscussionSource!(sourceId), true);
+      return;
+    }
     if (!host.openSource) return;
     const prepared = view?.preparations?.[sourceId];
     if (prepared && !prepared.selected_ready && preparationFailed(sourceId)) {
@@ -449,6 +462,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     } catch (e) { setError(String(e)); setRetryAction(() => () => void controlBatch(batchId, action, itemId, riskChoiceId)); }
     finally { locked.current = false; setBusy(""); }
   }
+  const includesPdf = selectedFiles.some(file => /\.pdf$/i.test(file.name));
   async function uploadAndStart() {
     if (locked.current || !selectedFiles.length || !host.stageIngestion || !host.startBatch) return;
     const files = [...selectedFiles], topicTitle = uploadTopic.trim();
@@ -456,19 +470,28 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     try {
       const ids: string[] = [];
       const duplicates: IngestionItem[] = [];
+      const failures: {file: File; message: string}[] = [];
       for (const file of files) {
         const staged = await host.stageIngestion(file, { ...(topicTitle ? { topicTitle } : {}) });
-        if (!staged.ok) { setError(staged.error.message); return; }
+        if (!staged.ok) { failures.push({ file, message: staged.error.message }); continue; }
         replaceInbox(staged.value);
-        if (staged.value.duplicate) {
+        const unsubmitted = staged.value.status === "awaiting_confirmation" && !staged.value.topicId &&
+          (staged.value.topicTitle ?? "") === topicTitle;
+        if (staged.value.duplicate && !unsubmitted) {
           duplicates.push(staged.value);
           continue;
         }
-        ids.push(staged.value.itemId);
+        if (!ids.includes(staged.value.itemId)) ids.push(staged.value.itemId);
       }
       if (ids.length) {
-        const started = await identified(`upload:${ids.join(",")}`, id => host.startBatch!(ids, id, generateOnUpload));
+        const started = await identified(`upload:${ids.join(",")}`, id => host.startBatch!(ids, id, includesPdf || generateOnUpload));
         if (!started.ok) { setError(started.error.message); return; }
+      }
+      if (failures.length) {
+        setSelectedFiles(failures.map(failure => failure.file));
+        await refresh();
+        setError(failures.map(({ file, message }) => file.name + "：" + message).join("；"));
+        return;
       }
       setUploadOpen(false); setSelectedFiles([]);
       if (duplicates.length) await revealIngestion(duplicates);
@@ -540,8 +563,27 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <a className="workspace-logo" href="/library" onClick={e => { e.preventDefault(); navigate("/library"); }}>focus<span>.</span></a>
         <button type="button" className="workspace-nav-toggle" aria-label={navCollapsed ? "展开导航" : "收起导航"} aria-expanded={!navCollapsed} aria-controls="workspace-routes" onClick={() => { setNavCollapsed(!navCollapsed); try { localStorage.setItem("focus.navigation", navCollapsed ? "expanded" : "collapsed"); } catch { /* Navigation remains usable without persistence. */ } }}><span aria-hidden="true">☰</span></button>
       </div>
-      <nav id="workspace-routes" aria-label="应用导航">{([["/library", "知识库", "▤"], ["/reading", "阅读", "☷"], ["/settings", "设置", "☼"]] as const).map(([path, title, icon]) =>
-        <a key={path} href={path} aria-label={title} title={navCollapsed ? title : undefined} aria-current={route === path ? "page" : undefined} onClick={e => { e.preventDefault(); navigate(path); }}><span aria-hidden="true">{icon}</span><span className="workspace-nav-label">{title}</span></a>)}</nav>
+      <nav id="workspace-routes" aria-label="应用导航">{([
+        ["/library", "知识库", <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2.5" y="2.5" width="4.5" height="11" rx="1"/><rect x="9" y="2.5" width="4.5" height="11" rx="1"/></svg>],
+        ["/reading", "阅读", <BookOpen />],
+        ["/settings", "设置", <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.2v1.5M8 12.3v1.5M2.2 8h1.5M12.3 8h1.5M3.9 3.9l1.1 1.1M11 11l1.1 1.1M12.1 3.9 11 5M5 11l-1.1 1.1"/></svg>],
+      ] as const).map(([path, title, icon]) =>
+        <Fragment key={path}>
+          <a href={path} aria-label={title} title={navCollapsed ? title : undefined} aria-current={route === path ? "page" : undefined}
+            data-branch-active={path === "/reading" && route === "/reading" && readingBranchOpen && !!host.getSourceDocument ? "true" : undefined}
+            onClick={e => { e.preventDefault(); if (path === "/reading") setReadingBranchOpen(true); navigate(path); }}>
+            <span className="workspace-nav-icon" aria-hidden="true">{icon}</span><span className="workspace-nav-label">{title}</span>
+          </a>
+          {path === "/reading" && route === path && host.getSourceDocument && <div className="reading-branch" data-open={readingBranchOpen}>
+            <button type="button" className="reading-branch-toggle" aria-label={readingBranchOpen ? "折叠阅读方式" : "展开阅读方式"}
+              aria-expanded={readingBranchOpen} aria-controls="reading-children" onClick={() => setReadingBranchOpen(!readingBranchOpen)}>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
+            </button>
+            <div className="reading-branch-collapse" data-open={readingBranchOpen}>
+              <div id="reading-children" ref={setBranchSlot} hidden={!readingBranchOpen} role="group" aria-label="阅读方式" />
+            </div>
+          </div>}
+        </Fragment>)}</nav>
       {route === "/library" && <div className="workspace-topics" role="group" aria-label="专题">
         <h2>专题</h2>
         <button type="button" className="workspace-topics__new" disabled={managementBusy || !host.createTopic} onClick={() => openManagement("create")}>＋ 新建专题</button>
@@ -552,7 +594,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     </aside>
     <header className="workspace-header">
       <div className={route === "/library" ? "workspace-toolbar library-toolbar" : "workspace-toolbar"}>
-        {route === "/reading" ? <div className="reading-library-picker"><span className="workspace-reading-title" title={view?.source.title}>{view?.source.title || "阅读"}</span></div> : route === "/library" ? <LibraryToolbar {...{ selectedTopic, topic, filtered, topics, unfiledCount, setTopic, libraryView, setLibraryView, setMoreSource, query, setQuery }} /> : <h1>设置</h1>}
+        {route === "/reading" ? <div className="reading-library-picker"><div className="reading-mode-picker" data-branch-open={readingBranchOpen} ref={setPickerSlot} /><span className="workspace-reading-title" title={view?.source.title}>{view?.source.title || "阅读"}</span></div> : route === "/library" ? <LibraryToolbar {...{ selectedTopic, topic, filtered, topics, unfiledCount, setTopic, libraryView, setLibraryView, setMoreSource, query, setQuery }} /> : <h1>设置</h1>}
         <div className="workspace-header-actions">
           <section className="workspace-status" aria-label="当前工作">
             <span className="workspace-sr-only" role="status">{connectionLost ? "连接中断，正在恢复" : !view ? "正在连接" : primaryWork ? `${primaryWork.label} · ${runningWork.length} 项进行中` : "当前无工作"}{attention.length > 0 ? ` · ${attention.length} 项需查看` : ""}</span>
@@ -627,36 +669,98 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     {route === "/reading" && readingFullscreen && <button type="button" className="reading-fullscreen-exit"
       aria-label="关闭全屏模式" title="退出全屏" onClick={() => setReadingFullscreen(false)}>×</button>}
     <div className="workspace-reading" hidden={route !== "/reading"}>
-      <FocusReader host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
+      <FocusReader
+        renderModeNavigation={(mode, select, disabled) => <>
+          {branchSlot && createPortal(([
+            ["chunks", "精读", <BookOpen />],
+            ["chat", "对话", <ChatBubble />],
+            ...(host.blogUrl ? [["blog", "带读博客", <DocText />] as const] : []),
+          ] as readonly (readonly [ReadingMode, string, ReactNode])[]).map(([value, label, icon]) =>
+            <button type="button" key={value} className="reading-branch-item" aria-pressed={mode === value} disabled={disabled}
+              onClick={() => select(value)}>
+              <span className="reading-branch-item__icon" aria-hidden="true">{icon}</span>
+              <span>{label}</span>
+            </button>), branchSlot)}
+          {pickerSlot && createPortal(<select aria-label="阅读方式" value={mode} disabled={disabled}
+            onChange={event => { const v = event.target.value; select(v === "chunks" || v === "blog" ? v : "chat"); }}>
+            <option value="chunks">精读</option>
+            <option value="chat">对话</option>
+            {host.blogUrl && <option value="blog">带读博客</option>}
+          </select>, pickerSlot)}
+        </>}
+        renderBlog={host.blogUrl ? (blogSourceId) => {
+          const blog = blogs[blogSourceId];
+          const htmlReady = blog?.artifacts?.html?.status === "completed";
+          const isRunning = blog?.runStatus === "running" || blog?.executing;
+          const isFailed = blog?.runStatus === "failed" || blog?.runStatus === "interrupted" || blog?.runStatus === "cancelled";
+          if (htmlReady) {
+            return <div className="reading-blog-view">
+              <div className="reading-blog-floating">
+                <a href={host.blogUrl!(blogSourceId)} target="_blank" rel="noreferrer" title="在新窗口打开带读博客">新窗口打开 ↗</a>
+              </div>
+              <iframe className="reading-blog-frame" title="带读博客阅读" src={host.blogUrl!(blogSourceId)} />
+            </div>;
+          }
+          return <div className="reading-blog-empty">
+            <div className="reading-blog-empty__card">
+              <h2>带读博客</h2>
+              <p>{isRunning ? "正在生成带读博客，完成后将自动在此呈现。" : isFailed ? (blog?.error?.message || "带读博客生成未完成，可重新生成。") : "为这篇文章生成以问题为线索的深度带读长文，方便系统理解核心方法与脉络。"}</p>
+              <div className="reading-blog-empty__actions">
+                {isRunning
+                  ? (host.cancelBlog && <button type="button" disabled={!!busy} onClick={() => void cancelBlog(blogSourceId)}>取消生成</button>)
+                  : (host.generateBlog && <button type="button" className="workspace-primary" disabled={!!busy || managementBusy} onClick={() => void (isFailed && host.regenerateBlog ? regenerateBlog(blogSourceId, "all") : generateBlog(blogSourceId))}>{isFailed ? "重新生成带读博客" : "生成带读博客"}</button>)}
+              </div>
+            </div>
+          </div>;
+        } : undefined}
+        host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
     {route === "/library" && <LibraryPage {...{ scoped, statusFilter, setStatusFilter, sourcesFailed, refresh, taskInbox, taskBatches, statusText, itemStatusText, continueInbox, controlBatch, sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, setConfirm, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} onTasks={() => setTaskDetails(true)} />}
     {route === "/settings" && <main className="settings-page">
-      <WorkspaceSelection />
-      <BackendSetupPanel host={host} configuration={view?.configuration} onSaved={acceptView} />
-      <section className="focus-reader__appearance-panel" aria-label="外观与阅读">
-      <h2>外观与阅读</h2>
-      <p className="appearance-hint">即时预览；保存后保留，取消恢复已保存的外观。连接检查与后端保存是另一组动作。</p>
-      <div className="settings-row"><label htmlFor="focus-theme">主题</label><select id="focus-theme" value={theme} onChange={e => setTheme(e.target.value as Theme)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div>
-      <div className="settings-row"><label htmlFor="focus-reduced-motion">低动态</label><input id="focus-reduced-motion" type="checkbox" checked={reducedMotion} onChange={e => setReducedMotion(e.target.checked)} /></div>
-      <div className="settings-row"><label htmlFor="focus-density">界面密度</label><select id="focus-density" value={density} onChange={e => setDensity(e.target.value as Density)}><option value="compact">紧凑</option><option value="comfortable">舒适</option></select></div>
-      <div className="settings-row"><label htmlFor="font-size">字号</label><input id="font-size" type="range" min="0" max="3" step="1" value={fontOptions.findIndex(([key]) => key === fontSize)} aria-valuetext={fontOptions.find(([key]) => key === fontSize)?.[1]} onChange={e => { const value = fontOptions[Number(e.target.value)][0]; setFontSize(value); }} /><output htmlFor="font-size">{readingFontSizes[fontSize]}px</output></div>
-      <div className="settings-row"><label htmlFor="reading-font">正文字体</label><select id="reading-font" value={readingFont} onChange={e => setReadingFont(e.target.value as ReadingFont)}>
-        {readingFonts.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}
-      </select></div>
-      <div className="settings-font-preview" aria-label="阅读字体预览" style={{ fontSize: `${readingFontSizes[fontSize]}px` }}>
-        <p>阅读让我们看见问题的来处，也理解方法成立的原因。保留疑问，沿着证据继续探索。</p>
-        <p lang="en">Reading brings ideas into focus. Follow the evidence, ask clear questions, and keep exploring.</p>
-        <p><strong>重要结论</strong> · Focus 2026 · 0123456789</p>
+      <div className="settings-shell">
+        <nav className="settings-toc" aria-label="设置分组">
+          <a href="#settings-appearance">外观与阅读</a>
+          <a href="#settings-backend">模型与后端</a>
+          <a href="#settings-workspace">工作区</a>
+        </nav>
+        <div className="settings-sections">
+          <section id="settings-appearance" className="focus-reader__appearance-panel" aria-label="外观与阅读">
+            <div className="settings-section-head">
+              <div>
+                <h2>外观与阅读</h2>
+                <p className="appearance-hint">所有外观调整实时生效并自动保存至本机浏览器。</p>
+              </div>
+              {appearanceFeedback && <span className="settings-saved-pill" role="status">{appearanceFeedback}</span>}
+            </div>
+            <div className="settings-appearance-grid">
+              <div className="settings-appearance-controls">
+                <div className="settings-row"><label htmlFor="focus-theme">主题</label><select id="focus-theme" value={theme} onChange={e => setTheme(e.target.value as Theme)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div>
+                <div className="settings-row"><label htmlFor="focus-density">界面密度</label><select id="focus-density" value={density} onChange={e => setDensity(e.target.value as Density)}><option value="compact">紧凑</option><option value="comfortable">舒适</option></select></div>
+                <div className="settings-row"><label htmlFor="font-size">字号</label><input id="font-size" type="range" min="0" max="3" step="1" value={fontOptions.findIndex(([key]) => key === fontSize)} aria-valuetext={fontOptions.find(([key]) => key === fontSize)?.[1]} onChange={e => { const value = fontOptions[Number(e.target.value)][0]; setFontSize(value); }} /><output htmlFor="font-size">{readingFontSizes[fontSize]}px</output></div>
+                <div className="settings-row"><label htmlFor="reading-font">正文字体</label><select id="reading-font" value={readingFont} onChange={e => setReadingFont(e.target.value as ReadingFont)}>
+                  {readingFonts.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}
+                </select></div>
+                <div className="settings-row"><label htmlFor="focus-reduced-motion">低动态模式</label><input id="focus-reduced-motion" type="checkbox" checked={reducedMotion} onChange={e => setReducedMotion(e.target.checked)} /></div>
+              </div>
+              <div className="settings-font-preview" aria-label="阅读字体预览" style={{ fontSize: `${readingFontSizes[fontSize]}px` }}>
+                <span className="settings-preview-badge">实时预览</span>
+                <p>阅读让我们看见问题的来处，也理解方法成立的原因。保留疑问，沿着证据继续探索。</p>
+                <p lang="en">Reading brings ideas into focus. Follow the evidence, ask clear questions, and keep exploring.</p>
+                <p><strong>重要结论</strong> · Focus 2026 · 0123456789</p>
+              </div>
+            </div>
+            <details className="settings-font-licenses"><summary>字体许可</summary>
+              <p><a href="/fonts/SourceHanSerif-LICENSE.txt" target="_blank" rel="noreferrer">思源宋体</a> · <a href="/fonts/SourceHanSans-LICENSE.txt" target="_blank" rel="noreferrer">思源黑体</a> · <a href="/fonts/NeoZhiSong-IPA-LICENSE.txt" target="_blank" rel="noreferrer">新致宋屏幕阅读版</a></p>
+              <p>新致宋可恢复为 IPA 原始字体：从 <a href="https://moji.or.jp/ipafont/ipafontdownload/" target="_blank" rel="noreferrer">IPA 官方下载页</a>下载并安装 IPAex 明朝，重启浏览器后选择“新致宋屏幕阅读版”，将优先使用本机 IPAexMincho（或 IPAmjMincho）。卸载原始字体后恢复使用内置屏幕阅读版。</p>
+            </details>
+          </section>
+          <div id="settings-backend">
+            <BackendSetupPanel host={host} configuration={view?.configuration} onSaved={acceptView} />
+          </div>
+          <div id="settings-workspace">
+            <WorkspaceSelection />
+          </div>
+        </div>
       </div>
-      <div className="settings-actions">
-        <button type="button" className="workspace-primary" onClick={() => setAppearanceFeedback(saveAppearance() ? "外观已保存" : "外观保存失败，请重试")}>保存外观</button>
-        <button type="button" onClick={() => { cancelAppearance(); setAppearanceFeedback(""); }}>还原外观</button>
-      </div>
-      {appearanceFeedback && <p role="status">{appearanceFeedback}</p>}
-      <details className="settings-font-licenses"><summary>字体许可</summary>
-        <p><a href="/fonts/SourceHanSerif-LICENSE.txt" target="_blank" rel="noreferrer">思源宋体</a> · <a href="/fonts/SourceHanSans-LICENSE.txt" target="_blank" rel="noreferrer">思源黑体</a> · <a href="/fonts/NeoZhiSong-IPA-LICENSE.txt" target="_blank" rel="noreferrer">新致宋屏幕阅读版</a></p>
-        <p>新致宋可恢复为 IPA 原始字体：从 <a href="https://moji.or.jp/ipafont/ipafontdownload/" target="_blank" rel="noreferrer">IPA 官方下载页</a>下载并安装 IPAex 明朝，重启浏览器后选择“新致宋屏幕阅读版”，将优先使用本机 IPAexMincho（或 IPAmjMincho）。卸载原始字体后恢复使用内置屏幕阅读版。</p>
-      </details>
-</section>
     </main>}
     <dialog className="workspace-confirm" ref={managementDialog} onCancel={() => setManagement(null)}>
       <form onSubmit={e => { e.preventDefault(); saveManagement(); }}>
@@ -678,10 +782,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <form onSubmit={e => { e.preventDefault(); void uploadAndStart(); }}>
         <h2>上传材料</h2>
         <UploadTopicPicker topics={topics} value={uploadTopic} onChange={setUploadTopic} disabled={!!busy} />
-        <label className="upload-parse-only"><input type="checkbox" disabled={!!busy} checked={!generateOnUpload} onChange={e => setGenerateOnUpload(!e.target.checked)} />仅解析入库</label>
+        {!includesPdf && <label className="upload-parse-only"><input type="checkbox" disabled={!!busy} checked={!generateOnUpload} onChange={e => setGenerateOnUpload(!e.target.checked)} />仅解析入库</label>}
         <label className="upload-file">{selectedFiles.map(f => f.name).join("、") || "PDF / HTML"}<input aria-label="上传材料" type="file" multiple disabled={!!busy} accept=".pdf,.html,application/pdf,text/html" onChange={e => setSelectedFiles(Array.from(e.target.files ?? []))} /></label>
         {error && <p role="alert">{error}</p>}
-        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length}>{busy ? "开始中…" : generateOnUpload ? "开始解析并生成博客" : "仅解析入库"}</button></div>
+        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length}>{busy ? "开始中…" : includesPdf ? "上传并准备阅读" : generateOnUpload ? "开始解析并生成博客" : "仅解析入库"}</button></div>
       </form>
     </dialog>
     {blogViewer && host.blogUrl && <dialog className="workspace-blog-viewer" ref={blogDialog} aria-labelledby="blog-viewer-title" onCancel={e => { e.preventDefault(); closeBlogViewer(); }}>

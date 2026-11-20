@@ -111,6 +111,7 @@ class RepositoryBoundaryTests(unittest.TestCase):
                     ".agents/core/article_blog.py",
                     ".agents/core/reading_application.py",
                     # Local and cloud MinerU evidence binds Bundle bytes.
+                    ".agents/core/pdf_layout.py",
                     ".agents/core/local_mineru.py",
                     ".agents/core/mineru.py",
                     # Parser identity binds the published Source to its original.
