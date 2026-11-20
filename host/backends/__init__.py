@@ -3,7 +3,7 @@ from .base import Backend, BackendError
 from .registry import HarnessRegistry, HarnessSpec
 
 DEFAULT_BACKEND = 'codex'
-DEFAULT_REGISTRY = HarnessRegistry()
+DEFAULT_REGISTRY = HarnessRegistry(discover=False)
 BACKENDS = {spec.id: spec for spec in DEFAULT_REGISTRY.list_specs()}
 
 

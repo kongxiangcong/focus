@@ -108,7 +108,7 @@ def _executable(path):
 
 
 class HarnessRegistry:
-    def __init__(self, directory=None):
+    def __init__(self, directory=None, *, discover=True):
         self.directory = Path(directory).expanduser().absolute() if directory is not None else None
         specs = {spec.id: spec for spec in (HarnessSpec.read(path, builtin=True) for path in sorted(BUILTINS.glob('*.json')))}
         errors = []
@@ -125,7 +125,7 @@ class HarnessRegistry:
                 errors.append({'file': path.name, 'message': message})
         self._specs = specs
         self.errors = errors
-        self._discovered = {spec.id: self._discover_binary(spec) for spec in self.list_specs()}
+        self._discovered = {spec.id: self._discover_binary(spec) for spec in self.list_specs()} if discover else None
 
     def list_specs(self):
         return tuple(self._specs.values())
@@ -139,7 +139,7 @@ class HarnessRegistry:
         if explicit_path:
             path = Path(explicit_path).expanduser().absolute()
             return str(path.resolve()) if _executable(path) else None
-        return self._discovered.get(spec.id)
+        return self._discovered.get(spec.id) if self._discovered is not None else self._discover_binary(spec)
 
     def _discover_binary(self, spec):
         command = Path(spec.command[0]).expanduser()

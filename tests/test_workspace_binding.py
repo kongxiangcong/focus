@@ -62,7 +62,7 @@ class WorkspaceBindingTests(unittest.TestCase):
                           'configuration': {'backend': 'deepseek'}}, expected_generation=initial)
             self.assertFalse((root / 'late').exists())
             self.assertEqual(first['workspace'], app.status()['workspace'])
-            self.assertEqual('codex', app.configuration_status()['effective']['backend'])
+            self.assertIsNone(app.configuration_status()['effective'])
             app.close()
 
     def test_corrupt_import_is_read_only_and_keeps_original_binding(self):

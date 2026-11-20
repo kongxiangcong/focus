@@ -1,0 +1,15 @@
+{
+  "id": "cursor",
+  "label": "Cursor CLI",
+  "driver": "acp",
+  "command": ["agent", "acp"],
+  "capabilities": {
+    "authMode": "external-cli",
+    "modelDiscovery": "acp-config-option",
+    "mcpTransport": "streamable-http",
+    "streaming": true,
+    "structuredOutput": "prompt-json"
+  },
+  "installHint": "请安装 Cursor Agent CLI，或指定 agent 的可执行文件。",
+  "loginHint": "请在终端运行 agent login。"
+}

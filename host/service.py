@@ -45,7 +45,7 @@ class HostService:
     def __init__(self, workspace, data, *, model=None, codex_bin=None, backend=None,
                  backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None,
                  blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None,
-                 registry=None, clock=time.time):
+                 registry=None, allow_unconfigured=False, clock=time.time):
         workspace = Path(workspace).resolve()
         if not workspace.exists() or not any(workspace.iterdir()):
             create_workspace(workspace)
@@ -54,7 +54,8 @@ class HostService:
             self._initialize(workspace, data, model=model, codex_bin=codex_bin, backend=backend,
                 backend_factory=backend_factory, network=network, approval_policy=approval_policy,
                 ingestion_parser=ingestion_parser, blog_runtime=blog_runtime, reading_runtime=reading_runtime,
-                progress_runtime=progress_runtime, settings_path=settings_path, registry=registry, clock=clock)
+                progress_runtime=progress_runtime, settings_path=settings_path, registry=registry,
+                allow_unconfigured=allow_unconfigured, clock=clock)
         except BaseException:
             try:
                 if hasattr(self, 'store'):
@@ -66,7 +67,7 @@ class HostService:
     def _initialize(self, workspace, data, *, model=None, codex_bin=None, backend=None,
                  backend_factory=None, network=False, approval_policy='on-request', ingestion_parser=None,
                  blog_runtime=None, reading_runtime=None, progress_runtime=None, settings_path=None,
-                 registry=None, clock=time.time):
+                 registry=None, allow_unconfigured=False, clock=time.time):
         workspace.mkdir(parents=True, exist_ok=True)
         self.workspace = workspace.resolve()
         self.core = CoreBridge(self.workspace)
@@ -91,10 +92,11 @@ class HostService:
         self.page_generation = self.generation
         self.stream_messages = {}
         self.network, self.approval_policy = network, approval_policy
-        backend = backend or DEFAULT_BACKEND
+        backend = backend or (None if allow_unconfigured else DEFAULT_BACKEND)
         self.backend_name, self.backend_factory = backend, backend_factory
         self.settings = UserSettings(settings_path, registry=registry)
         self.registry = self.settings.registry
+        self.active_registry = self.registry
         self.setup = BackendSetup(registry=self.registry)
         self.discussion_summaries = CandidateTurns(self._build_backend)
         self.ingestion_inspector = IngestionInspector(self._build_backend)
@@ -117,7 +119,7 @@ class HostService:
         self.progress_serial = threading.Lock()
         self.models = {spec.id: os.getenv(f'FOCUS_{spec.id.upper()}_MODEL') or spec.default_model
                        for spec in self.registry.list_specs()}
-        if model:
+        if model and backend:
             self.models[backend] = model
         self.runtime_paths = {DEFAULT_BACKEND: str(codex_bin)} if codex_bin is not None else {}
         self.credential_files = {}
@@ -144,7 +146,7 @@ class HostService:
         self.resetting = False
         self._snapshot_cache = None
         self._disk_memo = {}
-        if backend_factory is None and not saved:
+        if backend_factory is None and not saved and backend:
             self.registry.get_spec(backend)
         if not self.state['timeline'] and self.state['displayReading']:
             window = self.core.window()
@@ -1487,6 +1489,8 @@ class HostService:
                                  or receipt != original.get('receipt')):
                     raise ValueError('同一 requestId 的内容或讨论范围已改变。')
                 return self.snapshot()
+            if not self.backend_name and self.backend_factory is None:
+                raise ValueError('请先在设置中选择 Backend 并保存应用。')
             discussion = None
             if source_id is not None:
                 selected_source = self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']
@@ -1567,6 +1571,8 @@ class HostService:
             return {'adapter': self.backend_name, 'model': self.models.get(self.backend_name)}
 
     def _configuration(self):
+        if self.backend_name is None:
+            return None
         return {'backend': self.backend_name, 'model': self.models.get(self.backend_name),
                 'runtimePath': self.runtime_paths.get(self.backend_name),
                 'credentialFile': self.credential_files.get(self.backend_name)}
@@ -1582,12 +1588,21 @@ class HostService:
         with self.lock:
             return self.settings.projection(self._configuration(), self._configuration_busy())
 
+    def update_backend_registry(self, registry):
+        with self.lock:
+            self.registry = self.settings.registry = self.setup.registry = registry
+            self.generation += 1
+            self.page_generation = self.generation
+            self._snapshot_cache = None
+            self.condition.notify_all()
+
     def save_configuration(self, value):
         normalized = self.settings.normalize(value)
         with self.lock:
             if self._configuration_busy():
                 raise ValueError('任务运行中，不能保存后端配置。')
             old = self._configuration()
+            old_registry = self.active_registry
             thread_id, resume_backend = self.state.get('threadId'), self.state.get('resumeBackend')
             try:
                 # Activation is local; no installation, login or inference gate.
@@ -1595,6 +1610,7 @@ class HostService:
                 self.settings.save(value)
             except BaseException:
                 self._apply_configuration(old)
+                self.active_registry = old_registry
                 self.state.update(threadId=thread_id, resumeBackend=resume_backend)
                 raise
             self.refresh_blocked = False
@@ -1602,10 +1618,12 @@ class HostService:
             return self.snapshot()
 
     def _apply_configuration(self, value):
-        self.backend_name = value['backend']
-        self.models[self.backend_name] = value['model']
-        self.runtime_paths[self.backend_name] = value['runtimePath']
-        self.credential_files[self.backend_name] = value['credentialFile']
+        self.active_registry = self.registry
+        self.backend_name = value['backend'] if value else None
+        if value:
+            self.models[self.backend_name] = value['model']
+            self.runtime_paths[self.backend_name] = value['runtimePath']
+            self.credential_files[self.backend_name] = value['credentialFile']
         self.state.update(threadId=None, resumeBackend=None)
 
     def refresh_configuration(self):
@@ -1623,6 +1641,7 @@ class HostService:
     def _build_backend(self, *, workspace=None, purpose='business', tools=None):
         with self.lock:
             name = self.backend_name
+            registry = self.active_registry
             options = {'network': self.network, 'approval_policy': self.approval_policy,
                        'model': self.models.get(name), 'purpose': purpose,
                        'runtime_path': self.runtime_paths.get(name), 'credential_file': self.credential_files.get(name)}
@@ -1631,7 +1650,9 @@ class HostService:
         workspace = workspace or self.workspace
         if self.backend_factory is not None:
             return self.backend_factory(workspace, **options)
-        backend = self.registry.create_backend(name, workspace, **options)
+        if name is None:
+            raise BackendError('请先在设置中选择 Backend 并保存应用。')
+        backend = registry.create_backend(name, workspace, **options)
         receipt_id = uuid.uuid4().hex
         backend.cleanup_callback = lambda receipt: self.store.put('runtimeCleanup:' + receipt_id,
             {**receipt, 'purpose': purpose, 'recordedAt': self.clock()})

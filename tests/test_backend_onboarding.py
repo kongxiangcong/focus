@@ -33,12 +33,11 @@ class BackendOnboardingTests(unittest.TestCase):
                 patch.object(BackendSetup, 'prepare', side_effect=AssertionError('not authorized')):
             app = Workbench(settings_path=root / 'machine/settings.json')
             app.bind({'mode': 'create', 'path': str(root), 'configuration': {'backend': 'deepseek'}})
-            self.assertEqual('deepseek', app.host.backend_name)
-            self.assertEqual(DEFAULT_MODELS['deepseek'], app.host.models['deepseek'])
-            self.assertIsNone(app.settings.preferences()['deepseek']['model'])
+            self.assertIsNone(app.host.backend_name)
+            self.assertEqual({}, app.settings.preferences())
             app.close()
             app = Workbench(settings_path=root / 'machine/settings.json')
-            self.assertEqual('deepseek', app.host.backend_name)
+            self.assertIsNone(app.host.backend_name)
             app.close()
 
     def test_each_preference_and_return_to_default_removes_override(self):
@@ -63,6 +62,7 @@ class BackendOnboardingTests(unittest.TestCase):
         with test_directory() as root:
             app = Workbench(settings_path=root / 'machine/settings.json')
             app.bind({'mode': 'create', 'path': str(root), 'configuration': {'backend': 'codex'}})
+            app.host.save_configuration({'backend': 'codex'})
             before = app.host.configuration_status()
             for point in ('save', 'apply'):
                 with self.subTest(point=point):
@@ -83,7 +83,7 @@ class BackendOnboardingTests(unittest.TestCase):
             self.assertEqual('codex', app.host.backend_name)
             app.close()
 
-    def test_initial_configuration_and_binding_disk_failure_are_one_commit(self):
+    def test_initial_binding_disk_failure_leaves_no_bound_workspace(self):
         with test_directory() as root:
             app = Workbench(settings_path=root / 'machine/settings.json')
             with patch.object(app.binding.settings, 'write', side_effect=OSError('disk')), self.assertRaises(OSError):
@@ -91,7 +91,7 @@ class BackendOnboardingTests(unittest.TestCase):
             self.assertFalse(app.status()['bound'])
             self.assertFalse(app.settings.path.exists())
             app.bind({'mode': 'import', 'path': str(root / 'knowledge-base'), 'configuration': {'backend': 'codex'}})
-            self.assertEqual('codex', app.configuration_status()['effective']['backend'])
+            self.assertIsNone(app.configuration_status()['effective'])
             app.close()
 
     def test_check_runs_the_selected_model_without_installing_or_discovering_models(self):
