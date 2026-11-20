@@ -4,7 +4,7 @@
 
 **Blocked by:** 09 ACP 取消、确认过期与资源回收
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
 - [ ] 通过标准 Manifest 在正式工作台选择受测 CLI，完成阅读讨论、真实 read_range 往返、取消和资源释放。
 - [ ] 记录具体 CLI、版本、平台、握手耗时与首段输出耗时，保留失败及未覆盖场景；未经真机验证的预置标为「未实测」。

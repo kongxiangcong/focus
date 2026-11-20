@@ -1,6 +1,6 @@
 # FOCUS 可配置 Backend 与 ACP 接入规格
 
-Status: ready-for-agent
+Status: 实现完成，第二个 ACP CLI 真机验收待完成
 
 ## Problem Statement
 
@@ -70,3 +70,5 @@ Status: ready-for-agent
 ## Further Notes
 
 2026-11-20 确认 Q1–Q24。实施顺序为注册与控制面、ACP 驱动与 DSH 替换、真实 CLI 及生命周期验收。此规格记录验收要求，运行结果由实施阶段填写。[定稿设计](../../docs/focus_harness_bus_design.md) · [领域术语](../../CONTEXT.md) · [讨论与 Backend](../../docs/adr/0007-selectable-agent-backends.md) · [DSH 生命周期修订](../../docs/adr/0014-archive-dsh-attempt-sessions.md) · [配置与应用](../../docs/adr/0021-simple-backend-setup-and-apply.md)
+
+票据 01–11 已关闭。发布验收跟踪在票据 12–13，Codex 登录功能按用户要求跳过。[当前验收记录](acceptance.md)
