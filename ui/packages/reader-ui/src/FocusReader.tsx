@@ -837,7 +837,8 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
         {connection && <div className="focus-error" role="alert">{connection}<button onClick={() => void reconnect()}>重新连接</button></div>}
         {failure && <div className="focus-error" role="alert">{failure.message}<button disabled={!!operation} onClick={failure.retry}>{failure.label}</button><button aria-label="关闭错误" onClick={() => setFailure(null)}>×</button></div>}
         {operation && !active && <p className="focus-operation" role="status">{operation === "下一段" ? "正在打开下一段…" : `${operation}中…`}</p>}
-        {agent && active && <AgentControls agent={agent} showStop={false} onStop={() => void perform("停止", () => host.stop!())} onAnswer={async input => {
+        {agent && (active || agent.run?.approvals.some(approval => approval.status === "expired")) &&
+          <AgentControls agent={agent} showStop={false} onStop={() => void perform("停止", () => host.stop!())} onAnswer={async input => {
           const result = await host.approve?.(input);
           if (result?.ok) { accept(result.value); return true; } return false;
         }} />}

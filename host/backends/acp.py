@@ -92,8 +92,7 @@ class AcpBackend(Backend):
         return []
 
     def _open_session(self, tools):
-        env = (backend_environment(self.manifest, credential_file=self.credential_file)
-               if self.credential_file else backend_environment(self.manifest))
+        env = backend_environment(self.manifest, credential_file=self.credential_file)
         if tools:
             inherited = env.get('NO_PROXY') or env.get('no_proxy', '')
             env['NO_PROXY'] = env['no_proxy'] = ','.join(filter(None, (inherited, '127.0.0.1', 'localhost')))
