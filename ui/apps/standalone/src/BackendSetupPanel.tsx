@@ -28,7 +28,8 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
   const [error, setError] = useState("");
   const revision = useRef(0);
   const alive = useRef(true);
-  const saved = configuration?.saved ?? configuration?.effective;
+  const startupOverride = configuration?.startupOverride;
+  const saved = startupOverride ? configuration?.effective : configuration?.saved ?? configuration?.effective;
   const discovered = scan?.backends ?? configuration?.backends;
   const backends = discovered ?? legacyBackends;
   const available = backends.filter(backend => backend.available);
@@ -44,12 +45,13 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
       setFeedback(previous => previous.startsWith('连接检查通过') ? '' : previous);
       drafts.current = Object.fromEntries(Object.entries(configuration?.preferences ?? {}).map(([backend, preference]) =>
         [backend, { backend, model: preference?.model ?? undefined, runtimePath: preference?.runtimePath ?? undefined, credentialFile: preference?.credentialFile ?? undefined }]));
-      setInput((Object.hasOwn(drafts.current, saved.backend) ? drafts.current[saved.backend] : undefined) ?? (configuration?.preferences === undefined ? {
+      const draft = Object.hasOwn(drafts.current, saved.backend) ? drafts.current[saved.backend] : undefined;
+      setInput((!startupOverride ? draft : undefined) ?? (startupOverride || configuration?.preferences === undefined ? {
         backend: saved.backend, model: saved.model ?? undefined, runtimePath: saved.runtimePath ?? undefined,
         credentialFile: saved.credentialFile ?? undefined,
       } : { backend: saved.backend }));
     }
-  }, [saved?.backend, saved?.model, saved?.runtimePath, saved?.credentialFile, configuration?.operationId]);
+  }, [saved?.backend, saved?.model, saved?.runtimePath, saved?.credentialFile, configuration?.operationId, startupOverride]);
   useEffect(() => {
     if (saved || (manualChoice.current && selectedBackend)) return;
     manualChoice.current = false;
@@ -184,6 +186,7 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
   const manifestErrors = scan?.backendErrors ?? configuration?.backendErrors ?? [];
   return <section className="backend-setup focus-reader__appearance-panel" aria-label="后端设置">
     <h2>后端</h2>
+    {configuration?.startupError && <p role="alert">{configuration.startupError}</p>}
     {discovered && available.length === 0 && <p>未找到可用的 Backend。请安装，或选择一项后指定可执行文件。</p>}
     {!!manifestErrors.length && <ul aria-label="Backend 配置错误">{manifestErrors.map(({ file, message }) =>
       <li key={file}>{file} · {message}</li>)}</ul>}
@@ -216,7 +219,7 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
     <div className="backend-setup__actions">
     {discovered && <button type="button" disabled={scanning || checking || loginBusy || !!login || !host.backendSetup}
       onClick={() => void rescan()}>{scanning ? "正在扫描…" : "重新扫描 Backend"}</button>}
-    <button type="button" disabled={!input.backend || needsModel || scanning || checking || loginBusy || !!login || !host.backendSetup}
+    <button type="button" disabled={!selectedBackend || needsModel || scanning || checking || loginBusy || !!login || !host.backendSetup}
       onClick={() => void check()}>{checking ? "检查中…" : "连接检查"}</button>
     {selectedBackend?.capabilities?.modelDiscovery && selectedBackend.capabilities.modelDiscovery !== "none" &&
       <button type="button" disabled={scanning || checking || loginBusy || !!login || !host.backendSetup} onClick={() => void loadModels()}>
@@ -231,12 +234,12 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
     {login?.authUrl && <p><a href={login.authUrl} target="_blank" rel="noopener noreferrer">打开浏览器授权</a>
       <button type="button" disabled={loginBusy} onClick={() => void loginOperation("login-cancel")}>取消登录</button></p>}
     <div className="backend-setup__actions backend-setup__save-actions">
-    <button type="button" className="workspace-primary" disabled={!input.backend || needsModel || scanning || checking || loginBusy || !!login || configuration?.busy }
+    <button type="button" className="workspace-primary" disabled={!selectedBackend || needsModel || scanning || checking || loginBusy || !!login || configuration?.busy }
       onClick={() => void save()}>保存并应用</button>
     <button type="button" disabled={checking || loginBusy || !!login} onClick={() => {
       onCancelAppearance?.();
       const backend = saved?.backend ?? suggested;
-      const preference = configuration?.preferences?.[backend];
+      const preference = startupOverride ? saved : configuration?.preferences?.[backend];
       change({ backend, model: preference?.model ?? undefined, runtimePath: preference?.runtimePath ?? undefined,
         credentialFile: preference?.credentialFile ?? undefined }, false);
     }}>取消修改</button></div>

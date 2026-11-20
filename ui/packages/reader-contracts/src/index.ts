@@ -606,6 +606,8 @@ export interface BackendConfigurationState {
   preferences?: Partial<Record<string, Partial<BackendConfiguration>>>;
   backends?: readonly BackendDescriptor[];
   backendErrors?: readonly { file: string; message: string }[];
+  startupOverride?: boolean;
+  startupError?: string | null;
   operationId?: string;
 }
 export interface BackendSetupInput {
