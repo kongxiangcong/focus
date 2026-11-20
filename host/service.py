@@ -30,7 +30,7 @@ from core.article_overview import ArticleOverview
 from core.source_reading import SourceReading
 from .candidates import CandidateTurns
 from .ingestion_inspector import IngestionInspector
-from .configuration import UserSettings
+from .configuration import BackendBusyError, UserSettings
 from core.workspace_lifecycle import WorkspaceLease, create_workspace
 from core.source_management import SourceManagement
 from core.source_notes import check_sentence
@@ -88,6 +88,8 @@ class HostService:
         )
         self.lock = threading.RLock()
         self.condition = threading.Condition(self.lock)
+        self._backend_switching = False
+        self._foreground_ai_admissions = 0
         self.generation = int(time.time() * 1000)
         self.page_generation = self.generation
         self.stream_messages = {}
@@ -98,7 +100,7 @@ class HostService:
         self.registry = self.settings.registry
         self.setup = BackendSetup(registry=self.registry, verification=verification)
         self.discussion_summaries = CandidateTurns(self._build_backend)
-        self.ingestion_inspector = IngestionInspector(self._build_backend)
+        self.ingestion_inspector = IngestionInspector(self._build_backend, admission=self._foreground_ai_operation)
         # Speculative turns have a separate registry, so foreground cancellation
         # cannot accidentally interrupt a different summary backend.
         self.early_discussion_summaries = CandidateTurns(self._build_backend)
@@ -110,6 +112,8 @@ class HostService:
         self.reading_app = ReadingApplication(self.workspace, runtime=reading_runtime, writer_id=writer_id)
         self.reading_app.core.interrupt_running()
         self.reading_workers = {}
+        self.opening_workers = {}
+        self.opening_errors = {}
         self.progress_core = ReadingProgress(self.workspace)
         self.progress_core.interrupt_running()
         self.progress_app = ProgressApplication(self.progress_core, progress_runtime or
@@ -186,6 +190,9 @@ class HostService:
                     self._append_reading(receipt)
                     self.state['readingMarker'] = marker
         self.store.save()
+        self._publish_snapshot_locked()
+
+    def _publish_snapshot_locked(self):
         self.generation += 1
         self.page_generation = self.generation
         self._snapshot_cache = None
@@ -398,7 +405,7 @@ class HostService:
                     # belongs to the authority, never to a detached projection.
                     discussions.select(self.state, source_id)
                 view = copy.copy(self)
-                for name in ('reading_workers', 'progress_workers', 'ingestion_workers',
+                for name in ('reading_workers', 'opening_workers', 'opening_errors', 'progress_workers', 'ingestion_workers',
                              'batch_workers', 'blog_workers', 'blog_errors'):
                     setattr(view, name, dict(getattr(self, name)))
                 view.lock = threading.RLock()
@@ -520,16 +527,15 @@ class HostService:
                 worker = self.reading_workers.get(source_id)
                 if worker and worker.is_alive() and hasattr(self.reading_app.runtime, 'overview_structure'):
                     return {**result, 'status': 'running'}
-            workers = getattr(self, 'opening_workers', {})
-            self.opening_workers = workers
-            errors = getattr(self, 'opening_errors', {})
-            self.opening_errors = errors
+            workers = self.opening_workers
+            errors = self.opening_errors
             if result['status'] == 'ready':
                 return result
             if source_id in workers and workers[source_id].is_alive():
                 return {**result, 'status': 'running'}
             if not prepare:
                 return {**result, **({'status': 'failed', 'error': errors[source_id]} if source_id in errors else {})}
+            self._require_backend_admission()
             if self.shutting_down or self.resetting:
                 raise ValueError('工作区正在关闭或重置')
             errors.pop(source_id, None)
@@ -571,6 +577,7 @@ class HostService:
                 return self.article_overview(source_id)
             if self.article_overview(source_id)['status'] == 'ready':
                 return self.article_overview(source_id)
+            self._require_backend_admission()
             target = ArticleOverview(self.workspace, self.reading_app).target(source_id)
             if target is None:
                 preparation = self.reading_app.status(source_id)
@@ -597,6 +604,7 @@ class HostService:
 
     def prepare_reading(self, source_id, *, request_id, rebuild=False):
         with self.lock:
+            self._require_backend_admission()
             self.source_clear.recover()
             worker = self.reading_workers.get(source_id)
             if worker and worker.is_alive():
@@ -615,6 +623,7 @@ class HostService:
 
     def resume_preparation(self, source_id, *, request_id):
         with self.lock:
+            self._require_backend_admission()
             self.source_clear.recover()
             worker = self.reading_workers.get(source_id)
             if worker and worker.is_alive():
@@ -631,6 +640,7 @@ class HostService:
 
     def revise_candidate_glossary(self, source_id, payload):
         with self.lock:
+            self._require_backend_admission()
             self.source_clear.recover()
             run = self.reading_app.core.revise_candidate_glossary(source_id,
                 plan_id=payload.get('planId'),
@@ -958,7 +968,7 @@ class HostService:
         if type(generate_blog) is not bool:
             raise ValueError('生成博客选项无效。')
         app = self._batch_app()
-        with self._batch_admission(), app.lock:
+        with self._batch_admission(requires_backend=generate_blog), app.lock:
             with self.lock:
                 if isinstance(item_ids, list) and any(self.ingestion_workers.get(i) and self.ingestion_workers[i].is_alive() for i in item_ids if isinstance(i, str)):
                     raise WorkspaceError('batch_item_busy', '材料正在处理中，请等待原任务结束。')
@@ -984,7 +994,8 @@ class HostService:
 
     def batch_control(self, batch_id, action, *, request_id, item_id=None, risk_choice_id=None):
         app = self._batch_app()
-        with self._batch_admission(), app.lock:
+        requires_backend = action in ('continue', 'retry-item', 'resubmit-item')
+        with self._batch_admission(requires_backend=requires_backend), app.lock:
             with self.lock:
                 worker = self.batch_workers.get(batch_id)
                 if action in ('continue', 'retry-item', 'resubmit-item') and worker and worker.is_alive() and batch_id not in app.running:
@@ -994,10 +1005,12 @@ class HostService:
             return self._launch_batch(app, batch)
 
     @contextmanager
-    def _batch_admission(self):
+    def _batch_admission(self, *, requires_backend):
         # Reserve configuration before taking the Application lock; never hold
         # the Host lock while waiting for batch cancellation or dispatch.
         with self.lock:
+            if requires_backend:
+                self._require_backend_admission()
             self.source_clear.recover()
             self.batch_admissions += 1
         try:
@@ -1051,6 +1064,8 @@ class HostService:
                 raise WorkspaceError('batch_item_busy', '请在原批次中管理此材料。')
             self._library_idle()
             processing = self._processing_app()
+            if processing.authorized(item_id):
+                self._require_backend_admission()
             if item_id in self.ingestion_workers and self.ingestion_workers[item_id].is_alive():
                 raise ValueError('该材料正在处理中。')
             if resubmit:
@@ -1215,6 +1230,7 @@ class HostService:
     def _blog_start(self, source_id, *, request_id, authorized_by, artifact=None, start_allowed=None):
         """Generation runs in the background: reading the Source never blocks on it."""
         with self.lock:
+            self._require_backend_admission()
             self.source_clear.recover()
             app = self._blog_app()
             if source_id in self.blog_workers and self.blog_workers[source_id].is_alive():
@@ -1271,6 +1287,8 @@ class HostService:
                     plan_id=receipt.get('planId'), chunk_id=receipt.get('chunkId'),
                     reading_revision=receipt.get('readingRevision'), request_id=payload.get('requestId'))
             else:
+                if newly_committed and selected.get('current_chunk_id') == receipt.get('chunkId'):
+                    self._require_backend_admission()
                 result = self.reading_app.continue_reading(
                 source_id=receipt.get('sourceId'), plan_id=receipt.get('planId'),
                 chunk_id=receipt.get('chunkId'), reading_revision=receipt.get('readingRevision'),
@@ -1293,9 +1311,11 @@ class HostService:
             if payload.get('sessionId', self.state['sessionId']) != self.state['sessionId']:
                 raise ValueError('会话已更新，请重新连接。')
             self._library_idle()
-            self.state['displayReading'] = True
             receipt = payload.get('receipt') or {}
             newly_committed = self.reading_request_result(payload.get('requestId')) is None
+            if newly_committed:
+                self._require_backend_admission()
+            self.state['displayReading'] = True
             result = self.reading_app.finish_reading(
                 source_id=receipt.get('sourceId'), plan_id=receipt.get('planId'),
                 chunk_id=receipt.get('chunkId'), reading_revision=receipt.get('readingRevision'),
@@ -1337,6 +1357,7 @@ class HostService:
 
     def retry_progress(self, progress_id, request_id):
         with self.lock:
+            self._require_backend_admission()
             self.source_clear.recover()
             if not isinstance(request_id, str) or not re.fullmatch(r'[A-Za-z0-9-]{8,80}', request_id):
                 raise ValueError('补记需要唯一请求身份。')
@@ -1488,6 +1509,7 @@ class HostService:
                                  or receipt != original.get('receipt')):
                     raise ValueError('同一 requestId 的内容或讨论范围已改变。')
                 return self.snapshot()
+            self._require_backend_admission()
             discussion = None
             if source_id is not None:
                 selected_source = self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']
@@ -1597,10 +1619,11 @@ class HostService:
                 'credentialFile': self.credential_files.get(self.backend_name)}
 
     def _configuration_busy(self):
-        return bool(self.resetting or self.shutting_down or self.batch_admissions
+        return bool(self.resetting or self.shutting_down or self.batch_admissions or self._backend_switching
+                    or self._foreground_ai_admissions
                     or (self.state['run'] and self.state['run']['status'] in ACTIVE)
                     or (self.worker and self.worker.is_alive())
-                    or any(worker.is_alive() for workers in (self.reading_workers, self.progress_workers,
+                    or any(worker.is_alive() for workers in (self.reading_workers, self.opening_workers, self.progress_workers,
                         self.ingestion_workers, self.blog_workers, self.batch_workers) for worker in workers.values()))
 
     def configuration_status(self):
@@ -1608,23 +1631,73 @@ class HostService:
             return self.settings.projection(self._configuration(), self._configuration_busy())
 
     def save_configuration(self, value):
-        normalized = self.settings.normalize(value)
+        with self.configuration_transition():
+            self._save_reserved_configuration(value)
+        return self.snapshot()
+
+    def _require_backend_admission(self):
+        if self._backend_switching:
+            raise BackendBusyError('正在切换 Backend，请稍后重试。')
+
+    @contextmanager
+    def _foreground_ai_operation(self):
         with self.lock:
+            self._require_backend_admission()
+            if self.shutting_down:
+                raise BackendBusyError('工作区正在关闭，请稍后重试。')
+            self._foreground_ai_admissions += 1
+            self._publish_snapshot_locked()
+        try:
+            yield
+        finally:
+            with self.lock:
+                self._foreground_ai_admissions -= 1
+                self._publish_snapshot_locked()
+
+    @contextmanager
+    def configuration_transition(self):
+        with self.lock:
+            self._require_backend_admission()
             if self._configuration_busy():
-                raise ValueError('任务运行中，不能保存后端配置。')
-            old = self._configuration()
+                raise BackendBusyError('任务运行中，请等待任务结束后重试保存 Backend。')
+            self._cancel_early_summary_locked()
+            self._backend_switching = True
+            self._publish_snapshot_locked()
+        try:
+            yield
+        finally:
+            with self.lock:
+                self._backend_switching = False
+                self._publish_snapshot_locked()
+
+    def _save_reserved_configuration(self, value):
+        with self.lock:
+            normalized = self.settings.normalize(value)
+            registry = self.registry
+        if self.backend_factory is None:
+            checked = self.setup.verification.verify(normalized, registry=registry, reuse=True)
+            if checked['status'] != 'success':
+                raise ValueError('Backend 检测失败：' + checked['message'])
+        with self.lock:
+            if self.shutting_down:
+                raise BackendBusyError('工作区正在关闭，请稍后重试。')
+            if registry is not self.registry:
+                raise BackendBusyError('Backend 列表已重新扫描，请重试保存。')
+            self.lease.require_current()
+            old = {'backend_name': self.backend_name, 'models': self.models.copy(),
+                   'runtime_paths': self.runtime_paths.copy(), 'credential_files': self.credential_files.copy()}
+            if hasattr(self, 'active_registry'):
+                old['active_registry'] = self.active_registry
             thread_id, resume_backend = self.state.get('threadId'), self.state.get('resumeBackend')
             try:
-                # Activation is local; no installation, login or inference gate.
                 self._apply_configuration(normalized)
                 self.settings.save(value)
             except BaseException:
-                self._apply_configuration(old)
+                for name, previous in old.items():
+                    setattr(self, name, previous)
                 self.state.update(threadId=thread_id, resumeBackend=resume_backend)
                 raise
             self.refresh_blocked = False
-            self.changed()
-            return self.snapshot()
 
     def _apply_configuration(self, value):
         self.backend_name = value['backend']
@@ -1647,6 +1720,7 @@ class HostService:
 
     def _build_backend(self, *, workspace=None, purpose='business', tools=None, selection=None):
         with self.lock:
+            self._require_backend_admission()
             registry, configuration, invocation = selection or (self.registry, self._configuration(), None)
             name = configuration['backend']
             options = {'network': self.network, 'approval_policy': self.approval_policy,
@@ -1690,7 +1764,7 @@ class HostService:
         self._summary_epoch += 1
         self._summary_cancel_event.set()
         if self._summary_worker and self._summary_worker.is_alive():
-            threading.Thread(target=self.early_discussion_summaries.cancel, daemon=True).start()
+            self.early_discussion_summaries.cancel(immediate=True, background=True)
 
     def _summary_candidate(self, previous, messages, *, scope, cancelled,
                            timeout=90, speculative=False):
@@ -1750,7 +1824,7 @@ class HostService:
     def _schedule_early_summary(self, discussion):
         """After the answer, opportunistically compact old messages off the main worker."""
         with self.lock:
-            if self.shutting_down or self.resetting or self.stop_requested:
+            if self.shutting_down or self.resetting or self.stop_requested or self._backend_switching:
                 return
             discussion_id = discussion['discussionId']
             if discussion_id not in self.state.get('discussions', {}):
@@ -2224,7 +2298,12 @@ class HostService:
         if 'runtimePath' not in payload and runtime:
             payload = {**payload, 'runtimePath': runtime}
         try:
+            if action == 'check':
+                with self._foreground_ai_operation():
+                    return self.setup.operate(action, payload)
             return self.setup.operate(action, payload)
+        except BackendBusyError:
+            raise
         except Exception:
             # Runtime errors can include provider URLs, keys or personal config.
             # They are never copied into an HTTP response or business state.

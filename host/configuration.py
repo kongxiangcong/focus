@@ -10,6 +10,10 @@ from .backends import DEFAULT_BACKEND, DEFAULT_REGISTRY, BackendError, HarnessRe
 DEFAULT_MODELS = {spec.id: spec.default_model for spec in DEFAULT_REGISTRY.list_specs()}
 
 
+class BackendBusyError(ValueError):
+    """A competing Backend operation can be retried when the Host is idle."""
+
+
 def normalize(value, registry=DEFAULT_REGISTRY, *, allow_missing=False):
     if not isinstance(value, dict) or set(value) - {'backend', 'model', 'runtimePath', 'credentialFile', 'requestId', 'preferences'}:
         raise ValueError('后端配置字段无效。')

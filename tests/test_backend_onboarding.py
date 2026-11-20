@@ -12,6 +12,10 @@ from test_backend_setup import AccountRuntime
 from test_backend_verification import Protocol
 
 
+def unexpected_runtime(*args, **kwargs):
+    raise AssertionError('This settings-only test does not execute a Runtime')
+
+
 class BackendOnboardingTests(unittest.TestCase):
     def test_catalog_intersects_supplier_models_with_text_and_current_protocol(self):
         setup = BackendSetup()
@@ -44,7 +48,7 @@ class BackendOnboardingTests(unittest.TestCase):
 
     def test_each_preference_and_return_to_default_removes_override(self):
         with test_directory() as root:
-            app = Workbench(settings_path=root / 'machine/settings.json')
+            app = Workbench(settings_path=root / 'machine/settings.json', backend_factory=unexpected_runtime)
             app.bind({'mode': 'create', 'path': str(root)})
             host = app.host
             host.save_configuration({'backend': 'codex', 'model': 'custom-codex'})
@@ -62,7 +66,7 @@ class BackendOnboardingTests(unittest.TestCase):
 
     def test_apply_and_disk_failure_keep_old_saved_and_effective(self):
         with test_directory() as root:
-            app = Workbench(settings_path=root / 'machine/settings.json')
+            app = Workbench(settings_path=root / 'machine/settings.json', backend_factory=unexpected_runtime)
             app.bind({'mode': 'create', 'path': str(root), 'configuration': {'backend': 'codex'}})
             before = app.host.configuration_status()
             for point in ('save', 'apply'):

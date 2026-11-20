@@ -3,7 +3,7 @@ import json
 import os
 import threading
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 
 from .configuration import UserSettings
@@ -93,12 +93,25 @@ class Workbench:
         with self.lock:
             yield self.require_instance(instance)
 
+    def save_backend_configuration(self, instance, payload):
+        with ExitStack() as transition:
+            with self.lock:
+                host = self.require_instance(instance)
+                transition.enter_context(host.configuration_transition())
+            host._save_reserved_configuration(payload)
+            with self.lock:
+                transition.close()
+                return host.snapshot()
+
     def bind(self, payload, *, expected_generation=None):
         with self.lock:
             if expected_generation is not None and expected_generation != self.generation:
                 raise WorkspaceError('workspace_instance_changed', '工作区已更换，请重新载入；旧草稿未提交。')
-            if self.host and self.host._configuration_busy():
-                raise WorkspaceError('workspace_busy', '任务或批次运行中，请停止并等待后更换工作区。')
+            if self.host:
+                with self.host.lock:
+                    self.host._require_backend_admission()
+                    if self.host._configuration_busy():
+                        raise WorkspaceError('workspace_busy', '任务或批次运行中，请停止并等待后更换工作区。')
             mode = payload.get('mode')
             text = payload.get('path')
             if not isinstance(text, str) or not text.strip():

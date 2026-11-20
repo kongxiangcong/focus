@@ -27,6 +27,8 @@ class CandidateTurns:
 
     def _run(self, prompt, *, instructions, timeout, tools, tool_handler=None, scope=None, cancelled=None,
              inspection=False, image=None):
+        if cancelled and cancelled():
+            raise InterruptedError('任务已取消。')
         deadline = time.monotonic() + timeout if inspection else None
         with tempfile.TemporaryDirectory(prefix='focus-candidate-') as directory:
             backend = self.backend_factory(workspace=Path(directory), purpose='candidate', tools=tools)
@@ -104,17 +106,23 @@ class CandidateTurns:
                     with self.lock:
                         self.active.pop(backend, None)
 
-    def cancel(self, *, scope=None, immediate=False):
+    def cancel(self, *, scope=None, immediate=False, background=False):
         with self.lock:
             active = []
             for backend, (source, stopped) in self.active.items():
                 if (scope is None or source == scope) and not stopped.is_set():
                     stopped.set()
                     active.append(backend)
-        for backend in active:
-            try:
-                if not immediate:
-                    backend.interrupt()
-            finally:
-                backend.close()
+        def stop_active():
+            for backend in active:
+                try:
+                    if not immediate:
+                        backend.interrupt()
+                finally:
+                    backend.close()
+
+        if active and background:
+            threading.Thread(target=stop_active, daemon=True).start()
+        else:
+            stop_active()
         return bool(active)

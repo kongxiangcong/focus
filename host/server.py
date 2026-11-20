@@ -14,6 +14,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
 from .core_bridge import ROOT, WorkspaceError
+from .configuration import BackendBusyError
 
 
 class Server(ThreadingHTTPServer):
@@ -125,6 +126,9 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
         except Exception as exc:
             self.close_connection = True
+            if isinstance(exc, BackendBusyError):
+                self._send(409, {'ok': False, 'error': {'code': 'unavailable', 'message': str(exc), 'retryable': True}})
+                return
             error_id = getattr(exc, 'error_id', None)
             annotation_errors = {'note_bundle_changed': 409, 'highlight_bundle_changed': 409,
                                  'highlight_overlap': 409, 'note_sentence_overlap': 409,
@@ -189,6 +193,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {'ok': True, 'value': app.choose_directory()})
                 return
             instance = self.headers.get('X-FOCUS-Instance') or parse_qs(urlsplit(self.path).query).get('instance', [None])[0]
+            if path == '/reader/configuration' and method == 'POST':
+                result = app.save_backend_configuration(instance, self._body())
+                self._send(200, {'ok': True, 'value': result})
+                return
             if path == '/reader/events':
                 with app.lock:
                     self.active_service = app.require_instance(instance)
