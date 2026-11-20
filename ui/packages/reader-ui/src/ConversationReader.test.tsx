@@ -39,8 +39,9 @@ function setup(start = initial) {
     sendMessage: vi.fn(async () => readerSuccess({ ...initial, revision: 2 })),
     continueReading: vi.fn(async () => readerSuccess(initial)),
   };
-  render(<ConversationReader host={host} />);
-  return { host, emit: (value: ReadingWindow) => act(() => listener?.(readerSuccess(value))) };
+  const reader = render(<ConversationReader host={host} />);
+  const display = (visible: boolean, fullscreen = false) => reader.rerender(<ConversationReader host={host} visible={visible} fullscreen={fullscreen} />);
+  return { host, display, emit: (value: ReadingWindow) => act(() => listener?.(readerSuccess(value))) };
 }
 async function send() {
   await screen.findByText("First evidence.");
@@ -74,4 +75,28 @@ it("restores saved answers without replaying an automatic jump", async () => {
   await screen.findByRole("button", { name: "返回回答证据 1" });
   expect(scrolling).not.toHaveBeenCalled();
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
+});
+
+it.each(["leave chat", "exit fullscreen"])("dismisses open evidence on %s", async transition => {
+  const app = setup();
+  if (transition === "exit fullscreen") app.display(true, true);
+  await send();
+  app.emit(answer([first]));
+  fireEvent.click(await screen.findByRole("button", { name: "返回回答证据 1" }));
+  expect(screen.getByLabelText("原文证据")).toBeInTheDocument();
+  app.display(transition === "exit fullscreen");
+  app.display(true);
+  expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "返回回答证据 1" }));
+  expect(screen.getByLabelText("原文证据")).toBeInTheDocument();
+});
+
+it("does not replay evidence when a reply arrives after leaving chat", async () => {
+  const app = setup(); await send();
+  app.display(false);
+  app.emit(answer([first]));
+  app.display(true);
+  await screen.findByRole("button", { name: "返回回答证据 1" });
+  expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
+  expect(scrolling).not.toHaveBeenCalled();
 });

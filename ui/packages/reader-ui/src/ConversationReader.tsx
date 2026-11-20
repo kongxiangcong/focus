@@ -298,6 +298,23 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   }, []);
 
   const pendingJump = useRef<{ id: string; keyboard: boolean } | null>(null);
+  const wasFullscreen = useRef(fullscreen);
+  useLayoutEffect(() => {
+    const exitedFullscreen = wasFullscreen.current && !fullscreen;
+    wasFullscreen.current = fullscreen;
+    if (visible && !exitedFullscreen) return;
+    pendingJump.current = null;
+    turn.current = null;
+    returnFocus.current = null;
+    jumpOrigin.current = null;
+    if (scrollAnimation.current !== null) {
+      cancelAnimationFrame(scrollAnimation.current);
+      scrollAnimation.current = null;
+    }
+    setActiveEvidence(undefined);
+    setHoverEvidence(undefined);
+    setReturnPosition(null);
+  }, [visible, fullscreen]);
   useLayoutEffect(() => { if (pendingJump.current) { const jump = pendingJump.current; pendingJump.current = null; moveTo(jump.id, jump.keyboard); } }, [evidence, mobile, moveTo]);
 
   const cite = useCallback((message: ReaderMessage, id: string, keyboard: boolean) => {
@@ -334,10 +351,10 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
 
   useEffect(() => {
     const pending = turn.current;
-    if (!pending || pending.located || pending.cancelled || !latest || pending.seen.has(latest.messageId) || !evidence.length) return;
+    if (!visible || !pending || pending.located || pending.cancelled || !latest || pending.seen.has(latest.messageId) || !evidence.length) return;
     const first = projections.find(p => p.kind !== "unavailable");
     if (first && selected?.messageId === latest.messageId) { pending.located = true; if ((shell.current?.clientWidth ?? 0) >= 960) moveTo(first.evidence.evidenceId, false, true); }
-  }, [latest, evidence, projections, selected, moveTo]);
+  }, [visible, latest, evidence, projections, selected, moveTo]);
 
   useLayoutEffect(() => { if (followChat.current && chat.current) chat.current.scrollTop = chat.current.scrollHeight; }, [messages.at(-1)?.content]);
 
