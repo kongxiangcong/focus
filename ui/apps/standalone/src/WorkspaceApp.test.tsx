@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ProcessingBatch, type ReaderHostResult, type ReaderHost, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
+import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ProcessingBatch, type ReaderHostResult, type ReaderHost, type ReadingDocument, type ReadingOpening, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
 import { WorkspaceApp } from "./WorkspaceApp";
 const empty: ReadingWindow = { status: "empty", current: null, history: [], conversation: [], source: { sourceId: "", title: "", topicId: null }, sessionId: "s1",
   agent: { run: null, catalog: { sources: [], topics: [] }, backend: "codex", backends: [{ id: "codex", label: "Codex" }, { id: "deepseek", label: "DeepSeek" }] } };
@@ -1027,4 +1027,37 @@ it("opens unified reading without a Plan or a separate overview action", async (
   expect(host.openSource).not.toHaveBeenCalled();
   expect(await screen.findByText("Original full article.")).toBeInTheDocument();
   expect(await screen.findByText("中文导读。")).toBeInTheDocument();
+});
+
+
+it("keeps the chosen source when the previous document, guide and stream snapshot arrive late", async () => {
+  history.replaceState(null, "", "/reading");
+  const previous: ReadingWindow = { ...empty, revision: 1, source: { sourceId: "previous", title: "Previous Source", topicId: null }, discussionId: "previous-discussion" };
+  const current: ReadingWindow = { ...empty, revision: 2, source: { sourceId: "a-paper", title: "A Paper", topicId: null }, discussionId: "current-discussion" };
+  const selectedDocument: ReadingDocument = { sourceId: "a-paper", bundleVersion: "v1", title: "A Paper", markdown: "Current original text.", lineCount: 1 };
+  const selectedOpening: ReadingOpening = { sourceId: "a-paper", bundleVersion: "v1", status: "ready", guide: "Current reading guide." };
+  let resolvePreviousDocument!: (result: ReaderHostResult<ReadingDocument>) => void;
+  let resolvePreviousOpening!: (result: ReaderHostResult<ReadingOpening>) => void;
+  const listeners = new Set<(result: ReaderHostResult<ReadingWindow>) => void>();
+  setup([], previous, {
+    subscribe: listener => { listeners.add(listener); return () => { listeners.delete(listener); }; },
+    getSourceDocument: sourceId => sourceId === "a-paper" ? Promise.resolve(readerSuccess(selectedDocument)) : new Promise(resolve => { resolvePreviousDocument = resolve; }),
+    getSourceOpening: sourceId => sourceId === "a-paper" ? Promise.resolve(readerSuccess(selectedOpening)) : new Promise(resolve => { resolvePreviousOpening = resolve; }),
+    selectDiscussionSource: async () => readerSuccess(current),
+  });
+  await screen.findByText("Previous Source");
+  fireEvent.click(screen.getByRole("link", { name: "知识库" }));
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "阅读" }));
+  expect(await screen.findByText("Current original text.")).toBeVisible();
+  expect(await screen.findByText("Current reading guide.")).toBeVisible();
+  await act(async () => {
+    resolvePreviousDocument(readerSuccess({ ...selectedDocument, sourceId: "previous", markdown: "Previous original text." }));
+    resolvePreviousOpening(readerSuccess({ ...selectedOpening, sourceId: "previous", guide: "Previous reading guide." }));
+    listeners.forEach(listener => listener(readerSuccess({ ...previous, revision: 3 })));
+  });
+  expect(screen.getByText("Current original text.")).toBeVisible();
+  expect(screen.getByText("Current reading guide.")).toBeVisible();
+  expect(screen.queryByText("Previous original text.")).not.toBeInTheDocument();
+  expect(screen.queryByText("Previous reading guide.")).not.toBeInTheDocument();
 });

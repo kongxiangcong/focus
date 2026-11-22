@@ -671,7 +671,10 @@ export class HttpReaderHost implements ReaderHost {
           stream.close(); connect();
         }
       });
-      stream.onerror = () => listener({ ok: false, error: { code: "unavailable", message: "连接中断，正在恢复；后台任务可能仍在运行。", retryable: true } });
+      stream.onerror = () => {
+        if (closed || stream !== connection) return;
+        listener({ ok: false, error: { code: "unavailable", message: "连接中断，正在恢复；后台任务可能仍在运行。", retryable: true } });
+      };
     };
     connect();
     return () => { closed = true; stream.close(); };

@@ -1,3 +1,5 @@
+import type { EvidenceNavigation } from "./evidence-navigation";
+import type { ReadingSession } from "./reading-session";
 import { ConversationReader } from "./ConversationReader";
 import { useLatestNotice } from "./latest-notice";
 import { discussionFoldKey, useDiscussionFolds } from "./discussion-fold";
@@ -33,7 +35,7 @@ type Upload = { id: string; file: File; state: "uploading" | "ready" | "failed";
 type Failure = { message: string; label: string; retry: () => void };
 type ReadingMode = "chunks" | "chat" | "blog";
 export type { ReadingMode };
-export interface FocusReaderProps { renderModeNavigation?: (mode: ReadingMode, select: (next: ReadingMode) => void, disabled: boolean) => ReactNode; renderBlog?: (sourceId: string) => ReactNode; host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
+export interface FocusReaderProps { readingSession?: ReadingSession; evidenceNavigation?: EvidenceNavigation; renderModeNavigation?: (mode: ReadingMode, select: (next: ReadingMode) => void, disabled: boolean) => ReactNode; renderBlog?: (sourceId: string) => ReactNode; host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
 
 // Capture entry eligibility only on mount, never on streaming updates.
 function TimelineEvent({ identity, fresh, current, streaming, children }: { identity: string; fresh: boolean; current: boolean; streaming?: boolean; children: ReactNode }) {
@@ -60,7 +62,7 @@ export function groupReadingDiscussion<C extends { chunkId: string }>(
   return groups;
 }
 
-function LegacyFocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange }: FocusReaderProps) {
+function LegacyFocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange, readingSession }: FocusReaderProps) {
   const mist = appearance === "mist";
   const [attachNotes, setAttachNotes] = useState(() => {
     try { localStorage.removeItem("focus.attachDiscussion"); return localStorage.getItem("focus.attachNotes") !== "false"; } catch { return true; }
@@ -178,7 +180,8 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
   const draftState = useRef({ reference, editingNoteId, editDraft, editBaseRevision, editingProgressId, progressDraft, progressBaseRevision });
   const acceptedNoteIds = useRef<{ source: string; ids: Set<string> } | null>(null);
   draftState.current = { reference, editingNoteId, editDraft, editBaseRevision, editingProgressId, progressDraft, progressBaseRevision };
-  function accept(value: ReadingWindow) {
+  function accept(value: ReadingWindow, publish = true, allowSourceChange = false) {
+    if (readingSession && publish && !readingSession.accept(value, readingSession.generation, allowSourceChange)) return;
     if (!alive.current || (value.revision !== undefined && value.revision < revision.current)) return;
     const priorNotes = acceptedNoteIds.current;
     if (priorNotes?.source === value.source.sourceId && value.noteFeedback?.status === "saved" &&
@@ -221,11 +224,19 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
 
   async function reconnect() {
     const result = await host.getReadingWindow();
+    if (!alive.current || (readingSession && !readingSession.isCurrent(readingSession.generation))) return;
     if (result.ok) accept(result.value);
     else setConnection(result.error.message);
   }
+  const managed = !!readingSession;
+  useLayoutEffect(() => {
+    if (!readingSession) return;
+    if (readingSession.view) accept(readingSession.view, false);
+    else setView(null);
+  }, [readingSession?.view]);
   useEffect(() => {
     alive.current = true; epoch.current += 1; revision.current = -1; session.current = undefined; displayedSource.current = undefined;
+    if (managed) return () => { alive.current = false; epoch.current += 1; };
     setView(null); clearSessionUI();
     const controller = new AbortController();
     void host.getReadingWindow(controller.signal).then(result => {
@@ -236,7 +247,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
       if (result.ok) accept(result.value); else setConnection(result.error.message);
     });
     return () => { alive.current = false; epoch.current += 1; controller.abort(); unsubscribe?.(); };
-  }, [host]);
+  }, [host, managed]);
 
   useEffect(() => {
     try { drafts.current = JSON.parse(sessionStorage.getItem("focus.drafts") ?? "{}"); } catch { /* malformed draft storage is ignored */ }
@@ -443,18 +454,19 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     }
   }, [contentVersion, focusedIndex, visible, showStructure]);
   function pauseFollow() { scrolling.controller.current?.userIntent(true); }
-  async function perform(label: string, task: () => Promise<ReaderHostResult<ReadingWindow>>, success?: () => void) {
+  async function perform(label: string, task: () => Promise<ReaderHostResult<ReadingWindow>>, success?: () => void, selectedSourceId?: string) {
     if (locked.current) return;
     locked.current = true; setOperation(label); setFailure(null);
     const started = epoch.current;
+    const current = () => alive.current && started === epoch.current && (!readingSession || readingSession.isCurrent(readingSession.generation));
     try {
       const result = await task();
-      if (!alive.current || started !== epoch.current) return;
-      if (result.ok) { accept(result.value); success?.(); }
+      if (!current()) return;
+      if (result.ok) { accept(result.value, true, !!selectedSourceId && result.value.source.sourceId === selectedSourceId); success?.(); }
       else if (result.error.code === "cursor-changed") setFailure({ message: result.error.message, label: "更新阅读位置", retry: () => { setFailure(null); void reconnect(); } });
-      else setFailure({ message: result.error.message, label: `重试${label}`, retry: () => void perform(label, task, success) });
+      else setFailure({ message: result.error.message, label: `重试${label}`, retry: () => void perform(label, task, success, selectedSourceId) });
     } catch (error) {
-      if (alive.current && started === epoch.current) setFailure({ message: String(error), label: `重试${label}`, retry: () => void perform(label, task, success) });
+      if (current()) setFailure({ message: String(error), label: `重试${label}`, retry: () => void perform(label, task, success, selectedSourceId) });
     } finally { locked.current = false; if (alive.current) setOperation(""); }
   }
   function send(content = draft, clear = true, includeAttachments = true, explicitReference?: ReaderChunk | null) {
@@ -709,7 +721,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
         }} onZoom={(figure, origin) => setViewer({ figure, origin })} onSelect={figure => preserveReading(() => { setSelectedFigure(figure.id); setFigureSelectionVersion(old => old + 1); })} />}
         <aside id="reader-materials" role={mist ? "complementary" : "group"} className="reader-materials" hidden={renderedSideMode === "figures" || !renderedSideMode} aria-label="阅读资料">
         <div className="reader-panel" hidden={renderedSideMode !== "discussion"}>
-        {view?.discussions?.length ? <section aria-label="历史讨论">{view.discussions.map((d, i) => <button key={d.discussionId} disabled={blocked} onClick={() => host.selectDiscussionSource && void perform("打开历史讨论", () => host.selectDiscussionSource!(d.sourceId, d.discussionId))}>讨论 {i + 1} · {d.sourceId}</button>)}</section>
+        {view?.discussions?.length ? <section aria-label="历史讨论">{view.discussions.map((d, i) => <button key={d.discussionId} disabled={blocked} onClick={() => host.selectDiscussionSource && void perform("打开历史讨论", () => host.selectDiscussionSource!(d.sourceId, d.discussionId), undefined, d.sourceId)}>讨论 {i + 1} · {d.sourceId}</button>)}</section>
           : <p className="reader-panel__empty">开始讨论后，历史会保存在这里。</p>}
         </div>
 
@@ -917,7 +929,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
       {renderedPanel === "materials" && <>
         {view?.source.sourceId && <p className="focus-full-title">{view.source.title}</p>}
         {!mist && host.upload && <button onClick={() => { setPanel(null); fileInput.current?.click(); }}>上传</button>}
-        {agent?.catalog.sources.length ? <section><h3>来源</h3>{agent.catalog.sources.map(s => <button className="focus-material" disabled={blocked} key={s.sourceId} onClick={() => { follow.current = true; if (host.openSource) void perform("加载材料", () => host.openSource!(s.sourceId), () => setPanel(null)); else send(`开始阅读 Source ${s.sourceId}`, false, false); }}>{s.title}</button>)}</section> : <p>暂无已保存的材料。</p>}
+        {agent?.catalog.sources.length ? <section><h3>来源</h3>{agent.catalog.sources.map(s => <button className="focus-material" disabled={blocked} key={s.sourceId} onClick={() => { follow.current = true; if (host.openSource) void perform("加载材料", () => host.openSource!(s.sourceId), () => setPanel(null), s.sourceId); else send(`开始阅读 Source ${s.sourceId}`, false, false); }}>{s.title}</button>)}</section> : <p>暂无已保存的材料。</p>}
         {!!agent?.catalog.topics.length && <section><h3>专题</h3>{agent.catalog.topics.map(t => <button className="focus-material" disabled={blocked} key={t.topicId} onClick={() => send(`开始阅读 Topic ${t.topicId}`, false, false)}>{t.title}</button>)}</section>}
       </>}
       {renderedPanel === "contents" && !!view?.structure?.length && !view.structureIntro && <button className="reader-structure-overview" onClick={() => { setPanel(null); setStructureOpen(true); requestAnimationFrame(() => stream.current?.querySelector<HTMLElement>(".article-structure h1")?.focus({ preventScroll: true })); }}>文章结构总览</button>}
@@ -951,33 +963,53 @@ function UnifiedReader(props: FocusReaderProps) {
     return { chunks: initial === "chunks", chat: initial === "chat", blog: initial === "blog" };
   });
   const [busy, setBusy] = useState(false);
+  const modeRequest = useRef(0);
   const [error, setError] = useState("");
-  const [sourceId, setSourceId] = useState<string | null>(null);
+  const [localSource, setLocalSource] = useState<string | null>(null);
+  const managed = !!props.readingSession;
+  const sourceId = managed ? props.readingSession?.view?.source.sourceId ?? null : localSource;
   const sourceRef = useRef<string | null>(null);
   const syncedModeRef = useRef<{ sourceId: string; chunks: boolean; chat: boolean }>({ sourceId: "", chunks: false, chat: false });
 
+  useLayoutEffect(() => {
+    if (sourceRef.current === sourceId) return;
+    sourceRef.current = sourceId;
+    modeRequest.current += 1;
+    syncedModeRef.current = { sourceId: sourceId ?? "", chunks: false, chat: true };
+    const preferred = readSavedMode(hasBlog);
+    setMode(preferred);
+    setMounted({ chunks: preferred === "chunks", chat: preferred === "chat", blog: preferred === "blog" });
+    setError("");
+    setBusy(false);
+  }, [sourceId, props.readingSession?.generation, hasBlog]);
+
   useEffect(() => {
+    if (managed) return;
     let live = true;
     const receive = (result: ReaderHostResult<ReadingWindow>) => {
-      if (!live || !result.ok) return;
-      const next = result.value.source.sourceId;
-      if (sourceRef.current !== next) {
-        sourceRef.current = next;
-        syncedModeRef.current = { sourceId: next ?? "", chunks: false, chat: true };
-        setSourceId(next);
-        const preferred = readSavedMode(hasBlog);
-        setMode(preferred);
-        setMounted({ chunks: preferred === "chunks", chat: preferred === "chat", blog: preferred === "blog" });
-        setError("");
-      }
+      if (live && result.ok) setLocalSource(result.value.source.sourceId);
     };
     void props.host.getReadingWindow().then(receive);
     const off = props.host.subscribe?.(receive);
     return () => { live = false; off?.(); };
-  }, [props.host, hasBlog]);
+  }, [props.host, managed]);
 
+  useLayoutEffect(() => {
+    const intent = props.evidenceNavigation?.intent;
+    if (props.visible === false || !intent || intent.sourceId !== sourceId || mode === "chat") return;
+    modeRequest.current += 1;
+    setBusy(false);
+    setError("");
+    setMode("chat");
+    setMounted(previous => ({ ...previous, chat: true }));
+  }, [mode, props.evidenceNavigation?.intent, props.visible, sourceId]);
+
+  const cancelEvidenceNavigation = props.evidenceNavigation?.cancel;
   const selectMode = useCallback(async (next: ReadingMode) => {
     if (next === mode || !sourceId) return;
+    cancelEvidenceNavigation?.();
+    const requested = ++modeRequest.current;
+    setBusy(false);
     setError("");
     // Optimistic instant switch + keep-alive mount: zero teardown/reparse lag.
     setMode(next);
@@ -986,6 +1018,10 @@ function UnifiedReader(props: FocusReaderProps) {
     if (next === "blog") return;
 
     const selectedSource = sourceId;
+    const readingSession = props.readingSession;
+    const current = () => sourceRef.current === selectedSource &&
+      (!readingSession || readingSession.isCurrent(readingSession.generation, selectedSource));
+    const latestMode = () => current() && modeRequest.current === requested;
     const alreadySynced = syncedModeRef.current.sourceId === selectedSource && syncedModeRef.current[next];
     if (alreadySynced) return;
 
@@ -994,8 +1030,10 @@ function UnifiedReader(props: FocusReaderProps) {
       const result = next === "chunks"
         ? await props.host.openSource?.(selectedSource, createReaderId())
         : await props.host.selectDiscussionSource?.(selectedSource);
-      if (sourceRef.current !== selectedSource || !result) return;
-      if (!result.ok) { setError(result.error.message); return; }
+      if (!current() || !result) return;
+      if (!result.ok) { if (latestMode()) setError(result.error.message); return; }
+      readingSession?.accept(result.value, readingSession.generation);
+      if (!latestMode()) return;
       const preparation = result.value.preparations?.[selectedSource];
       if (next === "chunks" && preparation && !preparation.selected_ready && !preparation.ready) {
         setError(preparation.error || "正在准备逐段精读，完成后可再次打开。");
@@ -1003,11 +1041,11 @@ function UnifiedReader(props: FocusReaderProps) {
       }
       if (syncedModeRef.current.sourceId === selectedSource) syncedModeRef.current[next] = true;
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
+      if (latestMode()) setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
-      setBusy(false);
+      if (latestMode()) setBusy(false);
     }
-  }, [mode, sourceId, props.host]);
+  }, [mode, sourceId, props.host, props.readingSession, cancelEvidenceNavigation]);
 
   const modeTabs: readonly ReadingMode[] = hasBlog ? ["chunks", "chat", "blog"] : ["chunks", "chat"];
   const modeLabel = (m: ReadingMode) => m === "chunks" ? "精读" : m === "chat" ? "对话" : "带读博客";
@@ -1032,7 +1070,7 @@ function UnifiedReader(props: FocusReaderProps) {
     {error && <p role="alert" className="source-reader-error">{error}</p>}
     <div id="reading-mode-panel" className="reading-mode-panel" role={props.renderModeNavigation ? "region" : "tabpanel"} aria-label={modeLabel(mode)} aria-busy={busy}>
       {mounted.chunks && <div className="reading-mode-layer" hidden={mode !== "chunks"}>
-        <LegacyFocusReader {...props} visible={props.visible !== false && mode === "chunks"} />
+        <LegacyFocusReader key={props.readingSession?.generation} {...props} visible={props.visible !== false && mode === "chunks"} />
       </div>}
       {mounted.chat && <div className="reading-mode-layer" hidden={mode !== "chat"}>
         <ConversationReader {...props} visible={props.visible !== false && mode === "chat"} />

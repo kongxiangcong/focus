@@ -85,7 +85,7 @@ function Page({ page, blocks, evidence, active }: { page: PDFPageProxy; blocks: 
   </div>;
 }
 
-export function OriginalPaper({ url, pdf, evidence, active, onReady }: { url: string; pdf: PDF; evidence: Evidence; active?: string; onReady: () => void }) {
+export function OriginalPaper({ url, pdf, evidence, active, onReady, onUnavailable }: { url: string; pdf: PDF; evidence: Evidence; active?: string; onReady: () => void; onUnavailable?: () => void }) {
   const [pages, setPages] = useState<PDFPageProxy[]>([]), [error, setError] = useState("");
   useEffect(() => {
     let live = true, dispose: (() => void) | undefined;
@@ -105,6 +105,7 @@ export function OriginalPaper({ url, pdf, evidence, active, onReady }: { url: st
     return () => { live = false; dispose?.(); };
   }, [url]);
   useEffect(() => { if (pages.length) onReady(); }, [pages, onReady]);
+  useEffect(() => { if (error) onUnavailable?.(); }, [error, onUnavailable]);
   const items = evidence.filter(e => e.layoutVersion === pdf.version);
   const grouped = useMemo(() => {
     const grouped = new Map<number, Map<string, Block>>();

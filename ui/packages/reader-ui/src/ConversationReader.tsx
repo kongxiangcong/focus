@@ -1,5 +1,7 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createReaderId, type ReaderHost, type ReaderHostResult, type ReaderMessage, type ReadingDocument, type ReadingOpening, type ReadingWindow, type ValidatedAnswerEvidence } from "@focus/reader-contracts";
+import { useEvidenceNavigation, type EvidenceNavigation, type EvidenceNavigationIntent } from "./evidence-navigation";
+import type { ReadingSession } from "./reading-session";
 import { MarkdownContent } from "./MarkdownContent";
 import { OriginalPaper, TranslatedPaper } from "./PaperViews";
 import { projectEvidence } from "./source-evidence";
@@ -28,19 +30,22 @@ export function citedMarkdown(message: ReaderMessage, evidence: readonly Validat
 
 type FullscreenControls = { fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void };
 
-export function ConversationReader({ host, visible = true, fontSize = "standard", ...fullscreenControls }: { host: ReaderHost; visible?: boolean; fontSize?: string } & FullscreenControls) {
-  const [view, setView] = useState<ReadingWindow | null>(null), [error, setError] = useState("");
+export function ConversationReader({ host, visible = true, fontSize = "standard", readingSession, evidenceNavigation, ...fullscreenControls }: { host: ReaderHost; visible?: boolean; fontSize?: string; readingSession?: ReadingSession; evidenceNavigation?: EvidenceNavigation } & FullscreenControls) {
+  const [localView, setView] = useState<ReadingWindow | null>(null), [error, setError] = useState("");
+  const managed = !!readingSession;
+  const view = readingSession ? readingSession.view : localView;
   const acceptView = useCallback((next: ReadingWindow) => setView(previous => previous && previous.workspace?.instanceId === next.workspace?.instanceId && (previous.revision ?? 0) > (next.revision ?? 0) ? previous : next), []);
   useEffect(() => {
+    if (managed) return;
     let live = true;
     const receive = (r: ReaderHostResult<ReadingWindow>) => { if (live) { if (r.ok) acceptView(r.value); else setError(r.error.message); } };
     void host.getReadingWindow().then(receive).catch(e => { if (live) setError(String(e)); });
     const off = host.subscribe?.(receive);
     return () => { live = false; off?.(); };
-  }, [host, acceptView]);
+  }, [host, acceptView, managed]);
   if (!view) return <div className="conversation-reader" role="status" hidden={!visible}>{error || "加载中…"}</div>;
   if (!view.source.sourceId) return <div className="conversation-reader" hidden={!visible} />;
-  return <AssetInstanceContext.Provider value={view.workspace?.instanceId}><ReadingSurface key={`${view.workspace?.instanceId}:${view.source.sourceId}:${view.sourceBundleVersion ?? ""}:${view.sourceGeneration ?? view.resetVersion ?? 0}`} {...fullscreenControls} host={host} view={view} setView={acceptView} visible={visible} fontSize={fontSize} /></AssetInstanceContext.Provider>;
+  return <AssetInstanceContext.Provider value={view.workspace?.instanceId}><ReadingSurface key={`${view.workspace?.instanceId}:${view.source.sourceId}:${view.sourceBundleVersion ?? ""}:${view.sourceGeneration ?? view.resetVersion ?? 0}:${readingSession?.generation ?? 0}`} {...fullscreenControls} host={host} view={view} setView={acceptView} readingSession={readingSession} evidenceNavigation={evidenceNavigation} visible={visible} fontSize={fontSize} /></AssetInstanceContext.Provider>;
 }
 
 interface ComposerHandle {
@@ -174,15 +179,24 @@ function groupIntoTurns(messages: readonly ReaderMessage[]): TurnGroup[] {
   return turns;
 }
 
-function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, onFullscreenChange }: { host: ReaderHost; view: ReadingWindow; setView: (v: ReadingWindow) => void; visible: boolean; fontSize: string } & FullscreenControls) {
+function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, onFullscreenChange, readingSession, evidenceNavigation }: { host: ReaderHost; view: ReadingWindow; setView: (v: ReadingWindow) => void; visible: boolean; fontSize: string; readingSession?: ReadingSession; evidenceNavigation?: EvidenceNavigation } & FullscreenControls) {
   const sourceId = view.source.sourceId!;
+  const selectionGeneration = readingSession?.generation;
+  const isCurrentSelection = readingSession?.isCurrent;
+  const mounted = useRef(false);
+  useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const isCurrentSource = useCallback(() => mounted.current && (
+    selectionGeneration === undefined || !!isCurrentSelection?.(selectionGeneration, sourceId)
+  ), [selectionGeneration, isCurrentSelection, sourceId]);
   const [document, setDocument] = useState<ReadingDocument | null>(null), [opening, setOpening] = useState<ReadingOpening | null>(null);
   const [error, setError] = useState(""), [reload, setReload] = useState(0), [sending, setSending] = useState(false);
   const [translated, setTranslated] = useState(false);
   const [pdfRevision, setPdfRevision] = useState(0);
-  const pdfReady = useCallback(() => setPdfRevision(v => v + 1), []);
+  const [settledPdfUrl, setSettledPdfUrl] = useState<string>();
+  const mountedPdfUrl = useRef<string | false | undefined>(undefined);
   const position = useRef<{line: number; block?: string; fraction: number} | null>(null);
   const movedSinceSwitch = useRef(false);
+  const restorePaperPosition = useRef(false);
   const lastPdfScroll = useRef(0);
   const [positionNotice, setPositionNotice] = useState("");
   const pointerX = useRef<number | undefined>(undefined);
@@ -201,6 +215,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const composer = useRef<ComposerHandle>(null), returnFocus = useRef<{ messageId: string; evidenceId: string } | null>(null);
   const manual = useRef(false), followChat = useRef(true), turn = useRef<{ seen: Set<string>; cancelled: boolean; located: boolean } | null>(null);
   const jumpOrigin = useRef<number | null>(null);
+  const localNavigation = useEvidenceNavigation();
+  const { intent, start, isLatest, consume, cancel } = evidenceNavigation ?? localNavigation;
+  const waitingPosition = useRef<{ nonce: string; scrollTop: number } | null>(null);
   const [cardAtTop, setCardAtTop] = useState(false);
   const [returnPosition, setReturnPosition] = useState<number | null>(null);
   const [focusedTurn, setFocusedTurn] = useState<number>(-1);
@@ -215,25 +232,44 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     async function loadOpening(prepare: boolean) {
       try {
         const result = await host.getSourceOpening?.(sourceId, prepare);
-        if (!live || !result) return;
+        if (!live || !isCurrentSource() || !result) return;
         if (!result.ok) { setOpening(null); setError(result.error.message); return; }
+        if (result.value.sourceId !== sourceId) return;
         setOpening(result.value);
         if (result.value.status === "running") timer = setTimeout(() => void loadOpening(false), 1500);
-      } catch (e) { if (live) setError(String(e)); }
+      } catch (e) { if (live && isCurrentSource()) setError(String(e)); }
     }
     void loadOpening(true);
     return () => { live = false; clearTimeout(timer); };
-  }, [host, sourceId, reload]);
+  }, [host, sourceId, reload, isCurrentSource]);
 
   const prep = view.preparations?.[sourceId];
   useEffect(() => {
     let live = true;
-    void host.getSourceDocument!(sourceId).then(r => { if (live) { if (r.ok) setDocument(r.value); else setError(r.error.message); } }).catch(e => { if (live) setError(String(e)); });
+    void host.getSourceDocument!(sourceId).then(result => {
+      if (!live || !isCurrentSource()) return;
+      if (!result.ok) setError(result.error.message);
+      else if (result.value.sourceId === sourceId && (!view.sourceBundleVersion || result.value.bundleVersion === view.sourceBundleVersion)) setDocument(result.value);
+    }).catch(e => { if (live && isCurrentSource()) setError(String(e)); });
     return () => { live = false; };
-  }, [host, sourceId, reload, prep?.status, prep?.selected_plan_id, prep?.plan_id, prep?.ready]);
+  }, [host, sourceId, reload, isCurrentSource, view.sourceBundleVersion, prep?.status, prep?.selected_plan_id, prep?.plan_id, prep?.ready]);
   const originalUrl = document?.pdf && host.sourceOriginalUrl?.(sourceId);
   const pdfUrl = originalUrl && originalUrl + (originalUrl.includes("?") ? "&" : "?") + "pdfHash=" + document!.pdf!.pdfHash +
     (view.workspace?.instanceId ? "&instance=" + encodeURIComponent(view.workspace.instanceId) : "");
+  const translationState = document?.translation?.status;
+  const translationReady = translationState === "ready";
+  const showingTranslation = translated && translationReady;
+  const activePdfUrl = !showingTranslation && pdfUrl;
+  useLayoutEffect(() => {
+    mountedPdfUrl.current = activePdfUrl;
+    setSettledPdfUrl(undefined);
+    return () => { mountedPdfUrl.current = undefined; };
+  }, [activePdfUrl]);
+  const settlePdf = useCallback(() => {
+    if (!activePdfUrl || activePdfUrl !== mountedPdfUrl.current || !isCurrentSource()) return;
+    setSettledPdfUrl(activePdfUrl);
+    setPdfRevision(revision => revision + 1);
+  }, [activePdfUrl, isCurrentSource]);
   function switchPaper(next: boolean) {
     const pane = original.current;
     if (!pane || translated === next) return;
@@ -261,11 +297,15 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       position.current = null;
       if (next && page) setPositionNotice(`第 ${page.dataset.pdfPage} 页暂无对应译块`);
     }
-    cancelAuto(); movedSinceSwitch.current = false; setSelection(""); setTranslated(next);
+    stopNavigation(); restorePaperPosition.current = true; movedSinceSwitch.current = false;
+    manual.current = false; setSelection(""); setTranslated(next);
   }
   useLayoutEffect(() => {
     const anchor = position.current, pane = original.current;
-    if (!pane) return;
+    if (!pane || !restorePaperPosition.current) return;
+    if (!translated && pdfUrl && !pane.querySelector("[data-pdf-page]")) return;
+    restorePaperPosition.current = false;
+    manual.current = false;
     if (!anchor) {
       if (!translated && pdfRevision) pane.scrollTop = lastPdfScroll.current;
       return;
@@ -280,7 +320,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       pane.scrollTop = lastPdfScroll.current;
       setPositionNotice("此译块暂无可靠版面位置，已返回上次 PDF 阅读处");
     }
-  }, [translated, pdfRevision]);
+  }, [translated, pdfRevision, pdfUrl]);
 
   const messages = useMemo(() => view.conversation.filter(m => !m.sourceDeleted && (!m.sourceId || m.sourceId === sourceId)), [view.conversation, sourceId]);
   const turns = useMemo(() => groupIntoTurns(messages), [messages]);
@@ -330,90 +370,143 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     else setFocusedTurn(-1);
   }, [turns.length]);
 
-  const cancelAuto = useCallback(() => {
-    movedSinceSwitch.current = true;
-    pendingJump.current = null;
-    jumpOrigin.current = null; setReturnPosition(null);
-    if (scrollAnimation.current !== null) { cancelAnimationFrame(scrollAnimation.current); scrollAnimation.current = null; }
-    manual.current = true;
+  const stopNavigation = useCallback(() => {
+    cancel();
+    jumpOrigin.current = null;
+    setReturnPosition(null);
+    if (scrollAnimation.current !== null) {
+      cancelAnimationFrame(scrollAnimation.current);
+      scrollAnimation.current = null;
+    }
     if (turn.current) turn.current.cancelled = true;
-    original.current?.scrollTo({ top: original.current.scrollTop, behavior: "instant" });
-  }, []);
+  }, [cancel]);
 
-  const target = (id: string) => original.current?.querySelector<HTMLElement>(`[data-evidence-ids~="${id}"], [data-evidence-block~="${id}"]`);
+  const manualBrowse = useCallback(() => {
+    stopNavigation();
+    restorePaperPosition.current = false;
+    restored.current = true;
+    movedSinceSwitch.current = true;
+    manual.current = true;
+  }, [stopNavigation]);
 
-  const moveTo = useCallback((id: string, keyboard = false, automatic = false) => {
+  const target = (id: string) => {
+    const pane = original.current;
+    const selector = `[data-evidence-block~="${id}"]`;
+    return pane?.querySelector<HTMLElement>(`[data-evidence-ids~="${id}"], ${selector}:not([data-page-only=true])`)
+      ?? pane?.querySelector<HTMLElement>(selector);
+  };
+
+  const moveTo = useCallback((id: string, keyboard = false, automatic = false, navigationIntent?: EvidenceNavigationIntent) => {
     const el = target(id), pane = original.current;
-    if (!el || !pane) return;
+    if (!el || !pane || !isCurrentSource()) return;
+    const current = () => isCurrentSource() && (!navigationIntent || isLatest(navigationIntent));
+    if (!current()) return;
     if (jumpOrigin.current === null) { jumpOrigin.current = pane.scrollTop; setReturnPosition(pane.scrollTop); }
     movedSinceSwitch.current = true;
     manual.current = false; setActiveEvidence(id);
     if (!automatic) setMobile("original");
-    if (scrollAnimation.current !== null) cancelAnimationFrame(scrollAnimation.current);
+    if (scrollAnimation.current !== null) {
+      cancelAnimationFrame(scrollAnimation.current);
+      scrollAnimation.current = null;
+    }
     const targetRect = el.getBoundingClientRect(), paneRect = pane.getBoundingClientRect();
     const visibleTarget = targetRect.top >= paneRect.top && targetRect.bottom <= paneRect.bottom;
     setCardAtTop(automatic && visibleTarget && targetRect.bottom > paneRect.bottom - 200);
     if (automatic && visibleTarget) return;
     const from = pane.scrollTop;
-    const to = Math.max(0, Math.min(pane.scrollHeight - pane.clientHeight, from + el.getBoundingClientRect().top - pane.getBoundingClientRect().top - pane.clientHeight * .32));
+    const to = Math.max(0, Math.min(pane.scrollHeight - pane.clientHeight, from + targetRect.top - paneRect.top - pane.clientHeight * .32));
     if (keyboard || reduced() || Math.abs(to - from) > pane.clientHeight * 1.2) pane.scrollTo({ top: to, behavior: "instant" });
     else {
       const started = performance.now();
       const duration = parseFloat(getComputedStyle(pane).getPropertyValue("--reader-duration-move")) || 240;
-      const tick = (now: number) => { const t = Math.min(1, (now - started) / duration); pane.scrollTop = from + (to - from) * (1 - Math.pow(1 - t, 3)); scrollAnimation.current = t < 1 ? requestAnimationFrame(tick) : null; };
+      const tick = (now: number) => {
+        if (!current()) { scrollAnimation.current = null; return; }
+        const t = Math.min(1, (now - started) / duration);
+        pane.scrollTop = from + (to - from) * (1 - Math.pow(1 - t, 3));
+        scrollAnimation.current = t < 1 ? requestAnimationFrame(tick) : null;
+      };
       scrollAnimation.current = requestAnimationFrame(tick);
     }
     if (keyboard) { el.tabIndex = -1; el.focus({ preventScroll: true }); }
-  }, []);
+  }, [isCurrentSource, isLatest]);
 
-  const pendingJump = useRef<{ id: string; keyboard: boolean } | null>(null);
   const wasFullscreen = useRef(fullscreen);
   useLayoutEffect(() => {
     const exitedFullscreen = wasFullscreen.current && !fullscreen;
     wasFullscreen.current = fullscreen;
+    manual.current = false;
     if (visible && !exitedFullscreen) return;
-    pendingJump.current = null;
+    if (exitedFullscreen || !readingSession) stopNavigation();
     turn.current = null;
     returnFocus.current = null;
     jumpOrigin.current = null;
-    if (scrollAnimation.current !== null) {
-      cancelAnimationFrame(scrollAnimation.current);
-      scrollAnimation.current = null;
-    }
     setActiveEvidence(undefined);
     setHoverEvidence(undefined);
     setReturnPosition(null);
-  }, [visible, fullscreen]);
-  const finishJump = useCallback(() => {
-    const jump = pendingJump.current;
-    if (jump && target(jump.id)) {
-      pendingJump.current = null;
-      moveTo(jump.id, jump.keyboard);
+  }, [visible, fullscreen, selectionGeneration, stopNavigation]);
+
+  useLayoutEffect(() => {
+    if (!visible || !intent || intent.sourceId !== sourceId || !isCurrentSource() || !isLatest(intent)) return;
+    manual.current = false;
+    restored.current = true;
+    restorePaperPosition.current = false;
+    if (original.current && waitingPosition.current?.nonce !== intent.nonce) {
+      waitingPosition.current = { nonce: intent.nonce, scrollTop: original.current.scrollTop };
     }
-  }, [moveTo]);
-  useLayoutEffect(finishJump, [evidence, mobile, pdfRevision, finishJump]);
+    if (!document) return;
+    const message = messages.find(item => item.messageId === intent.messageId);
+    const cited = message && messageEvidence(message, document, view.discussionId).find(item => item.evidenceId === intent.evidenceId);
+    if (!cited) { consume(intent); return; }
+    if (selected?.messageId !== intent.messageId) {
+      setActiveMessage(intent.messageId);
+      return;
+    }
+    if (mobile !== "original") { setMobile("original"); return; }
+    if (intent.preferredView === "translation" && translationReady && !showingTranslation) {
+      restorePaperPosition.current = false;
+      setTranslated(true);
+      return;
+    }
+    if (target(intent.evidenceId)) {
+      if (consume(intent)) moveTo(intent.evidenceId, intent.keyboard, false, intent);
+      return;
+    }
+    const hasPdfTarget = cited.layoutVersion === document.pdf?.version &&
+      document.pdf?.blocks.some(block => cited.blockIds?.includes(block.blockId));
+    if (activePdfUrl && hasPdfTarget && settledPdfUrl !== activePdfUrl) return;
+    if (consume(intent)) setActiveEvidence(intent.evidenceId);
+  }, [visible, intent, sourceId, isCurrentSource, isLatest, consume, document, messages, view.discussionId,
+    selected?.messageId, mobile, translationReady, showingTranslation, evidence, activePdfUrl, settledPdfUrl, pdfRevision, moveTo]);
 
   const cite = useCallback((message: ReaderMessage, id: string, keyboard: boolean) => {
-    cancelAuto(); returnFocus.current = { messageId: message.messageId, evidenceId: id };
-    pendingJump.current = { id, keyboard }; safeWrite(`focus.activeAnswer:${draftKey}`, message.messageId); setActiveMessage(message.messageId); setActiveEvidence(id); setMobile("original");
-    if (selectedIdRef.current === message.messageId) requestAnimationFrame(finishJump);
-  }, [cancelAuto, draftKey, finishJump]);
+    if (!isCurrentSource()) return;
+    stopNavigation();
+    manual.current = false;
+    restored.current = true;
+    restorePaperPosition.current = false;
+    setPositionNotice("");
+    returnFocus.current = { messageId: message.messageId, evidenceId: id };
+    safeWrite(`focus.activeAnswer:${draftKey}`, message.messageId);
+    setActiveMessage(message.messageId);
+    setActiveEvidence(undefined);
+    start({ sourceId, messageId: message.messageId, evidenceId: id, preferredView: showingTranslation ? "translation" : pdfUrl ? "pdf" : "source", keyboard });
+  }, [stopNavigation, draftKey, isCurrentSource, sourceId, showingTranslation, pdfUrl, start]);
 
   const handleSelectMessage = useCallback((messageId: string) => {
     if (selectedIdRef.current !== messageId) {
-      cancelAuto();
+      stopNavigation();
       safeWrite(`focus.activeAnswer:${draftKey}`, messageId);
       setActiveMessage(messageId);
       setActiveEvidence(undefined);
     }
-  }, [cancelAuto, draftKey]);
+  }, [stopNavigation, draftKey]);
 
   const handleHoverCitation = useCallback((messageId: string, id: string | undefined) => {
     if (messageId === selectedIdRef.current) setHoverEvidence(id);
   }, []);
 
   useLayoutEffect(() => {
-    if (!document || !original.current || restored.current || (pdfUrl && !pdfRevision)) return;
+    if (!document || !original.current || restored.current || intent || (pdfUrl && !pdfRevision)) return;
     restored.current = true;
     try {
       const raw = safeRead(bookmark);
@@ -423,7 +516,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
         if (el) original.current.scrollTop += el.getBoundingClientRect().top - original.current.getBoundingClientRect().top + saved.offset;
       }
     } catch { /* Ignore malformed display bookmarks, never mutate the Cursor. */ }
-  }, [document, bookmark, pdfUrl, pdfRevision]);
+  }, [document, bookmark, pdfUrl, pdfRevision, intent]);
 
   useEffect(() => {
     const pending = turn.current;
@@ -434,14 +527,26 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
 
   useLayoutEffect(() => { if (followChat.current && chat.current) chat.current.scrollTop = chat.current.scrollHeight; }, [messages.at(-1)?.content]);
 
-  const apply = useCallback(async (operation: Promise<ReaderHostResult<ReadingWindow>>) => {
-    try { const r = await operation; if (r.ok) { setView(r.value); return true; } setError(r.error.message); } catch (e) { setError(String(e)); }
+  const acceptSession = readingSession?.accept;
+  const apply = useCallback(async (operation: Promise<ReaderHostResult<ReadingWindow>>, success?: (value: ReadingWindow) => void) => {
+    try {
+      const result = await operation;
+      if (!isCurrentSource()) return false;
+      if (!result.ok) setError(result.error.message);
+      else if (result.value.source.sourceId === sourceId) {
+        if (selectionGeneration !== undefined) acceptSession?.(result.value, selectionGeneration);
+        else setView(result.value);
+        success?.(result.value);
+        return true;
+      }
+    } catch (failure) { if (isCurrentSource()) setError(String(failure)); }
     return false;
-  }, [setView]);
+  }, [setView, acceptSession, isCurrentSource, selectionGeneration, sourceId]);
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content || sendBusy.current || sending || running) return false;
     sendBusy.current = true;
+    stopNavigation();
     safeWrite(`focus.activeAnswer:${draftKey}`, ""); setSending(true); setError(""); setActiveMessage(null); setActiveEvidence(undefined);
     followChat.current = true; turn.current = { seen: new Set(messages.map(m => m.messageId)), cancelled: false, located: false };
     if (sendRequest.current?.content !== content) sendRequest.current = { content, id: createReaderId() };
@@ -449,13 +554,13 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     if (ok) { sendRequest.current = null; } else turn.current = null;
     sendBusy.current = false; setSending(false);
     return ok;
-  }, [apply, draftKey, host, messages, running, sending, sourceId, view.sessionId]);
+  }, [apply, draftKey, host, messages, running, sending, sourceId, stopNavigation, view.sessionId]);
 
   const handleStop = useCallback(() => { if (host.stop) void apply(host.stop()); }, [apply, host]);
   const handleApprove = useCallback((input: Parameters<NonNullable<ReaderHost["approve"]>>[0]) => host.approve ? apply(host.approve(input)) : Promise.resolve(false), [apply, host]);
 
   function backToAnswer(id: string) {
-    cancelAuto(); setMobile("chat"); setActiveEvidence(id);
+    stopNavigation(); manual.current = false; setMobile("chat"); setActiveEvidence(id);
     requestAnimationFrame(() => { const el = chat.current?.querySelector<HTMLElement>(`[data-message-id="${selected?.messageId}"] [data-citation="${id}"]`); el?.scrollIntoView({ block: "nearest", behavior: reduced() ? "instant" : "smooth" }); el?.focus({ preventScroll: true }); });
   }
 
@@ -492,10 +597,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     regions[next].scrollIntoView({ block: "center", behavior: reduced() ? "instant" : "smooth" });
     setRegionNumber(next);
   }
-  const translationState = document?.translation?.status;
   const translationInterrupted = ["failed", "cancelled", "interrupted"].includes(translationState ?? "");
-  const translationReady = document?.translation?.status === "ready";
-  const showingTranslation = translated && translationReady;
   const activeBlocks = document?.pdf?.blocks.filter(b => active?.evidence.layoutVersion === document.pdf?.version && active?.evidence.blockIds?.includes(b.blockId)) ?? [];
   const locationLabel = pdfUrl && !showingTranslation ? (activeBlocks.length ?
     ` · 第 ${[...new Set(activeBlocks.map(b => b.page))].join("、")} 页 · ${activeBlocks.some(b => b.bbox) ? "段落定位" : "页定位"}` : " · 版面位置暂不可用") :
@@ -505,7 +607,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const activeFocusIndex = focusedTurn >= 0 && focusedTurn < turns.length ? focusedTurn : turns.length - 1;
 
   return <section ref={shell} className="conversation-reader" data-fullscreen={!!fullscreen} data-mobile={mobile} data-font-size={fontSize} hidden={!visible} style={{ "--source-share": `${share}%`, "--source-font-size": `${readingFontSizes[fontSize as keyof typeof readingFontSizes] ?? 18}px` } as CSSProperties}
-    onKeyDown={e => { if (e.key === "Escape") { setActiveEvidence(undefined); const previous = returnFocus.current; if (previous) requestAnimationFrame(() => chat.current?.querySelector<HTMLElement>(`[data-message-id="${previous.messageId}"] [data-citation="${previous.evidenceId}"]`)?.focus({ preventScroll: true })); } }}>
+    onKeyDown={e => { if (e.key === "Escape") { stopNavigation(); setActiveEvidence(undefined); const previous = returnFocus.current; if (previous) requestAnimationFrame(() => chat.current?.querySelector<HTMLElement>(`[data-message-id="${previous.messageId}"] [data-citation="${previous.evidenceId}"]`)?.focus({ preventScroll: true })); } }}>
     {error && <div role="alert" className="source-reader-error">{error}<button onClick={() => setReload(v => v + 1)}>重试</button></div>}
     <div className="source-reader-columns">
       <div className="source-original-pane" data-paper={!!pdfUrl}>
@@ -513,25 +615,31 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
           <button aria-pressed={!!showingTranslation} disabled={!translationReady} onClick={() => switchPaper(true)}>中文译文{translationReady ? "" : translationState === "running" ? " · 准备中" : translationInterrupted ? " · 未完成" : " · 未就绪"}</button>
           {translationInterrupted && host.resumePreparation && <button onClick={() => void apply(host.resumePreparation!(sourceId, createReaderId()))}>重试译文</button>}</div>}
         {pdfUrl && positionNotice && <span role="status">{positionNotice}</span>}
-        <div ref={original} className="source-original" data-evidence-focus={activeEvidence ? "true" : undefined} aria-label="文章原文" tabIndex={0} onPointerMove={e => { pointerX.current = e.clientX; }} onWheel={cancelAuto} onTouchStart={cancelAuto} onPointerDown={cancelAuto} onKeyDown={e => { if (["PageDown", "PageUp", "ArrowDown", "ArrowUp", "Home", "End", " "].includes(e.key)) cancelAuto(); }}
-          onScroll={() => { if (manual.current && bookmark && original.current) {
-            const top = original.current.getBoundingClientRect().top;
-            const block = [...original.current.querySelectorAll<HTMLElement>("[data-source-line]")].find(el => el.getBoundingClientRect().bottom > top);
+        <div ref={original} className="source-original" data-evidence-focus={activeEvidence ? "true" : undefined} aria-label="文章原文" tabIndex={0} onPointerMove={e => { pointerX.current = e.clientX; }} onWheel={manualBrowse} onTouchStart={manualBrowse}
+          onPointerDown={e => { if (e.target === e.currentTarget) manualBrowse(); }}
+          onKeyDown={e => { if (!(e.target as HTMLElement).closest("button, input, textarea, select") && ["PageDown", "PageUp", "ArrowDown", "ArrowUp", "Home", "End", " "].includes(e.key)) manualBrowse(); }}
+          onScroll={event => {
+            const pane = event.currentTarget;
+            const waiting = waitingPosition.current;
+            if (intent && waiting?.nonce === intent.nonce && waiting.scrollTop !== pane.scrollTop && consume(intent)) manualBrowse();
+            if (!manual.current || !bookmark) return;
+            const top = pane.getBoundingClientRect().top;
+            const block = [...pane.querySelectorAll<HTMLElement>("[data-source-line]")].find(el => el.getBoundingClientRect().bottom > top);
             if (block) safeWrite(bookmark, JSON.stringify({ line: Number(block.dataset.sourceLine), offset: top - block.getBoundingClientRect().top }));
-          } }}
-          onMouseUp={() => { const selectedText = window.getSelection()?.toString().trim() ?? ""; if (selectedText) { cancelAuto(); setSelection(selectedText.slice(0, 4000)); } }}
+          }}
+          onMouseUp={() => { const selectedText = window.getSelection()?.toString().trim() ?? ""; if (selectedText) { stopNavigation(); setSelection(selectedText.slice(0, 4000)); } }}
           onClick={e => { const id = (e.target as HTMLElement).closest<HTMLElement>("[data-evidence]")?.dataset.evidence; if (id) backToAnswer(id); else if ((e.target as HTMLElement).closest("[data-anno-key], [data-anno-bulb]")) setNotesOpen(true); }}>
           {document?.pdf && pdfUrl ? showingTranslation ? <TranslatedPaper document={document} evidence={evidence} /> :
-            <OriginalPaper pdf={document.pdf} url={pdfUrl} evidence={evidence} active={highlightedEvidenceId} onReady={pdfReady} /> : document ? <article><MarkdownContent text={document.markdown} sourceId={sourceId} marks={permanentMarks} sourceEvidence={sourceInput} /></article> : <span role="status" className="source-loading">加载中…</span>}
+            <OriginalPaper key={pdfUrl} pdf={document.pdf} url={pdfUrl} evidence={evidence} active={highlightedEvidenceId} onReady={settlePdf} onUnavailable={settlePdf} /> : document ? <article><MarkdownContent text={document.markdown} sourceId={sourceId} marks={permanentMarks} sourceEvidence={sourceInput} /></article> : <span role="status" className="source-loading">加载中…</span>}
         </div>
         {selection && <div className="source-selection-actions"><button onClick={() => { composer.current?.insertQuote(selection); setSelection(""); setMobile("chat"); }}>引用</button><button onClick={() => { setNoteDraft(`「${selection}」\n`); setNotesOpen(true); setSelection(""); }}>记笔记</button><button aria-label="取消选择" onClick={() => setSelection("")}>×</button></div>}
-        {active && <aside className="source-evidence-card" data-top={cardAtTop} aria-label="原文证据"><button aria-label="关闭证据" onClick={() => setActiveEvidence(undefined)}>×</button><button onClick={() => backToAnswer(active.evidence.evidenceId)}>证据 {active.evidence.displayNumber}{locationLabel}</button><p>{active.evidence.quote.exact}</p>{partCount > 1 && <button onClick={nextRegion}>下一处（{regionNumber + 1}/{partCount}）</button>}{returnPosition !== null && <button onClick={() => { if (original.current && jumpOrigin.current !== null) { manual.current = false; original.current.scrollTo({ top: jumpOrigin.current, behavior: "instant" }); } jumpOrigin.current = null; setReturnPosition(null); setActiveEvidence(undefined); }}>返回阅读位置</button>}</aside>}
+        {active && <aside className="source-evidence-card" data-top={cardAtTop} aria-label="原文证据"><button aria-label="关闭证据" onClick={() => { stopNavigation(); setActiveEvidence(undefined); }}>×</button><button onClick={() => backToAnswer(active.evidence.evidenceId)}>证据 {active.evidence.displayNumber}{locationLabel}</button><p>{active.evidence.quote.exact}</p>{partCount > 1 && <button onClick={nextRegion}>下一处（{regionNumber + 1}/{partCount}）</button>}{returnPosition !== null && <button onClick={() => { if (original.current && jumpOrigin.current !== null) { manual.current = false; original.current.scrollTo({ top: jumpOrigin.current, behavior: "instant" }); } jumpOrigin.current = null; setReturnPosition(null); setActiveEvidence(undefined); }}>返回阅读位置</button>}</aside>}
       </div>
       <div className="source-splitter" role="separator" aria-label="调整原文宽度" aria-orientation="vertical" aria-valuemin={40} aria-valuemax={70} aria-valuenow={share} tabIndex={0}
         onKeyDown={e => { if (["ArrowLeft", "ArrowRight"].includes(e.key)) { e.preventDefault(); const v = Math.max(40, Math.min(70, share + (e.key === "ArrowLeft" ? -2 : 2))); setShare(v); safeWrite("focus.sourceShare", String(v)); } }}
         onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); }} onPointerMove={e => { if (!e.currentTarget.hasPointerCapture(e.pointerId) || !shell.current) return; const rect = shell.current.getBoundingClientRect(); const v = Math.max(40, Math.min(70, (e.clientX - rect.left) / rect.width * 100)); setShare(v); safeWrite("focus.sourceShare", String(v)); }} onPointerUp={e => e.currentTarget.releasePointerCapture(e.pointerId)} />
       <div className="source-chat-pane">
-        <div ref={chat} className="source-chat" aria-label="文章对话" onWheel={() => { if (turn.current) turn.current.cancelled = true; }} onScroll={updateChatFocus}>
+        <div ref={chat} className="source-chat" aria-label="文章对话" onWheel={stopNavigation} onTouchStart={stopNavigation} onScroll={updateChatFocus}>
           {opening?.status === "ready" && opening.bundleVersion === document?.bundleVersion && (
             <section className="source-opening" data-open={guideOpen}>
               <div className="source-opening__head">
@@ -542,7 +650,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
                 </button>
               </div>
               {opening.guide && <p className="source-opening__summary">{opening.guide}</p>}
-              {guideOpen && opening.structure && <ul className="source-opening__list">{opening.structure.map(n => <li key={n.id} data-child={!!n.parentId}><button onClick={() => { cancelAuto(); setMobile("original"); requestAnimationFrame(() => { const blocks = [...(original.current?.querySelectorAll<HTMLElement>("[data-source-line]") ?? [])]; const el = blocks.find(b => Number(b.dataset.sourceLine) >= n.sourceLines[0]); el?.scrollIntoView({ block: "start", behavior: reduced() ? "instant" : "smooth" }); }); }}>{n.title}</button></li>)}</ul>}
+              {guideOpen && opening.structure && <ul className="source-opening__list">{opening.structure.map(n => <li key={n.id} data-child={!!n.parentId}><button onClick={() => { stopNavigation(); manual.current = false; setMobile("original"); requestAnimationFrame(() => { const blocks = [...(original.current?.querySelectorAll<HTMLElement>("[data-source-line]") ?? [])]; const el = blocks.find(b => Number(b.dataset.sourceLine) >= n.sourceLines[0]); el?.scrollIntoView({ block: "start", behavior: reduced() ? "instant" : "smooth" }); }); }}>{n.title}</button></li>)}</ul>}
             </section>
           )}
           {opening?.status === "running" && <div className="source-opening-skeleton" aria-label="正在准备导读" role="status"><i /><i /><i /></div>}
@@ -616,9 +724,14 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       </div>
       <textarea aria-label="笔记内容" placeholder="记录想法或结论…" value={noteDraft} onChange={e => setNoteDraft(e.target.value)} />
       {host.createSourceNote && <button className="source-notes-save" disabled={!noteDraft.trim()} onClick={async () => { const request = noteEdit && host.changeSourceNote ? host.changeSourceNote(sourceId, noteEdit.id, "edit", noteEdit.revision, createReaderId(), noteDraft.trim()) : host.createSourceNote!({ sourceId, requestId: createReaderId(), content: noteDraft.trim(), kind: "thought", origin: "user" });
-        const result = await request; if (!result.ok) { setError(result.error.message); return; } setView(result.value);
-        if (result.value.noteOperation?.status === "conflict") { setError("笔记已更新，请核对当前内容后再保存。"); if (result.value.noteOperation.current) setNoteEdit({ id: result.value.noteOperation.current.noteId, revision: result.value.noteOperation.current.revision }); return; }
-        setNoteDraft(""); setNoteEdit(null); }}>保存笔记</button>}
+        await apply(request, result => {
+          if (result.noteOperation?.status === "conflict") {
+            setError("笔记已更新，请核对当前内容后再保存。");
+            if (result.noteOperation.current) setNoteEdit({ id: result.noteOperation.current.noteId, revision: result.noteOperation.current.revision });
+            return;
+          }
+          setNoteDraft(""); setNoteEdit(null);
+        }); }}>保存笔记</button>}
       {(view.sourceNotes ?? []).filter(n => !n.deleted || n.canUndo).map(n => <article key={n.noteId}>{n.sentence && <blockquote>{n.sentence.quote.exact}</blockquote>}<MarkdownContent text={n.content} />{host.changeSourceNote && <div className="source-note-actions">{!n.deleted && <button onClick={() => { setNoteEdit({ id: n.noteId, revision: n.revision }); setNoteDraft(n.content); }}>编辑</button>}<button onClick={() => void apply(host.changeSourceNote!(sourceId, n.noteId, n.deleted ? "undo" : "delete", n.revision, createReaderId()))}>{n.deleted ? "撤销删除" : "删除"}</button></div>}</article>)}
       {(view.sourceHighlights ?? []).filter(h => !h.deleted || h.canUndo).map(h => <article key={h.highlightId}><blockquote>{h.quote.exact}</blockquote>{host.changeHighlight && <div className="source-note-actions"><button onClick={() => void apply(host.changeHighlight!(sourceId, h.highlightId, h.deleted ? "undo" : "delete", h.revision, createReaderId()))}>{h.deleted ? "撤销删除重点" : "取消重点"}</button></div>}</article>)}
     </aside>}

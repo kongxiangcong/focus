@@ -6,3 +6,6 @@ export { readingFontSizes } from "./typography";
 export { BookOpen, ChatBubble, DocText } from "./ReaderIcons";
 
 export { ArticleOverviewPanel } from "./ArticleOverviewPanel";
+
+export { useEvidenceNavigation } from "./evidence-navigation";
+export type { EvidenceNavigation, EvidenceNavigationIntent } from "./evidence-navigation";
