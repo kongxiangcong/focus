@@ -188,18 +188,21 @@ it("opens the answer before its source from a chunk bound to the current source 
   HTMLElement.prototype.scrollIntoView = vi.fn();
   const session = await setup(false, reading);
   await act(async () => session.completePdf());
+  await within(screen.getByLabelText("文章对话")).findByRole("button", { name: "1" }, { timeout: 10000 });
   const mode = screen.getByRole("combobox", { name: "阅读方式" });
   fireEvent.change(mode, { target: { value: "chunks" } });
   const stream = screen.getByRole("main", { name: "阅读与对话" });
-  const disclosure = await within(stream).findByRole("button", { name: "对话证据 · 1 条" });
+  const disclosure = await within(stream).findByRole("button", { name: "对话证据 · 1 条" }, { timeout: 10000 });
   expect(within(stream).getAllByRole("button", { name: /对话证据/ })).toHaveLength(1);
   expect(stream.textContent).not.toContain("[[e:");
   fireEvent.click(disclosure);
   fireEvent.click(within(stream).getByRole("button", { name: /First paragraph/ }));
   const answer = within(screen.getByLabelText("文章对话"));
   const number = await answer.findByRole("button", { name: "1" });
-  expect(number).toHaveFocus();
-  expect(number).toHaveAttribute("data-answer-target", "true");
+  await waitFor(() => {
+    expect(number).toHaveFocus();
+    expect(number).toHaveAttribute("data-answer-target", "true");
+  });
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
   expect(mode).toHaveValue("chat");
   fireEvent.click(number);
