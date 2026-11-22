@@ -83,26 +83,34 @@ export function rehypeSourceEvidence(options: { document: ReadingDocument; evide
           className: ["source-evidence", ...(owners.some(p => p.evidence.evidenceId === options.active) ? ["is-active"] : [])],
           dataEvidenceIds: owners.map(p => p.evidence.evidenceId).join(" "),
         }, children: [child] } : child);
-        for (const p of owners.filter(p => p.end === start + to)) parts.push({ type: "element", tagName: "button", properties: {
-          type: "button", dataAnnoUi: "", className: ["source-evidence-number"], dataEvidence: p.evidence.evidenceId,
-          ariaLabel: `返回回答证据 ${p.evidence.displayNumber}`,
-        }, children: [{ type: "text", value: String(p.evidence.displayNumber) }] });
       }
       parent.children!.splice(parent.children!.indexOf(node), 1, ...parts);
     }
+    function findMarkedEvidence(node: HastNode, ids: Set<string>) {
+      const marked = node.properties?.dataEvidenceIds;
+      if (typeof marked === "string") marked.split(" ").forEach(id => ids.add(id));
+      node.children?.forEach(child => findMarkedEvidence(child, ids));
+    }
     const canonical = normalizeMathWithLines(options.document.markdown).lines;
-    for (const child of tree.children ?? []) {
+    tree.children = tree.children?.flatMap(child => {
       const span = (child as Positioned).position;
-      if (child.type !== "element" || !span) continue;
+      if (child.type !== "element" || !span) return [child];
       const first = canonical[span.start.line - 1]?.[0] ?? 0, last = canonical[span.end.line - 1]?.[1] ?? 0;
       child.properties = { ...child.properties, dataSourceLine: first };
       const fallback = projections.filter(p => p.kind === "block" && first <= p.evidence.sourceLines[1] && last >= p.evidence.sourceLines[0]);
-      if (fallback.length) {
-        child.properties.dataEvidenceBlock = fallback.map(p => p.evidence.evidenceId).join(" ");
-        // Keep tables and figures structurally valid: the floating card supplies
-        // the reverse link for object/block fallbacks, without inserting text
-        // into table row groups or formula markup.
+      if (fallback.length) child.properties.dataEvidenceBlock = fallback.map(p => p.evidence.evidenceId).join(" ");
+      const marked = new Set<string>();
+      if (exact.length) findMarkedEvidence(child, marked);
+      const items = projections.filter(p => marked.has(p.evidence.evidenceId) || fallback.includes(p));
+      if (!items.length) return [child];
+      const marker: HastNode = { type: "element", tagName: "span", properties: {
+        dataAnnoUi: "", dataSourceEvidenceMarkers: items.map(p => p.evidence.evidenceId).join(" "),
+      }, children: [] };
+      if (child.tagName && /^(?:p|h[1-6])$/.test(child.tagName)) {
+        child.children?.push(marker);
+        return [child];
       }
-    }
+      return [child, marker];
+    });
   };
 }

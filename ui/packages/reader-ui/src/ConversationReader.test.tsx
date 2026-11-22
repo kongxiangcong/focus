@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { readerSuccess, type ReaderHost, type ReadingWindow, type ValidatedAnswerEvidence } from "@focus/reader-contracts";
 import { ConversationReader } from "./ConversationReader";
@@ -119,4 +119,40 @@ it("opens the saved PDF and projects a citation into the shared translated chunk
   expect(screen.getByText("已检查的译文。")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "返回回答证据 1" }));
   await waitFor(() => expect(window.document.querySelector("[data-citation]")).toHaveFocus());
+});
+
+it("returns from a block to its only linked answer even when a newer answer is selected", async () => {
+  const cited = { ...first, renderGranularity: "block" as const };
+  const start = answer([cited]);
+  setup({ ...start, conversation: [...start.conversation, {
+    ...start.conversation[0], messageId: "uncited-answer", answerRevision: "r2", content: "There's nothing to verify here.", evidence: [],
+  }] });
+  const source = await screen.findByLabelText("文章原文");
+  fireEvent.click(await within(source).findByRole("button", { name: "返回回答证据 1" }));
+  await waitFor(() => expect(within(screen.getByLabelText("文章对话")).getByRole("button", { name: "1" })).toHaveFocus());
+  expect(screen.queryByLabelText("选择回答")).not.toBeInTheDocument();
+});
+
+it("offers answer excerpts for a shared block and returns an active number to its exact origin", async () => {
+  const cited = { ...first, renderGranularity: "block" as const };
+  const other = { ...cited, evidenceId: "c".repeat(24), messageId: "second-answer", answerRevision: "r2" };
+  const start = answer([cited]);
+  setup({ ...start, conversation: [
+    { ...start.conversation[0], content: `The original result held [[e:${cited.evidenceId}]].` },
+    { ...start.conversation[0], messageId: other.messageId, answerRevision: other.answerRevision,
+      content: `The replication differed [[e:${other.evidenceId}]].`, evidence: [other] },
+  ] });
+  const source = within(await screen.findByLabelText("文章原文"));
+  const conversation = within(screen.getByLabelText("文章对话"));
+  const [firstNumber, secondNumber] = await conversation.findAllByRole("button", { name: "1" });
+  fireEvent.click(await source.findByRole("button", { name: "查看 2 条相关回答" }));
+  const chooser = within(screen.getByRole("dialog", { name: "选择回答" }));
+  expect(chooser.getByRole("button", { name: /The replication differed/ })).toBeVisible();
+  fireEvent.click(chooser.getByRole("button", { name: /The original result held/ }));
+  expect(firstNumber).toHaveFocus();
+
+  fireEvent.click(secondNumber);
+  fireEvent.click(await source.findByRole("button", { name: "返回回答证据 1" }));
+  expect(secondNumber).toHaveFocus();
+  expect(screen.queryByRole("dialog", { name: "选择回答" })).not.toBeInTheDocument();
 });

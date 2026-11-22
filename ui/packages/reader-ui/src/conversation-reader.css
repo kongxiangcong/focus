@@ -157,11 +157,18 @@
 .source-evidence { background:var(--reader-mark-soft); color:inherit; border-radius:2px; transition:background-color var(--reader-duration-quick) var(--reader-ease-out); }
 .source-evidence.is-active { background:var(--reader-mark); }
 .conversation-reader .source-evidence-number, .conversation-reader .answer-evidence-number { display:inline; color:var(--reader-mark-ink); background:var(--reader-mark-soft); padding:1px 5px; font:600 11px/1.5 system-ui; vertical-align:super; border-radius:4px; margin:0 2px; }
+.conversation-reader .source-evidence-number[data-origin=true] { background:var(--reader-mark); }
+.source-evidence-markers { white-space:nowrap; }
 [data-evidence-block] { border-left:2px solid var(--reader-mark-strong); padding-left:12px; }
 .source-evidence-card { position:absolute; bottom:18px; left:24px; right:24px; max-width:530px; max-height:180px; overflow:auto; padding:12px 18px; border:1px solid var(--reader-mark); background:var(--reader-popover); border-radius:12px; box-shadow:0 8px 24px #0001; animation:source-card-in var(--reader-duration-quick) var(--reader-ease-out); font:13px/1.6 system-ui; }
 .source-evidence-card > button:first-child { float:right; }
 .source-evidence-card p { margin:6px 0; white-space:pre-wrap; }
 .source-evidence-card[data-top=true] { top:18px; bottom:auto; }
+.source-answer-chooser { max-height:min(320px,55%); }
+.source-answer-chooser ul { list-style:none; display:grid; gap:4px; padding:0; margin:0 24px 0 0; }
+.source-answer-chooser li button { display:grid; gap:2px; width:100%; padding:6px 8px; text-align:left; border-radius:6px; }
+.source-answer-chooser li button:hover, .source-answer-chooser li button:focus-visible { background:var(--reader-mark-soft); }
+.source-answer-chooser li span:first-child { color:var(--reader-mark-ink); font-weight:600; }
 .source-reader-error { padding:8px 24px; font-size:13px; color:var(--reader-danger); background:var(--reader-error-bg); border-bottom:1px solid var(--reader-line); display:flex; align-items:center; justify-content:space-between; }
 
 /* Notes drawer */
