@@ -7,16 +7,64 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from .source_library import SourceLibrary
-from .reading_workspace import _validate_parser_bundle, _write_document
+from .source_library import SourceLibrary, normalize_short_name
+from .reading_workspace import WorkspaceError, _validate_parser_bundle, _write_document
 
 
-def import_markdown(workspace, original, *, title=None, short_name=None, language='zh', topic=None, uploader=None):
-    original = Path(original)
+def _read_markdown(original):
     raw = original.read_bytes()
     content = raw.decode('utf-8-sig').replace('\r\n', '\n').replace('\r', '\n')
     if not content.strip():
         raise ValueError('Markdown 内容为空。')
+    return raw, content
+
+
+def _write_markdown_candidate(candidate, raw, content, *, language):
+    from .source_ir import build_source_ir, publish_source_ir
+
+    candidate.mkdir(parents=True, exist_ok=True)
+    (candidate / 'source.md').write_bytes(raw)
+    (candidate / 'images').mkdir()
+    _write_document(candidate / 'metadata.json', {'source_kind': 'article_markdown',
+        'parser': 'markdown-import', 'language': language, 'task_id': 'local-' + uuid.uuid4().hex})
+    _write_document(candidate / 'validation.json', {'ok': True, 'warnings': []})
+    publish_source_ir(candidate, build_source_ir(candidate, content, source_kind='article_markdown'))
+    _validate_parser_bundle(candidate)
+
+
+def _markdown_title(content, stem):
+    heading = re.search(r'^#[ \t]+([^\n]+)$', content, re.M)
+    return (heading.group(1).strip() if heading else '') or stem
+
+
+class LocalMarkdownParser:
+    model = 'local-markdown-v1'
+    language = 'zh'
+
+    def __init__(self, file_name):
+        self.stem = Path(file_name).stem
+
+    def parse(self, source, candidate, *, checkpoint=None):
+        from .ingestion import persist_candidate_result
+
+        raw, content = _read_markdown(source)
+        title = _markdown_title(content, self.stem)
+        short_name = 'Markdown'
+        for proposed in (title, self.stem):
+            try:
+                short_name = normalize_short_name(proposed)
+            except WorkspaceError:
+                continue
+            break
+        _write_markdown_candidate(candidate, raw, content, language=self.language)
+        result = {'title': title, 'short_name': short_name}
+        persist_candidate_result(candidate, result)
+        return result
+
+
+def import_markdown(workspace, original, *, title=None, short_name=None, language='zh', topic=None, uploader=None):
+    original = Path(original)
+    raw, content = _read_markdown(original)
     library = SourceLibrary(Path(workspace))
     existing = library.find_original(original, source_kind='article_markdown')
     if existing:
@@ -26,17 +74,10 @@ def import_markdown(workspace, original, *, title=None, short_name=None, languag
         if uploader and not existing.get('uploader'):
             library.describe(sid, uploader=uploader)
         return {'ok': True, 'source_id': sid, 'reused': True}
-    heading = re.search(r'^#\s+(.+)$', content, re.M)
-    title = title or (heading.group(1).strip() if heading else original.stem)
+    title = title or _markdown_title(content, original.stem)
     staging = Path(tempfile.mkdtemp(prefix='.markdown-', dir=workspace))
     try:
-        shutil.copyfile(original, staging / 'source.md')
-        (staging / 'content.md').write_text(content, encoding='utf-8')
-        (staging / 'images').mkdir()
-        _write_document(staging / 'metadata.json', {'source_kind': 'article_markdown',
-            'parser': 'markdown-import', 'language': language, 'task_id': 'local-' + uuid.uuid4().hex})
-        _write_document(staging / 'validation.json', {'ok': True, 'warnings': []})
-        _validate_parser_bundle(staging)
+        _write_markdown_candidate(staging, raw, content, language=language)
         result = library.register(staging, source_kind='article_markdown', title=title,
             short_name=short_name or title, identity='markdown:' + uuid.uuid4().hex, topic_title=topic)
         if uploader:

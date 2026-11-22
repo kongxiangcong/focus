@@ -75,7 +75,7 @@ it("keeps the selected zero-count filter enabled, shows filter empty state and p
   expect(screen.getByText("当前筛选下没有材料。")).toBeInTheDocument(); fireEvent.click(screen.getByRole("button", { name: "显示全部状态" })); expect(filters().getByRole("button", { name: "全部0" })).toBeEnabled();
 });
 it("distinguishes empty library, search and empty Topic with their specific actions", async () => {
-  setup({ sources: [] }); await screen.findByText("知识库还是空的。把 PDF 或 SingleFile HTML 拖到这里，或点击上传。"); fireEvent.click(screen.getByRole("button", { name: "上传材料" })); expect(screen.getByRole("dialog")).toBeInTheDocument(); cleanup();
+  setup({ sources: [] }); await screen.findByText("知识库还是空的。把 PDF、SingleFile HTML 或 Markdown 拖到这里，或点击上传。"); fireEvent.click(screen.getByRole("button", { name: "上传材料" })); expect(screen.getByRole("dialog")).toBeInTheDocument(); cleanup();
   setup(); await loaded(); fireEvent.change(screen.getByRole("searchbox"), { target: { value: "absent" } }); expect(screen.getByText("没有标题匹配这次搜索。")).toBeInTheDocument(); fireEvent.click(screen.getByRole("button", { name: "清除搜索" })); expect(screen.getByRole("button", { name: "Alpha" })).toBeInTheDocument();
   chooseTopic("other"); expect(screen.getByText("这个专题还没有来源。可从任意来源的「管理来源」中加入专题。")).toBeInTheDocument(); fireEvent.click(screen.getByRole("button", { name: "查看全部材料" })); expect(screen.getByRole("button", { name: "Alpha" })).toBeInTheDocument();
 });

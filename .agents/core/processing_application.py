@@ -8,6 +8,10 @@ from .reading_workspace import WorkspaceError, _read_document, _write_document
 from .source_library import SourceLibrary
 
 
+def supports_ingestion_blog(item):
+    return item.get('source_kind', 'paper_pdf') in ('paper_pdf', 'article_html')
+
+
 class ProcessingApplication:
     def __init__(self, ingestion, blog, prepare_reading=None):
         self.prepare_reading = prepare_reading
@@ -24,8 +28,11 @@ class ProcessingApplication:
         return 'reading_blog' in _read_document(self.path, {}).get(item_id, {}).get('scope', [])
 
     def _binding(self, item):
-        return {'fingerprint': item['fingerprint'], 'topic_id': item['topic_id'],
-                'services': item['services'], 'blog_config': _component_config(self.blog.runtime)}
+        binding = {'fingerprint': item['fingerprint'], 'topic_id': item['topic_id'],
+                   'services': item['services']}
+        if supports_ingestion_blog(item):
+            binding['blog_config'] = _component_config(self.blog.runtime)
+        return binding
 
     def confirm(self, item_id, *, request_id, generate_blog=True, prepare_reading=False):
         if not isinstance(request_id, str) or not request_id.strip() or len(request_id) > 160:
@@ -37,6 +44,7 @@ class ProcessingApplication:
                 raise WorkspaceError('source_deleted', '来源已删除，旧任务不能恢复。')
             if any(key != item_id and value['request_id'] == request_id for key, value in scopes.items()):
                 raise WorkspaceError('request_conflict', 'Request identity belongs to another original')
+            generate_blog = generate_blog and supports_ingestion_blog(item)
             translate = prepare_reading and item.get('source_kind', 'paper_pdf') == 'paper_pdf'
             existing = scopes.get(item_id)
             if existing:
@@ -61,8 +69,8 @@ class ProcessingApplication:
                 topic = None
             if topic:
                 self.ingestion.update_staged(item_id, topic_id=topic['topicId'], topic_title=None)
-            item = self.ingestion.confirm(item_id, services=item['services'],
-                                          purpose='register source and generate blog', scope='ingestion')
+            purpose = 'register source and generate blog' if generate_blog else 'register source'
+            item = self.ingestion.confirm(item_id, services=item['services'], purpose=purpose, scope='ingestion')
             steps = ['ingestion']
             if generate_blog:
                 steps.extend(['reading_blog', 'html'])
