@@ -2,10 +2,9 @@
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask, TextLayer } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import type { PdfBox, ReadingDocument, SourceScope, ValidatedAnswerEvidence } from "@focus/reader-contracts";
+import type { PdfBox, ReadingDocument, ValidatedAnswerEvidence } from "@focus/reader-contracts";
 import { MarkdownContent } from "./MarkdownContent";
-
-type PDF = NonNullable<ReadingDocument["pdf"]>;
+import type { PaperEvidence, PaperPdf as PDF } from "./paper-evidence";
 type PageSize = NonNullable<PDF["pages"]>[number];
 type Block = PDF["blocks"][number];
 type Evidence = readonly ValidatedAnswerEvidence[];
@@ -15,10 +14,10 @@ function numbers(items: Evidence) {
     data-evidence={e.evidenceId} aria-label={`返回回答证据 ${e.displayNumber}`}>{e.displayNumber}</button>);
 }
 
-export function TranslatedPaper({ document, evidence }: { document: ReadingDocument; evidence: Evidence }) {
+export function TranslatedPaper({ document, evidence }: { document: ReadingDocument; evidence: readonly PaperEvidence[] }) {
   return <article>{document.translation?.chunks.map(chunk => {
-    const items = evidence.filter(e => e.sourceLines[0] <= chunk.sourceLines[1] && chunk.sourceLines[0] <= e.sourceLines[1]);
-    return <section key={chunk.id} data-source-line={chunk.sourceLines[0]} data-source-end={chunk.sourceLines[1]}
+    const items = evidence.filter(item => item.translationChunks.includes(chunk.id)).map(item => item.evidence);
+    return <section key={chunk.id} data-translation-chunk={chunk.id} data-source-line={chunk.sourceLines[0]} data-source-end={chunk.sourceLines[1]}
       data-evidence-block={items.map(e => e.evidenceId).join(" ") || undefined}>
       <MarkdownContent text={chunk.text} sourceId={document.sourceId} />{numbers(items)}
     </section>;
@@ -27,11 +26,6 @@ export function TranslatedPaper({ document, evidence }: { document: ReadingDocum
 
 export function boxesForBlock(block: Block): readonly PdfBox[] {
   return block.bboxes ?? (block.bbox ? [block.bbox] : []);
-}
-
-export function matchesPdfLayout(evidence: ValidatedAnswerEvidence, scope: SourceScope, pdf: PDF) {
-  return evidence.sourceId === scope.sourceId && evidence.bundleVersion === scope.bundleVersion &&
-    evidence.layoutVersion === pdf.version;
 }
 
 function PaperSurface({ page, element }: { page: PDFPageProxy; element: RefObject<HTMLDivElement | null> }) {
@@ -84,7 +78,7 @@ function PaperSurface({ page, element }: { page: PDFPageProxy; element: RefObjec
 
 function Page({ document, pageNumber, size, blocks, evidence, active }: {
   document: PDFDocumentProxy; pageNumber: number; size?: PageSize; blocks: readonly Block[];
-  evidence: Evidence; active?: string;
+  evidence: readonly PaperEvidence[]; active?: string;
 }) {
   const element = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState<PDFPageProxy>();
@@ -115,13 +109,17 @@ function Page({ document, pageNumber, size, blocks, evidence, active }: {
     (size.rotation == null || viewport.rotation === size.rotation)
   ));
   const pageBlocks = blocks.filter(block => !canDrawBoxes || !boxesForBlock(block).length);
-  const pageEvidence = evidence.filter(item => pageBlocks.some(block => item.blockIds?.includes(block.blockId)));
+  const hasBlock = (item: PaperEvidence, block: Block) => item.pdfBlocks.some(candidate =>
+    candidate.page === pageNumber && candidate.blockId === block.blockId);
+  const pageEvidence = evidence.filter(item => item.pdfPages.includes(pageNumber) && (
+    pageBlocks.some(block => hasBlock(item, block)) || !blocks.some(block => hasBlock(item, block))
+  )).map(item => item.evidence);
   return <div className="paper-pdf-page" data-pdf-page={pageNumber} ref={element}
     style={{ aspectRatio: width && height ? `${width}/${height}` : undefined }} aria-label={`第 ${pageNumber} 页`}>
     {page && <PaperSurface page={page} element={element} />}
     {error && <span role="alert">此页渲染失败</span>}
     {canDrawBoxes && blocks.flatMap(block => {
-      const items = evidence.filter(item => item.blockIds?.includes(block.blockId));
+      const items = evidence.filter(item => hasBlock(item, block)).map(item => item.evidence);
       return boxesForBlock(block).map((box, index) => (
         <div key={`${block.blockId}:${index}`} className="paper-region" data-block-id={block.blockId}
           data-source-line={block.sourceLines[0]} data-source-end={block.sourceLines[1]}
@@ -133,7 +131,7 @@ function Page({ document, pageNumber, size, blocks, evidence, active }: {
         </div>
       ));
     })}
-    {pageBlocks.length > 0 && <div className="paper-region paper-page-markers" data-page-only="true"
+    {(pageBlocks.length > 0 || pageEvidence.length > 0) && <div className="paper-region paper-page-markers" data-page-only="true"
       data-evidence-block={pageEvidence.map(item => item.evidenceId).join(" ") || undefined}
       data-active={pageEvidence.some(item => item.evidenceId === active)}>
       {pageBlocks.map(block => <span key={block.blockId} data-block-id={block.blockId}
@@ -143,8 +141,8 @@ function Page({ document, pageNumber, size, blocks, evidence, active }: {
   </div>;
 }
 
-export function OriginalPaper({ url, pdf, sourceId, bundleVersion, evidence, active, onReady, onUnavailable }: SourceScope & {
-  url: string; pdf: PDF; evidence: Evidence; active?: string; onReady: () => void; onUnavailable?: () => void;
+export function OriginalPaper({ url, pdf, evidence, active, onReady, onUnavailable }: {
+  url: string; pdf: PDF; evidence: readonly PaperEvidence[]; active?: string; onReady: () => void; onUnavailable?: () => void;
 }) {
   const [loaded, setLoaded] = useState<{ url: string; document?: PDFDocumentProxy }>();
   const document = loaded?.url === url ? loaded.document : undefined;
@@ -170,8 +168,6 @@ export function OriginalPaper({ url, pdf, sourceId, bundleVersion, evidence, act
     if (document) onReady();
     else if (error) onUnavailable?.();
   }, [document, error, onReady, onUnavailable]);
-  const items = useMemo(() => evidence.filter(item => matchesPdfLayout(item, { sourceId, bundleVersion }, pdf)),
-    [evidence, sourceId, bundleVersion, pdf]);
   const sizes = useMemo(() => new Map(pdf.pages?.map(page => [page.page, page])), [pdf.pages]);
   const grouped = useMemo(() => {
     const grouped = new Map<number, Map<string, Block>>();
@@ -193,6 +189,6 @@ export function OriginalPaper({ url, pdf, sourceId, bundleVersion, evidence, act
     !document ? <span role="status">加载原版 PDF…</span> : Array.from({ length: document.numPages }, (_, index) => {
       const pageNumber = index + 1;
       return <Page key={`${url}:${pageNumber}`} document={document} pageNumber={pageNumber} size={sizes.get(pageNumber)}
-        blocks={[...(grouped.get(pageNumber)?.values() ?? [])]} evidence={items} active={active} />;
+        blocks={[...(grouped.get(pageNumber)?.values() ?? [])]} evidence={evidence} active={active} />;
     })}</div>;
 }
