@@ -60,6 +60,9 @@ class CandidateParser(Protocol):
 
 
 INGESTION_SERVICES = ["mineru"]
+MARKDOWN_SUFFIXES = (".md", ".markdown")
+_ORIGINAL_NAMES = {"paper_pdf": "source.pdf", "article_html": "source.html", "article_markdown": "source.md"}
+_SERVICES = {"paper_pdf": "mineru", "article_html": "local-html", "article_markdown": "local-markdown"}
 
 
 def _source_kind(item: dict[str, Any]) -> str:
@@ -67,11 +70,11 @@ def _source_kind(item: dict[str, Any]) -> str:
 
 
 def _original_name(item: dict[str, Any]) -> str:
-    return {"paper_pdf": "source.pdf", "article_html": "source.html"}[_source_kind(item)]
+    return _ORIGINAL_NAMES[_source_kind(item)]
 
 
 def _service(item: dict[str, Any]) -> str:
-    return "local-html" if _source_kind(item) == "article_html" else "mineru"
+    return _SERVICES[_source_kind(item)]
 
 
 def _identity(item: dict[str, Any]) -> str:
@@ -81,12 +84,15 @@ def _identity(item: dict[str, Any]) -> str:
 def _inspect_source(source: Path) -> tuple[str, str]:
     if not source.is_file():
         raise WorkspaceError("source_file_missing", "Source file does not exist")
-    if source.suffix.lower() == ".html":
+    suffix = source.suffix.lower()
+    if suffix == ".html":
         from .html_article import article_identity
         return "article_html", article_identity(source)
-    if source.suffix.lower() == ".pdf" and source.read_bytes()[:4] == b"%PDF":
+    if suffix in MARKDOWN_SUFFIXES:
+        return "article_markdown", "markdown-original:" + _file_fingerprint(source)
+    if suffix == ".pdf" and source.read_bytes()[:4] == b"%PDF":
         return "paper_pdf", "paper-original:" + _file_fingerprint(source)
-    raise WorkspaceError("source_pdf_invalid", "Source must be a PDF or complete saved HTML file")
+    raise WorkspaceError("source_pdf_invalid", "Source must be a PDF, complete saved HTML, or Markdown file")
 
 
 class CandidateRuntime(Protocol):
@@ -231,7 +237,7 @@ class IngestionApplication:
     """Persistent single-document Inbox and ingestion application boundary.
 
     Default ingestion publishes a validated Parser Bundle without any AI review:
-    it declares only the selected Parser (`mineru` or local HTML). Runtime
+    it declares only the selected Parser (MinerU, local HTML, or local Markdown). Runtime
     capabilities are verified on their own boundary and are not part of this flow.
     """
 
@@ -259,6 +265,9 @@ class IngestionApplication:
         if _source_kind(item) == "article_html":
             from .html_article import LocalHTMLParser
             return self.html_parser or LocalHTMLParser()
+        if _source_kind(item) == "article_markdown":
+            from .library_import import LocalMarkdownParser
+            return LocalMarkdownParser(item["file_name"])
         return self.parser
 
     def _service_config(self, item) -> dict[str, dict[str, Any]]:
@@ -383,7 +392,7 @@ class IngestionApplication:
             item_id = uuid.uuid4().hex
             root = self._root(item_id)
             root.mkdir(parents=True)
-            stored = root / {"paper_pdf": "source.pdf", "article_html": "source.html"}[kind]
+            stored = root / _ORIGINAL_NAMES[kind]
             shutil.copy2(source, stored)
             item = {
                 "item_id": item_id,
@@ -393,7 +402,7 @@ class IngestionApplication:
                 "fingerprint": fingerprint,
                 "topic_title": topic_title.strip() if topic_title else None,
                 "topic_id": topic_id,
-                "services": ["local-html" if kind == "article_html" else "mineru"],
+                "services": [_SERVICES[kind]],
                 "status": "awaiting_confirmation",
                 "confirmation": None,
                 "run": None,
@@ -445,12 +454,11 @@ class IngestionApplication:
                         "Another unfinished Inbox task already uses this original",
                     )
                 old_original = root / _original_name(item)
-                stored = root / {"paper_pdf": "source.pdf", "article_html": "source.html"}[kind]
+                stored = root / _ORIGINAL_NAMES[kind]
                 shutil.copy2(source, stored)
                 if old_original != stored:
                     old_original.unlink(missing_ok=True)
-                item.update(source_kind=kind, identity=identity,
-                            services=["local-html" if kind == "article_html" else "mineru"])
+                item.update(source_kind=kind, identity=identity, services=[_SERVICES[kind]])
                 item["file_name"] = source.name
                 item["fingerprint"] = replacement_fingerprint
             if topic_title is not None:
@@ -654,7 +662,11 @@ class IngestionApplication:
             item["status"] = "processing"
             self._write(item_id, item)
 
-        existing = SourceLibrary(self.workspace).find(_identity(item))
+        library = SourceLibrary(self.workspace)
+        existing = library.find(_identity(item))
+        if existing is None and _source_kind(item) == "article_markdown":
+            # Direct imports before Inbox used independent registration identities.
+            existing = library.find_original(source, source_kind="article_markdown")
         if existing is None:
             candidate = root / "candidate"
             parse_step = run["steps"]["parse"]

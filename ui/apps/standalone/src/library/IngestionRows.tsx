@@ -1,6 +1,7 @@
 import { LibraryProgress } from "./LibraryProgress";
 import type { IngestionItem, LibrarySource, LibraryTopic, ProcessingBatch } from "@focus/reader-contracts";
 import { UNFILED } from "./topic-view";
+import { ingestionFormat } from "./ingestion-format";
 
 export type IngestionRowsProps = {
   sources: readonly LibrarySource[]; topics: readonly LibraryTopic[]; topic: string;
@@ -27,7 +28,7 @@ export function IngestionRows({ sources, topics, topic, taskInbox, taskBatches, 
   return <section className="library-ingestions" aria-label="入库中">{rows.map(({ key, item, status, parser, target, label, disabled, recover }) => {
     const percent = typeof item.parserProgress?.percent === "number" && Number.isFinite(item.parserProgress.percent) ? item.parserProgress.percent : undefined;
     return <article className="library-ingestion" key={key} data-item-id={item.itemId}>
-      <span className="source-badge">{/\.pdf$/i.test(item.fileName) ? "PDF" : "HTML"}</span>
+      <span className="source-badge">{ingestionFormat(item.fileName)}</span>
       <div className="library-source-main"><strong>{item.fileName}</strong><div className="library-source-meta"><span role="status">{item.parserBackend ? `${item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"} · ` : ""}{status}{item.selectionReason ? ` · ${item.selectionReason}` : ""}{parser ? ` · ${parser}` : ""}</span>{percent !== undefined && <span>{Math.round(percent)}%</span>}</div><small>{target ? `将加入 #${target}` : "不关联专题"}</small></div>
       {percent !== undefined && <LibraryProgress label={`${item.fileName} 解析进度`} max={100} value={Math.max(0, Math.min(100, percent))} />}
       {recover && <button disabled={disabled} onClick={recover}>{label}</button>}

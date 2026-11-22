@@ -90,6 +90,16 @@ class BatchApplication:
             return any(item_id in b['itemIds'] and b['status'] in ('confirmed', 'running', 'paused')
                        for b in self._read().values())
 
+    def requires_backend(self, batch_id, *, item_id=None):
+        with self.lock:
+            batch = self._read().get(batch_id)
+            if not batch:
+                return False
+            item_ids = batch['itemIds']
+            if item_id is not None:
+                item_ids = [item_id] if item_id in item_ids else []
+            return any(self.processing.wants_blog(i) for i in item_ids)
+
     def _view(self, batch):
         items = []
         for index, item_id in enumerate(batch['itemIds']):

@@ -12,6 +12,7 @@ import { applyAppearance, readPreference, type Theme, type Density } from "./app
 
 import { LibraryToolbar } from "./library/LibraryToolbar";
 import { LibraryPage } from "./library/LibraryPage";
+import { ingestionFormat } from "./library/ingestion-format";
 import { matchesStatus, sourceStatus, type StatusFilter } from "./library/source-status";
 import { UNFILED, sortingDisabledReason } from "./library/topic-view";
 
@@ -435,7 +436,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     if (!host.startBatch || locked.current) return;
     locked.current = true; setBusy("确认"); setError(""); setNotice("");
     try {
-      const started = await identified(`start:${item.itemId}`, id => host.startBatch!([item.itemId], id));
+      const started = await identified(`start:${item.itemId}`, id => ingestionFormat(item.fileName) === "Markdown"
+        ? host.startBatch!([item.itemId], id, false)
+        : host.startBatch!([item.itemId], id));
       if (!started.ok) { setError(started.error.message); return; }
       await refresh();
     } catch (e) { setError(String(e)); }
@@ -516,7 +519,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     } catch (e) { setError(String(e)); setRetryAction(() => () => void controlBatch(batchId, action, itemId, riskChoiceId)); }
     finally { locked.current = false; setBusy(""); }
   }
-  const includesPdf = selectedFiles.some(file => /\.pdf$/i.test(file.name));
+  const includesPdf = selectedFiles.some(file => ingestionFormat(file.name) === "PDF");
+  const markdownOnly = selectedFiles.length > 0 && selectedFiles.every(file => ingestionFormat(file.name) === "Markdown");
+  const generateUploadBlog = !markdownOnly && (includesPdf || generateOnUpload);
   async function uploadAndStart() {
     if (locked.current || !selectedFiles.length || !host.stageIngestion || !host.startBatch) return;
     const files = [...selectedFiles], topicTitle = uploadTopic.trim();
@@ -538,7 +543,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         if (!ids.includes(staged.value.itemId)) ids.push(staged.value.itemId);
       }
       if (ids.length) {
-        const started = await identified(`upload:${ids.join(",")}`, id => host.startBatch!(ids, id, includesPdf || generateOnUpload));
+        const started = await identified(`upload:${ids.join(",")}`, id => host.startBatch!(ids, id, generateUploadBlog));
         if (!started.ok) { setError(started.error.message); return; }
       }
       if (failures.length) {
@@ -553,11 +558,19 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     } catch (e) { setError(String(e)); }
     finally { locked.current = false; setBusy(""); }
   }
-  function chooseUpload(selected: readonly File[] = []) {
-    if (selected.some(f => !/\.(pdf|html)$/i.test(f.name))) { setError("请选择 PDF 或 SingleFile HTML"); return; }
+  function selectUploadFiles(selected: readonly File[]) {
+    if (selected.some(file => !ingestionFormat(file.name))) {
+      setError("请选择 PDF、SingleFile HTML 或 Markdown");
+      return false;
+    }
     setSelectedFiles(selected);
+    setError("");
+    return true;
+  }
+  function chooseUpload(selected: readonly File[] = []) {
+    if (!selectUploadFiles(selected)) return;
     setUploadTopic(selectedTopic?.title ?? "");
-    setGenerateOnUpload(true); setError(""); setUploadOpen(true);
+    setGenerateOnUpload(true); setUploadOpen(true);
   }
   const uploadDisabled = !!busy || active || !host.stageIngestion || !host.startBatch;
   const batchStatusText = { confirmed: "待处理", running: "处理中", paused: "已暂停", completed: "完成", partial: "部分完成" };
@@ -696,8 +709,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       {taskInbox.length > 0 && <section className="library-inbox" aria-label="Inbox"><div className="library-inbox-heading"><h2>单项上传</h2><button disabled={!!busy} onClick={() => void refresh()}>刷新状态</button></div>{taskInbox.map(item => <article key={item.itemId} className="library-inbox-item" data-task-item-id={item.itemId} tabIndex={-1} data-status={item.status}>
         <div><strong>{item.fileName}</strong><span>{statusText[item.status]}</span><small>{item.topicTitle ?? topics.find(t => t.topicId === item.topicId)?.title ?? "不关联专题"}</small></div>
         {item.parserBackend && <p role="status">{item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"}{item.selectionReason ? ` · ${item.selectionReason}` : ""}{item.parserProgress?.status ? ` · ${item.parserProgress.status === "queued" ? "排队中" : item.parserProgress.status === "running" ? "解析中" : item.parserProgress.status}` : ""}{typeof item.parserProgress?.percent === "number" ? ` · ${Math.round(item.parserProgress.percent)}%` : ""}</p>}
-        {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>PDF 由运行 FOCUS 后端的服务器自动选择本地 MinerU 或远端 MinerU API；HTML 使用本地解析。解析仅用于建立 Source 并关联专题，不会自动进入阅读。</p>
-          <button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>开始解析并生成博客</button></div>}
+        {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>PDF 由服务器自动选择本地 MinerU 或远端 MinerU API。HTML 和 Markdown 在本地解析。</p>
+          <button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>{ingestionFormat(item.fileName) === "Markdown" ? "仅解析入库" : "开始解析并生成博客"}</button></div>}
         {item.status === "processing" && <button disabled={!!busy || !host.cancelIngestion} onClick={() => host.cancelIngestion && void ingest("取消", () => host.cancelIngestion!(item.itemId))}>取消</button>}
         {(item.status === "status_check_required" || (item.status === "cancelled" && item.resubmitRisk)) && <div className="inbox-confirmation inbox-resubmission">
           <p>上次提交结果未知，重新提交可能重复解析。</p>
@@ -842,10 +855,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <form onSubmit={e => { e.preventDefault(); void uploadAndStart(); }}>
         <h2>上传材料</h2>
         <UploadTopicPicker topics={topics} value={uploadTopic} onChange={setUploadTopic} disabled={!!busy} />
-        {!includesPdf && <label className="upload-parse-only"><input type="checkbox" disabled={!!busy} checked={!generateOnUpload} onChange={e => setGenerateOnUpload(!e.target.checked)} />仅解析入库</label>}
-        <label className="upload-file">{selectedFiles.map(f => f.name).join("、") || "PDF / HTML"}<input aria-label="上传材料" type="file" multiple disabled={!!busy} accept=".pdf,.html,application/pdf,text/html" onChange={e => setSelectedFiles(Array.from(e.target.files ?? []))} /></label>
+        {!includesPdf && !markdownOnly && <label className="upload-parse-only"><input type="checkbox" disabled={!!busy} checked={!generateOnUpload} onChange={e => setGenerateOnUpload(!e.target.checked)} />仅解析入库</label>}
+        <label className="upload-file">{selectedFiles.map(f => f.name).join("、") || "PDF / HTML / Markdown"}<input aria-label="上传材料" type="file" multiple disabled={!!busy} accept=".pdf,.html,.md,.markdown,application/pdf,text/html,text/markdown" onChange={e => selectUploadFiles(Array.from(e.target.files ?? []))} /></label>
         {error && <p role="alert">{error}</p>}
-        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length}>{busy ? "开始中…" : includesPdf ? "上传并准备阅读" : generateOnUpload ? "开始解析并生成博客" : "仅解析入库"}</button></div>
+        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length}>{busy ? "开始中…" : includesPdf ? "上传并准备阅读" : generateUploadBlog ? "开始解析并生成博客" : "仅解析入库"}</button></div>
       </form>
     </dialog>
     {blogViewer && host.blogUrl && <dialog className="workspace-blog-viewer" ref={blogDialog} aria-labelledby="blog-viewer-title" onCancel={e => { e.preventDefault(); closeBlogViewer(); }}>
