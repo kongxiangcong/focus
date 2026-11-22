@@ -9,9 +9,13 @@ export interface ValidatedAnswerEvidence extends SourceScope {
   quote: { exact: string; prefix: string; suffix: string };
   relation: "supports" | "contradicts" | "context";
 }
+export type PdfBox = readonly [number, number, number, number];
+
 export interface ReadingDocument extends SourceScope { generation?: number; title: string; markdown: string; lineCount: number;
-  pdf?: { version: string; pdfHash: string; blocks: readonly {
-    blockId: string; page: number; bbox: readonly [number, number, number, number] | null; sourceLines: readonly [number, number]
+  pdf?: { version: string; pdfHash: string;
+    pages?: readonly { page: number; width?: number; height?: number; rotation?: number }[];
+    blocks: readonly {
+    blockId: string; page: number; bbox: PdfBox | null; bboxes?: readonly PdfBox[]; sourceLines: readonly [number, number]
   }[] };
   translation?: { status: string; planId?: string; chunks: readonly { id: string; text: string; blockIds: readonly string[]; sourceLines: readonly [number, number] }[] };
 }
