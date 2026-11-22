@@ -44,7 +44,7 @@ async function renderPaper(document: ReadingDocument, evidence: ValidatedAnswerE
   await act(async () => { render(<ConversationReader host={host} />); });
 }
 
-it("opens all boxes of a far PDF block before the destination page renders", async () => {
+it("shows both columns of a far PDF block before the destination page renders", async () => {
   vi.stubGlobal("IntersectionObserver", class {
     constructor(private readonly callback: IntersectionObserverCallback) {}
     observe(node: HTMLElement) {
@@ -58,11 +58,16 @@ it("opens all boxes of a far PDF block before the destination page renders", asy
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(900);
   vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(12000);
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-    if (this.closest('[data-pdf-page="12"]')) return new DOMRect(0, 9000, 600, 800);
+    if (this.closest('[data-pdf-page="12"]') && this.matches("[data-block-id]")) {
+      const scrollTop = this.closest<HTMLElement>(".source-original")!.scrollTop;
+      const y = this.style.left === "10%" ? 9690 : 9240;
+      return new DOMRect(0, y - scrollTop, 240, 60);
+    }
     return new DOMRect(0, 0, 600, 900);
   });
-  const scroll = vi.fn();
-  HTMLElement.prototype.scrollTo = scroll;
+  HTMLElement.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
+    if (typeof options === "object") this.scrollTop = options.top ?? 0;
+  };
   const evidence = {
     sourceId: "paper", bundleVersion: "body", layoutVersion: "layout", blockIds: ["11-0"],
     evidenceId: "a".repeat(24), messageId: "answer", discussionId: "discussion", answerRevision: "r1",
@@ -75,8 +80,8 @@ it("opens all boxes of a far PDF block before the destination page renders", asy
       version: "layout", pdfHash: "hash",
       pages: Array.from({ length: 12 }, (_, index) => ({ page: index + 1, width: 600, height: 800, rotation: 0 })),
       blocks: [{
-        blockId: "11-0", page: 12, sourceLines: [1, 1], bbox: [0.1, 0.2, 0.4, 0.3],
-        bboxes: [[0.1, 0.2, 0.4, 0.3], [0.6, 0.2, 0.9, 0.3]],
+        blockId: "11-0", page: 12, sourceLines: [1, 1], bbox: [0.1, 0.8625, 0.4, 0.9375],
+        bboxes: [[0.1, 0.8625, 0.4, 0.9375], [0.6, 0.3, 0.9, 0.375]],
       }],
     },
   };
@@ -91,11 +96,16 @@ it("opens all boxes of a far PDF block before the destination page renders", asy
   const card = await screen.findByLabelText("原文证据");
   expect(within(card).getByText("Two columns.")).toBeVisible();
   expect(within(card).getByRole("button", { name: "下一处（1/2）" })).toBeVisible();
-  await waitFor(() => expect(scroll).toHaveBeenLastCalledWith({ top: 8712, behavior: "instant" }));
   const regions = Array.from(destination.querySelectorAll("[data-active=true]"));
   expect(regions).toHaveLength(2);
-  expect(regions[0]).toHaveStyle({ left: "10%", top: "20%" });
-  expect(regions[1]).toHaveStyle({ left: "60%", top: "20%" });
+  expect(regions[0]).toHaveStyle({ left: "10%", top: "86.25%" });
+  expect(regions[1]).toHaveStyle({ left: "60%", top: "30%" });
+  const pane = screen.getByLabelText("文章原文").getBoundingClientRect();
+  for (const region of regions) {
+    const rect = region.getBoundingClientRect();
+    expect(rect.top).toBeGreaterThanOrEqual(pane.top);
+    expect(rect.bottom).toBeLessThanOrEqual(pane.bottom);
+  }
 });
 
 it("synchronizes manual view changes using the linked PDF block and translated paragraph", async () => {

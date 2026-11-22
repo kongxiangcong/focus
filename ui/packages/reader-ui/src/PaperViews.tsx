@@ -155,7 +155,17 @@ export function OriginalPaper({ url, pdf, evidence, active, onReady, onUnavailab
       lib.GlobalWorkerOptions.workerSrc = workerUrl;
       const task = lib.getDocument({ url, isEvalSupported: false, cMapUrl: "/pdfjs/cmaps/", cMapPacked: true,
         standardFontDataUrl: "/pdfjs/standard_fonts/", wasmUrl: "/pdfjs/wasm/", iccUrl: "/pdfjs/iccs/" });
-      dispose = () => { void task.destroy(); };
+      dispose = () => {
+        // PDF.js can reject inside the worker if it is terminated during startup.
+        // Give the document a chance to settle, with bounded cleanup for a stalled request.
+        let deadline: ReturnType<typeof setTimeout> | undefined;
+        const waitLimit = new Promise<void>(resolve => { deadline = setTimeout(resolve, 30_000); });
+        const settled = task.promise.then(() => undefined, () => undefined);
+        void Promise.race([settled, waitLimit]).then(() => {
+          clearTimeout(deadline);
+          return task.destroy();
+        }).catch(() => {});
+      };
       const document = await task.promise;
       if (live) setLoaded({ url, document });
     }

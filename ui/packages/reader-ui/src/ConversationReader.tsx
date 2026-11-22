@@ -438,11 +438,27 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       scrollAnimation.current = null;
     }
     const targetRect = el.getBoundingClientRect(), paneRect = pane.getBoundingClientRect();
-    const visibleTarget = targetRect.top >= paneRect.top && targetRect.bottom <= paneRect.bottom;
-    setCardAtTop(automatic && visibleTarget && targetRect.bottom > paneRect.bottom - 200);
+    const cardClearance = 200;
+    let { top, bottom } = targetRect;
+    let inset = pane.clientHeight * .32;
+    const pdfPage = el.closest("[data-pdf-page]");
+    const regions = pdfPage?.querySelectorAll(`[data-evidence-block~="${id}"]:not([data-page-only=true])`);
+    if (regions && regions.length > 1) {
+      const boxes = Array.from(regions, region => region.getBoundingClientRect());
+      const pageTop = Math.min(...boxes.map(box => box.top));
+      const pageBottom = Math.max(...boxes.map(box => box.bottom));
+      const height = pageBottom - pageTop;
+      if (height <= pane.clientHeight) {
+        top = pageTop;
+        bottom = pageBottom;
+        inset = Math.min(inset, Math.max(0, pane.clientHeight - height - cardClearance));
+      }
+    }
+    const visibleTarget = top >= paneRect.top && bottom <= paneRect.bottom;
+    setCardAtTop(automatic && visibleTarget && bottom > paneRect.bottom - cardClearance);
     if (automatic && visibleTarget) return;
     const from = pane.scrollTop;
-    const to = Math.max(0, Math.min(pane.scrollHeight - pane.clientHeight, from + targetRect.top - paneRect.top - pane.clientHeight * .32));
+    const to = Math.max(0, Math.min(pane.scrollHeight - pane.clientHeight, from + top - paneRect.top - inset));
     if (keyboard || reduced() || Math.abs(to - from) > pane.clientHeight * 1.2) pane.scrollTo({ top: to, behavior: "instant" });
     else {
       const started = performance.now();
