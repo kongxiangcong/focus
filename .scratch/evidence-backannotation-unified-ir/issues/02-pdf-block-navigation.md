@@ -4,9 +4,13 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** resolved
 
-- [ ] 通过正常入库读取既有及带前缀的 MinerU middle、content_list、content_list_v2 归档。Batch B 继续使用现有正文生成流程。
-- [ ] 从回答打开真实跨栏与旋转页，所有可靠框与对象对齐。仅按明确坐标契约归一化；坐标越界、缺乏基准或未知时，有可靠页码则跳页，同页多个页级标记可区分。
-- [ ] 校验来源、bundleVersion 与 layoutVersion。版面摘要覆盖 IR 版本、PDF、正文、页尺寸、旋转、有序块与几何。仅改变几何即可使旧框及旧页码失效，原引文仍可读。
-- [ ] 按页尺寸占位并按需加载。从已渲染页点击远端证据，无需先加载全部页面即可定位。
+- [x] 通过正常入库读取既有及带前缀的 MinerU middle、content_list、content_list_v2 归档。Batch B 继续使用现有正文生成流程。
+- [x] 从回答打开真实跨栏与旋转页，所有可靠框与对象对齐。仅按明确坐标契约归一化；坐标越界、缺乏基准或未知时，有可靠页码则跳页，同页多个页级标记可区分。
+- [x] 校验来源、bundleVersion 与 layoutVersion。版面摘要覆盖 IR 版本、PDF、正文、页尺寸、旋转、有序块与几何。仅改变几何即可使旧框及旧页码失效，原引文仍可读。
+- [x] 按页尺寸占位并按需加载。从已渲染页点击远端证据，无需先加载全部页面即可定位。
+
+## Comments
+
+已合入 `778de02`。MinerU 归档、独立版面版本、页占位和远页定位通过定向测试及真实论文复验。参见 [Batch B 验收](../batch-b-acceptance.md)。 审查补充见 `5a49256`。

@@ -1,6 +1,6 @@
 # 回答证据反标与统一输入解析
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -71,3 +71,12 @@ Status: ready-for-agent
 Batch B 的放行条件是读者能在真实论文上核对引文，并能在版面不可验证时正确转入中文译文。Batch C 在此基础上推广统一解析与精读联动。架构以 ADR 0034 的来源绑定及导航语义为基础。
 
 依据：[总控索引](../../docs/design/20261122-refactor/00_focus_refactor_master_index.md) · [专题设计 01](../../docs/design/20261122-refactor/01_focus_evidence_backannotation_and_unified_ir_design.md) · [ADR 0034](../../docs/adr/0034-source-bound-answer-evidence.md)
+
+## 交付验收
+
+实现已合入 `integration/evidence-backannotation-unified-ir`，本地 11 张工单均已验收。
+
+- Batch B 通过本地 MinerU Standard 的真实 PDF 入库及 Chromium 核对。复验记录包含原件和旋转件、跨栏多框、译文回退、回答反跳、导航竞态和旧 Bundle。 [Batch B 验收](batch-b-acceptance.md)
+- Batch C 将同一真实 Standard 归档经 Inbox 发布为 PDF v1 IR。序列化后保留 374 行正文及原有可靠 PDF 区域。浏览器复验原版框、已知页和译文回退。HTML 与 Markdown 的正常入库、逐字签发和恢复通过 HTTP 测试。 [PDF](issues/08-pdf-ir-first.md) · [HTML](issues/09-html-ir-first.md) · [Markdown](issues/10-markdown-inbox.md)
+- Chromium 从匹配的精读段点「对话证据」，先定位到回答编号，再从编号进入旋转论文第 8 页或译文对应段。返回和 SSE 重连后，阅读游标仍在 `plan-001/chunk-004`、修订 5，手动书签保持。问答文本和译文使用确定性测试运行时，证据和导航走生产流程。 [精读联动](issues/11-deep-reading-evidence.md)
+- 审查补充修复见 `5a49256`，覆盖带格式的 PDF 对齐、译文未就绪时的导航、参考式图片引用、Markdown Setext 章节及共用契约和设计令牌。
