@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readerSuccess, type ReaderHost, type ReaderHostResult, type ReadingWindow, type ValidatedAnswerEvidence } from "@focus/reader-contracts";
+import { readerSuccess, type ReaderChunk, type ReaderHost, type ReaderHostResult, type ReadingWindow, type ValidatedAnswerEvidence } from "@focus/reader-contracts";
 import { WorkspaceApp } from "./WorkspaceApp";
 
 const { getDocument } = vi.hoisted(() => ({ getDocument: vi.fn() }));
@@ -40,15 +40,16 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-async function setup(missingSecondTarget = false) {
+async function setup(missingSecondTarget = false, reading = snapshot) {
   let resolvePdf!: (document: { numPages: number; getPage: (page: number) => Promise<unknown> }) => void;
   let rejectPdf!: (error: Error) => void;
   getDocument.mockReturnValue({ promise: new Promise((resolve, reject) => { resolvePdf = resolve; rejectPdf = reject; }), destroy: async () => {} });
   const publish = new Set<(result: ReaderHostResult<ReadingWindow>) => void>();
   const host: ReaderHost = {
-    getReadingWindow: async () => readerSuccess(snapshot),
+    getReadingWindow: async () => readerSuccess(reading),
     getSourceDocument: async () => readerSuccess({
       sourceId: "paper", title: "Paper", bundleVersion: "bundle", markdown: "First paragraph.\n\nSecond paragraph.", lineCount: 3,
+      blocks: [{ blockId: "new-first", offsets: [0, 16] }, { blockId: "new-second", offsets: [18, 35] }],
       pdf: {
         pdfHash: "original", version: "layout",
         blocks: [
@@ -61,9 +62,9 @@ async function setup(missingSecondTarget = false) {
         ...(!missingSecondTarget ? [{ id: "translated-second", text: "第二段译文。", blockIds: ["second"], sourceLines: [3, 3] as const }] : []),
       ] },
     }),
-    sourceOriginalUrl: () => "/paper.pdf", selectDiscussionSource: async () => readerSuccess(snapshot),
-    openSource: async () => readerSuccess(snapshot),
-    continueReading: vi.fn(async () => readerSuccess(snapshot)), sendMessage: async () => readerSuccess(snapshot),
+    sourceOriginalUrl: () => "/paper.pdf", selectDiscussionSource: async () => readerSuccess(reading),
+    openSource: async () => readerSuccess(reading),
+    continueReading: vi.fn(async () => readerSuccess(reading)), sendMessage: async () => readerSuccess(reading),
     subscribe: listener => { publish.add(listener); return () => { publish.delete(listener); }; },
   };
   HTMLElement.prototype.scrollTo = function (options?: ScrollToOptions | number, y?: number) {
@@ -80,7 +81,7 @@ async function setup(missingSecondTarget = false) {
     host,
     completePdf: () => resolvePdf({ numPages: 2, getPage: async pageNumber => ({ pageNumber, getViewport: () => ({ width: 100, height: 120 }) }) }),
     failPdf: () => rejectPdf(new Error("PDF failed")),
-    reconnect: () => publish.forEach(listener => listener(readerSuccess({ ...snapshot, revision: 2 }))),
+    reconnect: () => publish.forEach(listener => listener(readerSuccess({ ...reading, revision: 2 }))),
   };
 }
 
@@ -167,4 +168,42 @@ it("does not replay an unavailable citation after the reader closes its card and
   await act(async () => session.reconnect());
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
   expect(pane.scrollTop).toBe(0);
+});
+
+it("opens the answer before its source from a chunk bound to the current source blocks", async () => {
+  const chunk: ReaderChunk = {
+    sourceId: "paper", bundleVersion: "bundle", planId: "plan", chunkId: "chunk-1", index: 1, total: 2,
+    sectionPath: ["Method"], sourceLines: [1, 1], sourceMarkdown: "First paragraph.", blockIds: ["new-first"],
+    images: [], relevantGlossary: [], translation: "第一段译文。", presentationStatus: "presented",
+  };
+  const current: ReaderChunk = { ...chunk, chunkId: "chunk-2", index: 2, sourceLines: [3, 3], sourceMarkdown: "Second paragraph.", blockIds: ["new-second"] };
+  const messages = snapshot.conversation.map(message => ({
+    ...message, evidence: [first, { ...second, quote: { ...second.quote, prefix: "unmatched context" } }],
+  }));
+  const reading: ReadingWindow = { ...snapshot, status: "reading", current, history: [chunk], conversation: messages, readingStarted: true,
+    timeline: [{ kind: "reading", chunk }, { kind: "reading", chunk: current }, { kind: "message", messageId: "answer" }] };
+  const bookmark = "focus.sourceBookmark:local:paper:0:bundle";
+  const before = JSON.stringify({ line: 1, offset: 28 });
+  localStorage.setItem(bookmark, before);
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+  const session = await setup(false, reading);
+  await act(async () => session.completePdf());
+  const mode = screen.getByRole("combobox", { name: "阅读方式" });
+  fireEvent.change(mode, { target: { value: "chunks" } });
+  const stream = screen.getByRole("main", { name: "阅读与对话" });
+  const disclosure = await within(stream).findByRole("button", { name: "对话证据 · 1 条" });
+  expect(within(stream).getAllByRole("button", { name: /对话证据/ })).toHaveLength(1);
+  expect(stream.textContent).not.toContain("[[e:");
+  fireEvent.click(disclosure);
+  fireEvent.click(within(stream).getByRole("button", { name: /First paragraph/ }));
+  const answer = within(screen.getByLabelText("文章对话"));
+  const number = await answer.findByRole("button", { name: "1" });
+  expect(number).toHaveFocus();
+  expect(number).toHaveAttribute("data-answer-target", "true");
+  expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
+  expect(mode).toHaveValue("chat");
+  fireEvent.click(number);
+  expect(await screen.findByLabelText("原文证据")).toBeVisible();
+  expect(localStorage.getItem(bookmark)).toBe(before);
+  expect(session.host.continueReading).not.toHaveBeenCalled();
 });

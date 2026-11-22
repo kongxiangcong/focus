@@ -22,6 +22,7 @@ from .reading_workspace import (
     validate_source_id,
 )
 from .source_library import SourceLibrary
+from .source_blocks import source_lines
 from .reading_progress import enqueue
 from .reading_structure import validate_structure
 
@@ -188,7 +189,7 @@ class ReadingCore:
                     "selected_plan_id": selected_id, "selected_ready": selected_ready,
                     "candidate": bool(selected_id and run["plan_id"] != selected_id)}
 
-    def shared_translation(self, source_id, document):
+    def shared_translation(self, source_id, document, source):
         with _LOCK:
             run = self.status(source_id)
             if not run or run['bundle'] != document['bundleVersion']:
@@ -197,16 +198,14 @@ class ReadingCore:
             if not plan:
                 return {'status': run['status'], 'chunks': []}
             root = self._root(source_id) / 'reading' / 'plans' / plan
-            lines = document['markdown'].splitlines()
             chunks = []
             for chunk in _read_chunk_records(root / 'chunks.jsonl'):
                 key = chunk['chunk_id']
                 record = _read_reading_record(root / 'records' / f'{key}.json', key)
                 start, end = chunk['source_lines']
                 chunks.append({'id': key, 'sourceLines': [start, end],
-                               'blockIds': list(dict.fromkeys(b['blockId'] for b in document['pdf']['blocks']
-                                                           if b['sourceLines'][0] <= end and start <= b['sourceLines'][1])),
-                               'text': record['translation'] or '\n'.join(lines[start - 1:end])})
+                               'blockIds': source.chunk_block_ids(start, end),
+                               'text': record['translation'] or source.text(start, end)})
             return {'status': 'ready', 'planId': plan, 'chunks': chunks}
 
     def open_ready(self, source_id: str, *, request_id: str) -> dict:
@@ -323,7 +322,7 @@ class ReadingCore:
             old_map = {t["source"].casefold(): t["translation"] for t in old_terms}
             new_map = {t["source"].casefold(): t["translation"] for t in terms}
             changed = {term for term in old_map.keys() | new_map.keys() if old_map.get(term) != new_map.get(term)}
-            lines = (self._root(source_id) / "parser-bundle" / "content.md").read_text(encoding="utf-8").splitlines()
+            lines = source_lines((self._root(source_id) / "parser-bundle" / "content.md").read_text(encoding="utf-8"))
             affected = []
             for chunk in _read_chunk_records(root / "chunks.jsonl"):
                 start, end = chunk["source_lines"]
@@ -598,7 +597,7 @@ class ReadingCore:
                        context: dict, coverage: list[list[int]]) -> dict:
         with _LOCK:
             run = self._guard_candidate(source_id, run_id, attempt, bundle, "context", {"context": context, "coverage": coverage})
-            total = len((self._root(source_id) / "parser-bundle" / "content.md").read_text(encoding="utf-8").splitlines())
+            total = len(source_lines((self._root(source_id) / "parser-bundle" / "content.md").read_text(encoding="utf-8")))
             if not isinstance(context, dict) or not context.get("structure") or not isinstance(context.get("terms"), list) \
                     or not isinstance(context.get("symbols"), list) or not isinstance(context.get("references"), list):
                 raise WorkspaceError("reading_context_invalid", "Whole-source context is incomplete")
@@ -622,7 +621,7 @@ class ReadingCore:
                 raise WorkspaceError("reading_plan_invalid", "Excluded reference ranges are invalid")
             records, glossary = _reading_plan_records(source_root / "parser-bundle", draft,
                                                       excluded_ranges=excluded)
-            lines = (source_root / "parser-bundle" / "content.md").read_text(encoding="utf-8").splitlines()
+            lines = source_lines((source_root / "parser-bundle" / "content.md").read_text(encoding="utf-8"))
             heading_paths = _source_heading_paths(lines)
             claimed = set()
             for start, end in excluded:
@@ -821,7 +820,7 @@ class ReadingApplication:
 
     def _ranges(self, source_id: str) -> list[dict]:
         bundle = self.core._root(source_id) / "parser-bundle"
-        lines = (bundle / "content.md").read_text(encoding="utf-8").splitlines()
+        lines = source_lines((bundle / "content.md").read_text(encoding="utf-8"))
         if not lines:
             raise WorkspaceError("reading_source_empty", "Source has no readable content")
         paths = _source_heading_paths(lines)

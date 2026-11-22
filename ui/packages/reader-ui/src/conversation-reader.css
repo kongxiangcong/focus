@@ -156,7 +156,7 @@
 /* Evidence marks & floating cards */
 .source-evidence { background:var(--reader-mark-soft); color:inherit; border-radius:2px; transition:background-color var(--reader-duration-quick) var(--reader-ease-out); }
 .source-evidence.is-active { background:var(--reader-mark); }
-.conversation-reader .source-evidence-number, .conversation-reader .answer-evidence-number { display:inline; color:var(--reader-mark-ink); background:var(--reader-mark-soft); padding:1px 5px; font:600 11px/1.5 system-ui; vertical-align:super; border-radius:4px; margin:0 2px; }
+.conversation-reader .source-evidence-number, .answer-evidence-number { display:inline; color:var(--reader-mark-ink); background:var(--reader-mark-soft); padding:1px 5px; font:600 11px/1.5 system-ui; vertical-align:super; border-radius:4px; margin:0 2px; }
 .conversation-reader .source-evidence-number[data-origin=true] { background:var(--reader-mark); }
 .source-evidence-markers { white-space:nowrap; }
 [data-evidence-block] { border-left:2px solid var(--reader-mark-strong); padding-left:12px; }
@@ -241,3 +241,5 @@
 .paper-text[data-main-rotation="90"] { transform:rotate(90deg) translateY(-100%); }
 .paper-text[data-main-rotation="180"] { transform:rotate(180deg) translate(-100%,-100%); }
 .paper-text[data-main-rotation="270"] { transform:rotate(270deg) translateX(-100%); }
+
+.answer-evidence-number[data-answer-target] { outline:2px solid var(--reader-mark-ink); outline-offset:2px; }

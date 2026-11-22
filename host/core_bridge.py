@@ -228,7 +228,8 @@ class CoreBridge:
         return {'sourceId': c['source_id'], 'planId': c['plan_id'], 'chunkId': c['chunk_id'],
                 'index': c['index'], 'total': c['total'], 'sectionPath': c['section_path'],
                 **({'bundleVersion': version} if (version := self.plan_bundle(c['source_id'], c['plan_id'])) is not None else {}),
-                'sourceLines': c['source_lines'], 'sourceMarkdown': c['source_text'], 'translation': c['translation'],
+                'sourceLines': c['source_lines'], 'blockIds': c['block_ids'],
+                'sourceMarkdown': c['source_text'], 'translation': c['translation'],
                 'images': [{'src': self._image_url(c['source_id'], i['path']),
                             'caption': i['caption']} for i in c['images']],
                 'relevantGlossary': c['relevant_glossary'], 'presentationStatus': c['status'].replace('_', '-')}

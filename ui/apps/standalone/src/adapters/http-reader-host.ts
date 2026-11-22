@@ -49,6 +49,7 @@ function isReaderChunk(value: unknown): value is NonNullable<ReadingWindow["curr
     typeof chunk.index === "number" &&
     typeof chunk.total === "number" &&
     isStringArray(chunk.sectionPath) &&
+    (chunk.blockIds === undefined || isStringArray(chunk.blockIds)) &&
     Array.isArray(chunk.sourceLines) &&
     chunk.sourceLines.length === 2 &&
     chunk.sourceLines.every((line) => typeof line === "number") &&

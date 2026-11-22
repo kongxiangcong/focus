@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import type { ReadingDocument, ValidatedAnswerEvidence } from "@focus/reader-contracts";
 import { projectEvidence } from "./source-evidence";
 import { MarkdownContent } from "./MarkdownContent";
-import { citedMarkdown, messageEvidence } from "./ConversationReader";
+import { citedMarkdown, messageEvidence } from "./source-evidence";
 
 const document: ReadingDocument = { sourceId: "paper", bundleVersion: "v1", title: "Paper", markdown: "# Paper\n\nAn alias keeps order.\n\nAn alias keeps order.\n\n| Value |\n| --- |\n| 42 |", lineCount: 9 };
 const evidence: ValidatedAnswerEvidence = { evidenceId: "a".repeat(24), sourceId: "paper", bundleVersion: "v1", messageId: "answer", discussionId: "discussion", answerRevision: "rev", displayNumber: 1, sourceLines: [5, 5], quote: { exact: "alias keeps order", prefix: "", suffix: "" }, relation: "supports" };

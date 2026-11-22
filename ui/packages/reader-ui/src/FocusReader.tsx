@@ -1,6 +1,7 @@
-import type { EvidenceNavigation } from "./evidence-navigation";
+import { useEvidenceNavigation, type EvidenceNavigation } from "./evidence-navigation";
 import type { ReadingSession } from "./reading-session";
 import { ConversationReader } from "./ConversationReader";
+import { evidenceBySourceBlock, messageEvidence } from "./source-evidence";
 import { useLatestNotice } from "./latest-notice";
 import { discussionFoldKey, useDiscussionFolds } from "./discussion-fold";
 import { AnnotationRail } from "./annotations/AnnotationRail";
@@ -13,7 +14,7 @@ import { clearAnnotationDrafts } from "./annotation-draft-reset";
 import { AssetInstanceContext } from "./asset-context";
 import { PanelLeft, Pin, Expand, Collapse, ArrowRight, ArrowUp, StopSquare, ChevronDown, Widen, Close } from "./ReaderIcons";
 import { createReaderId, cursorReceipt, type ReaderChunk, type ReaderAttachment, type ReaderHost, type ReadingWindow,
-  type ReaderHostResult, type SendReaderMessageInput, type ContinueReadingInput, type SourceNote, type ReadingProgressEntry } from "@focus/reader-contracts";
+  type ReaderHostResult, type ReadingDocument, type ValidatedAnswerEvidence, type SendReaderMessageInput, type ContinueReadingInput, type SourceNote, type ReadingProgressEntry } from "@focus/reader-contracts";
 import { type CSSProperties, type ReactNode, useMemo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentControls } from "./AgentControls";
 import { ReadingChunk, ReaderConversation, chunkKey } from "./ReadingChunk";
@@ -62,7 +63,7 @@ export function groupReadingDiscussion<C extends { chunkId: string }>(
   return groups;
 }
 
-function LegacyFocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange, readingSession }: FocusReaderProps) {
+function LegacyFocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange, readingSession, evidenceNavigation }: FocusReaderProps) {
   const mist = appearance === "mist";
   const [attachNotes, setAttachNotes] = useState(() => {
     try { localStorage.removeItem("focus.attachDiscussion"); return localStorage.getItem("focus.attachNotes") !== "false"; } catch { return true; }
@@ -306,6 +307,37 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
   useEffect(() => { setStructureOpen(false); }, [view?.source.sourceId, frontier?.planId, view?.resetVersion]);
   useEffect(() => { setViewportChunk(null); }, [view?.source.sourceId, view?.readingRevision, reviewChunk, view?.sessionId]);
   const sourceId = view?.source.sourceId ?? "";
+  const sourceBundleVersion = view?.sourceBundleVersion;
+  const sourceGeneration = view?.sourceGeneration ?? view?.resetVersion;
+  const discussionId = view?.discussionId;
+  const [evidenceDocument, setEvidenceDocument] = useState<ReadingDocument | null>(null);
+  const discussionEvidence = useMemo(() => (view?.conversation ?? []).flatMap(message =>
+    message.role === "assistant" && !message.sourceDeleted ? messageEvidence(message, { sourceId }, discussionId) : [],
+  ), [view?.conversation, sourceId, discussionId]);
+  const needsBlocks = visible && !!evidenceNavigation && discussionEvidence.length > 0;
+  useEffect(() => {
+    if (!needsBlocks || !sourceId || !host.getSourceDocument) return;
+    let live = true;
+    void host.getSourceDocument(sourceId).then(result => {
+      if (live && result.ok && (!readingSession || readingSession.isCurrent(readingSession.generation, sourceId))) setEvidenceDocument(result.value);
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [needsBlocks, host, sourceId, sourceBundleVersion, sourceGeneration, view?.workspace?.instanceId, readingSession?.generation]);
+  const currentEvidenceDocument = evidenceDocument?.sourceId === sourceId &&
+    (!sourceBundleVersion || evidenceDocument.bundleVersion === sourceBundleVersion) &&
+    (evidenceDocument.generation === undefined || evidenceDocument.generation === sourceGeneration) ? evidenceDocument : null;
+  const byBlock = useMemo(() => currentEvidenceDocument && evidenceBySourceBlock(currentEvidenceDocument, discussionEvidence),
+    [currentEvidenceDocument, discussionEvidence]);
+  const chunkEvidence = (chunk: ReaderChunk) => {
+    if (!byBlock || chunk.sourceId !== sourceId || (chunk.bundleVersion && chunk.bundleVersion !== currentEvidenceDocument?.bundleVersion)) return [];
+    return [...new Set((chunk.blockIds ?? []).flatMap(id => byBlock.get(id) ?? []))];
+  };
+  const openEvidenceAnswer = (item: ValidatedAnswerEvidence) => {
+    if (!evidenceNavigation || !discussionId || item.discussionId !== discussionId ||
+        (readingSession && !readingSession.isCurrent(readingSession.generation, sourceId))) return;
+    evidenceNavigation.start({ destination: "answer", sourceId, discussionId, bundleVersion: sourceBundleVersion,
+      sourceGeneration, messageId: item.messageId, evidenceId: item.evidenceId });
+  };
   const { allFigures, sourceFigures } = useMemo(() => {
     const protectedImages = new Set(chunks.flatMap(c => [...extractFigures(c.sourceMarkdown, c.sourceId).protectedIds]));
     const allFigures = mergeFigures(sourceId, (view?.figures ?? []).filter(f => !protectedImages.has(imageIdentity(f.src, sourceId))),
@@ -808,9 +840,9 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
           {group.indexes.filter(index => (entries[index].kind === "message") === discussion).map(index => {
           const e = entries[index];
           const message = e.kind === "message" ? view?.conversation.find(m => m.messageId === e.messageId) : null;
-          const content = e.kind === "reading" ? <ReadingChunk chunk={e.chunk} located={annotations.located.get(group.id)}
+          const content = e.kind === "reading" ? <ReadingChunk chunk={e.chunk} evidence={chunkEvidence(e.chunk)} onEvidence={openEvidenceAnswer} located={annotations.located.get(group.id)}
             pending={annotations.pending?.groupId === group.id ? annotations.pending : null} fresh={annotations.fresh} onMarks={annotations.onMarks(group.id)}
-            onReference={referenceChunk} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} onLanguage={(chunk, original) => preserveReading(() => setFigureLanguages(old => ({ ...old, [chunkKey(chunk)]: original })))} /> : message ? <ReaderConversation messages={[message]} chunks={chunks} figures={view?.figures} figureSourceId={sourceId} sourceFigures={sourceFigures} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} streaming={active && message.messageId === view?.conversation.at(-1)?.messageId}
+            onReference={referenceChunk} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} onLanguage={(chunk, original) => preserveReading(() => setFigureLanguages(old => ({ ...old, [chunkKey(chunk)]: original })))} /> : message ? <ReaderConversation messages={[message]} discussionId={discussionId} onEvidence={evidenceNavigation ? openEvidenceAnswer : undefined} chunks={chunks} figures={view?.figures} figureSourceId={sourceId} sourceFigures={sourceFigures} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} streaming={active && message.messageId === view?.conversation.at(-1)?.messageId}
             onJump={jumpReference} onHighlight={highlight} onClearHighlight={() => { if (!highlightTimer.current) clearHighlight(); }} onSaveNote={(reply, chunk) => send(`请把下面的回答记下来：\n\n${reply.content}`, false, false, chunk ?? null)} /> : null;
           const identity = eventKeys[index];
           return <TimelineEvent key={`${eventScope}:${identity}`} identity={identity} current={index === focusedIndex} fresh={committedEvents.current?.scope === eventScope && !committedEvents.current.ids.has(identity)} streaming={!folded && active && message?.role === "assistant" && message.messageId === view?.conversation.at(-1)?.messageId}>{content}</TimelineEvent>;
@@ -957,6 +989,8 @@ function readSavedMode(hasBlog: boolean): ReadingMode {
 
 function UnifiedReader(props: FocusReaderProps) {
   const hasBlog = !!props.renderBlog;
+  const localNavigation = useEvidenceNavigation();
+  const evidenceNavigation = props.evidenceNavigation ?? localNavigation;
   const [mode, setMode] = useState<ReadingMode>(() => readSavedMode(hasBlog));
   const [mounted, setMounted] = useState<{ chunks: boolean; chat: boolean; blog: boolean }>(() => {
     const initial = readSavedMode(hasBlog);
@@ -995,16 +1029,16 @@ function UnifiedReader(props: FocusReaderProps) {
   }, [props.host, managed]);
 
   useLayoutEffect(() => {
-    const intent = props.evidenceNavigation?.intent;
+    const intent = evidenceNavigation.intent;
     if (props.visible === false || !intent || intent.sourceId !== sourceId || mode === "chat") return;
     modeRequest.current += 1;
     setBusy(false);
     setError("");
     setMode("chat");
     setMounted(previous => ({ ...previous, chat: true }));
-  }, [mode, props.evidenceNavigation?.intent, props.visible, sourceId]);
+  }, [mode, evidenceNavigation.intent, props.visible, sourceId]);
 
-  const cancelEvidenceNavigation = props.evidenceNavigation?.cancel;
+  const cancelEvidenceNavigation = evidenceNavigation.cancel;
   const selectMode = useCallback(async (next: ReadingMode) => {
     if (next === mode || !sourceId) return;
     cancelEvidenceNavigation?.();
@@ -1070,10 +1104,10 @@ function UnifiedReader(props: FocusReaderProps) {
     {error && <p role="alert" className="source-reader-error">{error}</p>}
     <div id="reading-mode-panel" className="reading-mode-panel" role={props.renderModeNavigation ? "region" : "tabpanel"} aria-label={modeLabel(mode)} aria-busy={busy}>
       {mounted.chunks && <div className="reading-mode-layer" hidden={mode !== "chunks"}>
-        <LegacyFocusReader key={props.readingSession?.generation} {...props} visible={props.visible !== false && mode === "chunks"} />
+        <LegacyFocusReader key={props.readingSession?.generation} {...props} evidenceNavigation={evidenceNavigation} visible={props.visible !== false && mode === "chunks"} />
       </div>}
       {mounted.chat && <div className="reading-mode-layer" hidden={mode !== "chat"}>
-        <ConversationReader {...props} visible={props.visible !== false && mode === "chat"} />
+        <ConversationReader {...props} evidenceNavigation={evidenceNavigation} visible={props.visible !== false && mode === "chat"} />
       </div>}
       {hasBlog && mounted.blog && sourceId && <div className="reading-mode-layer" hidden={mode !== "blog"}>
         {props.renderBlog!(sourceId)}

@@ -111,6 +111,15 @@ class SourceBlocks:
                 result.append({**block, 'offsets': [cursor, end]})
         return result
 
+    def block_ids_at(self, start, stop):
+        if start >= stop:
+            return []
+        return list(dict.fromkeys(block['block_id'] for block in self.blocks
+                                  if block['offsets'][0] < stop and start < block['offsets'][1]))
+
+    def chunk_block_ids(self, start, end):
+        return self.block_ids_at(self.starts[start - 1], self.starts[end] - 1)
+
     def selected_blocks(self, block_ids):
         if not isinstance(block_ids, list) or not block_ids or any(not isinstance(key, str) for key in block_ids):
             raise WorkspaceError('source_range_invalid', 'block_ids must be a nonempty list of block IDs')

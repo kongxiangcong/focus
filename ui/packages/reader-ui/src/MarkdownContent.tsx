@@ -28,8 +28,9 @@ const components: Components = {
   a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
   img: ({ src, alt }) => <img src={src} alt={alt ?? ""} loading="lazy" />,
 };
-export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, figures, onFigure, inlineFigures = false, marks, annotation, onAnnotations, sourceEvidence, onCitation, onCitationHover }: {
+export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, figures, onFigure, inlineFigures = false, marks, annotation, onAnnotations, sourceEvidence, onCitation, onCitationHover, activeCitation }: {
   text: string; sourceId?: string; figures?: readonly Figure[]; onFigure?: (figure: Figure) => void; inlineFigures?: boolean;
+  activeCitation?: string;
   onCitationHover?: (id: string | undefined) => void;
   onCitation?: (id: string, keyboard: boolean, origin: HTMLButtonElement) => void;
   sourceEvidence?: { document: ReadingDocument; evidence: readonly ValidatedAnswerEvidence[]; active?: string };
@@ -38,10 +39,11 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
   onAnnotations?: (marks: readonly ResolvedMark[], lost: readonly Located[], text: string) => void;
 }) {
   const citationRef = useRef(onCitation); citationRef.current = onCitation;
+  const activeCitationRef = useRef(activeCitation); activeCitationRef.current = activeCitation;
   const hoverRef = useRef(onCitationHover); hoverRef.current = onCitationHover;
   // Stable component identity prevents hover/focus updates from replacing the focused button.
   const renderLink = useMemo<Components["a"]>(() => ({ children, href }) => href?.startsWith("#e-") && citationRef.current ?
-    <button className="answer-evidence-number" data-citation={href.slice(3)} onPointerEnter={() => hoverRef.current?.(href.slice(3))} onPointerLeave={() => hoverRef.current?.(undefined)} onFocus={() => hoverRef.current?.(href.slice(3))} onBlur={() => hoverRef.current?.(undefined)} onClick={event => { event.stopPropagation(); citationRef.current?.(href.slice(3), event.detail === 0, event.currentTarget); }}>{children}</button> : <a href={href} target="_blank" rel="noreferrer">{children}</a>, []);
+    <button className="answer-evidence-number" data-citation={href.slice(3)} data-answer-target={activeCitationRef.current === href.slice(3) || undefined} onPointerEnter={() => hoverRef.current?.(href.slice(3))} onPointerLeave={() => hoverRef.current?.(undefined)} onFocus={() => hoverRef.current?.(href.slice(3))} onBlur={() => hoverRef.current?.(undefined)} onClick={event => { event.stopPropagation(); citationRef.current?.(href.slice(3), event.detail === 0, event.currentTarget); }}>{children}</button> : <a href={href} target="_blank" rel="noreferrer">{children}</a>, []);
   const instanceId = useContext(AssetInstanceContext);
   const figureHandler = useRef(onFigure); figureHandler.current = onFigure;
   const showFigure = useCallback((figure: Figure) => figureHandler.current?.(figure), []);
@@ -109,6 +111,6 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
         return resolved;
       }
       return defaultUrlTransform(url);
-    }}>{markdown}</Markdown>, [markdown, sourceId, instanceId, inlineFigures, JSON.stringify(figures), !!onFigure, markKey, annotationKey, evidenceKey, !!onCitation]);
+    }}>{markdown}</Markdown>, [markdown, activeCitation, sourceId, instanceId, inlineFigures, JSON.stringify(figures), !!onFigure, markKey, annotationKey, evidenceKey, !!onCitation]);
   return <div className="focus-markdown">{rendered}</div>;
 });

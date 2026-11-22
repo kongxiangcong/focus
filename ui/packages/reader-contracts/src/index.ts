@@ -38,6 +38,7 @@ export interface ReaderChunk {
   total: number;
   sectionPath: readonly string[];
   sourceLines: readonly [number, number];
+  blockIds?: readonly string[];
   sourceMarkdown: string;
   translation: string | null;
   images: readonly ReaderImage[];

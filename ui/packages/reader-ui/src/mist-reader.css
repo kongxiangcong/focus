@@ -29,9 +29,17 @@
 .focus-mist .focus-reading__meta button { margin-left:auto; min-height:var(--reader-control-h-sm); padding:0 8px; font-size:12px; border-color:var(--reader-line); }
 .focus-mist .focus-reading > h2 { font:650 calc(var(--reader-reading-size,var(--reader-prose-size)) + 5px)/1.4 var(--reader-body-font,var(--reader-serif));
   margin:0 0 20px; letter-spacing:-.01em; }
-.focus-mist .focus-reading footer { margin-top:20px; display:flex; gap:8px; }
+.focus-mist .focus-reading footer { margin-top:20px; display:flex; align-items:start; gap:8px; }
 .focus-mist .focus-reading footer button { font-size:12px; color:var(--reader-muted); padding:0 6px; min-height:var(--reader-control-h-sm); }
 .focus-mist .focus-reading footer button:hover { color:var(--reader-ink); }
+
+.reading-chunk-evidence { min-width:0; }
+.reading-chunk-evidence > button { border:1px solid var(--reader-line); border-radius:999px; }
+.reading-chunk-evidence > ul { margin:6px 0 0; padding:0; list-style:none; }
+.reading-chunk-evidence li + li { margin-top:4px; }
+.reading-chunk-evidence li button { display:grid; gap:2px; max-width:100%; text-align:left; }
+.reading-chunk-evidence li button span:last-child { color:var(--reader-ink); overflow-wrap:anywhere; }
+.focus-mist .reading-lens-group[data-state] .focus-reading > footer:has(.reading-chunk-evidence) { opacity:1; }
 
 /* Conversation: real roles, no closed card, full contrast throughout. */
 .focus-mist .focus-message { margin:0; min-width:0; }

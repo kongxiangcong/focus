@@ -160,8 +160,7 @@ class SourceReading:
                 pdf_anchor = {'layoutVersion': source.pdf['version'],
                               'pdfRegions': [{'pageIndex': page - 1, 'pageNumber': page, 'bboxes': boxes,
                                               'granularity': 'block' if boxes else 'page'} for page, boxes in pages.items()]}
-            blocks = list(dict.fromkeys(block['block_id'] for block in source.blocks
-                                        if block['offsets'][0] < stop and at < block['offsets'][1]))
+            blocks = source.block_ids_at(at, stop)
             sections = list(dict.fromkeys(section for path in source.section_ids[quote_start - 1:quote_end] for section in path))
             return {'blockIds': blocks, **pdf_anchor, 'sectionIds': sections, 'renderGranularity': 'block',
                     'evidenceId': key, 'sourceId': doc['sourceId'], 'bundleVersion': doc['bundleVersion'],

@@ -6,7 +6,7 @@ import { MarkdownContent } from "./MarkdownContent";
 import { ActiveSourceCitation, SourceAnswerChooser } from "./SourceEvidenceMarkers";
 import { boxesForBlock, OriginalPaper, TranslatedPaper } from "./PaperViews";
 import { locatePaperEvidence, matchesTranslationChunk } from "./paper-evidence";
-import { projectEvidence } from "./source-evidence";
+import { citedMarkdown, messageEvidence, projectEvidence } from "./source-evidence";
 import type { RenderMark } from "./rehype-annotations";
 import { readingFontSizes } from "./typography";
 import { AgentControls } from "./AgentControls";
@@ -17,18 +17,6 @@ import "./conversation-reader.css";
 const safeRead = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
 const safeWrite = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* Session remains usable. */ } };
 const reduced = () => window.document.documentElement.dataset.reducedMotion === "true" || typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-export function messageEvidence(message: ReaderMessage, document: ReadingDocument, discussionId?: string) {
-  return (message.evidence ?? []).filter(e => e.sourceId === document.sourceId &&
-    e.messageId === message.messageId && e.discussionId === discussionId && e.answerRevision === message.answerRevision &&
-    message.content.includes(`[[e:${e.evidenceId}]]`));
-}
-export function citedMarkdown(message: ReaderMessage, evidence: readonly ValidatedAnswerEvidence[]) {
-  return message.content.replace(/\[\[e:([0-9a-f]{24})\]\]/g, (_, id: string) => {
-    const e = evidence.find(e => e.evidenceId === id);
-    return e ? `[${e.displayNumber}](#e-${id})` : "〔原文证据不可定位〕";
-  }).replace(/\[\[e:[^\]]*$/, "");
-}
 
 type AnswerLocation = { messageId: string; evidenceId: string; origin?: HTMLButtonElement };
 
@@ -138,13 +126,14 @@ interface MessageItemProps {
   message: ReaderMessage;
   markdown: string;
   isSelected: boolean;
+  activeCitation?: string;
   onSelect: (messageId: string) => void;
   onCite: (message: ReaderMessage, id: string, keyboard: boolean, origin: HTMLButtonElement) => void;
   onHoverCitation: (messageId: string, id: string | undefined) => void;
 }
 
 const ConversationMessage = memo(function ConversationMessage({
-  message, markdown, isSelected, onSelect, onCite, onHoverCitation,
+  message, markdown, isSelected, activeCitation, onSelect, onCite, onHoverCitation,
 }: MessageItemProps) {
   const handleCitation = useCallback((id: string, keyboard: boolean, origin: HTMLButtonElement) => onCite(message, id, keyboard, origin), [onCite, message]);
   const handleHover = useCallback((id: string | undefined) => onHoverCitation(message.messageId, id), [onHoverCitation, message.messageId]);
@@ -158,6 +147,7 @@ const ConversationMessage = memo(function ConversationMessage({
   >
     <MarkdownContent
       text={markdown}
+      activeCitation={activeCitation}
       onCitation={message.role === "assistant" ? handleCitation : undefined}
       onCitationHover={message.role === "assistant" ? handleHover : undefined}
     />
@@ -219,6 +209,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const sendRequest = useRef<{ content: string; id: string } | null>(null);
   const sendBusy = useRef(false);
   const composer = useRef<ComposerHandle>(null), returnFocus = useRef<AnswerLocation | null>(null);
+  const [answerTarget, setAnswerTarget] = useState<(AnswerLocation & { discussionId: string }) | null>(null);
   const manual = useRef(false), followChat = useRef(true), turn = useRef<{ seen: Set<string>; cancelled: boolean; located: boolean } | null>(null);
   const jumpOrigin = useRef<number | null>(null);
   const jumpFromPdf = useRef(false);
@@ -235,9 +226,10 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setActiveMessage(safeRead(`focus.activeAnswer:${draftKey}`));
     setActiveEvidence(undefined);
     setAnswerChoices(null);
+    setAnswerTarget(target => target?.discussionId === view.discussionId ? target : null);
     returnFocus.current = null;
     turn.current = null;
-  }, [draftKey]);
+  }, [draftKey, view.discussionId]);
 
   useEffect(() => {
     let live = true, timer: ReturnType<typeof setTimeout>;
@@ -395,6 +387,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   }, [turns.length]);
 
   const stopNavigation = useCallback(() => {
+    setAnswerTarget(null);
     cancel();
     setAnswerReturn(null);
     setAnswerChoices(null);
@@ -486,6 +479,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     jumpOrigin.current = null;
     setAnswerChoices(null);
     setAnswerReturn(null);
+    setAnswerTarget(null);
     setActiveEvidence(undefined);
     setHoverEvidence(undefined);
     setReturnPosition(null);
@@ -493,6 +487,33 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
 
   useLayoutEffect(() => {
     if (!visible || !intent || intent.sourceId !== sourceId || !isCurrentSource() || !isLatest(intent)) return;
+    if (intent.destination === "answer") {
+      if (intent.discussionId !== view.discussionId || intent.bundleVersion !== view.sourceBundleVersion ||
+          intent.sourceGeneration !== (view.sourceGeneration ?? view.resetVersion)) {
+        consume(intent);
+        return;
+      }
+      if (!document) return;
+      const message = messages.find(item => item.messageId === intent.messageId);
+      const cited = message && messageEvidence(message, document, view.discussionId).some(item => item.evidenceId === intent.evidenceId);
+      if (!cited) { consume(intent); return; }
+      if (mobile !== "chat") { setMobile("chat"); return; }
+      const answer = [...(chat.current?.querySelectorAll<HTMLElement>("[data-message-id]") ?? [])]
+        .find(element => element.dataset.messageId === intent.messageId);
+      const citation = [...(answer?.querySelectorAll<HTMLButtonElement>("[data-citation]") ?? [])]
+        .find(element => element.dataset.citation === intent.evidenceId);
+      if (!consume(intent) || !citation) return;
+      followChat.current = false;
+      if (turn.current) turn.current.cancelled = true;
+      setActiveEvidence(undefined);
+      citation.scrollIntoView({ block: "nearest", behavior: "instant" });
+      citation.focus({ preventScroll: true });
+      setHoverEvidence(undefined);
+      safeWrite(`focus.activeAnswer:${draftKey}`, intent.messageId);
+      setActiveMessage(intent.messageId);
+      setAnswerTarget({ messageId: intent.messageId, evidenceId: intent.evidenceId, discussionId: intent.discussionId });
+      return;
+    }
     manual.current = false;
     restored.current = true;
     restorePaperPosition.current = false;
@@ -541,7 +562,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       }
       setActiveEvidence(intent.evidenceId);
     }
-  }, [visible, intent, sourceId, isCurrentSource, isLatest, consume, document, messages, view.discussionId,
+  }, [visible, intent, sourceId, isCurrentSource, isLatest, consume, document, messages, draftKey, view.discussionId,
+    view.sourceBundleVersion, view.sourceGeneration, view.resetVersion,
     selected?.messageId, mobile, translationReady, showingTranslation, projections, paperLocations, activePdfUrl, settledPdf, pdfRevision, moveTo]);
 
   const cite = useCallback((message: ReaderMessage, id: string, keyboard: boolean, origin: HTMLButtonElement) => {
@@ -802,6 +824,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
                   message={message}
                   markdown={text}
                   isSelected={selected?.messageId === message.messageId}
+                  activeCitation={answerTarget?.messageId === message.messageId ? answerTarget.evidenceId : undefined}
                   onSelect={handleSelectMessage}
                   onCite={cite}
                   onHoverCitation={handleHoverCitation}

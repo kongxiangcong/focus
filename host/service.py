@@ -510,10 +510,12 @@ class HostService:
             self.source_clear.recover()
             document = SourceReading(self.workspace).document(source_id)
             bundle = self.workspace / 'sources' / source_id / 'parser-bundle'
+            from core.source_blocks import SourceBlocks
+            source = SourceBlocks(bundle, document['markdown'])
+            document['blocks'] = [{'blockId': block['block_id'], 'offsets': block['offsets']} for block in source.blocks]
             if (bundle / 'source.pdf').is_file():
-                from core.pdf_layout import layout
-                document['pdf'] = layout(bundle)
-                document['translation'] = self.reading_app.core.shared_translation(source_id, document)
+                document['pdf'] = source.pdf
+                document['translation'] = self.reading_app.core.shared_translation(source_id, document, source)
             return document
 
     def complete_source(self, source_id, payload):

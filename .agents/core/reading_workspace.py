@@ -11,7 +11,10 @@ import urllib.parse
 import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .source_blocks import SourceBlocks
 
 
 MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]\n]*\]\(([^)]+)\)")
@@ -375,10 +378,13 @@ def _reading_plan_records(bundle: Path, draft: dict[str, Any], *,
     glossary = draft.get("glossary", [])
     if not isinstance(chunks, list) or not chunks or not isinstance(glossary, list):
         raise WorkspaceError("reading_plan_invalid", "Reading Plan draft is invalid")
-    lines = (bundle / "content.md").read_text(encoding="utf-8", errors="replace").splitlines()
+    from .source_blocks import SourceBlocks
+
+    source = SourceBlocks(bundle)
+    lines = source.lines
     bundle_language = _read_document(bundle / "metadata.json")["language"]
     protected = _protected_source_ranges(lines)
-    heading_paths = _source_heading_paths(lines)
+    heading_paths = source.section_paths
     records: list[dict[str, Any]] = []
     previous_end: int | None = None
     for index, chunk in enumerate(chunks, 1):
@@ -425,6 +431,7 @@ def _reading_plan_records(bundle: Path, draft: dict[str, Any], *,
                 "index": index,
                 "section_path": section_path,
                 "source_lines": [start, end],
+                "block_ids": source.chunk_block_ids(start, end),
                 "images": images,
                 **({"language": chunk["language"]} if "language" in chunk else {}),
             }
@@ -473,13 +480,17 @@ def _read_chunk_records(path: Path) -> list[dict[str, Any]]:
         raise WorkspaceError("reading_plan_missing", f"Reading Plan does not exist: {path.parent.name}")
     records: list[dict[str, Any]] = []
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = path.read_text(encoding="utf-8").removesuffix("\n").split("\n")
         for line in lines:
             value = json.loads(line)
-            if not isinstance(value, dict) or (set(value) - {"language"}) != CHUNK_KEYS:
+            if not isinstance(value, dict) or (set(value) - {"language", "block_ids"}) != CHUNK_KEYS:
                 raise ValueError
             if "language" in value and value["language"] not in ("zh", "en", "mixed"):
                 raise ValueError
+            if "block_ids" in value:
+                block_ids = value["block_ids"]
+                if not isinstance(block_ids, list) or any(not isinstance(key, str) or not key for key in block_ids):
+                    raise ValueError
             records.append(value)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise WorkspaceError("reading_plan_invalid", f"Reading Plan is invalid: {path.parent.name}") from exc
@@ -607,7 +618,10 @@ def _chunk_presentation(
     chunk: dict[str, Any],
     reading_record: dict[str, Any],
     total: int,
+    source: SourceBlocks | None = None,
 ) -> dict[str, Any]:
+    from .source_blocks import SourceBlocks
+
     chunk_id = chunk.get("chunk_id")
     source_range = chunk.get("source_lines")
     images = chunk.get("images")
@@ -624,7 +638,9 @@ def _chunk_presentation(
         or not all(isinstance(value, str) and value for value in section_path)
     ):
         raise WorkspaceError("reading_chunk_invalid", f"Reading Chunk is invalid: {chunk_id}")
-    content_lines = (bundle / "content.md").read_text(encoding="utf-8", errors="replace").splitlines()
+    if source is None:
+        source = SourceBlocks(bundle)
+    content_lines = source.lines
     start, end = source_range
     if start < 1 or end < start or end > len(content_lines):
         raise WorkspaceError("reading_chunk_invalid", f"Reading Chunk is invalid: {chunk_id}")
@@ -643,6 +659,7 @@ def _chunk_presentation(
         "total": total,
         "section_path": section_path,
         "source_lines": source_range,
+        "block_ids": source.chunk_block_ids(start, end),
         "source_text": source_text,
         "translation": reading_record["translation"],
         "images": _bound_image_presentations(bundle, selected_lines, images),
@@ -1103,6 +1120,7 @@ class WorkspaceCore:
     def reading_window(self) -> dict[str, Any]:
         """Read the authoritative window without advancing or loading Notes."""
         from .source_library import SourceLibrary
+        from .source_blocks import SourceBlocks
 
         state = self.get_reading_state()
         source_id, plan_id = state["source_id"], state["plan_id"]
@@ -1110,6 +1128,7 @@ class WorkspaceCore:
         metadata = _validate_parser_bundle(bundle)
         root = bundle.parent / "reading" / "plans" / plan_id
         chunks = _read_chunk_records(root / "chunks.jsonl")
+        source = SourceBlocks(bundle)
         history = []
         current = None
         for chunk in chunks:
@@ -1118,7 +1137,7 @@ class WorkspaceCore:
             if direct and record["translation"] is not None:
                 raise WorkspaceError("reading_record_invalid", "Chinese source translation must remain null")
             item = _chunk_presentation(bundle, root, source_id=source_id, plan_id=plan_id,
-                                       chunk=chunk, reading_record=record, total=len(chunks))
+                                       chunk=chunk, reading_record=record, total=len(chunks), source=source)
             item["status"] = "source_ready" if direct else "presented" if record["translation"] else "translation_required"
             if chunk["chunk_id"] == state["chunk_id"]:
                 current = item
