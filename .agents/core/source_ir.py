@@ -82,10 +82,10 @@ def _pdf_anchor(fragments, start, end):
             'confidence': 'exact_ir' if has_boxes else 'page'}
 
 
-def build_source_ir(bundle, markdown, *, source_kind, html_anchors=None):
+def build_source_ir(bundle, markdown, *, source_kind, html_spans=()):
     """Build v1 with 1-based inclusive lines and half-open Markdown character bounds.
 
-    HTML anchors, when supplied, are keyed by the first canonical line of a block.
+    Converted HTML spans are in Markdown order with selectors for the archived DOM.
     Separators preserve Markdown whitespace between the authored blocks.
     """
     markdown = markdown.replace('\r\n', '\n').replace('\r', '\n')
@@ -94,7 +94,7 @@ def build_source_ir(bundle, markdown, *, source_kind, html_anchors=None):
     fragments = sorted(pdf['blocks'], key=lambda item: item['offsets']) if pdf else []
     blocks, sections = [], {}
     counts = Counter()
-    cursor = fragment_index = 0
+    cursor = fragment_index = html_index = 0
     for block in source.blocks:
         start, end = block['offsets']
         first, last = source.line_span(start, end)
@@ -108,6 +108,12 @@ def build_source_ir(bundle, markdown, *, source_kind, html_anchors=None):
         fragment_end = fragment_index
         while fragment_end < len(fragments) and fragments[fragment_end]['offsets'][0] < end:
             fragment_end += 1
+        while html_index < len(html_spans) and html_spans[html_index][1] <= start:
+            html_index += 1
+        html_end = html_index
+        while html_end < len(html_spans) and html_spans[html_end][0] < end:
+            html_end += 1
+        selectors = list(dict.fromkeys(selector for _, _, selector in html_spans[html_index:html_end]))
         for depth, section_id in enumerate(section_ids):
             if section_id not in sections:
                 heading_line = int(section_id.removeprefix('section-'))
@@ -129,7 +135,7 @@ def build_source_ir(bundle, markdown, *, source_kind, html_anchors=None):
             'anchors': {
                 'markdown': {'source_lines': [first, last], 'char_span': {'start': start, 'end': end}},
                 'pdf': _pdf_anchor(fragments[fragment_index:fragment_end], start, end),
-                'html': html_anchors.get(first) if html_anchors else None,
+                'html': {'parser': 'lxml', 'selectors': selectors} if selectors else None,
             },
         })
         cursor = end
