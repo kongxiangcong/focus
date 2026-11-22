@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import shutil
 import threading
 import uuid
@@ -15,18 +14,11 @@ from .reading_workspace import (
     validate_topic_id,
 )
 from .source_library import SourceLibrary
+from .source_provenance import SOURCE_ORIGINALS, file_fingerprint
 
 
 INGESTION_METHOD_VERSION = "focus-ingestion-v1"
 CANDIDATE_RESULT_NAME = "ingestion-result.json"
-
-
-def _file_fingerprint(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        while block := source.read(1024 * 1024):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def _component_config(component: object) -> dict[str, Any]:
@@ -61,7 +53,6 @@ class CandidateParser(Protocol):
 
 INGESTION_SERVICES = ["mineru"]
 MARKDOWN_SUFFIXES = (".md", ".markdown")
-_ORIGINAL_NAMES = {"paper_pdf": "source.pdf", "article_html": "source.html", "article_markdown": "source.md"}
 _SERVICES = {"paper_pdf": "mineru", "article_html": "local-html", "article_markdown": "local-markdown"}
 
 
@@ -70,7 +61,7 @@ def _source_kind(item: dict[str, Any]) -> str:
 
 
 def _original_name(item: dict[str, Any]) -> str:
-    return _ORIGINAL_NAMES[_source_kind(item)]
+    return SOURCE_ORIGINALS[_source_kind(item)]
 
 
 def _service(item: dict[str, Any]) -> str:
@@ -89,9 +80,9 @@ def _inspect_source(source: Path) -> tuple[str, str]:
         from .html_article import article_identity
         return "article_html", article_identity(source)
     if suffix in MARKDOWN_SUFFIXES:
-        return "article_markdown", "markdown-original:" + _file_fingerprint(source)
+        return "article_markdown", "markdown-original:" + file_fingerprint(source)
     if suffix == ".pdf" and source.read_bytes()[:4] == b"%PDF":
-        return "paper_pdf", "paper-original:" + _file_fingerprint(source)
+        return "paper_pdf", "paper-original:" + file_fingerprint(source)
     raise WorkspaceError("source_pdf_invalid", "Source must be a PDF, complete saved HTML, or Markdown file")
 
 
@@ -163,8 +154,8 @@ class IngestionCore:
             raise WorkspaceError("candidate_original_mismatch", "Candidate identity does not match Inbox")
         if metadata["source_kind"] != _source_kind(item):
             raise WorkspaceError("candidate_original_mismatch", "Candidate source kind does not match Inbox")
-        candidate_fingerprint = _file_fingerprint(candidate / _original_name(item))
-        inbox_fingerprint = _file_fingerprint(item_path.parent / _original_name(item))
+        candidate_fingerprint = file_fingerprint(candidate / _original_name(item))
+        inbox_fingerprint = file_fingerprint(item_path.parent / _original_name(item))
         confirmation = item.get("confirmation", {})
         if not (
             candidate_fingerprint
@@ -317,7 +308,7 @@ class IngestionApplication:
 
     @staticmethod
     def _fingerprint(path: Path) -> str:
-        return _file_fingerprint(path)
+        return file_fingerprint(path)
 
     def _read(self, item_id: str) -> dict[str, Any]:
         with self._state_lock:
@@ -392,7 +383,7 @@ class IngestionApplication:
             item_id = uuid.uuid4().hex
             root = self._root(item_id)
             root.mkdir(parents=True)
-            stored = root / _ORIGINAL_NAMES[kind]
+            stored = root / SOURCE_ORIGINALS[kind]
             shutil.copy2(source, stored)
             item = {
                 "item_id": item_id,
@@ -454,7 +445,7 @@ class IngestionApplication:
                         "Another unfinished Inbox task already uses this original",
                     )
                 old_original = root / _original_name(item)
-                stored = root / _ORIGINAL_NAMES[kind]
+                stored = root / SOURCE_ORIGINALS[kind]
                 shutil.copy2(source, stored)
                 if old_original != stored:
                     old_original.unlink(missing_ok=True)
@@ -680,7 +671,7 @@ class IngestionApplication:
             if candidate.is_dir() and may_recover_candidate:
                 try:
                     _validate_parser_bundle(candidate)
-                    if _file_fingerprint(candidate / _original_name(item)) != _file_fingerprint(source):
+                    if file_fingerprint(candidate / _original_name(item)) != file_fingerprint(source):
                         raise WorkspaceError(
                             "candidate_original_mismatch",
                             "Candidate original does not match the Inbox source",

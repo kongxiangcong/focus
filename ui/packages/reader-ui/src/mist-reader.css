@@ -34,10 +34,10 @@
 .focus-mist .focus-reading footer button:hover { color:var(--reader-ink); }
 
 .reading-chunk-evidence { min-width:0; }
-.reading-chunk-evidence > button { border:1px solid var(--reader-line); border-radius:999px; }
-.reading-chunk-evidence > ul { margin:6px 0 0; padding:0; list-style:none; }
-.reading-chunk-evidence li + li { margin-top:4px; }
-.reading-chunk-evidence li button { display:grid; gap:2px; max-width:100%; text-align:left; }
+.reading-chunk-evidence > button { border:var(--reader-border-width) solid var(--reader-line); border-radius:var(--reader-pill); }
+.reading-chunk-evidence > ul { margin:var(--reader-gap-xs) 0 0; padding:0; list-style:none; }
+.reading-chunk-evidence li + li { margin-top:var(--reader-gap-2xs); }
+.reading-chunk-evidence li button { display:grid; gap:var(--reader-gap-3xs); max-width:100%; text-align:left; }
 .reading-chunk-evidence li button span:last-child { color:var(--reader-ink); overflow-wrap:anywhere; }
 .focus-mist .reading-lens-group[data-state] .focus-reading > footer:has(.reading-chunk-evidence) { opacity:1; }
 

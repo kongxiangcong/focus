@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT / '.agents'))
 from core.reading_workspace import (WorkspaceCore, WorkspaceError, validate_source_id, _identifier, _read_chunk_records,
     _read_reading_record, _chunk_presentation, _validate_parser_bundle, _needs_translation)
 from core.source_library import SourceLibrary
+from core.source_provenance import SOURCE_ORIGINALS, bundle_fingerprint
 from core.source_notes import SourceNotes
 from core.discussion_application import DiscussionApplication
 from core.reading_structure import read_structure
@@ -107,7 +108,6 @@ class CoreBridge:
             if source_id and plan_id:
                 provenance = self.workspace / 'sources' / source_id / 'reading' / 'plans' / plan_id / 'provenance.json'
                 if provenance.is_file():
-                    from core.article_blog import bundle_fingerprint
                     expected = json.loads(provenance.read_text(encoding='utf-8')).get('bundle')
                     current = bundle_fingerprint(self.workspace / 'sources' / source_id / 'parser-bundle')
                     if expected != current:
@@ -158,7 +158,6 @@ class CoreBridge:
         root = (self.workspace / 'sources' / source_id / 'reading' / 'bundles' / bundle_version).resolve()
         if not root.is_relative_to(self.workspace) or not root.is_dir():
             raise ValueError('Original Bundle is unavailable')
-        from core.article_blog import bundle_fingerprint
         if bundle_fingerprint(root) != bundle_version:
             raise ValueError('Original Bundle is unavailable')
         target = (root / relative).resolve()
@@ -171,7 +170,6 @@ class CoreBridge:
         if not isinstance(bundle_version, str) or not re.fullmatch(r'[0-9a-f]{64}', bundle_version):
             raise ValueError('Invalid Bundle version')
         root = (self.workspace / 'sources' / source_id / 'reading' / 'bundles' / bundle_version).resolve()
-        from core.article_blog import bundle_fingerprint
         if not root.is_relative_to(self.workspace) or not root.is_dir() or bundle_fingerprint(root) != bundle_version:
             raise ValueError('Original Bundle is unavailable')
         target = root / 'content.md'
@@ -185,8 +183,7 @@ class CoreBridge:
         if resource == 'content':
             target = root / 'content.md'
         elif resource == 'original':
-            name = {'paper_pdf': 'source.pdf', 'article_html': 'source.html',
-                    'article_markdown': 'source.md'}.get(source['source_kind'])
+            name = SOURCE_ORIGINALS.get(source['source_kind'])
             if name is None:
                 raise ValueError('Unsupported Source original')
             target = root / name
@@ -246,7 +243,6 @@ class CoreBridge:
             raise ValueError('引用段落不存在')
         provenance_path = root / 'provenance.json'
         current = source_root / 'parser-bundle'
-        from core.article_blog import bundle_fingerprint
         if provenance_path.is_file():
             expected_bundle = json.loads(provenance_path.read_text(encoding='utf-8')).get('bundle')
             bundle = current if expected_bundle == bundle_fingerprint(current) else source_root / 'reading' / 'bundles' / str(expected_bundle)

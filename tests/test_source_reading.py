@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 import reading_fixture
 from workspace_fixture import HostService
+from core.library_import import import_markdown
 from core.source_reading import SourceReading
 from core.reading_workspace import WorkspaceError
 from host.backends.task_tools import discussion_tools, library_tools
@@ -152,6 +153,44 @@ class SourceReadingTests(unittest.TestCase):
                         self.app.cite(scope, invalid)
                 sparse = self.host.discussion_app.candidate(scope, 'read_range', {'block_ids': [blocks[3], blocks[7]]})
                 self.assertEqual([paragraphs[1], paragraphs[3]], [r['source_text'] for r in sparse['ranges']])
+
+    def test_markdown_import_keeps_setext_hierarchy_and_exact_source(self):
+        markdown = ('Overview\n========\n\nParagraph with detail.\n\n'
+                    'Method\n------\n\n~~~text\nCode example\n============\n~~~\n\n'
+                    '$$\nformula\n=======\n$$\n\nMethod detail.\n')
+        original = self.fixture.root / 'setext.md'
+        original.write_bytes(markdown.encode())
+        source_id = import_markdown(self.workspace, original)['source_id']
+        bundle = self.workspace / 'sources' / source_id / 'parser-bundle'
+        document = self.host.source_document(source_id)
+        ir = json.loads((bundle / 'source-ir.json').read_text())
+        self.assertEqual(markdown, document['markdown'])
+        overview, method = ir['sections']
+        self.assertEqual([('Overview', 1, [1, 19]), ('Method', 2, [6, 19])],
+                         [(section['title'], section['level'], section['source_lines']) for section in ir['sections']])
+        self.assertEqual(overview['section_id'], method['parent_id'])
+        self.assertEqual(['heading', 'paragraph', 'heading', 'code', 'equation', 'paragraph'],
+                         [block['kind'] for block in ir['blocks']])
+        heading = ir['blocks'][0]
+        self.assertEqual(('Overview\n========', 'Overview'), (heading['markdown'], heading['plain_text']))
+        scope = self.host.discussion_app.bind(source_id=source_id, request_id='cite-setext', content='method')
+        citation = self.app.cite(scope, {'start': 19, 'end': 19, 'quote': 'Method detail.'})
+        self.assertEqual([overview['section_id'], method['section_id']], citation['sectionIds'])
+
+    def test_reference_images_require_readable_alt_caption_or_body(self):
+        markdown = ('![][figure]\n\n![Architecture][figure]\n\n![][figure] Figure 1: System layout.\n\n'
+                    '[figure]: https://example.com/a.png "Storage title"\n\n![Local](images/image-001.png)\n')
+        bundle = self.workspace / 'sources' / self.source / 'parser-bundle'
+        (bundle / 'content.md').write_text(markdown)
+        scope = self.scope()
+        for line, quote in [(1, 'figure'), (1, '![][figure]'), (3, 'figure'), (7, 'figure'),
+                            (7, 'https://example.com/a.png'), (7, 'Storage title')]:
+            with self.subTest(line=line, quote=quote), self.assertRaises(ValueError):
+                self.app.cite(scope, {'start': line, 'end': line, 'quote': quote})
+        for line, quote in [(3, 'Architecture'), (5, 'Figure 1: System layout.')]:
+            with self.subTest(line=line, quote=quote):
+                evidence = self.app.cite(scope, {'start': line, 'end': line, 'quote': quote})
+                self.assertEqual(quote, evidence['quote']['exact'])
 
     def test_pdf_block_selection_disambiguates_same_line_and_reports_page(self):
         bundle = self.workspace / 'sources' / self.source / 'parser-bundle'

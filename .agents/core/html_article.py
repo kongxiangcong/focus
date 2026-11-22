@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from .reading_workspace import WorkspaceError, _write_document
 from .source_ir import build_source_ir, publish_source_ir
+from .source_provenance import file_fingerprint
 
 
 MODEL_VERSION = "local-html-v1"
@@ -176,10 +177,9 @@ def _article_markdown(body, title, selectors):
 def article_identity(source: Path) -> str:
     """Same canonical URL reuses the Source; URL-less snapshots use original bytes."""
     from .source_library import canonical_article_url
-    from .ingestion import _file_fingerprint
     _, info, _ = extract_article(source)
     return ("url:" + canonical_article_url(info["source_url"]) if info["source_url"]
-            else "article-original:" + _file_fingerprint(source))
+            else "article-original:" + file_fingerprint(source))
 
 
 class LocalHTMLParser:

@@ -539,7 +539,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       const pdfTarget = !!paper?.pdfPages.length;
       const wantsTranslation = intent.preferredView === "translation";
       if (!wantsTranslation && pdfTarget && settledPdf?.url !== activePdfUrl) return;
-      if (translationReady && (wantsTranslation || !pdfTarget || !target(intent.evidenceId))) {
+      const needsTranslation = wantsTranslation || !pdfTarget || !target(intent.evidenceId);
+      if (needsTranslation && translationReady) {
         const pane = original.current;
         if (pane) {
           lastPdfScroll.current = pane.scrollTop;
@@ -553,6 +554,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
         setTranslated(true);
         return;
       }
+      if (needsTranslation && (translationState === "running" || prep?.status === "running")) return;
     }
     if (!consume(intent)) return;
     if (target(intent.evidenceId)) moveTo(intent.evidenceId, intent.keyboard, false, intent);
@@ -564,7 +566,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     }
   }, [visible, intent, sourceId, isCurrentSource, isLatest, consume, document, messages, draftKey, view.discussionId,
     view.sourceBundleVersion, view.sourceGeneration, view.resetVersion,
-    selected?.messageId, mobile, translationReady, showingTranslation, projections, paperLocations, activePdfUrl, settledPdf, pdfRevision, moveTo]);
+    selected?.messageId, mobile, prep?.status, translationState, translationReady, showingTranslation, projections, paperLocations, activePdfUrl, settledPdf, pdfRevision, moveTo]);
 
   const cite = useCallback((message: ReaderMessage, id: string, keyboard: boolean, origin: HTMLButtonElement) => {
     if (!isCurrentSource()) return;

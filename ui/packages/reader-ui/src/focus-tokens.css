@@ -118,6 +118,9 @@
   --reader-dialog-radius:16px;
   --reader-bubble-radius:18px;
   --reader-icon:16px;
+  --reader-border-width:1px;
+  --reader-gap-3xs:2px;
+  --reader-gap-2xs:4px;
   --reader-gap-xs:6px;
   --reader-gap-sm:8px;
   --reader-gap:12px;
@@ -133,6 +136,7 @@
   --reader-nav-collapsed:56px;
   --reader-drawer:420px;
   --reader-inspector:400px;
+  --reader-answer-chooser-max-height:min(320px,55%);
   --reader-library-content:1080px;
   /* Compatibility aliases for pre-existing consumers; not a second table. */
   --reader-control-height:var(--reader-control-h);

@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readerSuccess, type ReaderHost, type ReadingWindow, type ValidatedAnswerEvidence } from "@focus/reader-contracts";
+import { readerSuccess, type ReaderHost, type ReadingDocument, type ReadingWindow, type ValidatedAnswerEvidence } from "@focus/reader-contracts";
 import { ConversationReader } from "./ConversationReader";
 
 const initial: ReadingWindow = { status: "empty", source: { sourceId: "paper", title: "Paper", topicId: null },
@@ -149,6 +149,46 @@ it.each([
   expect(source).toHaveProperty("scrollTop", 120);
   expect(scrolling).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "返回回答证据 1" })).toBeNull();
+});
+
+it.each([
+  { layoutVersion: "old-layout", page: 1, outcome: "ready" },
+  { layoutVersion: "new-layout", page: 0, outcome: "ready" },
+  { layoutVersion: "new-layout", page: 0, outcome: "cancelled" },
+  { layoutVersion: "old-layout", page: 1, outcome: "failed" },
+] as const)("settles a waiting translation citation with $layoutVersion, page $page, $outcome", async ({ layoutVersion, page, outcome }) => {
+  const cited = { ...first, layoutVersion, blockIds: ["current"], renderGranularity: "block" as const };
+  const start = answer([cited]);
+  const preparation = { source_id: "paper", status: "running" as const, step: "translation",
+    total: 1, completed: 0, ready: false, error: null, plan_id: "plan" };
+  let translation: ReadingDocument["translation"] = { status: "running", chunks: [] };
+  const app = setup({ ...start, preparations: { paper: preparation } }, {
+    sourceOriginalUrl: () => "/paper.pdf",
+    getSourceDocument: async () => readerSuccess({
+      sourceId: "paper", bundleVersion: "v1", title: "Paper", markdown: "# Paper\n\nFirst evidence.", lineCount: 3,
+      pdf: { version: "new-layout", pdfHash: "abc", blocks: [{ blockId: "current", page, sourceLines: [3, 3], bbox: null }] },
+      translation,
+    }),
+  });
+  await screen.findByRole("button", { name: "中文译文 · 准备中" }, { timeout: 8500 });
+  fireEvent.click(window.document.querySelector<HTMLElement>("[data-citation]")!);
+  expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
+  if (outcome === "cancelled") fireEvent.wheel(screen.getByLabelText("文章原文"));
+  const status = outcome === "failed" ? "failed" : "ready";
+  translation = { status, chunks: status === "ready" ?
+    [{ id: "chunk-1", text: "已准备好的译文。", blockIds: ["current"], sourceLines: [3, 3] }] : [] };
+  app.emit({ ...start, revision: 4, preparations: { paper: { ...preparation, status, ready: status === "ready" } } });
+  if (outcome === "ready") {
+    expect(await screen.findByText("已准备好的译文。", {}, { timeout: 8500 })).toBeVisible();
+    expect(await screen.findByLabelText("原文证据")).toHaveTextContent("First evidence.");
+  } else if (outcome === "cancelled") {
+    await screen.findByRole("button", { name: "中文译文" }, { timeout: 8500 });
+    expect(screen.getByRole("button", { name: "原版 PDF" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
+  } else {
+    expect(await screen.findByLabelText("原文证据", {}, { timeout: 8500 })).toHaveTextContent("First evidence.");
+    expect(screen.getByRole("button", { name: "原版 PDF" })).toHaveAttribute("aria-pressed", "true");
+  }
 });
 
 it("preserves the current translated paragraph when a verified quote has no matching chunk", async () => {

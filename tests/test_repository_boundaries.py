@@ -107,11 +107,12 @@ class RepositoryBoundaryTests(unittest.TestCase):
                 # Hashing is only allowed where it binds a published asset to the
                 # original or Bundle it was derived from, never as a reading runtime.
                 if path.relative_to(ROOT).as_posix() in {
-                    ".agents/core/ingestion.py",
                     ".agents/core/article_blog.py",
                     ".agents/core/reading_application.py",
                     # Local and cloud MinerU evidence binds Bundle bytes.
-                    ".agents/core/pdf_layout.py",
+                    ".agents/core/source_provenance.py",
+                    # Evidence IDs bind the accepted quote to its discussion request.
+                    ".agents/core/source_reading.py",
                     ".agents/core/local_mineru.py",
                     ".agents/core/mineru.py",
                     # Parser identity binds the published Source to its original.

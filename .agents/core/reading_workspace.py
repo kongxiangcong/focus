@@ -13,12 +13,21 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
+from .source_markdown import (
+    MARKDOWN_IMAGE_DETAIL_RE,
+    MARKDOWN_IMAGE_RE,
+    looks_like_caption as _looks_like_caption,
+    protected_source_ranges as _protected_source_ranges,
+    source_heading_paths as _source_heading_paths,
+)
+from .source_provenance import SOURCE_ORIGINALS, bundle_fingerprint
+from .workspace_documents import replace_text as _replace_text, write_document as _write_document
+from .workspace_errors import WorkspaceError
+
 if TYPE_CHECKING:
     from .source_blocks import SourceBlocks
 
 
-MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]\n]*\]\(([^)]+)\)")
-MARKDOWN_IMAGE_DETAIL_RE = re.compile(r"!\[([^\]\n]*)\]\(([^)]+)\)")
 SEQUENTIAL_IMAGE_RE = re.compile(r"^image-(\d{3})(\.[a-z0-9]+)$")
 CHUNK_KEYS = {
     "chunk_id",
@@ -30,12 +39,6 @@ CHUNK_KEYS = {
 READING_RECORD_KEYS = {"chunk_id", "translation", "notes"}
 NOTE_KINDS = {"thought", "emphasis", "question", "clarification"}
 NOTE_ORIGINS = {"user", "dialogue"}
-
-
-class WorkspaceError(RuntimeError):
-    def __init__(self, error_id: str, message: str):
-        super().__init__(message)
-        self.error_id = error_id
 
 
 @dataclass(frozen=True)
@@ -93,25 +96,6 @@ def _read_document(path: Path, default: dict[str, Any] | None = None) -> dict[st
     return value
 
 
-def _write_document(path: Path, value: dict[str, Any]) -> None:
-    from .workspace_lifecycle import require_write
-    require_write(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        for attempt in range(5):
-            try:
-                temporary.replace(path)
-                break
-            except PermissionError:
-                if attempt == 4:
-                    raise
-                time.sleep(0.02)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
 def _restore(path: Path, snapshot: bytes | None) -> None:
     if snapshot is None:
         path.unlink(missing_ok=True)
@@ -120,15 +104,6 @@ def _restore(path: Path, snapshot: bytes | None) -> None:
     temporary.parent.mkdir(parents=True, exist_ok=True)
     temporary.write_bytes(snapshot)
     temporary.replace(path)
-
-
-def _replace_text(path: Path, value: str, *, newline: str | None = None) -> None:
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        temporary.write_text(value, encoding="utf-8", newline=newline)
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def _current_source_state(
@@ -225,15 +200,15 @@ def _validate_parser_bundle(bundle: Path) -> dict[str, Any]:
     errors: list[str] = []
     metadata = _read_document(bundle / "metadata.json", {})
     source_kind = metadata.get("source_kind")
-    original_name = {"paper_pdf": "source.pdf", "article_html": "source.html", "article_markdown": "source.md"}.get(source_kind)
+    original_name = SOURCE_ORIGINALS.get(source_kind)
     original = bundle / original_name if original_name else None
     content = bundle / "content.md"
     images = bundle / "images"
-    if source_kind not in {"paper_pdf", "article_html", "article_markdown"}:
+    if original_name is None:
         errors.append("metadata source kind is invalid")
     elif original is None or not original.is_file():
         errors.append(f"{original_name} is missing")
-    originals = {'source.pdf', 'source.html', 'source.md'}
+    originals = set(SOURCE_ORIGINALS.values())
     if any((bundle / name).exists() for name in originals - {original_name}):
         errors.append("Parser Bundle must contain exactly one source representation")
     if not content.is_file() or not content.read_text(encoding="utf-8", errors="replace").strip():
@@ -307,69 +282,6 @@ def _validate_parser_bundle(bundle: Path) -> dict[str, Any]:
     if errors:
         raise WorkspaceError("parser_bundle_invalid", "; ".join(dict.fromkeys(errors)))
     return metadata
-
-
-def _protected_source_ranges(lines: list[str], *, strict: bool = True) -> list[tuple[int, int]]:
-    ranges: list[tuple[int, int]] = []
-    table_start: int | None = None
-    for number, line in enumerate(lines, 1):
-        if "|" in line:
-            table_start = table_start or number
-        elif table_start is not None:
-            table = lines[table_start - 1 : number - 1]
-            if len(table) >= 2 and any(re.fullmatch(r"\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*", row) for row in table):
-                ranges.append((table_start, number - 1))
-            table_start = None
-    if table_start is not None:
-        table = lines[table_start - 1 :]
-        if len(table) >= 2 and any(re.fullmatch(r"\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*", row) for row in table):
-            ranges.append((table_start, len(lines)))
-
-    opening: tuple[str, int] | None = None
-    for number, line in enumerate(lines, 1):
-        marker = line.strip()
-        if opening is None and (marker.startswith("```") or marker in {"$$", "\\["}):
-            opening = ("```" if marker.startswith("```") else marker, number)
-        elif opening is not None:
-            token, start = opening
-            closes = (token == "```" and marker.startswith("```")) or (token == "$$" and marker == "$$") or (token == "\\[" and marker == "\\]")
-            if closes:
-                ranges.append((start, number))
-                opening = None
-    if opening is not None and strict:
-        raise WorkspaceError("reading_plan_invalid", "Source Markdown contains an unterminated protected block")
-
-    for number, line in enumerate(lines, 1):
-        if not MARKDOWN_IMAGE_RE.search(line):
-            continue
-        if number < len(lines) and _looks_like_caption(lines[number]):
-            ranges.append((number, number + 1))
-        if number > 1 and _looks_like_caption(lines[number - 2]):
-            ranges.append((number - 1, number))
-    return ranges
-
-
-def _source_heading_paths(lines: list[str], *, identifiers: bool = False) -> list[tuple[str, ...]]:
-    headings: dict[int, str] = {}
-    paths: list[tuple[str, ...]] = []
-    fence: str | None = None
-    for number, line in enumerate(lines, 1):
-        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
-        in_code = fence is not None
-        if marker:
-            token, suffix = marker.groups()
-            if fence is None:
-                fence = token
-                in_code = True
-            elif token[0] == fence[0] and len(token) >= len(fence) and not suffix.strip():
-                fence = None
-        match = None if in_code else re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
-        if match:
-            level = len(match.group(1))
-            headings = {key: value for key, value in headings.items() if key < level}
-            headings[level] = f"section-{number}" if identifiers else match.group(2).strip()
-        paths.append(tuple(headings[key] for key in sorted(headings)))
-    return paths
 
 
 def _reading_plan_records(bundle: Path, draft: dict[str, Any], *,
@@ -465,7 +377,6 @@ def _source_bundle_at_version(source_root: Path, bundle_version: str | None) -> 
         return bundle
     if not isinstance(bundle_version, str) or not re.fullmatch(r"[0-9a-f]{64}", bundle_version):
         raise WorkspaceError("source_bundle_invalid", "Source Bundle version is invalid")
-    from .article_blog import bundle_fingerprint
     if bundle_fingerprint(bundle) == bundle_version:
         return bundle
     historical = source_root / "reading" / "bundles" / bundle_version
@@ -570,16 +481,6 @@ def _read_glossary(path: Path) -> list[dict[str, str]]:
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         raise WorkspaceError("reading_plan_invalid", f"Plan Glossary is invalid: {path.parent.name}") from exc
     return rows
-
-
-def _looks_like_caption(value: str) -> bool:
-    return bool(
-        re.match(
-            r"^\s*(?:figure|fig\.?|table|algorithm|scheme|图|表|算法)\s*[-.:：]?[\s\d一二三四五六七八九十]+",
-            value,
-            flags=re.IGNORECASE,
-        )
-    )
 
 
 def _bound_image_presentations(bundle: Path, source_lines: list[str], image_paths: list[str]) -> list[dict[str, str]]:

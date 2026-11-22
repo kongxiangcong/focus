@@ -511,9 +511,10 @@ class HostService:
             document = SourceReading(self.workspace).document(source_id)
             bundle = self.workspace / 'sources' / source_id / 'parser-bundle'
             from core.source_blocks import SourceBlocks
+            from core.source_provenance import SOURCE_ORIGINALS
             source = SourceBlocks(bundle, document['markdown'])
             document['blocks'] = [{'blockId': block['block_id'], 'offsets': block['offsets']} for block in source.blocks]
-            if (bundle / 'source.pdf').is_file():
+            if (bundle / SOURCE_ORIGINALS['paper_pdf']).is_file():
                 document['pdf'] = source.pdf
                 document['translation'] = self.reading_app.core.shared_translation(source_id, document)
             return document

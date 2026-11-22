@@ -1,115 +1,22 @@
 """Canonical Markdown lines and block bounds shared by the source tools."""
-from bisect import bisect_right
-
-from .reading_workspace import (
-    MARKDOWN_IMAGE_DETAIL_RE,
-    MARKDOWN_IMAGE_RE,
-    WorkspaceError,
-    _protected_source_ranges,
-    _source_heading_paths,
-)
+from .pdf_layout import layout
+from .source_ir_document import load_source_ir, project_source_blocks
+from .source_markdown import MarkdownBlocks, has_readable_text, source_lines
+from .source_provenance import SOURCE_ORIGINALS
+from .workspace_errors import WorkspaceError
 
 
-def source_lines(markdown):
-    # The canonical Markdown reader uses LF. Other Unicode separators remain text.
-    return markdown.removesuffix('\n').split('\n') if markdown else []
-
-
-class SourceBlocks:
+class SourceBlocks(MarkdownBlocks):
     def __init__(self, bundle, markdown=None, *, pdf=None):
         if markdown is None:
             markdown = (bundle / 'content.md').read_text(encoding='utf-8', errors='replace')
-        self.markdown = markdown
-        self.lines = source_lines(markdown)
-        self.section_paths = _source_heading_paths(self.lines)
-        self.section_ids = _source_heading_paths(self.lines, identifiers=True)
-        self.starts = [0]
-        for line in self.lines:
-            self.starts.append(self.starts[-1] + len(line) + 1)
-        self.pdf = pdf
+        ir = None
         if bundle is not None:
-            from .source_ir import load_source_ir, project_source_blocks
             ir = load_source_ir(bundle, markdown)
-            if (bundle / 'source.pdf').is_file():
-                from .pdf_layout import layout
-                self.pdf = layout(bundle, markdown=markdown, source_ir=ir)
-            if ir is not None:
-                self.blocks = project_source_blocks(ir)
-                return
-        self.blocks = self._markdown_blocks()
-        if self.pdf is not None:
-            self.blocks = self._with_pdf_blocks(self.pdf['blocks'])
-
-    def _markdown_blocks(self):
-        protected = sorted(_protected_source_ranges(self.lines, strict=False))
-        groups = []
-        for first, last in protected:
-            if groups and first <= groups[-1][1]:
-                groups[-1][1] = max(groups[-1][1], last)
-            else:
-                groups.append([first, last])
-        protected = dict(groups)
-        blocks = []
-        first = 1
-        while first <= len(self.lines):
-            if not self.lines[first - 1].strip() and first not in protected:
-                first += 1
-                continue
-            last = protected.get(first, first)
-            if first not in protected and not self._starts_object(first):
-                while last < len(self.lines) and last + 1 not in protected and not self._starts_object(last + 1):
-                    last += 1
-            blocks.append({'block_id': f'md-{first}', 'source_lines': [first, last],
-                           'offsets': [self.starts[first - 1], self.starts[last] - 1]})
-            first = last + 1
-        return blocks
-
-    def _starts_object(self, line):
-        text = self.lines[line - 1]
-        return (not text.strip() or self.section_ids[line - 1][-1:] == (f'section-{line}',)
-                or (MARKDOWN_IMAGE_RE.match(text.lstrip()) is not None))
-
-    def _with_pdf_blocks(self, fragments):
-        fragments = iter(sorted(fragments, key=lambda fragment: fragment['offsets']))
-        pending = next(fragments, None)
-        result = []
-        for block in self.blocks:
-            start, end = block['offsets']
-            while pending and pending['offsets'][1] <= start:
-                pending = next(fragments, None)
-            aligned = []
-            while pending and pending['offsets'][0] < end:
-                first, last = pending['offsets']
-                key = pending['blockId']
-                if aligned and aligned[-1]['block_id'] == key:
-                    aligned[-1]['offsets'][1] = min(last, end)
-                else:
-                    aligned.append({'block_id': key, 'page': pending['page'],
-                                    'offsets': [max(first, start), min(last, end)]})
-                if last > end:
-                    break
-                pending = next(fragments, None)
-            if not aligned:
-                result.append(block)
-                continue
-            # Keep Markdown syntax around a fragment on a line owned by one
-            # object. When two objects share a line, keep their exact bounds.
-            cursor = start
-            spans = [self.line_span(*part['offsets']) for part in aligned]
-            for index, part in enumerate(aligned):
-                first, last = spans[index]
-                if index == 0 or spans[index - 1][1] < first:
-                    part['offsets'][0] = self.starts[first - 1]
-                if index == len(aligned) - 1 or last < spans[index + 1][0]:
-                    part['offsets'][1] = self.starts[last] - 1
-                left, right = part['offsets']
-                if self.markdown[cursor:left].strip():
-                    result.append({**block, 'offsets': [cursor, left]})
-                result.append(part)
-                cursor = right
-            if self.markdown[cursor:end].strip():
-                result.append({**block, 'offsets': [cursor, end]})
-        return result
+            if (bundle / SOURCE_ORIGINALS['paper_pdf']).is_file():
+                pdf = layout(bundle, markdown=markdown, source_ir=ir)
+        self.pdf = pdf
+        super().__init__(markdown, pdf=pdf, blocks=project_source_blocks(ir) if ir else None)
 
     def block_ids_at(self, start, stop):
         if start >= stop:
@@ -141,26 +48,8 @@ class SourceBlocks:
     def text(self, first, last):
         return '\n'.join(self.lines[first - 1:last])
 
-    def line_span(self, start, stop):
-        return [bisect_right(self.starts, start), bisect_right(self.starts, max(start, stop - 1))]
-
     def has_readable_text(self, start, end):
-        """An image target is storage metadata. Only its alt text is readable."""
-        first_line = self.markdown.rfind('\n', 0, start) + 1
-        last_line = self.markdown.find('\n', end)
-        relevant = self.markdown[first_line:] if last_line < 0 else self.markdown[first_line:last_line]
-        cursor = start - first_line
-        stop = end - first_line
-        for image in MARKDOWN_IMAGE_DETAIL_RE.finditer(relevant):
-            if image.end() <= cursor or image.start() >= stop:
-                continue
-            if relevant[cursor:image.start()].strip():
-                return True
-            alt_start, alt_end = image.span(1)
-            if max(cursor, alt_start) < min(stop, alt_end) and relevant[max(cursor, alt_start):min(stop, alt_end)].strip():
-                return True
-            cursor = image.end()
-        return cursor < stop and bool(relevant[cursor:stop].strip())
+        return has_readable_text(self.markdown, start, end)
 
     def headers(self, first, last):
         headers = {}

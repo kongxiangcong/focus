@@ -28,6 +28,8 @@ from .reading_workspace import (
     validate_source_id,
 )
 
+from .source_provenance import SOURCE_ORIGINALS, bundle_fingerprint
+
 
 ARTICLE_BLOG_METHOD_VERSION = "article-blog-v2"
 ARTICLE_BLOG_METHOD = "article-blog"
@@ -108,24 +110,6 @@ def _now() -> str:
 
 def blog_root(workspace: Path, source_id: str) -> Path:
     return Path(workspace).resolve() / "sources" / validate_source_id(source_id) / BLOG_DIRECTORY_NAME
-
-
-def bundle_fingerprint(bundle: Path, *, markdown: bytes | None = None) -> str:
-    """Fingerprint canonical Markdown and the Bundle images it references."""
-    bundle = Path(bundle).resolve()
-    digest = hashlib.sha256()
-    content = bundle / "content.md"
-    if markdown is not None:
-        digest.update(markdown)
-    elif content.is_file():
-        digest.update(content.read_bytes())
-    images = bundle / "images"
-    if images.is_dir():
-        for path in sorted(images.rglob("*")):
-            if path.is_file():
-                digest.update(path.relative_to(images).as_posix().encode("utf-8"))
-                digest.update(path.read_bytes())
-    return digest.hexdigest()
 
 
 def new_blog_metadata(
@@ -510,7 +494,7 @@ def validate_blog_candidate(
     blog_dir = Path(blog_dir).resolve()
     errors: list[str] = []
     warnings: list[str] = []
-    for original in ("source.pdf", "source.html", "source.md"):
+    for original in SOURCE_ORIGINALS.values():
         if (blog_dir / original).exists():
             errors.append(f"{original} must not be copied into the Blog Output")
 

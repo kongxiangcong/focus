@@ -105,6 +105,21 @@ class PdfReadingTests(unittest.TestCase):
         self.assertEqual(document['pdf']['version'], citation['layoutVersion'])
         self.assertEqual(2, len(citation['pdfRegions'][0]['bboxes']))
 
+    def test_parser_span_retains_regions_across_inline_markdown(self):
+        quote = 'Use **exact** syntax.'
+        bbox = [0.1, 0.2, 0.5, 0.4]
+        for space, expected in [('normalized_top_left', [bbox]), ('unknown', [])]:
+            with self.subTest(coordinate_space=space):
+                payload = {'coordinate_space': space, 'pages': [page(0, ('Use exact syntax.', bbox))]}
+                host, source_id = self.upload_archive('paper_middle.json', payload, quote + '\n')
+                scope = host.discussion_app.bind(source_id=source_id, request_id='cite-inline', content='syntax')
+                citation = SourceReading(host.workspace).cite(scope, {'start': 1, 'end': 1, 'quote': quote})
+                self.assertEqual(quote, citation['quote']['exact'])
+                self.assertEqual([(1, expected)], [(region['pageNumber'], region['bboxes']) for region in citation['pdfRegions']])
+        for duplicate in ('Use *exact* syntax.', 'Use exact syntax.'):
+            with self.subTest(duplicate=duplicate):
+                self.assertEqual([], align(quote + '\n\n' + duplicate, [page(0, ('Use exact syntax.', bbox))]))
+
     def test_prefixed_middle_archive_binds_all_rotated_boxes_to_the_original(self):
         payload = {'coordinate_space': 'normalized_unrotated_top_left', 'pages': [page(
             0, ('Two column result.', None),

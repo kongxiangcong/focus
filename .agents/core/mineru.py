@@ -26,6 +26,8 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from .mineru_artifacts import mineru_artifact_name
+
 BASE_URL = "https://mineru.net"
 TOKEN_ENV = "MINERU_API_TOKEN"
 DOTENV_NAME = ".env"
@@ -295,19 +297,6 @@ def _bundle_image_checks(source_path: Path, output: Path) -> tuple[bool, bool]:
             return links_resolve, False
         numbers.append(int(match.group(1)))
     return links_resolve, numbers == list(range(1, len(numbers) + 1))
-
-
-def mineru_artifact_name(name: str) -> str | None:
-    for kind, aliases in (
-        ("middle_json.json", ("_middle.json", "_middle_json.json")),
-        ("content_list.json", ("_content_list.json",)),
-        ("content_list_v2.json", ("_content_list_v2.json",)),
-        ("model_output.json", ()),
-        ("structured_content.json", ()),
-    ):
-        if name == kind or name.endswith(aliases):
-            return kind
-    return "middle_json.json" if name == "middle.json" else None
 
 
 def _normalize(source: Path, archive: Path, output: Path, batch_id: str, model: str, language: str) -> None:

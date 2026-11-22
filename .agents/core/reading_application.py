@@ -14,7 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Protocol
 
-from .article_blog import bundle_fingerprint
+from .source_provenance import bundle_fingerprint
 from .reading_workspace import (
     WorkspaceCore, WorkspaceError, _identifier, _needs_translation,
     _read_chunk_records, _read_document, _read_glossary, _read_reading_record,

@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
-from .reading_workspace import WorkspaceError, _write_document
+from .workspace_errors import WorkspaceError
 
 FORMAT_VERSION = 1
 MANIFEST = 'focus-workspace.json'

@@ -1,28 +1,19 @@
 """Version-bound MinerU regions projected onto the published Markdown."""
 import bisect
-import hashlib
 import json
 import math
 import re
 from collections import Counter
-from functools import lru_cache
+from functools import cache, lru_cache
 from pathlib import Path
 
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
-from .ingestion import _file_fingerprint
-from .mineru import mineru_artifact_name
-
-
-@lru_cache(maxsize=256)
-def _digest(path, identity):
-    return _file_fingerprint(path)
-
-
-def file_digest(path):
-    stat = path.stat()
-    return _digest(path, (stat.st_dev, stat.st_ino, stat.st_size, stat.st_ctime_ns))
+from .mineru_artifacts import mineru_artifact_name
+from .source_ir_document import IR_FILE, IR_VERSION, load_source_ir, project_source_blocks
+from .source_markdown import verbatim_ranges
+from .source_provenance import SOURCE_ORIGINALS, file_digest, quote_fingerprint, text_fingerprint
 
 
 def _text(value):
@@ -35,15 +26,15 @@ def _text(value):
     return ''
 
 
-def _fragments(block, compact):
+def _fragments(block, matches):
     children = block.get('content')
     if block.get('type') in _OBJECT_TYPES and isinstance(children, list):
         for child in children:
             if isinstance(child, dict):
-                yield from _fragments(child, compact)
+                yield from _fragments(child, matches)
     else:
         text = _text(children)
-        if text and ''.join(text.split()) in compact:
+        if text and matches(''.join(text.split())):
             yield text
         elif block.get('type') == 'table_body':
             # Continued tables can share one HTML wrapper in the Markdown.
@@ -52,13 +43,50 @@ def _fragments(block, compact):
             # Styling and links may insert Markdown between adjacent inline spans.
             for child in children:
                 if isinstance(child, dict):
-                    yield from _fragments(child, compact)
+                    yield from _fragments(child, matches)
+
+
+_EMPHASIS = re.compile(r'(?<![\\\w*_])(?P<mark>\*{1,3}|_{1,3})(?![\s*_])'
+                       r'(?P<body>[^\n*_`]+?)(?<!\s)(?P=mark)(?![\w*_])')
 
 
 def align(markdown, pages):
-    """Accept unique literal fragments; resolve repeats only with unique ordered neighbours."""
+    """Project literal fragments and unique single-line emphasis matches onto Markdown."""
     chars = [m.start() for m in re.finditer(r'\S', markdown)]
     compact = ''.join(markdown[i] for i in chars)
+    emphasis = list(_EMPHASIS.finditer(markdown))
+    literal = verbatim_ranges(markdown) if emphasis else []
+    delimiters = set()
+    for match in emphasis:
+        if any(left <= match.start() < right for left, right in literal):
+            continue
+        delimiters.update(range(match.start(), match.start('body')))
+        delimiters.update(range(match.end('body'), match.end()))
+    normalized_chars = [i for i, offset in enumerate(chars) if offset not in delimiters] if delimiters else []
+    normalized = ''.join(compact[i] for i in normalized_chars)
+
+    @cache
+    def match_fragment(needle):
+        if not needle:
+            return None
+        direct = compact.find(needle)
+        at = normalized.find(needle)
+        if at >= 0 and normalized.find(needle, at + 1) < 0 and direct < 0:
+            first, last = normalized_chars[at], normalized_chars[at + len(needle) - 1]
+            if '\n' not in markdown[chars[first]:chars[last] + 1]:
+                return first, last + 1
+        elif at >= 0:
+            while at >= 0:
+                first, last = normalized_chars[at], normalized_chars[at + len(needle) - 1]
+                if last - first + 1 > len(needle):
+                    # Normalization added a second possible location. Exact and formatted
+                    # candidates must not compete for the same parser region.
+                    return None
+                at = normalized.find(needle, at + 1)
+        if direct >= 0:
+            return (direct, direct + len(needle)) if compact.find(needle, direct + 1) < 0 else (None, None)
+        return None
+
     starts = [0] + [m.end() for m in re.finditer('\n', markdown)]
     candidates = []
     for page in pages:
@@ -70,27 +98,24 @@ def align(markdown, pages):
             if not isinstance(block, dict) or type(block.get('index')) is not int:
                 continue
             boxes = _boxes(block, 'normalized_top_left', (1, 1), 0)
-            for fragment in _fragments(block, compact):
+            for fragment in _fragments(block, match_fragment):
                 needle = ''.join(fragment.split())
-                if not needle:
-                    continue
-                at = compact.find(needle)
-                if at >= 0:
-                    unique = compact.find(needle, at + 1) < 0
-                    candidates.append((page['page_idx'], block['index'], boxes, needle, at if unique else None))
+                match = match_fragment(needle)
+                if match is not None:
+                    candidates.append((page['page_idx'], block['index'], boxes, needle, *match))
 
     result = []
     counts = Counter(entry[3] for entry in candidates)
     end = len(compact)
     upper = []
-    for _, _, _, _, at in reversed(candidates):
+    for _, _, _, _, at, _ in reversed(candidates):
         upper.append(end)
         if at is not None:
             end = at
     visits = Counter()
     repeated_positions = {}
     lower = 0
-    for (page, index, boxes, needle, at), limit in zip(candidates, reversed(upper)):
+    for (page, index, boxes, needle, at, stop), limit in zip(candidates, reversed(upper)):
         if counts[needle] > 1:
             if needle not in repeated_positions:
                 positions = [match.start() for match in re.finditer(re.escape(needle), compact)]
@@ -101,11 +126,15 @@ def align(markdown, pages):
             if not positions or not lower <= positions[ordinal] <= limit - len(needle):
                 continue
             at = positions[ordinal]
+            stop = at + len(needle)
         if at is None:
             at = compact.find(needle, lower, limit)
             if at < 0 or compact.find(needle, at + 1, limit) >= 0:
                 continue
-        lower = at + len(needle)
+            stop = at + len(needle)
+        if stop - at != len(needle) and not lower <= at < stop <= limit:
+            continue
+        lower = stop
         start, stop = chars[at], chars[lower - 1] + 1
         result.append({'blockId': f'{page}-{index}', 'page': page + 1, 'bbox': boxes[0] if boxes else None, 'bboxes': boxes,
                        'sourceLines': [bisect.bisect_right(starts, start), bisect.bisect_right(starts, stop - 1)],
@@ -343,14 +372,6 @@ def _archive_paths(bundle):
             yield name, paths[0]
 
 
-def text_fingerprint(text):
-    return hashlib.sha256(text.encode('utf-8')).hexdigest()
-
-
-def quote_fingerprint(text):
-    return 'sha256:' + text_fingerprint(text)
-
-
 def layout_fingerprint(schema, pdf_hash, markdown_digest, pages, geometry):
     fingerprint = json.dumps([schema, pdf_hash, markdown_digest, pages, geometry],
                              sort_keys=True, separators=(',', ':'))
@@ -379,13 +400,51 @@ def _archive_layout(markdown, pdf, pdf_hash, artifacts, markdown_digest):
 
 
 def archive_layout(bundle, markdown, *, markdown_digest=None):
-    pdf = bundle / 'source.pdf'
+    pdf = bundle / SOURCE_ORIGINALS['paper_pdf']
     artifacts = tuple((name, path, file_digest(path)) for name, path in _archive_paths(bundle))
     return _archive_layout(markdown, pdf, file_digest(pdf), artifacts, markdown_digest or text_fingerprint(markdown))
 
 
+def _project_regions(ir, markdown, page_count):
+    blocks = []
+    for block in ir['blocks']:
+        pdf = block['anchors'].get('pdf')
+        if not isinstance(pdf, dict) or not isinstance(pdf.get('regions'), list):
+            continue
+        anchor = block['anchors']['markdown']
+        span = anchor['char_span']
+        for region in pdf['regions']:
+            start, end = (region['char_span'][key] for key in ('start', 'end'))
+            index = region['page_index']
+            if (type(index) is not int or index < 0 or (page_count and index >= page_count)
+                    or not span['start'] <= start < end <= span['end']):
+                raise ValueError('Invalid PDF anchor')
+            boxes = region['bboxes']
+            if pdf.get('coord_space') != 'normalized_top_left' or not all(_box(box, (1, 1), 0) for box in boxes):
+                boxes = []
+            first = anchor['source_lines'][0] + markdown.count('\n', span['start'], start)
+            last = first + markdown.count('\n', start, end)
+            blocks.append({'blockId': block['block_id'], 'page': index + 1, 'offsets': [start, end],
+                           'sourceLines': [first, last], 'bbox': boxes[0] if boxes else None, 'bboxes': boxes})
+    return blocks
+
+
+def project_pdf_layout(bundle, ir, markdown):
+    pdf = bundle / SOURCE_ORIGINALS['paper_pdf']
+    current = file_digest(pdf)
+    pages = _pdf_pages(pdf, current)
+    blocks = []
+    if current == ir.get('source_version'):
+        try:
+            blocks = _project_regions(ir, markdown, len(pages))
+        except (TypeError, KeyError, ValueError):
+            pass
+    geometry = [ir.get('pages'), project_source_blocks(ir), blocks]
+    version = layout_fingerprint(IR_VERSION, current, text_fingerprint(markdown), pages, geometry)
+    return {'version': version, 'pdfHash': current, 'pages': pages, 'blocks': blocks}
+
+
 def layout(bundle: Path, *, markdown=None, source_ir=None):
-    from .source_ir import IR_FILE, IR_VERSION, load_source_ir, project_pdf_layout
     content = bundle / 'content.md'
     if markdown is None:
         markdown = content.read_text(encoding='utf-8')
@@ -395,7 +454,7 @@ def layout(bundle: Path, *, markdown=None, source_ir=None):
         return project_pdf_layout(bundle, source_ir, markdown)
     if (bundle / IR_FILE).is_file():
         # A mismatched IR cannot authorize coordinates from its old parser inputs.
-        pdf = bundle / 'source.pdf'
+        pdf = bundle / SOURCE_ORIGINALS['paper_pdf']
         pdf_hash = file_digest(pdf)
         pages = _pdf_pages(pdf, pdf_hash)
         version = layout_fingerprint(IR_VERSION, pdf_hash, text_fingerprint(markdown), pages, None)
