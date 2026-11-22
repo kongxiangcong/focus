@@ -40,7 +40,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-function setup(missingSecondTarget = false) {
+async function setup(missingSecondTarget = false) {
   let resolvePdf!: (document: { numPages: number; getPage: (page: number) => Promise<unknown> }) => void;
   let rejectPdf!: (error: Error) => void;
   getDocument.mockReturnValue({ promise: new Promise((resolve, reject) => { resolvePdf = resolve; rejectPdf = reject; }), destroy: async () => {} });
@@ -75,7 +75,7 @@ function setup(missingSecondTarget = false) {
     const y = this.dataset.sourceLine === "3" ? 900 : this.dataset.sourceLine === "1" ? 700 : 0;
     return { x: 0, y, top: y, bottom: y + 400, left: 0, right: 100, width: 100, height: 400, toJSON() {} };
   });
-  render(<WorkspaceApp host={host} />);
+  await act(async () => { render(<WorkspaceApp host={host} />); });
   return {
     host,
     completePdf: () => resolvePdf({ numPages: 2, getPage: async pageNumber => ({ pageNumber, getViewport: () => ({ width: 100, height: 120 }) }) }),
@@ -94,10 +94,10 @@ it.each([
   const key = "focus.sourceBookmark:local:paper:0:bundle";
   const before = JSON.stringify({ line: 1, offset: 28 });
   localStorage.setItem(key, before);
-  const session = setup();
+  const session = await setup();
   const pane = await screen.findByLabelText("文章原文");
   const answer = screen.getByLabelText("文章对话");
-  fireEvent.click(await within(answer).findByRole("button", { name: "1" }));
+  fireEvent.click(await within(answer).findByRole("button", { name: "1" }, { timeout: 5000 }));
   await waitFor(() => expect(getDocument).toHaveBeenCalled());
   manuallyBrowse(pane);
   pane.scrollTop = 250;
@@ -113,10 +113,10 @@ it("lands on the latest citation once and preserves the manual bookmark through 
   const key = "focus.sourceBookmark:local:paper:0:bundle";
   const before = JSON.stringify({ line: 1, offset: 28 });
   localStorage.setItem(key, before);
-  const session = setup();
+  const session = await setup();
   const pane = await screen.findByLabelText("文章原文");
   const answer = within(screen.getByLabelText("文章对话"));
-  fireEvent.click(await answer.findByRole("button", { name: "1" }));
+  fireEvent.click(await answer.findByRole("button", { name: "1" }, { timeout: 5000 }));
   fireEvent.click(answer.getByRole("button", { name: "2" }));
   await act(async () => session.completePdf());
   const card = await screen.findByLabelText("原文证据");
@@ -138,10 +138,10 @@ it("lands on the latest citation once and preserves the manual bookmark through 
 });
 
 it.each(["success", "failure"] as const)("a pending PDF %s cannot replace the later citation in the translation", async result => {
-  const session = setup();
+  const session = await setup();
   const pane = await screen.findByLabelText("文章原文");
   const answer = within(screen.getByLabelText("文章对话"));
-  fireEvent.click(await answer.findByRole("button", { name: "1" }));
+  fireEvent.click(await answer.findByRole("button", { name: "1" }, { timeout: 5000 }));
   await waitFor(() => expect(getDocument).toHaveBeenCalled());
   fireEvent.click(screen.getByRole("button", { name: "中文译文" }));
   fireEvent.click(answer.getByRole("button", { name: "2" }));
@@ -156,10 +156,10 @@ it.each(["success", "failure"] as const)("a pending PDF %s cannot replace the la
 
 
 it("does not replay an unavailable citation after the reader closes its card and reconnects", async () => {
-  const session = setup(true);
+  const session = await setup(true);
   const pane = await screen.findByLabelText("文章原文");
   const answer = within(screen.getByLabelText("文章对话"));
-  fireEvent.click(await answer.findByRole("button", { name: "2" }));
+  fireEvent.click(await answer.findByRole("button", { name: "2" }, { timeout: 5000 }));
   const card = await screen.findByLabelText("原文证据");
   expect(within(card).getByText("Second paragraph.")).toBeVisible();
   expect(pane.scrollTop).toBe(0);

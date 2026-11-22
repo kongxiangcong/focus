@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { readerSuccess, type ReaderHost, type ReadingDocument, type ReadingWindow } from "@focus/reader-contracts";
 import { ConversationReader } from "./ConversationReader";
@@ -76,7 +76,7 @@ it("opens all boxes of a far PDF block before the destination page renders", asy
     sendMessage: async () => readerSuccess(window),
     continueReading: async () => readerSuccess(window),
   };
-  render(<ConversationReader host={host} />);
+  await act(async () => { render(<ConversationReader host={host} />); });
   await screen.findByLabelText("原版 PDF 第 1 页", undefined, { timeout: 5000 });
   const destination = screen.getByLabelText("第 12 页");
   expect(destination).toHaveStyle({ aspectRatio: "600/800" });
