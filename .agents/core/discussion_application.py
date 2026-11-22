@@ -62,11 +62,9 @@ class DiscussionApplication:
                     raise WorkspaceError("source_scope_invalid", "Unexpected search fields")
                 bounded["limit"] = min(max(int(bounded.get("limit", 5)), 1), 20)
                 return self.core.search_source(**bounded)
-            if set(bounded) - {"start", "end", "source_id", "bundle_version"}:
+            if set(bounded) - {"start", "end", "block_ids", "source_id", "bundle_version"}:
                 raise WorkspaceError("source_scope_invalid", "Unexpected read fields")
-            if bounded["end"] - bounded["start"] > 500:
-                raise WorkspaceError("source_range_invalid", "Read at most 501 lines")
-            return self.core.read_source_range(**bounded)
+            return self.core.read_source_range(**bounded, line_limit=501)
         if action == "source_note":
             if self.notes.bundle_version(source_id) != bundle:
                 raise WorkspaceError("note_bundle_changed", "Historical Source cannot receive a new anchored Note")
