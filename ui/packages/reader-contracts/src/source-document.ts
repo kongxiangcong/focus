@@ -18,7 +18,9 @@ export interface ReadingDocument extends SourceScope { generation?: number; titl
   pdf?: { version: string; pdfHash: string;
     pages?: readonly { page: number; width?: number; height?: number; rotation?: number }[];
     blocks: readonly {
-    blockId: string; page: number; bbox: PdfBox | null; bboxes?: readonly PdfBox[]; sourceLines: readonly [number, number]
+    blockId: string; page: number; bbox: PdfBox | null; bboxes?: readonly PdfBox[]; sourceLines: readonly [number, number];
+    /** Half-open Unicode code-point offsets in canonical Markdown. */
+    offsets?: readonly [number, number]
   }[] };
   translation?: { status: string; planId?: string; chunks: readonly { id: string; text: string; blockIds: readonly string[]; sourceLines: readonly [number, number] }[] };
 }

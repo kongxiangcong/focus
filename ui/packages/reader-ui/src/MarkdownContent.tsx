@@ -31,7 +31,7 @@ const components: Components = {
 export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, figures, onFigure, inlineFigures = false, marks, annotation, onAnnotations, sourceEvidence, onCitation, onCitationHover }: {
   text: string; sourceId?: string; figures?: readonly Figure[]; onFigure?: (figure: Figure) => void; inlineFigures?: boolean;
   onCitationHover?: (id: string | undefined) => void;
-  onCitation?: (id: string, keyboard: boolean) => void;
+  onCitation?: (id: string, keyboard: boolean, origin: HTMLButtonElement) => void;
   sourceEvidence?: { document: ReadingDocument; evidence: readonly ValidatedAnswerEvidence[]; active?: string };
   marks?: readonly RenderMark[];
   annotation?: MarkdownAnnotationInput;
@@ -41,7 +41,7 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
   const hoverRef = useRef(onCitationHover); hoverRef.current = onCitationHover;
   // Stable component identity prevents hover/focus updates from replacing the focused button.
   const renderLink = useMemo<Components["a"]>(() => ({ children, href }) => href?.startsWith("#e-") && citationRef.current ?
-    <button className="answer-evidence-number" data-citation={href.slice(3)} onPointerEnter={() => hoverRef.current?.(href.slice(3))} onPointerLeave={() => hoverRef.current?.(undefined)} onFocus={() => hoverRef.current?.(href.slice(3))} onBlur={() => hoverRef.current?.(undefined)} onClick={event => { event.stopPropagation(); citationRef.current?.(href.slice(3), event.detail === 0); }}>{children}</button> : <a href={href} target="_blank" rel="noreferrer">{children}</a>, []);
+    <button className="answer-evidence-number" data-citation={href.slice(3)} onPointerEnter={() => hoverRef.current?.(href.slice(3))} onPointerLeave={() => hoverRef.current?.(undefined)} onFocus={() => hoverRef.current?.(href.slice(3))} onBlur={() => hoverRef.current?.(undefined)} onClick={event => { event.stopPropagation(); citationRef.current?.(href.slice(3), event.detail === 0, event.currentTarget); }}>{children}</button> : <a href={href} target="_blank" rel="noreferrer">{children}</a>, []);
   const instanceId = useContext(AssetInstanceContext);
   const figureHandler = useRef(onFigure); figureHandler.current = onFigure;
   const showFigure = useCallback((figure: Figure) => figureHandler.current?.(figure), []);

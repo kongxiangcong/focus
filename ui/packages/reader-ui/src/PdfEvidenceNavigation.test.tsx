@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { readerSuccess, type ReaderHost, type ReadingDocument, type ReadingWindow } from "@focus/reader-contracts";
+import { readerSuccess, type ReaderHost, type ReadingDocument, type ReadingWindow, type ValidatedAnswerEvidence } from "@focus/reader-contracts";
 import { ConversationReader } from "./ConversationReader";
 
 vi.mock("pdfjs-dist", () => ({
@@ -25,6 +25,24 @@ vi.mock("pdfjs-dist", () => ({
 }));
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+async function renderPaper(document: ReadingDocument, evidence: ValidatedAnswerEvidence, additional: ReadingWindow["conversation"] = []) {
+  const view: ReadingWindow = {
+    status: "empty", source: { sourceId: "paper", title: "Paper", topicId: null }, current: null, history: [],
+    conversation: [{ role: "assistant", chunkId: "", messageId: "answer", sourceId: "paper", discussionId: "discussion",
+      answerRevision: "r1", content: `Claim [[e:${evidence.evidenceId}]]`, evidence: [evidence] }, ...additional],
+    sessionId: "session", discussionId: "discussion", revision: 1,
+  };
+  const host: ReaderHost = {
+    getReadingWindow: async () => readerSuccess(view),
+    getSourceDocument: async () => readerSuccess(document),
+    sourceOriginalUrl: () => "/original.pdf",
+    subscribe: () => () => {},
+    sendMessage: async () => readerSuccess(view),
+    continueReading: async () => readerSuccess(view),
+  };
+  await act(async () => { render(<ConversationReader host={host} />); });
+}
 
 it("opens all boxes of a far PDF block before the destination page renders", async () => {
   vi.stubGlobal("IntersectionObserver", class {
@@ -62,21 +80,7 @@ it("opens all boxes of a far PDF block before the destination page renders", asy
       }],
     },
   };
-  const window: ReadingWindow = {
-    status: "empty", source: { sourceId: "paper", title: "Paper", topicId: null }, current: null, history: [],
-    conversation: [{ role: "assistant", chunkId: "", messageId: "answer", sourceId: "paper", discussionId: "discussion",
-      answerRevision: "r1", content: `Claim [[e:${evidence.evidenceId}]]`, evidence: [evidence] }],
-    sessionId: "session", discussionId: "discussion", revision: 1,
-  };
-  const host: ReaderHost = {
-    getReadingWindow: async () => readerSuccess(window),
-    getSourceDocument: async () => readerSuccess(doc),
-    sourceOriginalUrl: () => "/original.pdf",
-    subscribe: () => () => {},
-    sendMessage: async () => readerSuccess(window),
-    continueReading: async () => readerSuccess(window),
-  };
-  await act(async () => { render(<ConversationReader host={host} />); });
+  await renderPaper(doc, evidence);
   await screen.findByLabelText("原版 PDF 第 1 页", undefined, { timeout: 5000 });
   const destination = screen.getByLabelText("第 12 页");
   expect(destination).toHaveStyle({ aspectRatio: "600/800" });
@@ -92,4 +96,105 @@ it("opens all boxes of a far PDF block before the destination page renders", asy
   expect(regions).toHaveLength(2);
   expect(regions[0]).toHaveStyle({ left: "10%", top: "20%" });
   expect(regions[1]).toHaveStyle({ left: "60%", top: "20%" });
+});
+
+it("synchronizes manual view changes using the linked PDF block and translated paragraph", async () => {
+  vi.stubGlobal("IntersectionObserver", class { observe() {} disconnect() {} });
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(100);
+  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(2000);
+  vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue([new DOMRect()] as unknown as DOMRectList);
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const y = this.matches("[data-block-id]") ? 32 : this.matches("[data-translation-chunk]") ? 500 : 0;
+    const scrollTop = y ? this.closest<HTMLElement>(".source-original")!.scrollTop : 0;
+    return new DOMRect(0, y - scrollTop, 100, y ? 80 : 100);
+  });
+  HTMLElement.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
+    if (typeof options === "object") this.scrollTop = options.top ?? 0;
+  };
+  localStorage.clear();
+  const bookmarkKey = "focus.sourceBookmark:local:paper:0:body";
+  localStorage.setItem(bookmarkKey, '{"line":90,"offset":12}');
+  const doc: ReadingDocument = {
+    sourceId: "paper", bundleVersion: "body", title: "Paper", markdown: "The heading\n\nSupported quote.", lineCount: 3,
+    pdf: { version: "layout", pdfHash: "hash", blocks: [{ blockId: "current", page: 1, sourceLines: [1, 3], bbox: [0.1, 0.2, 0.4, 0.3] }] },
+    translation: { status: "ready", chunks: [{ id: "translated", text: "对应的中文段落。", blockIds: ["current"], sourceLines: [3, 3] }] },
+  };
+  const evidence: ValidatedAnswerEvidence = {
+    sourceId: "paper", bundleVersion: "body", layoutVersion: "layout", blockIds: ["current"], renderGranularity: "block",
+    evidenceId: "a".repeat(24), messageId: "answer", discussionId: "discussion", answerRevision: "r1",
+    displayNumber: 1, sourceLines: [3, 3], quote: { exact: "Supported quote.", prefix: "", suffix: "" }, relation: "supports",
+  };
+  await renderPaper(doc, evidence);
+  await screen.findByLabelText("第 1 页", {}, { timeout: 8500 });
+  const source = screen.getByLabelText("文章原文");
+  fireEvent.click(screen.getByRole("button", { name: "中文译文" }));
+  expect(screen.getByText("对应的中文段落。")).toBeVisible();
+  expect(source.scrollTop).toBe(468);
+
+  fireEvent.click(screen.getByLabelText("文章对话").querySelector<HTMLElement>("[data-citation]")!);
+  expect(screen.getByRole("button", { name: "中文译文" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByLabelText("原文证据")).toHaveTextContent("译块定位Supported quote.");
+  expect(source.scrollTop).toBe(468);
+
+  fireEvent.click(screen.getByRole("button", { name: "原版 PDF" }));
+  await screen.findByLabelText("第 1 页", {}, { timeout: 8500 });
+  await waitFor(() => expect(source.scrollTop).toBe(0), { timeout: 8500 });
+  expect(localStorage.getItem(bookmarkKey)).toBe('{"line":90,"offset":12}');
+});
+
+it("jumps to a verified page when the citation has no reliable box", async () => {
+  vi.stubGlobal("IntersectionObserver", class { observe() {} disconnect() {} });
+  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(900);
+  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(12000);
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    return new DOMRect(0, this.closest('[data-pdf-page="12"]') ? 9000 : 0, 600, 900);
+  });
+  const scroll = vi.fn();
+  HTMLElement.prototype.scrollTo = scroll;
+  const doc: ReadingDocument = {
+    sourceId: "paper", bundleVersion: "body", title: "Paper", markdown: "A page-only quotation.", lineCount: 1,
+    pdf: { version: "layout", pdfHash: "hash", blocks: [] },
+    translation: { status: "ready", chunks: [{ id: "translation", text: "另有译文。", blockIds: [], sourceLines: [1, 1] }] },
+  };
+  await renderPaper(doc, {
+    sourceId: "paper", bundleVersion: "body", layoutVersion: "layout", renderGranularity: "block",
+    evidenceId: "a".repeat(24), messageId: "answer", discussionId: "discussion", answerRevision: "r1",
+    displayNumber: 1, sourceLines: [1, 1], quote: { exact: "A page-only quotation.", prefix: "", suffix: "" }, relation: "supports",
+    pdfRegions: [{ pageIndex: 11, pageNumber: 12, bboxes: [], granularity: "page" }],
+  });
+  const page = await screen.findByLabelText("第 12 页", {}, { timeout: 8500 });
+  fireEvent.click(screen.getByLabelText("文章对话").querySelector<HTMLElement>("[data-citation]")!);
+  expect(await screen.findByLabelText("原文证据", {}, { timeout: 8500 })).toHaveTextContent("第 12 页 · 页定位");
+  expect(screen.getByRole("button", { name: "原版 PDF" })).toHaveAttribute("aria-pressed", "true");
+  expect(within(page).getByRole("button", { name: "返回回答证据 1" })).toBeVisible();
+  await waitFor(() => expect(scroll).toHaveBeenLastCalledWith({ top: 8712, behavior: "instant" }), { timeout: 8500 });
+});
+
+
+it("returns to the chosen answer from the PDF block and its translation", async () => {
+  vi.stubGlobal("IntersectionObserver", class { observe() {} disconnect() {} });
+  HTMLElement.prototype.scrollTo = vi.fn();
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+  const evidence: ValidatedAnswerEvidence = {
+    sourceId: "paper", bundleVersion: "body", layoutVersion: "layout", blockIds: ["paragraph"], renderGranularity: "block",
+    evidenceId: "a".repeat(24), messageId: "answer", discussionId: "discussion", answerRevision: "r1",
+    displayNumber: 1, sourceLines: [1, 1], quote: { exact: "Shared source.", prefix: "", suffix: "" }, relation: "supports",
+  };
+  const other = { ...evidence, evidenceId: "b".repeat(24), messageId: "second-answer", answerRevision: "r2" };
+  await renderPaper({
+    sourceId: "paper", bundleVersion: "body", title: "Paper", markdown: "Shared source.", lineCount: 1,
+    pdf: { version: "layout", pdfHash: "hash", blocks: [{ blockId: "paragraph", page: 1, sourceLines: [1, 1], bbox: [0.1, 0.2, 0.4, 0.3] }] },
+    translation: { status: "ready", chunks: [{ id: "translation", text: "共享来源。", blockIds: ["paragraph"], sourceLines: [1, 1] }] },
+  }, evidence, [{ role: "assistant", chunkId: "", messageId: other.messageId, sourceId: "paper", discussionId: "discussion",
+    answerRevision: other.answerRevision, content: `The second interpretation [[e:${other.evidenceId}]].`, evidence: [other] }]);
+  const page = within(await screen.findByLabelText("第 1 页", {}, { timeout: 8500 }));
+  const [firstNumber, secondNumber] = within(screen.getByLabelText("文章对话")).getAllByRole("button", { name: "1" });
+  fireEvent.click(page.getByRole("button", { name: "查看 2 条相关回答" }));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "选择回答" })).getByRole("button", { name: /The second interpretation/ }));
+  expect(secondNumber).toHaveFocus();
+
+  fireEvent.click(screen.getByRole("button", { name: "中文译文" }));
+  fireEvent.click(within(screen.getByLabelText("文章原文")).getByRole("button", { name: "查看 2 条相关回答" }));
+  fireEvent.click(within(screen.getByRole("dialog", { name: "选择回答" })).getByRole("button", { name: /回答 1/ }));
+  expect(firstNumber).toHaveFocus();
 });
