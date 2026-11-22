@@ -143,10 +143,15 @@ def validate_workspace_data(path):
                 continue
             if not candidate.is_file() or candidate.suffix not in ('.json', '.jsonl', '.yaml'):
                 continue
+            relative = candidate.relative_to(path)
+            parts = relative.parts
+            if parts[0] == 'sources' and parts[2:3] == ('parser-bundle',):
+                if parts[3:4] == ('mineru',) or parts[3:] == ('source-layout.json',):
+                    # Optional parser derivatives are validated by the layout reader.
+                    continue
             raw = candidate.read_text(encoding='utf-8')
             values = [json.loads(line) for line in raw.splitlines() if line.strip()] if candidate.suffix == '.jsonl' else [json.loads(raw)]
-            relative = candidate.relative_to(path)
-            business = 'parser-bundle' not in relative.parts and 'mineru' not in relative.parts
+            business = 'parser-bundle' not in parts and 'mineru' not in parts
             if business and any(not isinstance(value, dict) for value in values):
                 raise ValueError('Expected a business document')
             if candidate == path / 'state.json' and not isinstance(values[0].get('sources'), dict):
