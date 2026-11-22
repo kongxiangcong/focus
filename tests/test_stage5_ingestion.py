@@ -3,6 +3,7 @@ import http.client
 import json
 import os
 from pathlib import Path
+from queue import Queue
 import socket
 import subprocess
 import sys
@@ -12,6 +13,7 @@ import unittest
 import threading
 from urllib.parse import urlencode, quote
 
+from core.library_import import import_markdown
 from workspace_fixture import HostService
 from host.server import Server
 from test_blog_host import ControlledBlogRuntime, ParserDouble
@@ -27,9 +29,9 @@ class SingleIngestionTests(unittest.TestCase):
         self.runtime = ControlledBlogRuntime()
         self.start_host()
 
-    def start_host(self):
+    def start_host(self, **kwargs):
         self.host = HostService(self.root / 'knowledge-base', self.root / 'host',
-                                ingestion_parser=ParserDouble(), blog_runtime=self.runtime)
+                                ingestion_parser=ParserDouble(), blog_runtime=self.runtime, **kwargs)
         self.server = Server(('127.0.0.1', 0), self.host)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -75,6 +77,144 @@ class SingleIngestionTests(unittest.TestCase):
                     return item, status
             time.sleep(.05)
         self.fail(str(status or item))
+
+    def wait_batch(self, batch_id):
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            batch = next(b for b in self.request('GET', '/library/batches') if b['batchId'] == batch_id)
+            if not batch['executing'] and batch['status'] in ('completed', 'partial', 'paused'):
+                return batch
+            time.sleep(.05)
+        self.fail(str(batch))
+
+    def test_markdown_inbox_publishes_contiguous_evidence_and_reopens(self):
+        first = '**First** 😀 [detail](https://example.org).'
+        middle = 'Second supplies the context.'
+        last = 'Third closes the example.'
+        canonical = '# Results\n\n' + '\n\n'.join((first, middle, last)) + '\n'
+        exact = first + '\n\n' + middle
+        raw = b'\xef\xbb\xbf' + canonical.replace('\n', '\r\n').encode()
+        inspected = {}
+
+        class Runtime:
+            def __init__(inner, *args, **kwargs):
+                inner.events = Queue()
+
+            def open_session(inner, *args, **kwargs):
+                return 'markdown-discussion'
+
+            def start_turn(inner, **kwargs):
+                inner.call(1, 'read_range', {'start': 3, 'end': 7})
+
+            def call(inner, request, action, arguments):
+                inner.events.put({'id': request, 'method': 'tool/call', 'params': {'tool': 'focus',
+                                 'arguments': {'action': action, 'arguments': json.dumps(arguments)}}})
+
+            def send(inner, reply):
+                result = reply['result']
+                value = json.loads(result['text'])
+                if reply['id'] == 1:
+                    inspected['read'] = value
+                    ids = [block['block_id'] for block in value['blocks']]
+                    inner.call(2, 'cite', {'block_ids': ids[::2], 'quote': first + '\n\n' + last})
+                elif reply['id'] == 2:
+                    inspected['skipped'] = result
+                    ids = [block['block_id'] for block in inspected['read']['blocks']]
+                    inner.call(3, 'cite', {'block_ids': ids[:2], 'quote': exact})
+                else:
+                    inspected['citation'] = result
+                    text = 'Both paragraphs provide evidence. ' + value.get('marker', '')
+                    inner.events.put({'method': 'message/completed', 'params': {'itemId': 'markdown-answer', 'text': text}})
+                    inner.events.put({'method': 'turn/completed', 'params': {'status': 'completed'}})
+
+            def close(inner):
+                pass
+
+        self.stop_host()
+        self.start_host(backend_factory=Runtime)
+        item = self.request('POST', '/library/inbox?name=upload.MARKDOWN', raw)
+        self.assertEqual('article_markdown', item['source_kind'])
+        self.assertEqual(['local-markdown'], item['services'])
+        batch = self.request('POST', '/library/batches', {
+            'itemIds': [item['item_id']], 'requestId': 'markdown-upload', 'generateBlog': False})
+        batch = self.wait_batch(batch['batchId'])
+        self.assertEqual('completed', batch['status'])
+        self.assertEqual([], self.runtime.calls)
+        source = batch['items'][0]['sourceId']
+        source_path = '/library/sources/' + source
+        bundle = self.host.workspace / 'sources' / source / 'parser-bundle'
+        self.assertEqual(raw, (bundle / 'source.md').read_bytes())
+        self.assertEqual(canonical.encode(), (bundle / 'content.md').read_bytes())
+        document = self.request('GET', source_path + '/document')
+        self.assertEqual(canonical, document['markdown'])
+        ir = json.loads((bundle / 'source-ir.json').read_text())
+        blocks = ir['blocks']
+        self.assertEqual([1, 2, 3, 4], [b['order'] for b in blocks])
+        self.assertEqual([[1, 1], [3, 3], [5, 5], [7, 7]], [b['anchors']['markdown']['source_lines'] for b in blocks])
+        self.assertEqual(['Results'], [s['title'] for s in ir['sections']])
+        span = blocks[1]['anchors']['markdown']['char_span']
+        self.assertEqual(first, canonical[span['start']:span['end']])
+
+        selected = self.request('POST', source_path + '/discuss', {})
+        self.request('POST', '/reader/messages', {
+            'sourceId': source, 'sessionId': selected['sessionId'], 'receipt': None,
+            'requestId': 'markdown-question', 'content': 'Show evidence across adjacent paragraphs.'})
+        self.host.worker.join(8)
+        window = self.request('GET', '/reader/window')
+        self.assertEqual('completed', window['agent']['run']['status'])
+        self.assertEqual('\n\n'.join((first, middle, last)), inspected['read']['source_text'])
+        self.assertFalse(inspected['skipped']['success'])
+        self.assertTrue(inspected['citation']['success'])
+        self.assertEqual([[3, 5]], [entry['sourceLines'] for entry in window['conversation'][-1]['evidence']])
+        evidence, = window['conversation'][-1]['evidence']
+        self.assertEqual(exact, evidence['quote']['exact'])
+        self.assertEqual([blocks[1]['block_id'], blocks[2]['block_id']], evidence['blockIds'])
+        self.assertEqual([ir['sections'][0]['section_id']], evidence['sectionIds'])
+
+        self.stop_host()
+        self.start_host()
+        self.request('POST', source_path + '/discuss', {'discussionId': window['discussionId']})
+        restored = self.request('GET', '/reader/window')
+        self.assertEqual(window['conversation'][-1], restored['conversation'][-1])
+        self.assertEqual(document['bundleVersion'], self.request('GET', source_path + '/document')['bundleVersion'])
+
+    def test_markdown_only_batch_runs_locally_during_backend_switch(self):
+        item = self.request('POST', '/library/inbox?name=tiny.md', b'Hi')
+        with self.host.configuration_transition():
+            batch = self.request('POST', '/library/batches', {
+                'itemIds': [item['item_id']], 'requestId': 'tiny-markdown'})
+            batch = self.wait_batch(batch['batchId'])
+        self.assertEqual('completed', batch['status'])
+        source = self.request('GET', '/library/sources/' + batch['items'][0]['sourceId'] + '/document')
+        self.assertEqual('Hi', source['markdown'])
+        self.assertEqual([], self.runtime.calls)
+
+    def test_mixed_batch_generates_blog_for_pdf_and_only_parses_markdown(self):
+        markdown = self.request('POST', '/library/inbox?name=first.md', b'# First\n\nText.')
+        pdf = self.request('POST', '/library/inbox?name=second.pdf', b'%PDF mixed')
+        batch = self.request('POST', '/library/batches', {
+            'itemIds': [markdown['item_id'], pdf['item_id']], 'requestId': 'mixed-batch', 'generateBlog': True})
+        batch = self.wait_batch(batch['batchId'])
+        self.assertEqual('completed', batch['status'])
+        self.assertEqual(['idle', 'completed'], [item['blog']['runStatus'] for item in batch['items']])
+
+    def test_markdown_inbox_reuses_a_direct_import_without_rewriting_its_bundle(self):
+        original = self.root / 'legacy.md'
+        original.write_bytes(b'# Legacy\r\n\r\nHistorical content.\r\n')
+        source = import_markdown(self.host.workspace, original)['source_id']
+        bundle = self.host.workspace / 'sources' / source / 'parser-bundle'
+        (bundle / 'source-ir.json').unlink(missing_ok=True)  # Bundle layout before IR.
+        before = {str(f.relative_to(bundle)): f.read_bytes() for f in bundle.rglob('*') if f.is_file()}
+
+        item = self.request('POST', '/library/inbox?name=renamed.md', original.read_bytes())
+        batch = self.request('POST', '/library/batches', {
+            'itemIds': [item['item_id']], 'requestId': 'legacy-markdown'})
+        self.assertEqual(source, self.wait_batch(batch['batchId'])['items'][0]['sourceId'])
+        current = next(i for i in self.request('GET', '/library/inbox') if i['item_id'] == item['item_id'])
+        self.assertEqual('reused', current['document_status'])
+        document = self.request('GET', '/library/sources/' + source + '/document')
+        self.assertEqual('# Legacy\n\nHistorical content.\n', document['markdown'])
+        self.assertEqual(before, {str(f.relative_to(bundle)): f.read_bytes() for f in bundle.rglob('*') if f.is_file()})
 
     def test_confirmed_scope_survives_restart_before_processing(self):
         item = self.request('POST', '/library/inbox?name=test.pdf&topic=Systems', b'%PDF restarted')

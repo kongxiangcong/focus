@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 from .core_bridge import ROOT, WorkspaceError
 from .configuration import BackendBusyError
+from core.ingestion import MARKDOWN_SUFFIXES
 
 
 class Server(ThreadingHTTPServer):
@@ -311,16 +312,18 @@ class Handler(BaseHTTPRequestHandler):
             result = service.library_sources()
         elif method == 'POST' and path == '/library/inbox':
             name = parse_qs(urlsplit(self.path).query).get('name', [''])[0]
-            if Path(name).name != name or '\\' in name or len(name) > 180 or Path(name).suffix.lower() not in ('.pdf', '.html'):
-                raise ValueError('请选择 PDF 或 SingleFile HTML。')
+            suffix = Path(name).suffix.lower()
+            if Path(name).name != name or '\\' in name or len(name) > 180 or suffix not in ('.pdf', '.html', *MARKDOWN_SUFFIXES):
+                raise ValueError('请选择 PDF、SingleFile HTML 或 Markdown。')
             fields = parse_qs(urlsplit(self.path).query, keep_blank_values=True)
             topic = fields.get('topic', [None])[0]
             topic_id = fields.get('topicId', [None])[0]
             if topic is not None and (not topic.strip() or len(topic) > 120):
                 raise ValueError('专题名称无效。')
             length = int(self.headers.get('Content-Length', '0'))
-            if length < 4 or length > 200 * 1024 * 1024:
-                raise ValueError('文件大小须为 4 字节到 200 MB。')
+            minimum = 1 if suffix in MARKDOWN_SUFFIXES else 4
+            if length < minimum or length > 200 * 1024 * 1024:
+                raise ValueError(f'文件大小须为 {minimum} 字节到 200 MB。')
             upload_id = uuid.uuid4().hex
             root = (service.workspace / 'uploads' / upload_id).resolve()
             if not root.is_relative_to(service.workspace):

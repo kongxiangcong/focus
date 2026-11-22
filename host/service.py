@@ -24,7 +24,7 @@ from .progress import CORE_LABELS, activity_label
 from core import INGESTION_SERVICES, BlogApplication, IngestionApplication, AutoMinerUParser
 from core.reading_application import ReadingApplication
 from core.reading_progress import ReadingProgress, ProgressApplication
-from core.processing_application import ProcessingApplication
+from core.processing_application import ProcessingApplication, supports_ingestion_blog
 from core.batch_application import BatchApplication
 from .reading_runtime import AgentReadingRuntime
 from core.article_overview import ArticleOverview
@@ -976,7 +976,10 @@ class HostService:
         if type(generate_blog) is not bool:
             raise ValueError('生成博客选项无效。')
         app = self._batch_app()
-        with self._batch_admission(requires_backend=generate_blog), app.lock:
+        with app.lock, self._batch_admission(requires_backend=(
+            generate_blog and isinstance(item_ids, list)
+            and any(supports_ingestion_blog(self.ingestion.get(i)) for i in item_ids if isinstance(i, str))
+        )):
             with self.lock:
                 if isinstance(item_ids, list) and any(self.ingestion_workers.get(i) and self.ingestion_workers[i].is_alive() for i in item_ids if isinstance(i, str)):
                     raise WorkspaceError('batch_item_busy', '材料正在处理中，请等待原任务结束。')
@@ -1002,8 +1005,9 @@ class HostService:
 
     def batch_control(self, batch_id, action, *, request_id, item_id=None, risk_choice_id=None):
         app = self._batch_app()
-        requires_backend = action in ('continue', 'retry-item', 'resubmit-item')
-        with self._batch_admission(requires_backend=requires_backend), app.lock:
+        with app.lock, self._batch_admission(requires_backend=(
+            action in ('continue', 'retry-item', 'resubmit-item') and app.requires_backend(batch_id, item_id=item_id)
+        )):
             with self.lock:
                 worker = self.batch_workers.get(batch_id)
                 if action in ('continue', 'retry-item', 'resubmit-item') and worker and worker.is_alive() and batch_id not in app.running:
@@ -1014,8 +1018,7 @@ class HostService:
 
     @contextmanager
     def _batch_admission(self, *, requires_backend):
-        # Reserve configuration before taking the Application lock; never hold
-        # the Host lock while waiting for batch cancellation or dispatch.
+        # Reserve configuration while dispatching without holding the Host lock.
         with self.lock:
             if requires_backend:
                 self._require_backend_admission()
@@ -1072,7 +1075,7 @@ class HostService:
                 raise WorkspaceError('batch_item_busy', '请在原批次中管理此材料。')
             self._library_idle()
             processing = self._processing_app()
-            if processing.authorized(item_id):
+            if processing.wants_blog(item_id):
                 self._require_backend_admission()
             if item_id in self.ingestion_workers and self.ingestion_workers[item_id].is_alive():
                 raise ValueError('该材料正在处理中。')

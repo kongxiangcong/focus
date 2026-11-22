@@ -148,6 +148,6 @@ export function LibraryPage(page: LibraryPageProps) {
       <header><span>文章结构</span><button aria-label="关闭文章结构" onClick={() => setOverviewId(null)}>关闭</button></header>
       <ArticleOverviewPanel key={overviewId} host={host} sourceId={overviewId} title={sources.find(s => s.sourceId === overviewId)?.title ?? "文章结构"} />
     </dialog>}
-    {createPortal(<div className="library-drop" data-open={dragging} aria-hidden={!dragging} inert={!dragging} role="status"><div><strong>松开即可上传</strong><span>PDF 由服务器选择 MinerU 解析；SingleFile HTML 本地解析{selectedTopic ? ` · 默认加入 #${selectedTopic.title}` : ""}</span></div></div>, document.body)}
+    {createPortal(<div className="library-drop" data-open={dragging} aria-hidden={!dragging} inert={!dragging} role="status"><div><strong>松开即可上传</strong><span>支持 PDF、SingleFile HTML 和 Markdown{selectedTopic ? ` · 默认加入 #${selectedTopic.title}` : ""}</span></div></div>, document.body)}
   </main>;
 }

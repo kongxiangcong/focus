@@ -77,6 +77,18 @@ it("accepts saved HTML and defaults to parsing with blog generation", async () =
   expect(host.stageIngestion).toHaveBeenCalled();
   expect(host.processIngestion).not.toHaveBeenCalled();
 });
+it("offers Markdown in the file picker and starts a dropped Markdown-only batch without blog generation", async () => {
+  const { host } = setup();
+  const staged: IngestionItem = { itemId: "md-1", fileName: "notes.MARKDOWN", status: "awaiting_confirmation", topicTitle: null, topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["local-markdown"] };
+  vi.mocked(host.stageIngestion!).mockResolvedValue(readerSuccess(staged));
+  await screen.findByRole("heading", { name: "A Paper" });
+  const file = new File(["# Notes"], staged.fileName, { type: "text/markdown" });
+  fireEvent.drop(screen.getByRole("main"), { dataTransfer: { files: [file] } });
+  expect(screen.getByLabelText("上传材料")).toHaveAttribute("accept", expect.stringContaining(".md,.markdown"));
+  fireEvent.click(screen.getByRole("button", { name: "仅解析入库" }));
+  await waitFor(() => expect(host.stageIngestion).toHaveBeenCalledWith(file, {}));
+  await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["md-1"], expect.any(String), false));
+});
 afterEach(cleanup);
 it("shows the selected PDF backend and queued progress in the visible Inbox", async () => {
   const item: IngestionItem = { itemId: "pdf-1", fileName: "paper.pdf", status: "processing", topicTitle: null,
@@ -258,7 +270,7 @@ it("filters source cards, exposes source resources, and rejects unsupported inge
   expect(screen.getByRole("link", { name: "正文" })).toHaveAttribute("href", "/library/sources/a-paper/content");
   fireEvent.drop(page, { dataTransfer: { files: [new File(["text"], "file.txt")] } });
   expect(host.stageIngestion).not.toHaveBeenCalled();
-  expect(screen.getByRole("alert")).toHaveTextContent("请选择 PDF 或 SingleFile HTML");
+  expect(screen.getByRole("alert")).toHaveTextContent("请选择 PDF、SingleFile HTML 或 Markdown");
 });
 
 it("restores authoritative Inbox state after refresh and continues attachment recovery", async () => {
