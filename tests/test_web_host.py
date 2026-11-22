@@ -7,6 +7,7 @@ Host only ever sees the backend-neutral vocabulary.
 import http.client
 import json
 import queue
+import sys
 import tempfile
 import threading
 import time
@@ -31,6 +32,7 @@ class ProtocolDouble:
         self.events = queue.Queue()
         self.calls = []
         self.closed = False
+        self.probe = False
         self.__class__.instances.append(self)
 
     def initialize(self):
@@ -39,7 +41,14 @@ class ProtocolDouble:
 
     def send(self, value):
         self.calls.append(value)
-        if 'result' in value and self.mode in ('approval', 'tool', 'advance', 'translate'):
+        if self.probe and value.get('id') == 699:
+            result = value['result']
+            assert result['success'], result
+            marker = json.loads(result['contentItems'][0]['text'])['source_text']
+            self.events.put({'method': 'item/completed', 'params': {'item': {
+                'id': 'probe-marker', 'type': 'agentMessage', 'text': marker}}})
+            self.complete()
+        elif 'result' in value and self.mode in ('approval', 'tool', 'advance', 'translate'):
             self.complete()
 
     def request(self, method, params, timeout=60):
@@ -47,12 +56,16 @@ class ProtocolDouble:
         if method == 'account/read':
             return {'account': {'type': 'chatgpt'}}
         if method.startswith('thread/'):
+            self.probe = params.get('developerInstructions') == 'This is a FOCUS Source access check.'
             return {'thread': {'id': 'thread-fixture'}}
         if method == 'turn/interrupt':
             self.events.put({'method': 'turn/completed', 'params': {'turn': {'status': 'interrupted'}}})
             return {}
         if method == 'turn/start':
-            if self.mode == 'answer':
+            if self.probe:
+                self.events.put({'id': 699, 'method': 'item/tool/call', 'params': {'tool': 'focus',
+                    'arguments': {'action': 'read_range', 'arguments': '{"start":1,"end":1}'}}})
+            elif self.mode == 'answer':
                 self.events.put({'method': 'item/agentMessage/delta', 'params': {'itemId': 'assistant-'+str(len(self.instances)), 'delta': '真实 Core，协议替身。'}})
                 self.complete()
             elif self.mode == 'approval':
@@ -93,7 +106,7 @@ class WebHostTests(unittest.TestCase):
         ProtocolDouble.instances = []
         ProtocolDouble.mode = 'answer'
         # Patch the seam below the adapter, so the real CodexBackend does the translating.
-        self.patches = [patch('host.backends.codex.codex_command', return_value=['protocol-double']),
+        self.patches = [patch('host.backends.registry._codex_bundled', return_value=sys.executable),
                         patch('host.backends.codex.AppServer', side_effect=ProtocolDouble)]
         for item in self.patches:
             item.start()

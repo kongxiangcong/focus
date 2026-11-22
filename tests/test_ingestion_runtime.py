@@ -1,60 +1,50 @@
-"""Independent Runtime capability, verified on its own boundary.
-
-These tests never touch default ingestion: they assert the bounded inspection
-contract (read-only, ephemeral, bounded excerpt, no tools) and that a candidate
-without figures is inspected without one. No real Codex process is started; the
-transport seam below the adapter is replaced with a recording double.
-"""
+"""Explicit candidate inspection through the Host and Runtime boundaries."""
 from __future__ import annotations
 
 import json
+import queue
+import sys
 import tempfile
+import threading
+import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from host.codex_ingestion import CodexIngestionRuntime
+from host.backends.base import Backend, BackendError
+from host.backends.codex import CodexBackend
+from host.backends.registry import HarnessRegistry
+from host.ingestion_inspector import IngestionInspector
+from host.runtime import AppServer
+from host.service import HostService
+from acp_protocol_fixture import AcpProtocolFixture
 
 
-class RecordingCodex:
-    """Stands in for the Codex CLI: records the command and writes the result file."""
+class TextRuntime(Backend):
+    """A text-only runtime with controlled replies at the Backend boundary."""
 
-    def __init__(self, result=None, returncode=0) -> None:
-        self.commands: list[list[str]] = []
-        self.attached: list[tuple[Path, bool, Path, bool]] = []
-        self.returncode = returncode
-        self.result = result if result is not None else {
-            "title_matches": True, "image_observed": False, "notes": "no figure attached",
+    def __init__(self, workspace, *, reply=None, failed=False, **options):
+        super().__init__(workspace, **options)
+        self.reply = reply if reply is not None else {
+            "title_matches": True, "image_observed": True, "notes": "matches",
         }
+        self.failed = failed
 
-    def __call__(self, command, **kwargs):
-        command = list(command)
-        self.commands.append(command)
-        if "--image" in command:
-            image = Path(command[command.index("--image") + 1])
-            schema = Path(command[command.index("--output-schema") + 1])
-            # Observed at call time: the isolated directory is removed afterwards.
-            self.attached.append((image, image.is_file(), schema.parent, schema.is_file()))
-        Path(command[command.index("--output-last-message") + 1]).write_text(
-            json.dumps(self.result), encoding="utf-8"
-        )
-        process = MagicMock()
-        process.returncode = self.returncode
-        process.communicate.return_value = ("", "")
-        process.poll.return_value = 0
-        return process
+    def open_session(self, resume_key, *, instructions):
+        self.resume_key = resume_key
+
+    def start_turn(self, *, prompt):
+        self.prompt = prompt
+        self.emit("message/completed", {"itemId": "result", "text": json.dumps(self.reply)})
+        self.emit("turn/completed", {"status": "failed" if self.failed else "completed"})
 
 
 class IngestionRuntimeCapabilityTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.binary = self.root / "codex-fixture"
-        self.binary.write_bytes(b"fixture")
-        self.runtime = CodexIngestionRuntime(self.binary, model="fixture-model")
-
-    def tearDown(self):
-        self.temporary.cleanup()
 
     def candidate(self, *, images: int = 0) -> Path:
         bundle = self.root / "candidate"
@@ -71,19 +61,21 @@ class IngestionRuntimeCapabilityTests(unittest.TestCase):
             (bundle / "images" / f"image-{index:03d}.png").write_bytes(b"\x89PNG\r\n\x1a\n")
         return bundle
 
-    def test_missing_binary_and_invalid_candidates_never_reach_the_runtime(self):
-        with self.assertRaisesRegex(ValueError, "does not exist"):
-            CodexIngestionRuntime(self.root / "absent", model="fixture-model")
+    def test_invalid_candidates_never_reach_the_runtime(self):
+        def backend_factory(**options):
+            self.fail("Invalid candidate reached the backend factory")
+
+        inspector = IngestionInspector(backend_factory)
 
         empty = self.root / "empty"
         empty.mkdir()
         with self.assertRaisesRegex(RuntimeError, "inspection inputs"):
-            self.runtime.inspect(empty)
+            inspector.inspect(empty)
 
         untitled = self.candidate()
         (untitled / "content.md").write_text("Body without a title.\n", encoding="utf-8")
         with self.assertRaisesRegex(RuntimeError, "inspectable title"):
-            self.runtime.inspect(untitled)
+            inspector.inspect(untitled)
 
         wrong_provenance = self.candidate()
         (wrong_provenance / "metadata.json").write_text(
@@ -91,52 +83,246 @@ class IngestionRuntimeCapabilityTests(unittest.TestCase):
             encoding="utf-8",
         )
         with self.assertRaisesRegex(RuntimeError, "provenance"):
-            self.runtime.inspect(wrong_provenance)
+            inspector.inspect(wrong_provenance)
 
-    def test_inspection_is_bounded_and_does_not_require_a_figure(self):
-        codex = RecordingCodex()
-        with patch("host.codex_ingestion.subprocess.Popen", codex):
-            result = self.runtime.inspect(self.candidate())
+    def test_wrong_result_shape_or_types_are_visible(self):
+        candidate = self.candidate()
+        for reply in ({"title_matches": True, "image_observed": False},
+                      {"title_matches": 1, "image_observed": False, "notes": "match"},
+                      {"title_matches": True, "image_observed": False, "notes": "x" * 501},
+                      ["title_matches", "image_observed", "notes"]):
+            with self.subTest(reply=reply):
+                inspector = IngestionInspector(lambda workspace, purpose, tools: TextRuntime(workspace, reply=reply))
+                with self.assertRaisesRegex(BackendError, "result shape is invalid"):
+                    inspector.inspect(candidate)
 
-        self.assertEqual(
-            {"title_matches": True, "image_observed": False, "notes": "no figure attached"}, result
-        )
-        command = codex.commands[0]
-        self.assertNotIn("--image", command)
-        self.assertEqual(str(self.binary), command[0])
-        for flag in ("--ephemeral", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check"):
-            self.assertIn(flag, command)
-        self.assertEqual("read-only", command[command.index("--sandbox") + 1])
-        self.assertEqual("fixture-model", command[command.index("-m") + 1])
-        self.assertEqual("-", command[-1])
+    def test_failed_runtime_cannot_publish_a_result(self):
+        inspector = IngestionInspector(lambda workspace, purpose, tools: TextRuntime(workspace, failed=True))
+        with self.assertRaisesRegex(BackendError, "Runtime 调用失败"):
+            inspector.inspect(self.candidate())
+        self.assertFalse(inspector.cancel())
 
-    def test_existing_figure_is_attached_within_the_isolated_directory(self):
-        codex = RecordingCodex({"title_matches": True, "image_observed": True, "notes": "figure"})
-        with patch("host.codex_ingestion.subprocess.Popen", codex):
-            result = self.runtime.inspect(self.candidate(images=1))
+    def test_text_only_backend_reports_an_unobserved_figure(self):
+        inspector = IngestionInspector(lambda workspace, purpose, tools: TextRuntime(workspace))
+        result = inspector.inspect(self.candidate(images=1))
+
+        self.assertFalse(result["image_observed"])
+        self.assertEqual("backend_image_input_unavailable", result["image_observation_reason"])
+
+    def test_acp_manifest_images_are_degraded_when_the_session_does_not_negotiate_images(self):
+        manifests = self.root / "backends"
+        manifests.mkdir()
+        (manifests / "fixture.json").write_text(json.dumps({
+            "id": "image-fixture", "label": "Fixture", "driver": "acp", "command": [sys.executable],
+            "capabilities": {"images": True},
+        }), encoding="utf-8")
+        class TextAcpProtocol(AcpProtocolFixture):
+            def request_event(self, method, params, **options):
+                self.prompt_blocks = params['prompt']
+                assert [block['type'] for block in self.prompt_blocks] == ['text']
+                return super().request_event(method, params, **options)
+
+            def output(self, content):
+                return json.dumps({"title_matches": True, "image_observed": False, "notes": "matches"}), 'end_turn'
+
+        registry = HarnessRegistry(manifests)
+        with patch("host.backends.acp.JsonRpcStdioClient", TextAcpProtocol):
+            inspector = IngestionInspector(lambda workspace, **options: registry.create_backend("image-fixture", workspace, **options))
+            result = inspector.inspect(self.candidate(images=1))
+        self.assertFalse(result['image_observed'])
+        self.assertEqual('backend_image_input_unavailable', result['image_observation_reason'])
+
+    def test_cancel_reaps_the_first_use_probe_before_it_can_admit_the_candidate(self):
+        entered, released = threading.Event(), threading.Event()
+        workspaces = []
+
+        class StalledProtocol:
+            def __init__(self, command, cwd, *, env):
+                workspaces.append(Path(cwd))
+
+            def initialize(self):
+                entered.set()
+                released.wait(4)
+                raise OSError("fixture closed")
+
+            def close(self):
+                released.set()
+
+        host = HostService(self.root / "workspace", None, codex_bin=sys.executable, model="unverified",
+                           settings_path=self.root / "settings.json")
+        self.addCleanup(host.close)
+        with patch("host.backends.codex.AppServer", StalledProtocol), ThreadPoolExecutor(2) as executor:
+            inspection = executor.submit(host.ingestion_inspector.inspect, self.candidate())
+            try:
+                self.assertTrue(entered.wait(2))
+                self.assertTrue(executor.submit(host.ingestion_inspector.cancel).result(timeout=2))
+                self.assertTrue(released.is_set())
+                with self.assertRaisesRegex(BackendError, "已取消"):
+                    inspection.result(timeout=2)
+            finally:
+                released.set()
+        self.assertEqual(1, len(workspaces))
+        self.assertFalse(workspaces[0].exists())
+
+    def test_host_explicit_inspection_uses_the_active_backend_without_business_tools(self):
+        launched = []
+
+        def factory(workspace, *, purpose, model, tools, **options):
+            runtime = TextRuntime(workspace, model=model, tools=tools)
+            launched.append((purpose, runtime))
+            return runtime
+
+        host = HostService(self.root / "workspace", self.root / "data", model="active-model",
+                           backend_factory=factory, settings_path=self.root / "settings.json")
+        self.addCleanup(host.close)
+        candidate = self.candidate()
+        with (candidate / "content.md").open("a", encoding="utf-8") as stream:
+            stream.write("x" * 4000 + "outside excerpt")
+        self.assertEqual([], launched)
+
+        result = host.ingestion_inspector.inspect(candidate)
+
+        purpose, runtime = launched[0]
+        self.assertEqual("candidate", purpose)
+        self.assertEqual("active-model", runtime.model)
+        self.assertEqual([], runtime.tools)
+        self.assertIsNone(runtime.resume_key)
+        self.assertIn("# Stored Paper", runtime.prompt)
+        self.assertNotIn("outside excerpt", runtime.prompt)
+        self.assertTrue(result["title_matches"])
+        self.assertFalse(result["image_observed"])
+        self.assertEqual("no_figure", result["image_observation_reason"])
+        self.assertFalse(runtime.workspace.exists())
+        self.assertTrue(runtime.closed)
+
+    def test_codex_inspection_attaches_a_copy_in_a_read_only_session(self):
+        calls = {}
+
+        class Protocol:
+            def __init__(self, command, cwd, *, env):
+                self.events = queue.Queue()
+                self.cwd = cwd
+
+            def initialize(self):
+                pass
+
+            def send(self, value):
+                pass
+
+            def request(self, method, params, timeout=60):
+                calls[method] = params
+                if method == "account/read":
+                    return {"account": {"type": "chatgpt"}}
+                if method == "thread/start":
+                    return {"thread": {"id": "thread"}}
+                if method == "turn/start":
+                    for item in params["input"]:
+                        if item["type"] == "localImage":
+                            calls["image_copy"] = Path(item["path"]).read_bytes()
+                    self.events.put({"method": "item/completed", "params": {"item": {
+                        "type": "agentMessage", "id": "result", "text": json.dumps({
+                            "title_matches": True, "image_observed": True, "notes": "legible",
+                        }),
+                    }}})
+                    self.events.put({"method": "turn/completed", "params": {"turn": {"status": "completed"}}})
+                    return {"turn": {"id": "turn"}}
+                raise AssertionError(method)
+
+            def close(self):
+                calls["closed"] = True
+
+        with patch("host.backends.codex.AppServer", Protocol):
+            inspector = IngestionInspector(lambda **options: CodexBackend(model="fixture", **options))
+            result = inspector.inspect(self.candidate(images=1))
 
         self.assertTrue(result["image_observed"])
-        command = codex.commands[0]
-        self.assertEqual(str(self.binary), command[0])
-        image, existed, isolated, schema_existed = codex.attached[0]
-        self.assertTrue(existed)
-        self.assertTrue(schema_existed)
-        self.assertTrue(image.parent == isolated)
-        self.assertNotIn(self.root, image.parents)
-        self.assertEqual("-", command[-1])
+        self.assertIsNone(result["image_observation_reason"])
+        thread = calls["thread/start"]
+        self.assertEqual([], thread["dynamicTools"])
+        self.assertEqual("read-only", thread["sandbox"])
+        self.assertEqual("never", thread["approvalPolicy"])
+        self.assertTrue(thread["ephemeral"])
+        figure = Path(calls["turn/start"]["input"][1]["path"])
+        self.assertEqual(Path(thread["cwd"]), figure.parent)
+        self.assertFalse(figure.parent.exists())
+        self.assertEqual(b"\x89PNG\r\n\x1a\n", calls["image_copy"])
+        self.assertTrue(calls["closed"])
 
-    def test_runtime_failures_are_reported_instead_of_silently_accepted(self):
-        with patch("host.codex_ingestion.subprocess.Popen", RecordingCodex(returncode=3)):
-            with self.assertRaisesRegex(RuntimeError, "exit code 3"):
-                self.runtime.inspect(self.candidate())
+    def test_cancel_releases_runtime_during_session_startup(self):
+        entered = threading.Event()
+        released = threading.Event()
+        temporary = []
 
-        with patch("host.codex_ingestion.subprocess.Popen",
-                   RecordingCodex({"title_matches": True, "image_observed": False})):
-            with self.assertRaisesRegex(RuntimeError, "result shape is invalid"):
-                self.runtime.inspect(self.candidate())
+        class StalledProtocol:
+            def __init__(self, command, cwd, *, env):
+                temporary.append(cwd)
 
-    def test_cancel_without_a_running_process_reports_no_stop(self):
-        self.assertFalse(self.runtime.cancel())
+            def initialize(self):
+                entered.set()
+                released.wait(5)
+                raise OSError("Runtime disconnected")
+
+            def close(self):
+                released.set()
+
+        with patch("host.backends.codex.AppServer", StalledProtocol), ThreadPoolExecutor(2) as executor:
+            inspector = IngestionInspector(lambda **options: CodexBackend(**options))
+            inspected = executor.submit(inspector.inspect, self.candidate())
+            try:
+                self.assertTrue(entered.wait(2))
+                self.assertTrue(executor.submit(inspector.cancel).result(timeout=2))
+                self.assertTrue(released.is_set())
+                with self.assertRaisesRegex(BackendError, "已取消"):
+                    inspected.result(timeout=2)
+            finally:
+                released.set()
+        self.assertFalse(temporary[0].exists())
+
+    def test_handshake_timeout_reaps_the_process_and_removes_the_temporary_directory(self):
+        script = self.root / "stalled.py"
+        script.write_text("import time\ntime.sleep(10)\n", encoding="utf-8")
+        processes = []
+
+        def launch(command, cwd, *, env):
+            transport = AppServer([sys.executable, str(script)], cwd, env=env)
+            processes.append((transport.process, cwd))
+            return transport
+
+        with patch("host.backends.codex.AppServer", launch):
+            inspector = IngestionInspector(lambda **options: CodexBackend(**options), timeout=0.25)
+            start = time.monotonic()
+            with self.assertRaisesRegex(TimeoutError, "等待超时"):
+                inspector.inspect(self.candidate())
+            self.assertLess(time.monotonic() - start, 8)
+
+        process, directory = processes[0]
+        self.assertIsNotNone(process.poll())
+        self.assertFalse(directory.exists())
+
+    def test_inspection_deadline_includes_first_use_probe_handshake(self):
+        script = self.root / 'stalled-probe.py'
+        script.write_text('import time\ntime.sleep(10)\n', encoding='utf-8')
+        started = []
+
+        def launch(command, cwd, *, env):
+            transport = AppServer([sys.executable, str(script)], cwd, env=env)
+            started.append((transport.process, Path(cwd)))
+            return transport
+
+        host = HostService(self.root / 'workspace', None, codex_bin=sys.executable, model='unverified',
+                           settings_path=self.root / 'settings.json')
+        self.addCleanup(host.close)
+        host.ingestion_inspector.timeout = .5
+        with patch('host.backends.codex.AppServer', launch):
+            start = time.monotonic()
+            with self.assertRaisesRegex(TimeoutError, '等待超时'):
+                host.ingestion_inspector.inspect(self.candidate())
+            self.assertLess(time.monotonic() - start, 8)
+
+        self.assertEqual(1, len(started))
+        process, directory = started[0]
+        self.assertIsNotNone(process.poll())
+        self.assertFalse(directory.exists())
 
 
 if __name__ == "__main__":

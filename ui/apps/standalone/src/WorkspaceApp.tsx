@@ -660,7 +660,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       </article>)}</section>}
       {managementBusy && <p role="status">部分操作暂不可用：当前任务正在使用材料。可在任务详情停止对应任务后重试。</p>}
       </div>}
-      {view?.agent?.run?.status === "approval" && <AgentControls agent={view.agent} onStop={() => host.stop && void host.stop().then(result => { if (result.ok) acceptView(result.value); })} onAnswer={async input => {
+      {view?.agent?.run && (view.agent.run.status === "approval" || view.agent.run.approvals.some(approval => approval.status === "expired")) &&
+        <AgentControls agent={view.agent} onStop={() => host.stop && void host.stop().then(result => { if (result.ok) acceptView(result.value); })} onAnswer={async input => {
         const result = await host.approve?.(input); if (result?.ok) { acceptView(result.value); return true; } return false;
       }} />}
       {!uploadOpen && error && <div className="workspace-error" role="alert">{error}<button onClick={() => { setError(""); if (retryAction) retryAction(); else void refresh(); }}>{retryAction ? "重试此操作" : "刷新状态"}</button></div>}
@@ -806,6 +807,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       if (action === "reread" && (!receipt || !host.rereadReading)) { setError("阅读位置已变化，请先打开这篇材料。"); return; }
       void operate(action === "clear" ? "重新阅读" : action === "delete" ? "删除" : action === "replan" ? "重新规划" : "从头阅读", () => action === "clear" ? host.clearSource!(source.sourceId, confirm.requestId!) : action === "delete" ? host.deleteSource!(source.sourceId) : action === "replan" ? identified(`replan:${source.sourceId}`, id => host.replanSource!(source.sourceId, id)) : host.rereadReading!({ receipt: receipt!, requestId: createReaderId(), sessionId: view?.sessionId }), action === "reread");
     }}>{busy || (confirm?.action === "clear" ? "确认重新阅读" : confirm?.action === "delete" ? "永久删除" : confirm?.action === "replan" ? "确认重新规划" : "确认从头阅读")}</button></div>{error && <p role="alert">{error}</p>}</dialog>
+    {view?.configuration?.startupError && route !== "/settings" && <aside role="alert" className="configuration-notice">
+      <p>{view.configuration.startupError}</p>
+      <button onClick={() => navigate("/settings")}>Backend 设置</button>
+    </aside>}
     {view?.configuration?.pending && <aside role="status" className="configuration-notice"
       >
       <p>{view.configuration.refreshBlocked ? "任务运行中，完成后请刷新以应用配置" : "配置更改，需要刷新页面"}</p>

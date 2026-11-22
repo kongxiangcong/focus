@@ -54,6 +54,10 @@ class BackendError(RuntimeError):
     """A backend cannot be selected, started or driven. Surfaced as a task failure."""
 
 
+class BackendConfigurationError(BackendError):
+    """An actionable, Host-generated configuration problem safe for display."""
+
+
 def safe_backend_error(error):
     """Classify diagnostics without returning provider-controlled text or secrets."""
     text = str(error).lower()
@@ -78,15 +82,19 @@ class Backend:
     name = 'abstract'
     option_keys = frozenset({'network', 'approval_policy', 'model', 'tools'})
     stream_supported = True
+    image_input = False
 
     def __init__(self, workspace, *, network=False, approval_policy='on-request', model=None, tools=None):
         self.workspace = workspace
         self.network = bool(network)
         self.approval_policy = approval_policy
         self.model = model
+        self.actual_model = None
         self.tools = tools
+        self.deadline = None
         self.events = queue.Queue()
         self.closed = False
+        self._approval_ended = threading.Event()
         self._lifecycle_lock = threading.RLock()
         self._requests = {}
         self._request_lock = threading.Lock()
@@ -103,13 +111,28 @@ class Backend:
                 # Diagnostics cannot strand the lifecycle completion event.
                 self.cleanup['receipt'] = 'persistence_failed'
 
+    def discover_models(self):
+        raise BackendConfigurationError('此 Backend 不提供模型清单，可手动输入模型。')
+
+    def account(self):
+        raise BackendConfigurationError('请通过本机 CLI 完成此 Backend 的登录。')
+
+    def start_login(self):
+        raise BackendConfigurationError('此 Backend 不支持在 FOCUS 内发起登录。')
+
+    def poll_login(self, login_id):
+        raise BackendConfigurationError('登录请求已失效，请重试。')
+
+    def cancel_login(self, login_id):
+        raise BackendConfigurationError('登录请求已失效，请重试。')
+
     # --- lifecycle -------------------------------------------------
 
     def open_session(self, resume_key, *, instructions, skills=()):
         """Start (or resume) a conversation. Returns the resume key if already known."""
         raise NotImplementedError
 
-    def start_turn(self, *, prompt, skills=()):
+    def start_turn(self, *, prompt, skills=(), images=()):
         raise NotImplementedError
 
     def send(self, message):
@@ -121,10 +144,16 @@ class Backend:
 
     def close(self):
         self.closed = True
+        self._approval_ended.set()
+
+    def approval_available(self, request_id):
+        return not self._approval_ended.is_set()
 
     # --- shared helpers --------------------------------------------
 
     def emit(self, method, params=None, request_id=None):
+        if method in (TURN_COMPLETED, TRANSPORT_ERROR):
+            self._approval_ended.set()
         if method == TURN_COMPLETED:
             self.cleanup['stop'] = 'terminal_event'
         event = {'method': method, 'params': params or {}}

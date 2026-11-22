@@ -7,33 +7,20 @@ import queue
 import time
 import threading
 from pathlib import Path
-from urllib.request import Request, urlopen
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import reading_fixture
+from acp_protocol_fixture import AcpProtocolFixture, acp_runtime
 from workspace_fixture import HostService
 
 
-class HarnessCandidates:
+class AcpCandidates(AcpProtocolFixture):
     requests = []
 
-    def __init__(self, **options):
-        self.options = options
-
-    def start(self):
-        pass
-
-    def start_session(self, session_id):
-        self.start()
-        return self
-
-    def close(self):
-        pass
-
-    def run(self, prompt, **options):
+    @classmethod
+    def output(cls, prompt):
         request = json.loads(prompt)
-        self.requests.append(request)
+        cls.requests.append(request)
         task, data = request['task'], request['input']
         if 'whole-source context' in task:
             candidate = {'structure': 'Method, Runtime, Results', 'terms': [], 'symbols': [], 'references': []}
@@ -43,60 +30,49 @@ class HarnessCandidates:
             candidate = {'passed': True, 'issues': {}, 'coverage': [c['chunk_id'] for c in data['chunks']]}
         else:
             raise AssertionError('Unexpected task: ' + task)
-        return SimpleNamespace(final_response=json.dumps(candidate), finish_reason='completed', events=[])
+        return json.dumps(candidate), 'end_turn'
 
 
-class HarnessDiscussion(HarnessCandidates):
+class AcpDiscussion(AcpProtocolFixture):
     replies = []
 
-    def run(self, prompt, **options):
-        patch_text = Path(self.options['patches'][0]).read_text(encoding='utf-8')
-        url = re.search(r'url: (http://[^\s]+)', patch_text).group(1)
-        def invoke(action, arguments):
-            body = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': {
-                'name': 'focus', 'arguments': {'action': action, 'arguments': json.dumps(arguments)}}}).encode()
-            with urlopen(Request(url, body, {'Content-Type': 'application/json'}), timeout=5) as response:
-                return json.loads(response.read())['result']
-        self.replies.append(invoke('read_range', {'source_id': 'another-paper', 'start': 1, 'end': 2}))
-        self.replies.append(invoke('source_note', {'content': '共同讨论的例子和结论。',
+    def output(self, prompt):
+        self.replies.append(self.focus('read_range', {'source_id': 'another-paper', 'start': 1, 'end': 2}))
+        self.replies.append(self.focus('source_note', {'content': '共同讨论的例子和结论。',
             'kind': 'conclusion', 'origin': 'dialogue', 'evidence_role': 'explanation'}))
-        return SimpleNamespace(final_response='已记录。', finish_reason='completed', events=[])
+        return '已记录。', 'end_turn'
 
 
-class HarnessHistory(HarnessCandidates):
+class AcpHistory(AcpProtocolFixture):
     summaries = []
-    def run(self, prompt, **options):
+    def output(self, prompt):
         if prompt.startswith('{"task": "summarize_discussion"'):
             data = json.loads(prompt)
             self.summaries.append(data)
             remembered = '量子香蕉' in prompt
-            return SimpleNamespace(final_response=json.dumps({'summary': '保留量子香蕉例子。' if remembered else '没有特别例子。'}),
-                                   finish_reason='completed', events=[])
+            return json.dumps({'summary': '保留量子香蕉例子。' if remembered else '没有特别例子。'}), 'end_turn'
         answer = '记得上次的量子香蕉。' if '量子香蕉' in prompt else '上下文缺失。'
-        return SimpleNamespace(final_response=answer, finish_reason='completed', events=[])
+        return answer, 'end_turn'
 
 
-class HarnessInteraction(HarnessCandidates):
+class AcpInteraction(AcpProtocolFixture):
     replies = []
 
-    def run(self, prompt, **options):
-        text = Path(self.options['patches'][0]).read_text(encoding='utf-8')
-        url = re.search(r'url: (http://[^\s]+)', text).group(1)
+    def output(self, prompt):
         for name, arguments in [('focus_user_input', {'questions': [{'id': 'topic', 'header': '重点', 'question': '重点解释哪一部分？', 'options': []}]}),
                                 ('focus_confirm', {'title': '确认讨论范围', 'detail': '是否按选择的部分继续解释？'})]:
-            body = json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'tools/call', 'params': {'name': name, 'arguments': arguments}}).encode()
-            with urlopen(Request(url, body, {'Content-Type': 'application/json'}), timeout=8) as response:
-                self.replies.append(json.loads(response.read())['result'])
-        return SimpleNamespace(final_response='已收到选择和拒绝。', finish_reason='completed', events=[])
+            self.replies.append(self.tool(name, arguments))
+        return '已收到选择和拒绝。', 'end_turn'
 
 
-class HarnessBlog(HarnessCandidates):
-    def run(self, prompt, **options):
+class AcpBlog(AcpProtocolFixture):
+    @staticmethod
+    def output(prompt):
         from test_blog_application import READING_BLOG_BODY, EVIDENCE_BODY
         assets = re.search('可用图片文件名：(.*?)\\n', prompt).group(1).split(', ')
         body = READING_BLOG_BODY.replace('assets/image-001.png', 'assets/' + assets[0])
         result = {'evidence_map': EVIDENCE_BODY, 'blog': body}
-        return SimpleNamespace(final_response=json.dumps(result), finish_reason='completed', events=[])
+        return json.dumps(result), 'end_turn'
 
 
 class CodexHistory:
@@ -107,7 +83,13 @@ class CodexHistory:
         pass
 
     def send(self, message):
-        pass
+        if message.get('id') == 'codex-probe':
+            result = message['result']
+            self.complete(json.loads(result['contentItems'][0]['text'])['source_text'])
+
+    def complete(self, text):
+        self.events.put({'method': 'item/completed', 'params': {'item': {'type': 'agentMessage', 'id': uuid.uuid4().hex, 'text': text}}})
+        self.events.put({'method': 'turn/completed', 'params': {'turn': {'status': 'completed'}}})
 
     def close(self):
         pass
@@ -124,9 +106,11 @@ class CodexHistory:
             raise AssertionError('FOCUS discussion must never resume a native history branch')
         if method == 'turn/start':
             prompt = params['input'][0]['text']
-            text = 'Codex 记得量子香蕉。' if '量子香蕉' in prompt else '上下文缺失。'
-            self.events.put({'method': 'item/completed', 'params': {'item': {'type': 'agentMessage', 'id': uuid.uuid4().hex, 'text': text}}})
-            self.events.put({'method': 'turn/completed', 'params': {'turn': {'status': 'completed'}}})
+            if prompt.startswith('Call the focus tool with action read_range'):
+                self.events.put({'method': 'item/tool/call', 'id': 'codex-probe', 'params': {
+                    'tool': 'focus', 'arguments': {'action': 'read_range', 'arguments': '{"start":1,"end":1}'}}})
+            else:
+                self.complete('Codex 记得量子香蕉。' if '量子香蕉' in prompt else '上下文缺失。')
             return {'turn': {'id': 'turn-one'}}
         raise AssertionError(method)
 
@@ -136,14 +120,14 @@ class CodexCandidates(CodexHistory):
         if method != 'turn/start':
             return super().request(method, params, **kwargs)
         prompt = params['input'][0]['text']
+        if prompt.startswith('Call the focus tool with action read_range'):
+            return super().request(method, params, **kwargs)
         self_assertion = params['sandboxPolicy']['type']
         if self_assertion != 'readOnly':
             raise AssertionError('Candidate is not read-only')
-        runtime = HarnessCandidates() if prompt.startswith('{"task"') else HarnessBlog()
-        result = runtime.run(prompt)
-        self.events.put({'method': 'item/completed', 'params': {'item': {
-            'type': 'agentMessage', 'id': uuid.uuid4().hex, 'text': result.final_response}}})
-        self.events.put({'method': 'turn/completed', 'params': {'turn': {'status': 'completed'}}})
+        runtime = AcpCandidates if prompt.startswith('{"task"') else AcpBlog
+        text, _ = runtime.output(prompt)
+        self.complete(text)
         return {'turn': {'id': 'candidate-turn'}}
 
 
@@ -153,7 +137,7 @@ class SharedWorkflowTests(unittest.TestCase):
         self.fixture.setUp()
         self.workspace = self.fixture._workspace()[0]
         self.host = None
-        HarnessCandidates.requests = []
+        AcpCandidates.requests = []
 
     def tearDown(self):
         if self.host:
@@ -162,14 +146,15 @@ class SharedWorkflowTests(unittest.TestCase):
 
     def test_stopping_deepseek_finishes_discussion_and_allows_new_discussion(self):
         entered, released = threading.Event(), threading.Event()
-        class WaitingHarness(HarnessCandidates):
-            def run(self, prompt, **options):
+        class WaitingAcp(AcpCandidates):
+            def output(self, prompt):
                 entered.set()
                 released.wait(8)
-                return SimpleNamespace(final_response='late', finish_reason='completed', events=[])
+                return 'late', 'end_turn'
             def close(self):
+                super().close()
                 released.set()
-        with patch('deepseek_harness.DeepSeekHarness', WaitingHarness):
+        with acp_runtime(WaitingAcp):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek')
             original = self.host.select_discussion_source('fixture-paper')
             self.host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': '解释方法'})
@@ -182,10 +167,10 @@ class SharedWorkflowTests(unittest.TestCase):
             self.assertEqual([], fresh['conversation'])
 
     def test_business_startup_error_never_exposes_provider_credentials(self):
-        class FailingHarness(HarnessCandidates):
-            def start(self):
+        class FailingAcp(AcpCandidates):
+            def request(self, method, params, **options):
                 raise RuntimeError('quota exhausted sk-private-token')
-        with patch('deepseek_harness.DeepSeekHarness', FailingHarness):
+        with acp_runtime(FailingAcp):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek')
             self.host.select_discussion_source('fixture-paper')
             self.host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': '解释方法'})
@@ -194,24 +179,26 @@ class SharedWorkflowTests(unittest.TestCase):
             self.assertEqual('failed', snapshot['agent']['run']['status'])
             self.assertNotIn('sk-private-token', json.dumps(snapshot))
 
-    def test_stop_during_sdk_startup_releases_runtime_and_never_starts_prompt(self):
+    def test_stop_during_acp_startup_releases_runtime_and_never_starts_prompt(self):
         entered, released = threading.Event(), threading.Event()
         instances = []
-        class StartingHarness(HarnessCandidates):
-            def __init__(self, **options):
-                super().__init__(**options)
-                self.closed = False
+        class StartingAcp(AcpCandidates):
+            def __init__(self, *args, **options):
+                super().__init__(*args, **options)
                 self.prompts = 0
                 instances.append(self)
-            def start(self):
-                entered.set()
-                released.wait(5)
-            def run(self, prompt, **options):
+            def request(self, method, params, **options):
+                if method == 'initialize':
+                    entered.set()
+                    released.wait(5)
+                return super().request(method, params, **options)
+            def request_event(self, method, params, **options):
                 self.prompts += 1
-                return super().run(prompt, **options)
+                return super().request_event(method, params, **options)
             def close(self):
-                self.closed = True
-        with patch('deepseek_harness.DeepSeekHarness', StartingHarness):
+                super().close()
+                released.set()
+        with acp_runtime(StartingAcp):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek')
             self.host.select_discussion_source('fixture-paper')
             self.host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': '解释方法'})
@@ -222,7 +209,7 @@ class SharedWorkflowTests(unittest.TestCase):
             self.assertFalse(self.host.worker.is_alive())
             self.assertTrue(instances[0].closed)
             self.assertEqual(0, instances[0].prompts)
-            self.assertFalse(Path(instances[0].options['cwd']).exists())
+            self.assertFalse(instances[0].cwd.exists())
 
     def test_codex_preparation_cancel_waits_for_process_before_removing_its_workdir(self):
         started, closing, released = threading.Event(), threading.Event(), threading.Event()
@@ -231,17 +218,20 @@ class SharedWorkflowTests(unittest.TestCase):
             def __init__(self, command, cwd, **options):
                 super().__init__(command, cwd, **options)
                 self.cwd = Path(cwd)
-                instances.append(self)
+                self.waiting = False
             def request(self, method, params, **options):
-                if method == 'turn/start':
+                if method == 'turn/start' and not params['input'][0]['text'].startswith('Call the focus tool with action read_range'):
+                    self.waiting = True
+                    instances.append(self)
                     started.set()
                     return {'turn': {'id': 'waiting'}}
                 if method == 'turn/interrupt':
                     return {}
                 return super().request(method, params, **options)
             def close(self):
-                closing.set()
-                released.wait(5)
+                if self.waiting:
+                    closing.set()
+                    released.wait(5)
         with patch('host.backends.codex.AppServer', SlowClosingCodex):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='codex')
             self.host.prepare_reading('fixture-paper', request_id=uuid.uuid4().hex)
@@ -259,15 +249,13 @@ class SharedWorkflowTests(unittest.TestCase):
             self.assertFalse(instances[0].cwd.exists())
 
     def test_deepseek_token_limit_is_visible_and_cannot_publish_partial_preparation(self):
-        class TruncatedHarness(HarnessCandidates):
-            def run(self, prompt, **options):
-                result = super().run(prompt, **options)
+        class TruncatedAcp(AcpCandidates):
+            def output(self, prompt):
                 # Even syntactically valid output is ineligible after truncation.
-                result.finish_reason = 'max-tokens'
-                result.events = [{'type': 'turn/end', 'data': {'reason': {'kind': 'max-tokens'}}}]
-                return result
+                text, _ = super().output(prompt)
+                return text, 'max_tokens'
 
-        with patch('deepseek_harness.DeepSeekHarness', TruncatedHarness):
+        with acp_runtime(TruncatedAcp):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek',
                                     settings_path=self.fixture.root / 'settings.json')
             before = self.host.snapshot()['current']
@@ -281,7 +269,7 @@ class SharedWorkflowTests(unittest.TestCase):
             self.assertEqual(before, window['current'])
 
     def test_deepseek_prepares_full_source_without_moving_cursor(self):
-        with patch('deepseek_harness.DeepSeekHarness', HarnessCandidates), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'fixture-only'}):
+        with acp_runtime(AcpCandidates), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'fixture-only'}):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek')
             before = self.host.snapshot()['navigationCurrent']
             self.host.prepare_reading('fixture-paper', request_id=uuid.uuid4().hex)
@@ -319,8 +307,8 @@ class SharedWorkflowTests(unittest.TestCase):
             self.assertTrue(Path(self.host.blog_open('fixture-paper')['path']).is_file())
 
     def test_deepseek_discussion_uses_host_note_guard_and_refuses_other_source(self):
-        HarnessDiscussion.replies = []
-        with patch('deepseek_harness.DeepSeekHarness', HarnessDiscussion), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'fixture-only'}):
+        AcpDiscussion.replies = []
+        with acp_runtime(AcpDiscussion), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'fixture-only'}):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek')
             selected = self.host.select_discussion_source('fixture-paper')
             self.host.start({'requestId': uuid.uuid4().hex, 'sessionId': selected['sessionId'],
@@ -329,12 +317,12 @@ class SharedWorkflowTests(unittest.TestCase):
             snapshot = self.host.snapshot()
             self.assertEqual('completed', snapshot['agent']['run']['status'], snapshot['agent']['run'])
             self.assertEqual('共同讨论的例子和结论。', snapshot['sourceNotes'][0]['content'])
-            self.assertTrue(HarnessDiscussion.replies[0]['isError'])
-            self.assertFalse(HarnessDiscussion.replies[1]['isError'])
+            self.assertTrue(AcpDiscussion.replies[0]['isError'])
+            self.assertFalse(AcpDiscussion.replies[1]['isError'])
 
-    def test_sdk_tool_interactions_use_existing_input_and_approval_views(self):
-        HarnessInteraction.replies = []
-        with patch('deepseek_harness.DeepSeekHarness', HarnessInteraction):
+    def test_acp_tool_interactions_use_existing_input_and_approval_views(self):
+        AcpInteraction.replies = []
+        with acp_runtime(AcpInteraction):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek')
             self.host.select_discussion_source('fixture-paper')
             self.host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': '先问我重点。'})
@@ -352,18 +340,17 @@ class SharedWorkflowTests(unittest.TestCase):
                 self.host.approve({'approvalId': approval['id'], **answer})
             self.host.worker.join(5)
             self.assertEqual('completed', self.host.snapshot()['agent']['run']['status'])
-            self.assertIn('decline', HarnessInteraction.replies[-1]['content'][0]['text'])
+            self.assertIn('decline', AcpInteraction.replies[-1]['content'][0]['text'])
 
     def test_delayed_input_answer_is_not_lost_while_host_still_displays_it(self):
-        HarnessInteraction.replies = []
-        clock = SimpleNamespace(offset=0)
-        with patch('deepseek_harness.DeepSeekHarness', HarnessInteraction), patch(
-                'host.backends.tool_bridge.time', SimpleNamespace(monotonic=lambda: time.monotonic() + clock.offset)):
+        AcpInteraction.replies = []
+        with acp_runtime(AcpInteraction):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek')
             self.host.select_discussion_source('fixture-paper')
             self.host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': '先问重点'})
             for kind in ('input', 'approval'):
                 deadline = time.monotonic() + 4
+                approval = None
                 while time.monotonic() < deadline:
                     approvals = self.host.snapshot()['agent']['run']['approvals']
                     approval = next((a for a in approvals if a['kind'] == kind), None)
@@ -371,16 +358,16 @@ class SharedWorkflowTests(unittest.TestCase):
                         break
                     time.sleep(.02)
                 self.assertIsNotNone(approval)
-                clock.offset += 121
                 time.sleep(.35)
+                self.assertIn(approval, self.host.snapshot()['agent']['run']['approvals'])
                 self.host.approve({'approvalId': approval['id'], **(
                     {'answers': {'topic': {'answers': ['方法']}}} if kind == 'input' else {'decision': 'decline'})})
             self.host.worker.join(5)
             self.assertEqual('completed', self.host.snapshot()['agent']['run']['status'])
-            self.assertTrue(all(not r['isError'] for r in HarnessInteraction.replies), HarnessInteraction.replies)
+            self.assertTrue(all(not r['isError'] for r in AcpInteraction.replies), AcpInteraction.replies)
 
     def test_discussion_restores_visible_history_and_context_after_host_restart(self):
-        with patch('deepseek_harness.DeepSeekHarness', HarnessHistory), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'fixture-only'}):
+        with acp_runtime(AcpHistory), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'fixture-only'}):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek')
             self.host.select_discussion_source('fixture-paper')
             self.host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': '我们的例子叫量子香蕉。'})
@@ -395,8 +382,8 @@ class SharedWorkflowTests(unittest.TestCase):
             self.assertIn('量子香蕉', self.host.snapshot()['conversation'][-1]['content'])
 
     def test_long_discussion_carries_cumulative_summary_across_restart_and_backend(self):
-        HarnessHistory.summaries = []
-        with patch('deepseek_harness.DeepSeekHarness', HarnessHistory), patch('host.backends.codex.AppServer', CodexHistory):
+        AcpHistory.summaries = []
+        with acp_runtime(AcpHistory), patch('host.backends.codex.AppServer', CodexHistory):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek')
             self.host.select_discussion_source('fixture-paper')
             for index in range(9):
@@ -405,9 +392,9 @@ class SharedWorkflowTests(unittest.TestCase):
                 self.host.worker.join(5)
                 if self.host._summary_worker:
                     self.host._summary_worker.join(5)
-            self.assertGreaterEqual(len(HarnessHistory.summaries), 2)
-            self.assertIn('量子香蕉', HarnessHistory.summaries[0]['messages'][0]['content'])
-            self.assertIn('量子香蕉', HarnessHistory.summaries[-1]['previousSummary'])
+            self.assertGreaterEqual(len(AcpHistory.summaries), 2)
+            self.assertIn('量子香蕉', AcpHistory.summaries[0]['messages'][0]['content'])
+            self.assertIn('量子香蕉', AcpHistory.summaries[-1]['previousSummary'])
             before = self.host.snapshot()
             self.assertEqual(18, len(before['conversation']))
             self.host.close()
@@ -417,7 +404,7 @@ class SharedWorkflowTests(unittest.TestCase):
             self.assertEqual([], selected['sourceNotes'])
 
     def test_new_source_discussion_retains_previous_history_and_can_restore_it(self):
-        with patch('deepseek_harness.DeepSeekHarness', HarnessHistory), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'fixture-only'}):
+        with acp_runtime(AcpHistory), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'fixture-only'}):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek')
             selected = self.host.select_discussion_source('fixture-paper')
             self.host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': '量子香蕉'})
@@ -431,7 +418,7 @@ class SharedWorkflowTests(unittest.TestCase):
             self.assertEqual(original['conversation'], restored['conversation'])
 
     def test_codex_then_deepseek_continue_one_focus_discussion(self):
-        with patch('host.backends.codex.AppServer', CodexHistory), patch('deepseek_harness.DeepSeekHarness', HarnessHistory):
+        with patch('host.backends.codex.AppServer', CodexHistory), acp_runtime(AcpHistory):
             for backend, prompt in [('codex', '请记住例子量子香蕉，但不要写 Notes。'),
                                     ('deepseek', '上次的例子叫什么？'), ('codex', '再复述同一个例子。')]:
                 if self.host:
@@ -448,7 +435,7 @@ class SharedWorkflowTests(unittest.TestCase):
             self.assertEqual(6, len(snapshot['conversation']))
 
     def test_existing_switch_endpoint_keeps_source_discussion_identity_and_history(self):
-        with patch('host.backends.codex.AppServer', CodexHistory), patch('deepseek_harness.DeepSeekHarness', HarnessHistory):
+        with patch('host.backends.codex.AppServer', CodexHistory), acp_runtime(AcpHistory):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='codex')
             self.host.select_discussion_source('fixture-paper')
             self.host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': '例子叫量子香蕉'})
@@ -465,7 +452,7 @@ class SharedWorkflowTests(unittest.TestCase):
         from test_blog_application import png_bytes
         (self.workspace / 'sources/fixture-paper/parser-bundle/images/image-001.png').write_bytes(
             png_bytes(b'\x00\x00\x00\x00\xff'))
-        with patch('deepseek_harness.DeepSeekHarness', HarnessBlog), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'fixture-only'}):
+        with acp_runtime(AcpBlog), patch.dict('os.environ', {'DEEPSEEK_API_KEY': 'fixture-only'}):
             self.host = HostService(self.workspace, self.fixture.root / 'host', backend='deepseek')
             self.host.blog_generate('fixture-paper', request_id=uuid.uuid4().hex)
             worker = self.host.blog_workers.get('fixture-paper')

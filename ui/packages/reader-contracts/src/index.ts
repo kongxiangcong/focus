@@ -245,6 +245,7 @@ export interface ReadingPreparation {
 
 export interface ReaderApproval {
   id: string;
+  status?: "expired";
   title: string;
   detail: string;
   kind: "approval" | "continue" | "input";
@@ -253,12 +254,14 @@ export interface ReaderApproval {
 }
 
 export interface ReaderAgentState {
-  backend?: string;
-  backends?: readonly { id: string; label: string; unavailableReason?: string | null }[];
+  backend?: string | null;
+  backends?: readonly BackendDescriptor[];
   run: null | {
     runId: string;
     status: "running" | "approval" | "stopping" | "completed" | "failed" | "interrupted";
     error: string | null;
+    backendVerification?: "checking" | "passed" | "failed";
+    pendingMessageId?: string;
     progress?: { label: string; startedAt: number; stageStartedAt?: number; updatedAt: number; finishedAt?: number };
     /** Numeric phase timestamps only; no source text, model reasoning, or credentials. */
     phaseTiming?: { sentAt?: number; sessionStart?: number; sessionReady?: number;
@@ -568,30 +571,53 @@ export function createReaderId(): string {
   const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
-export type BackendSetupAction = "inspect" | "prepare" | "account" | "login-start" | "login-status" | "login-cancel" | "check" | "models";
+export type BackendSetupAction = "inspect" | "prepare" | "account" | "login-start" | "login-status" | "login-cancel" | "check" | "models" | "rescan";
+export interface BackendDescriptor {
+  id: string;
+  label: string;
+  driver?: string;
+  available?: boolean;
+  runtimePath?: string | null;
+  defaultModel?: string | null;
+  installHint?: string;
+  loginHint?: string;
+  credentialEnv?: readonly string[];
+  unavailableReason?: string | null;
+  capabilities?: {
+    authMode?: string;
+    modelDiscovery?: string;
+    mcpTransport?: string;
+    streaming?: boolean;
+    images?: boolean;
+  };
+}
 export interface BackendConfiguration {
-  backend: "codex" | "deepseek";
-  model: string;
+  backend: string;
+  model: string | null;
   runtimePath: string | null;
   credentialFile: string | null;
 }
 export interface BackendConfigurationState {
-  saved: BackendConfiguration;
-  effective: BackendConfiguration;
+  saved: BackendConfiguration | null;
+  effective: BackendConfiguration | null;
   pending: boolean;
   busy: boolean;
   refreshBlocked: boolean;
-  preferences?: Partial<Record<"codex" | "deepseek", Omit<Partial<BackendConfiguration>, 'model'> & { model?: string | null }>>;
+  preferences?: Partial<Record<string, Partial<BackendConfiguration>>>;
+  backends?: readonly BackendDescriptor[];
+  backendErrors?: readonly { file: string; message: string }[];
+  startupOverride?: boolean;
+  startupError?: string | null;
   operationId?: string;
 }
 export interface BackendSetupInput {
-  backend: "codex" | "deepseek";
-  runtimePath?: string;
+  backend: string;
+  runtimePath?: string | null;
   model?: string;
   credentialFile?: string;
   loginId?: string;
   requestId?: string;
-  preferences?: Partial<Record<'codex' | 'deepseek', Pick<BackendSetupInput, 'model' | 'runtimePath' | 'credentialFile'>>>;
+  preferences?: Partial<Record<string, Pick<BackendSetupInput, 'model' | 'runtimePath' | 'credentialFile'>>>;
 }
 export interface BackendSetupResult {
   backend: string;
@@ -606,4 +632,6 @@ export interface BackendSetupResult {
   catalogStatus?: string;
   catalogMessage?: string;
   models?: string[];
+  backends?: BackendConfigurationState["backends"];
+  backendErrors?: BackendConfigurationState["backendErrors"];
 }

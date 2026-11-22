@@ -68,6 +68,7 @@ try {
   assert.equal(fs.existsSync(path.join(root, 'stale-selection')), false);
   execFileSync(process.env.FOCUS_TEST_PYTHON, ['-c', 'import shutil,sys; shutil.copytree(sys.argv[1],sys.argv[2])', first.path, path.join(root, '复制 workspace')]);
   trace('copied');
+  await page.getByRole('link', { name: '设置', exact: true }).click();
   await page.getByRole('button', { name: '更换工作区' }).click();
   await page.getByLabel('导入工作区', { exact: true }).check();
   await page.getByLabel('工作区目录', { exact: true }).fill(path.join(root, '复制 workspace'));

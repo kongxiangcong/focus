@@ -1,5 +1,5 @@
-import { type ReactNode, useEffect, useId, useState } from 'react';
-import { createReaderId, type BackendSetupInput } from '@focus/reader-contracts';
+import { useEffect, useId, useState } from 'react';
+import { createReaderId } from '@focus/reader-contracts';
 
 export interface WorkspaceBindingStatus {
   bound: boolean;
@@ -21,9 +21,8 @@ export async function workspaceRequest(path: string, payload?: unknown): Promise
   return body.value;
 }
 
-export function WorkspaceSelection({ status: initial, onOpened, children, configuration }: {
-  status?: WorkspaceBindingStatus; onOpened?: (status: WorkspaceBindingStatus) => void; children?: ReactNode;
-  configuration?: BackendSetupInput;
+export function WorkspaceSelection({ status: initial, onOpened }: {
+  status?: WorkspaceBindingStatus; onOpened?: (status: WorkspaceBindingStatus) => void;
 }) {
   const [status, setStatus] = useState(initial);
   const [editing, setEditing] = useState(!initial?.bound);
@@ -42,7 +41,6 @@ export function WorkspaceSelection({ status: initial, onOpened, children, config
   if (!status) return null;
   return <section className="workspace-selection" aria-label="工作区选择">
     <h2>{status.bound ? '工作区' : '开始使用 FOCUS'}</h2>
-    {!status.bound && <p className="workspace-entry-intro">选择工作区与后端，开始阅读。</p>}
     {status.workspace && <p className="workspace-location">{status.workspace.path}</p>}
     {!editing && <button disabled={status.busy} onClick={() => setEditing(true)}>更换工作区</button>}
     {editing && <form onSubmit={async event => {
@@ -50,7 +48,7 @@ export function WorkspaceSelection({ status: initial, onOpened, children, config
       let requestId: string | undefined;
       try {
         requestId = createReaderId();
-        const next = await workspaceRequest('/reader/workspace', { mode, path, name, requestId, configuration, generation: status.generation });
+        const next = await workspaceRequest('/reader/workspace', { mode, path, name, requestId, generation: status.generation });
         setStatus(next); setEditing(false);
         if (onOpened) onOpened(next);
         else window.dispatchEvent(new CustomEvent('focus-workspace-opened', { detail: next }));
@@ -91,7 +89,6 @@ export function WorkspaceSelection({ status: initial, onOpened, children, config
       {mode === 'create' && <label>名称<input value={name} disabled={busy} onChange={event => setName(event.target.value)} required /></label>}
       <p className="workspace-backup-hint">退出 FOCUS、完成落盘后，复制整个工作区即可备份；恢复后选择导入。</p>
       </div>
-      {children && <div className="workspace-entry-backend">{children}</div>}
       <div className="workspace-entry-footer">
       {error && <p role="alert">{error}</p>}
       {busy && <p role="status">正在打开…</p>}

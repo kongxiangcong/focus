@@ -14,6 +14,10 @@ FOCUS 是一个以来源原文为锚点的私人阅读工作台。它保存可�
 
 ## Language
 
+**Backend（后端）**:
+用户可在 FOCUS 中独立选择、检查和应用的一条 AI 执行配置。同一 Host 同时只有一个生效 Backend，供各项 AI 任务共用。
+_Avoid_: Harness, Driver
+
 **FOCUS Workbench（工作台）**:
 打开和操作 FOCUS Workspace 的应用入口；工作台的安装与升级独立于用户阅读数据。
 _Avoid_: Knowledge Base, user data directory

@@ -4,6 +4,8 @@ status: accepted
 
 # Select Agent backends without changing Focus Core authority
 
+2026-11-20 修订：每轮都开启全新原生会话，由 FOCUS 注入绑定来源、近期消息和已有摘要，切换 Backend 后继续使用同一份 FOCUS 讨论历史。
+
 2026-10-06 revision: [ADR 0020](0020-portable-workspaces-with-first-run-selection.md) adds first-run Backend selection, and [ADR 0021](0021-simple-backend-setup-and-apply.md) replaces the initial installation of both Backends and save-then-manual-refresh rules below with selected-Backend preparation on demand and idle Save and Apply. Those earlier rules remain historical context; shared business authority, explicit authentication and one effective Backend continue to apply.
 
 The browser uses ReaderHost.selectBackend; HostService owns session switching and

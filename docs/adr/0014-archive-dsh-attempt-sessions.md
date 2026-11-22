@@ -1,4 +1,12 @@
+---
+status: superseded
+---
+
 # DSH 专用 attempt Session 采用终止、释放与归档
+
+2026-11-20 修订：所有 Backend 统一承担执行终止和资源释放责任。取消时终止在途执行，结束时关闭句柄并清理 FOCUS 创建的临时环境。外部运行时管理其原生日志。原 DSH 专属归档及启动重试承诺废止。DSH 的 ACP 路径实测通过阅读讨论、`focus(action="read_range")` 回调和取消后，直接替换 SDK 接入并下线 `deepseek-harness-sdk`。
+
+## 历史决定（已取代）
 
 阶段 2D 在固定 DSH `0.1.7-rc.2` / `477b4f4` 上，为每个 AI attempt 创建独立的原生 Session。attempt 到达成功、失败、取消或中断终态后，Host 必须先确认执行已终止并释放 live handle，再通过 DSH 公开能力归档该 Session。归档后的 DSH 日志仍保存在 DSH 自有持久层中；FOCUS 不宣称日志已永久删除，也不直接操作 DSH 私有存储。业务结果与归档结果分别报告：归档失败不回滚已提交资产，但必须显示“归档未完成”，保留最小关联并在下次启动重试。旧 attempt 一旦失去提交资格，归档是否成功都不能恢复提交资格。
 

@@ -98,15 +98,16 @@ const ConversationComposer = memo(forwardRef<ComposerHandle, ComposerProps>(func
     if (!content || sending || running) return;
     const sentDraft = draft;
     const ok = await onSend(content);
-    if (ok) {
+    if (ok && prevKey.current === draftKey && textareaRef.current?.value === sentDraft) {
       if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
       safeWrite(draftKey, "");
-      setDraft(current => (current === sentDraft ? "" : current));
+      setDraft("");
     }
   }
 
   return <form className="source-composer focus-composer" onSubmit={e => { e.preventDefault(); void submit(); }}>
-    {agent && (running || !!agent.run?.error) && <AgentControls agent={agent} onStop={onStop} onAnswer={onApprove} />}
+    {agent && (running || !!agent.run?.error || agent.run?.approvals.some(approval => approval.status === "expired")) &&
+      <AgentControls agent={agent} onStop={onStop} onAnswer={onApprove} />}
     <textarea
       ref={textareaRef}
       rows={1}

@@ -1,0 +1,16 @@
+{
+  "id": "agy",
+  "label": "Antigravity CLI",
+  "driver": "acp",
+  "command": ["agy", "acp"],
+  "env": {"AGY_CLI_DISABLE_AUTO_UPDATE": "true"},
+  "capabilities": {
+    "authMode": "external-cli",
+    "modelDiscovery": "acp-config-option",
+    "mcpTransport": "streamable-http",
+    "streaming": true,
+    "structuredOutput": "prompt-json"
+  },
+  "installHint": "请安装 Antigravity CLI，或指定 agy 的可执行文件。",
+  "loginHint": "请在终端完成 agy 登录。"
+}

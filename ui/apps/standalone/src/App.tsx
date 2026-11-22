@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { WorkspaceSelection, workspaceRequest, type WorkspaceBindingStatus } from './WorkspaceSelection';
 import { WorkspaceApp } from "./WorkspaceApp";
 import { createStandaloneReaderHost } from "./adapters/create-standalone-reader-host";
-import { BackendSetupPanel } from './BackendSetupPanel';
-import type { BackendConfigurationState, BackendSetupInput } from '@focus/reader-contracts';
 
 const baseUrl = import.meta.env.VITE_FOCUS_READER_BASE_URL?.trim() ?? "";
 
@@ -15,17 +13,10 @@ export function App() {
   const [error, setError] = useState("");
   const [binding, setBinding] = useState<WorkspaceBindingStatus | null>(null);
   const [expired, setExpired] = useState(false);
-  const [configuration, setConfiguration] = useState<BackendConfigurationState>();
-  const [draft, setDraft] = useState<BackendSetupInput>({ backend: 'codex' });
   const readerHost = useMemo(() => createStandaloneReaderHost(baseUrl, binding?.workspace?.instanceId), [binding?.workspace?.instanceId]);
   async function loadBinding() {
     try { setBinding(await workspaceRequest('/reader/workspace')); } catch { /* Direct test Hosts retain their established interface. */ }
   }
-  useEffect(() => {
-    if (binding && !binding.bound) void fetch(baseUrl + '/reader/configuration').then(response => response.json()).then(body => {
-      if (body.ok) setConfiguration(body.value);
-    }).catch(() => {});
-  }, [binding?.bound]);
   useEffect(() => {
     const opened = (event: Event) => { setBinding((event as CustomEvent<WorkspaceBindingStatus>).detail); setExpired(false); };
     window.addEventListener('focus-workspace-opened', opened);
@@ -59,9 +50,7 @@ export function App() {
   }, []);
   if (checking) return <main className="focus-login"><h1>FOCUS</h1><p role="status">正在打开…</p></main>;
   if (expired) return <main className="focus-login"><h1>工作区已更换</h1><p>旧操作已暂停，旧草稿不会提交到新工作区。</p><button onClick={() => location.reload()}>重新载入</button></main>;
-  if (ready && binding && !binding.bound) return <main className="focus-entry"><WorkspaceSelection status={binding} onOpened={setBinding} configuration={draft}>
-    <BackendSetupPanel host={readerHost} configuration={configuration} onDraft={setDraft} />
-  </WorkspaceSelection></main>;
+  if (ready && binding && !binding.bound) return <main className="focus-entry"><WorkspaceSelection status={binding} onOpened={setBinding} /></main>;
   if (ready) return <WorkspaceApp key={binding?.workspace?.instanceId} host={readerHost} />;
   return <main className="focus-login"><h1>focus.</h1><p>输入 FOCUS 后台启动时显示的访问口令。</p>
     <form onSubmit={async e => {

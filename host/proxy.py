@@ -9,6 +9,9 @@ Each backend receives its own environment copy, so browser switching never
 rewrites the Host environment or loses the other provider's proxy settings.
 """
 import os
+from pathlib import Path
+
+from .backends.base import BackendConfigurationError
 
 PROXY_KEYS = ('HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy')
 NO_PROXY_KEYS = ('NO_PROXY', 'no_proxy')
@@ -47,13 +50,59 @@ def apply_proxy(backend, env=None):
     return f'{backend}: 代理固定为 {mode}'
 
 
-def backend_environment(backend):
+def file_credentials(path, names):
+    """Read only the declared assignment names without echoing file contents."""
+    wanted = set(names)
+    if not wanted:
+        return {}
+    try:
+        lines = Path(path).expanduser().read_text(encoding='utf-8-sig').splitlines()
+    except (OSError, UnicodeError, ValueError):
+        raise BackendConfigurationError('无法读取凭据文件，请检查文件路径、权限和 UTF-8 编码。') from None
+    values = {}
+    for line in lines:
+        key, separator, value = line.strip().removeprefix('export ').partition('=')
+        key = key.strip()
+        if not separator or key not in wanted:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] in ('"', "'") and value[-1] == value[0]:
+            value = value[1:-1]
+        if value and '\0' not in value:
+            values[key] = value
+        else:
+            values.pop(key, None)
+    missing = wanted - values.keys()
+    if missing:
+        raise BackendConfigurationError(f'凭据文件缺少 {", ".join(sorted(missing))}，请补充后重试。')
+    return values
+
+
+def backend_environment(backend, *, credential_file=None):
     env = dict(os.environ)
-    if backend == 'codex':
-        for key in ('OPENAI_API_KEY', 'CODEX_API_KEY'):
+    if isinstance(backend, str):
+        from .backends import BACKENDS
+        spec = BACKENDS.get(backend)
+        name = backend
+    else:
+        spec = backend
+        name = spec.id
+    if spec:
+        for key in spec.env_strip:
             env.pop(key, None)
-    apply_proxy(backend, env)
-    # SDK transports may merge env over os.environ. Empty values override inherited proxies.
-    if proxy_mode(backend) == BYPASS:
+        env.update(spec.env)
+        if credential_file:
+            env.update(file_credentials(credential_file, spec.credential_env))
+        elif spec.legacy_credential_file:
+            missing = [name for name in spec.credential_env if not env.get(name)]
+            try:
+                env.update(file_credentials(spec.legacy_credential_file, missing))
+            except BackendConfigurationError:
+                # The old implicit file was optional. Without a key, let the CLI
+                # use its own authentication and report its actual status.
+                pass
+    apply_proxy(name, env)
+    # Empty values make bypass explicit in the child environment.
+    if proxy_mode(name) == BYPASS:
         env.update({key: '' for key in PROXY_KEYS})
     return env
