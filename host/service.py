@@ -515,7 +515,7 @@ class HostService:
             document['blocks'] = [{'blockId': block['block_id'], 'offsets': block['offsets']} for block in source.blocks]
             if (bundle / 'source.pdf').is_file():
                 document['pdf'] = source.pdf
-                document['translation'] = self.reading_app.core.shared_translation(source_id, document, source)
+                document['translation'] = self.reading_app.core.shared_translation(source_id, document)
             return document
 
     def complete_source(self, source_id, payload):

@@ -189,7 +189,7 @@ class ReadingCore:
                     "selected_plan_id": selected_id, "selected_ready": selected_ready,
                     "candidate": bool(selected_id and run["plan_id"] != selected_id)}
 
-    def shared_translation(self, source_id, document, source):
+    def shared_translation(self, source_id, document):
         with _LOCK:
             run = self.status(source_id)
             if not run or run['bundle'] != document['bundleVersion']:
@@ -198,14 +198,16 @@ class ReadingCore:
             if not plan:
                 return {'status': run['status'], 'chunks': []}
             root = self._root(source_id) / 'reading' / 'plans' / plan
+            lines = source_lines(document['markdown'])
             chunks = []
             for chunk in _read_chunk_records(root / 'chunks.jsonl'):
                 key = chunk['chunk_id']
                 record = _read_reading_record(root / 'records' / f'{key}.json', key)
                 start, end = chunk['source_lines']
                 chunks.append({'id': key, 'sourceLines': [start, end],
-                               'blockIds': source.chunk_block_ids(start, end),
-                               'text': record['translation'] or source.text(start, end)})
+                               'blockIds': list(dict.fromkeys(b['blockId'] for b in document['pdf']['blocks']
+                                                           if b['sourceLines'][0] <= end and start <= b['sourceLines'][1])),
+                               'text': record['translation'] or '\n'.join(lines[start - 1:end])})
             return {'status': 'ready', 'planId': plan, 'chunks': chunks}
 
     def open_ready(self, source_id: str, *, request_id: str) -> dict:
