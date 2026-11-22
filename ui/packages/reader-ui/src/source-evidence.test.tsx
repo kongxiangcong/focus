@@ -29,6 +29,17 @@ describe("source evidence rendering boundary", () => {
     const { container } = render(<MarkdownContent text={hostile.markdown} sourceEvidence={{ document: hostile, evidence: [] }} />);
     expect(container.querySelector("script")).toBeNull();
   });
+  it("uses block targets for new verified quotations", () => {
+    const doc = { ...document, markdown: "# Paper\n\n**An alias** keeps order.\n\nThe next paragraph.", lineCount: 5 };
+    const ref = { ...evidence, renderGranularity: "block" as const, sourceLines: [3, 5] as const,
+      quote: { exact: "**An alias** keeps order.\n\nThe next", prefix: "", suffix: "" } };
+    expect(projectEvidence(doc, [ref])[0].kind).toBe("block");
+    expect(projectEvidence(doc, [{ ...ref, quote: { ...ref.quote, exact: "missing quote" } }])[0].kind).toBe("unavailable");
+    const { container } = render(<MarkdownContent text={doc.markdown} sourceEvidence={{ document: doc,
+      evidence: [{ ...ref, sourceLines: [3, 3], quote: { ...ref.quote, exact: "keeps order" } }] }} />);
+    expect(container.querySelectorAll("p[data-evidence-block]")).toHaveLength(1);
+    expect(container.querySelector("mark.source-evidence")).toBeNull();
+  });
   it("binds original images to the displayed source version", () => {
     const doc = { ...document, markdown: "![Figure](images/image-001.png)" };
     const { container } = render(<MarkdownContent text={doc.markdown} sourceId="paper" sourceEvidence={{ document: doc, evidence: [] }} />);

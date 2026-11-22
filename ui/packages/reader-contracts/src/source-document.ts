@@ -1,10 +1,13 @@
 /** Source identity is independent of a Reading Plan and its translated chunks. */
 export interface SourceScope { sourceId: string; bundleVersion: string }
 
-/** Host-validated source bytes. Rendering must still resolve the exact visible range. */
+/** Host-validated quotation and its location in a particular Source Bundle. */
 export interface ValidatedAnswerEvidence extends SourceScope {
   evidenceId: string; messageId: string; discussionId: string; answerRevision: string;
-  layoutVersion?: string; blockIds?: readonly string[];
+  layoutVersion?: string; blockIds?: readonly string[]; sectionIds?: readonly string[];
+  renderGranularity?: "block" | "exact";
+  pdfRegions?: readonly { pageIndex: number; pageNumber: number;
+    bboxes: readonly (readonly [number, number, number, number])[]; granularity: "block" | "page" | "line" }[];
   displayNumber: number; sourceLines: readonly [number, number];
   quote: { exact: string; prefix: string; suffix: string };
   relation: "supports" | "contradicts" | "context";

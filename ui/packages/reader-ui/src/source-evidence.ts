@@ -6,6 +6,20 @@ import { markdownTree } from "./markdown-pipeline";
 type Positioned = HastNode & { position?: { start: { line: number }; end: { line: number } } };
 export type EvidenceProjection = { evidence: ValidatedAnswerEvidence; kind: "exact" | "block" | "unavailable"; start?: number; end?: number };
 
+function canonicalQuoteMatches(markdown: string, starts: readonly number[], evidence: ValidatedAnswerEvidence) {
+  const [first, last] = evidence.sourceLines;
+  const lower = starts[first - 1], upper = starts[last] ?? markdown.length;
+  if (lower === undefined || first < 1 || last < first || last > starts.length) return false;
+  const { exact, prefix, suffix } = evidence.quote;
+  let matched = false;
+  for (let at = markdown.indexOf(exact, lower); at >= 0 && at + exact.length <= upper; at = markdown.indexOf(exact, at + 1)) {
+    if (at < prefix.length || !markdown.startsWith(prefix, at - prefix.length) || !markdown.startsWith(suffix, at + exact.length)) continue;
+    if (matched) return false;
+    matched = true;
+  }
+  return matched;
+}
+
 function resolve(tree: HastNode, document: ReadingDocument, evidence: readonly ValidatedAnswerEvidence[]): EvidenceProjection[] {
   if (!evidence.length) return [];
   const lines = new Map<HastNode, readonly [number, number]>();
@@ -17,12 +31,19 @@ function resolve(tree: HastNode, document: ReadingDocument, evidence: readonly V
   }
   visit(tree);
   const nodes = hastTextNodes(tree), text = nodes.map(n => n.node.value ?? "").join("");
+  const markdown = document.markdown.replace(/\r\n?/g, "\n");
+  const starts = [0, ...Array.from(markdown.matchAll(/\n/g), m => m.index! + 1)];
+  if (starts.at(-1) === markdown.length) starts.pop();
   return evidence.map(e => {
     const no = { evidence: e, kind: "unavailable" as const };
     if (e.sourceId !== document.sourceId || e.bundleVersion !== document.bundleVersion) return no;
     const [first, last] = e.sourceLines;
-    const candidates: number[] = [];
     if (!e.quote.exact.trim()) return no;
+    const block = tree.children?.some(n => { const span = lines.get(n); return span && span[0] <= last && span[1] >= first; });
+    if (e.renderGranularity === "block") {
+      return block && canonicalQuoteMatches(markdown, starts, e) ? { evidence: e, kind: "block" } : no;
+    }
+    const candidates: number[] = [];
     for (let at = text.indexOf(e.quote.exact); at !== -1; at = text.indexOf(e.quote.exact, at + 1)) {
       const touched = nodes.filter(n => n.start < at + e.quote.exact.length && n.start + (n.node.value?.length ?? 0) > at);
       if (touched.length && touched.every(n => { const span = lines.get(n.node); return span && span[0] >= first && span[1] <= last; }) &&
@@ -30,7 +51,6 @@ function resolve(tree: HastNode, document: ReadingDocument, evidence: readonly V
     }
     if (candidates.length === 1) return { evidence: e, kind: "exact", start: candidates[0], end: candidates[0] + e.quote.exact.length };
     // Explicitly labelled block fallback, never an approximate sentence highlight.
-    const block = tree.children?.some(n => { const span = lines.get(n); return span && span[0] <= last && span[1] >= first; });
     return { evidence: e, kind: block ? "block" : "unavailable" };
   });
 }
