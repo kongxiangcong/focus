@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .ingestion import IngestionExternalError, persist_candidate_result
-from .mineru import MAX_RESPONSE_BYTES, MAX_SOURCE_BYTES, MAX_ZIP_BYTES, ParserError, _normalize
+from .mineru import MAX_RESPONSE_BYTES, MAX_SOURCE_BYTES, MAX_ZIP_BYTES, ParserError, _normalize, mineru_artifact_name
 
 
 @dataclass(frozen=True)
@@ -250,7 +250,7 @@ class LocalMinerUParser:
         metadata.pop("api_version", None)
         metadata.pop("batch_id", None)
         metadata.update({"provider": "local-mineru", "mineru_version": self.version,
-                         "protocol_version": "v1", "task_id": task_id, "model_evidence": evidence})
+                         "protocol_version": "v1", "task_id": task_id, "model_evidence": {**metadata["model_evidence"], **evidence}})
         metadata["selection_reason"] = getattr(self, "selection_reason", "本地优先")
         metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         content = (candidate / "content.md").read_text(encoding="utf-8")
@@ -278,7 +278,8 @@ class LocalMinerUParser:
             with zipfile.ZipFile(archive) as bundle:
                 evidence, raw_evidence = {}, {}
                 for name in self.evidence_files:
-                    matches = [info for info in bundle.infolist() if info.filename == name]
+                    matches = [info for info in bundle.infolist()
+                               if mineru_artifact_name(Path(info.filename).name) == name]
                     if len(matches) != 1 or matches[0].file_size > 64 * 1024 * 1024:
                         raise ValueError("Missing or oversized model evidence")
                     raw = bundle.read(matches[0])

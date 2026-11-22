@@ -306,7 +306,7 @@ def _validate_parser_bundle(bundle: Path) -> dict[str, Any]:
     return metadata
 
 
-def _protected_source_ranges(lines: list[str]) -> list[tuple[int, int]]:
+def _protected_source_ranges(lines: list[str], *, strict: bool = True) -> list[tuple[int, int]]:
     ranges: list[tuple[int, int]] = []
     table_start: int | None = None
     for number, line in enumerate(lines, 1):
@@ -333,7 +333,7 @@ def _protected_source_ranges(lines: list[str]) -> list[tuple[int, int]]:
             if closes:
                 ranges.append((start, number))
                 opening = None
-    if opening is not None:
+    if opening is not None and strict:
         raise WorkspaceError("reading_plan_invalid", "Source Markdown contains an unterminated protected block")
 
     for number, line in enumerate(lines, 1):
@@ -346,11 +346,11 @@ def _protected_source_ranges(lines: list[str]) -> list[tuple[int, int]]:
     return ranges
 
 
-def _source_heading_paths(lines: list[str]) -> list[tuple[str, ...]]:
+def _source_heading_paths(lines: list[str], *, identifiers: bool = False) -> list[tuple[str, ...]]:
     headings: dict[int, str] = {}
     paths: list[tuple[str, ...]] = []
     fence: str | None = None
-    for line in lines:
+    for number, line in enumerate(lines, 1):
         marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
         in_code = fence is not None
         if marker:
@@ -364,7 +364,7 @@ def _source_heading_paths(lines: list[str]) -> list[tuple[str, ...]]:
         if match:
             level = len(match.group(1))
             headings = {key: value for key, value in headings.items() if key < level}
-            headings[level] = match.group(2).strip()
+            headings[level] = f"section-{number}" if identifiers else match.group(2).strip()
         paths.append(tuple(headings[key] for key in sorted(headings)))
     return paths
 
@@ -1409,8 +1409,9 @@ class WorkspaceCore:
             SourceLibrary(self.workspace).get(source_id)
             source_root = self.workspace / "sources" / source_id
         bundle = _source_bundle_at_version(source_root, bundle_version)
-        lines = (bundle / "content.md").read_text(encoding="utf-8", errors="replace").splitlines()
-        paths = _source_heading_paths(lines)
+        from .source_blocks import SourceBlocks
+        source = SourceBlocks(bundle)
+        lines = source.lines
         terms = [term.casefold() for term in re.findall(r"[\w]+", query) if len(term) > 1]
         terms = terms or [query.strip().casefold()]
         matches: list[dict[str, Any]] = []
@@ -1419,12 +1420,19 @@ class WorkspaceCore:
                 continue
             start = max(0, index - 1)
             end = min(len(lines), index + 2)
+            if not lines[start].strip():
+                start += 1
+            if not lines[end - 1].strip():
+                end -= 1
             snippet = " ".join(part.strip() for part in lines[start:end] if part.strip())
             matches.append(
                 {
-                    "section_path": list(paths[index]),
+                    "section_path": list(source.section_paths[index]),
                     "source_lines": [start + 1, end],
+                    "match_line": index + 1,
                     "snippet": snippet[:320],
+                    "source_text": source.text(start + 1, end),
+                    "blocks": source.headers(start + 1, end),
                 }
             )
             if len(matches) == limit:
@@ -1437,10 +1445,9 @@ class WorkspaceCore:
             "matches": matches,
         }
 
-    def read_source_range(self, *, start: int, end: int, source_id: str | None = None,
-                          bundle_version: str | None = None) -> dict[str, Any]:
-        if any(not isinstance(value, int) or isinstance(value, bool) for value in (start, end)):
-            raise WorkspaceError("source_range_invalid", "Source range is invalid")
+    def read_source_range(self, *, start: int | None = None, end: int | None = None,
+                          source_id: str | None = None, bundle_version: str | None = None,
+                          block_ids: list[str] | None = None, line_limit: int | None = None) -> dict[str, Any]:
         if source_id is None:
             _, _, _, source_id, source_root = _current_source_state(self.workspace)
         else:
@@ -1450,10 +1457,14 @@ class WorkspaceCore:
 
             SourceLibrary(self.workspace).get(source_id)
         bundle = _source_bundle_at_version(source_root, bundle_version)
-        lines = (bundle / "content.md").read_text(encoding="utf-8", errors="replace").splitlines()
-        if start < 1 or end < start or end > len(lines):
-            raise WorkspaceError("source_range_invalid", "Source range is invalid")
-        selected = lines[start - 1 : end]
+        from .source_blocks import SourceBlocks
+        source = SourceBlocks(bundle)
+        requested = [start, end]
+        ranges = [{"source_lines": requested if block_ids is None else source.line_span(first, last),
+                   "source_text": source.markdown[first:last]}
+                  for first, last in source.ranges(start, end, block_ids, limit=line_limit)]
+        start, end = ranges[0]["source_lines"][0], ranges[-1]["source_lines"][1]
+        selected = [line for span in ranges for line in span["source_text"].split("\n")]
         image_paths = [
             PurePosixPath(_split_image_target(match.group(2)).replace("\\", "/")).as_posix()
             for line in selected
@@ -1463,9 +1474,12 @@ class WorkspaceCore:
             "ok": True,
             "status": "source_range_read",
             "source_id": source_id,
-            "section_path": list(_source_heading_paths(lines)[start - 1]),
+            "section_path": list(source.section_paths[start - 1]),
             "source_lines": [start, end],
-            "source_text": "\n".join(selected),
+            "source_text": ranges[0]["source_text"] if len(ranges) == 1 else "",
+            "ranges": ranges,
+            "blocks": [block for block in source.headers(start, end)
+                       if block_ids is None or block["block_id"] in block_ids],
             "images": _bound_image_presentations(bundle, selected, image_paths),
         }
 

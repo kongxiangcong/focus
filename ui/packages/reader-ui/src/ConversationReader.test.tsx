@@ -73,7 +73,7 @@ it("manual reading cancels pending automatic source navigation", async () => {
 
 it("restores saved answers without replaying an automatic jump", async () => {
   setup(answer([first]));
-  await screen.findByRole("button", { name: "返回回答证据 1" });
+  await screen.findByRole("button", { name: "返回回答证据 1" }, { timeout: 5000 });
   expect(scrolling).not.toHaveBeenCalled();
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
 });

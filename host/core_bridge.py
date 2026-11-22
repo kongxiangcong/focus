@@ -17,7 +17,7 @@ from .figure_catalog import source_figures
 
 ACTIONS = {
     'search': ('search_source', {'query': 'string', 'limit': 'integer', 'source_id': 'string|null', 'bundle_version': 'string|null'}),
-    'read_range': ('read_source_range', {'start': 'integer', 'end': 'integer', 'source_id': 'string|null', 'bundle_version': 'string|null'}),
+    'read_range': ('read_source_range', {'start': 'integer|optional', 'end': 'integer|optional', 'block_ids': 'string[]|optional', 'source_id': 'string|null', 'bundle_version': 'string|null'}),
     'topic_search': ('search_topic', {'topic_id': 'string', 'query': 'string', 'limit': 'integer'}),
     'topic_range': ('read_topic_range', {'topic_id': 'string', 'source_id': 'string', 'start': 'integer', 'end': 'integer'}),
     'topic_notes': ('topic_notes', {'topic_id': 'string'}),
@@ -29,7 +29,8 @@ TOOL = {
                    'with explicit user save intent; Host/Core owns validation and persistence. Reading preparation and navigation use ReaderHost operations. '
                    'Arguments is a JSON object encoded as a string. Fields: ' + json.dumps({k: ACTIONS[k][1] for k in
                        ('search', 'read_range', 'topic_search', 'topic_range', 'topic_notes')}) +
-                   ' cite fields: {start:integer,end:integer,quote:string,prefix?:string,suffix?:string,relation?:supports|contradicts|context}. Use exact original text from read_range; cite returns a validated marker to insert after a claim. source_note fields: {content:string, kind:example|conclusion|question|thought|concept, '
+                   ' search and read_range return separate block headers [block_id | p.3 | L88-93] (page when known) and canonical Markdown in source_text. For disjoint reads, use each entry in ranges separately. '
+                   ' cite fields: {start?:integer,end?:integer,block_ids?:string[],quote:string,prefix?:string,suffix?:string,relation?:supports|contradicts|context}. For read_range and cite supply start and end, block_ids, or both to intersect them. Copy exact Markdown, including syntax and paragraph breaks, from one continuous range. cite returns a validated marker to insert after a claim. source_note fields: {content:string, kind:example|conclusion|question|thought|concept, '
                    'origin:user|dialogue, evidence_role:source_claim|explanation|unresolved_question, '
                    'anchor?:{sourceId:string,bundle:string,sourceLines:[start,end],quote?:string}}. '
                    'source_claim requires an anchor matching the bound scope. Use search/read_range to verify exact lines first. '
@@ -87,11 +88,13 @@ class CoreBridge:
             raise ValueError('Unsupported FOCUS operation')
         if action in ('search', 'topic_search'):
             args['limit'] = min(max(int(args.get('limit', 5)), 1), 20)
-        if action in ('read_range', 'topic_range') and args['end'] - args['start'] > 500:
+        if action == 'topic_range' and args['end'] - args['start'] > 500:
             raise ValueError('Read at most 501 lines per request')
         method, fields = ACTIONS[action]
         if set(args) - set(fields):
             raise ValueError('Unexpected Core arguments')
+        if action == 'read_range':
+            args['line_limit'] = 501
         return getattr(self.core, method)(**args)
 
     def window(self):

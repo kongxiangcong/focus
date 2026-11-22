@@ -298,6 +298,19 @@ def _bundle_image_checks(source_path: Path, output: Path) -> tuple[bool, bool]:
     return links_resolve, numbers == list(range(1, len(numbers) + 1))
 
 
+def mineru_artifact_name(name: str) -> str | None:
+    for kind, aliases in (
+        ("middle_json.json", ("_middle.json", "_middle_json.json")),
+        ("content_list.json", ("_content_list.json",)),
+        ("content_list_v2.json", ("_content_list_v2.json",)),
+        ("model_output.json", ()),
+        ("structured_content.json", ()),
+    ):
+        if name == kind or name.endswith(aliases):
+            return kind
+    return "middle_json.json" if name == "middle.json" else None
+
+
 def _normalize(source: Path, archive: Path, output: Path, batch_id: str, model: str, language: str) -> None:
     if output.exists() and any(output.iterdir()):
         raise ParserError(f"Output directory is not empty: {output}")
@@ -310,8 +323,14 @@ def _normalize(source: Path, archive: Path, output: Path, batch_id: str, model: 
         paper, images = _rewrite_and_copy_images(markdown, raw_root, output)
         (output / "content.md").write_text(paper, encoding="utf-8")
         evidence = {}
-        for name in ("middle_json.json", "model_output.json", "structured_content.json"):
-            matches = [path for path in raw_root.rglob(name) if path.is_file() and path.stat().st_size <= 64 * 1024 * 1024]
+        artifacts = {}
+        for path in raw_root.rglob("*.json"):
+            name = mineru_artifact_name(path.name)
+            if name and path.is_file() and path.stat().st_size <= 64 * 1024 * 1024:
+                artifacts.setdefault(name, []).append(path)
+        for name, matches in artifacts.items():
+            siblings = [path for path in matches if path.parent == markdown.parent]
+            matches = siblings or matches
             if len(matches) == 1:
                 raw = matches[0].read_bytes()
                 try:

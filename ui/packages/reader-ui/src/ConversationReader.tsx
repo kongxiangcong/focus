@@ -3,7 +3,7 @@ import { createReaderId, type ReaderHost, type ReaderHostResult, type ReaderMess
 import { useEvidenceNavigation, type EvidenceNavigation, type EvidenceNavigationIntent } from "./evidence-navigation";
 import type { ReadingSession } from "./reading-session";
 import { MarkdownContent } from "./MarkdownContent";
-import { OriginalPaper, TranslatedPaper } from "./PaperViews";
+import { boxesForBlock, matchesPdfLayout, OriginalPaper, TranslatedPaper } from "./PaperViews";
 import { projectEvidence } from "./source-evidence";
 import type { RenderMark } from "./rehype-annotations";
 import { readingFontSizes } from "./typography";
@@ -192,7 +192,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const [error, setError] = useState(""), [reload, setReload] = useState(0), [sending, setSending] = useState(false);
   const [translated, setTranslated] = useState(false);
   const [pdfRevision, setPdfRevision] = useState(0);
-  const [settledPdfUrl, setSettledPdfUrl] = useState<string>();
+  const [settledPdf, setSettledPdf] = useState<{ url: string; available: boolean }>();
   const mountedPdfUrl = useRef<string | false | undefined>(undefined);
   const position = useRef<{line: number; block?: string; fraction: number} | null>(null);
   const movedSinceSwitch = useRef(false);
@@ -262,14 +262,16 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const activePdfUrl = !showingTranslation && pdfUrl;
   useLayoutEffect(() => {
     mountedPdfUrl.current = activePdfUrl;
-    setSettledPdfUrl(undefined);
+    setSettledPdf(undefined);
     return () => { mountedPdfUrl.current = undefined; };
   }, [activePdfUrl]);
-  const settlePdf = useCallback(() => {
+  const settlePdf = useCallback((available: boolean) => {
     if (!activePdfUrl || activePdfUrl !== mountedPdfUrl.current || !isCurrentSource()) return;
-    setSettledPdfUrl(activePdfUrl);
+    setSettledPdf({ url: activePdfUrl, available });
     setPdfRevision(revision => revision + 1);
   }, [activePdfUrl, isCurrentSource]);
+  const pdfReady = useCallback(() => settlePdf(true), [settlePdf]);
+  const pdfUnavailable = useCallback(() => settlePdf(false), [settlePdf]);
   function switchPaper(next: boolean) {
     const pane = original.current;
     if (!pane || translated === next) return;
@@ -450,6 +452,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     manual.current = false;
     restored.current = true;
     restorePaperPosition.current = false;
+    if (mobile !== "original") { setMobile("original"); return; }
     if (original.current && waitingPosition.current?.nonce !== intent.nonce) {
       waitingPosition.current = { nonce: intent.nonce, scrollTop: original.current.scrollTop };
     }
@@ -461,9 +464,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       setActiveMessage(intent.messageId);
       return;
     }
-    if (mobile !== "original") { setMobile("original"); return; }
     if (intent.preferredView === "translation" && translationReady && !showingTranslation) {
       restorePaperPosition.current = false;
+      waitingPosition.current = null;
       setTranslated(true);
       return;
     }
@@ -471,12 +474,12 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       if (consume(intent)) moveTo(intent.evidenceId, intent.keyboard, false, intent);
       return;
     }
-    const hasPdfTarget = cited.layoutVersion === document.pdf?.version &&
-      document.pdf?.blocks.some(block => cited.blockIds?.includes(block.blockId));
-    if (activePdfUrl && hasPdfTarget && settledPdfUrl !== activePdfUrl) return;
+    const hasPdfTarget = document.pdf && matchesPdfLayout(cited, document, document.pdf) &&
+      document.pdf.blocks.some(block => cited.blockIds?.includes(block.blockId));
+    if (activePdfUrl && hasPdfTarget && settledPdf?.url !== activePdfUrl) return;
     if (consume(intent)) setActiveEvidence(intent.evidenceId);
   }, [visible, intent, sourceId, isCurrentSource, isLatest, consume, document, messages, view.discussionId,
-    selected?.messageId, mobile, translationReady, showingTranslation, evidence, activePdfUrl, settledPdfUrl, pdfRevision, moveTo]);
+    selected?.messageId, mobile, translationReady, showingTranslation, evidence, activePdfUrl, settledPdf, pdfRevision, moveTo]);
 
   const cite = useCallback((message: ReaderMessage, id: string, keyboard: boolean) => {
     if (!isCurrentSource()) return;
@@ -598,12 +601,16 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setRegionNumber(next);
   }
   const translationInterrupted = ["failed", "cancelled", "interrupted"].includes(translationState ?? "");
-  const activeBlocks = document?.pdf?.blocks.filter(b => active?.evidence.layoutVersion === document.pdf?.version && active?.evidence.blockIds?.includes(b.blockId)) ?? [];
-  const locationLabel = pdfUrl && !showingTranslation ? (activeBlocks.length ?
-    ` · 第 ${[...new Set(activeBlocks.map(b => b.page))].join("、")} 页 · ${activeBlocks.some(b => b.bbox) ? "段落定位" : "页定位"}` : " · 版面位置暂不可用") :
+  const activeBlocks = document?.pdf && active && matchesPdfLayout(active.evidence, document, document.pdf)
+    ? document.pdf.blocks.filter(block => active.evidence.blockIds?.includes(block.blockId)) : [];
+  const locationLabel = pdfUrl && !showingTranslation ? (settledPdf?.available !== false && activeBlocks.length ?
+    ` · 第 ${[...new Set(activeBlocks.map(b => b.page))].join("、")} 页 · ${activeBlocks.some(b => boxesForBlock(b).length) ? "段落定位" : "页定位"}` : " · 版面位置暂不可用") :
     showingTranslation ? " · 译块定位" : active?.kind === "block" ? " · 段落定位" : active?.kind === "unavailable" ? " · 不可定位" : "";
   const partCount = showingTranslation ? document?.translation?.chunks.filter(c => active && c.sourceLines[0] <= active.evidence.sourceLines[1] && active.evidence.sourceLines[0] <= c.sourceLines[1]).length ?? 0 :
-    new Set(activeBlocks.map(b => b.blockId)).size;
+    new Set(activeBlocks.flatMap(block => {
+      const boxes = boxesForBlock(block);
+      return boxes.length ? boxes.map(box => `${block.blockId}:${box.join(",")}`) : [`page:${block.page}`];
+    })).size;
   const activeFocusIndex = focusedTurn >= 0 && focusedTurn < turns.length ? focusedTurn : turns.length - 1;
 
   return <section ref={shell} className="conversation-reader" data-fullscreen={!!fullscreen} data-mobile={mobile} data-font-size={fontSize} hidden={!visible} style={{ "--source-share": `${share}%`, "--source-font-size": `${readingFontSizes[fontSize as keyof typeof readingFontSizes] ?? 18}px` } as CSSProperties}
@@ -630,7 +637,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
           onMouseUp={() => { const selectedText = window.getSelection()?.toString().trim() ?? ""; if (selectedText) { stopNavigation(); setSelection(selectedText.slice(0, 4000)); } }}
           onClick={e => { const id = (e.target as HTMLElement).closest<HTMLElement>("[data-evidence]")?.dataset.evidence; if (id) backToAnswer(id); else if ((e.target as HTMLElement).closest("[data-anno-key], [data-anno-bulb]")) setNotesOpen(true); }}>
           {document?.pdf && pdfUrl ? showingTranslation ? <TranslatedPaper document={document} evidence={evidence} /> :
-            <OriginalPaper key={pdfUrl} pdf={document.pdf} url={pdfUrl} evidence={evidence} active={highlightedEvidenceId} onReady={settlePdf} onUnavailable={settlePdf} /> : document ? <article><MarkdownContent text={document.markdown} sourceId={sourceId} marks={permanentMarks} sourceEvidence={sourceInput} /></article> : <span role="status" className="source-loading">加载中…</span>}
+            <OriginalPaper key={pdfUrl} sourceId={document.sourceId} bundleVersion={document.bundleVersion} pdf={document.pdf} url={pdfUrl} evidence={evidence} active={highlightedEvidenceId} onReady={pdfReady} onUnavailable={pdfUnavailable} /> : document ? <article><MarkdownContent text={document.markdown} sourceId={sourceId} marks={permanentMarks} sourceEvidence={sourceInput} /></article> : <span role="status" className="source-loading">加载中…</span>}
         </div>
         {selection && <div className="source-selection-actions"><button onClick={() => { composer.current?.insertQuote(selection); setSelection(""); setMobile("chat"); }}>引用</button><button onClick={() => { setNoteDraft(`「${selection}」\n`); setNotesOpen(true); setSelection(""); }}>记笔记</button><button aria-label="取消选择" onClick={() => setSelection("")}>×</button></div>}
         {active && <aside className="source-evidence-card" data-top={cardAtTop} aria-label="原文证据"><button aria-label="关闭证据" onClick={() => { stopNavigation(); setActiveEvidence(undefined); }}>×</button><button onClick={() => backToAnswer(active.evidence.evidenceId)}>证据 {active.evidence.displayNumber}{locationLabel}</button><p>{active.evidence.quote.exact}</p>{partCount > 1 && <button onClick={nextRegion}>下一处（{regionNumber + 1}/{partCount}）</button>}{returnPosition !== null && <button onClick={() => { if (original.current && jumpOrigin.current !== null) { manual.current = false; original.current.scrollTo({ top: jumpOrigin.current, behavior: "instant" }); } jumpOrigin.current = null; setReturnPosition(null); setActiveEvidence(undefined); }}>返回阅读位置</button>}</aside>}

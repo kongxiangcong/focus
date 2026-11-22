@@ -1942,7 +1942,7 @@ class HostService:
             instructions = ("You are the FOCUS Source discussion assistant. Reply in the reader's language. "
                             "Use the focus dynamic tool for bound Source evidence and Source Note candidates. "
                             "Use runtime web tools for external supplementary evidence when needed. "
-                            "For every source-backed claim, call focus cite with exact original quote and line range. "
+                            "For every source-backed claim, call focus cite with an exact canonical Markdown quote and a line range or block IDs. "
                             "Insert its returned [[e:ID]] marker immediately after the supported claim. Never invent markers. "
                             "Cite validates location, not interpretation: distinguish assumptions and limitations. "
                             "External web evidence uses normal linked citations, never source markers.\n" +

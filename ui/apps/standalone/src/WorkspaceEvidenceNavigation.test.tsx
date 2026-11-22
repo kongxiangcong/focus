@@ -40,7 +40,7 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-function setup() {
+function setup(missingSecondTarget = false) {
   let resolvePdf!: (document: { numPages: number; getPage: (page: number) => Promise<unknown> }) => void;
   let rejectPdf!: (error: Error) => void;
   getDocument.mockReturnValue({ promise: new Promise((resolve, reject) => { resolvePdf = resolve; rejectPdf = reject; }), destroy: async () => {} });
@@ -53,12 +53,12 @@ function setup() {
         pdfHash: "original", version: "layout",
         blocks: [
           { blockId: "first", page: 1, sourceLines: [1, 1], bbox: [0.1, 0.1, 0.4, 0.2] },
-          { blockId: "second", page: 2, sourceLines: [3, 3], bbox: [0.1, 0.1, 0.4, 0.2] },
+          ...(!missingSecondTarget ? [{ blockId: "second", page: 2, sourceLines: [3, 3] as const, bbox: [0.1, 0.1, 0.4, 0.2] as const }] : []),
         ],
       },
       translation: { status: "ready", chunks: [
         { id: "translated-first", text: "第一段译文。", blockIds: ["first"], sourceLines: [1, 1] },
-        { id: "translated-second", text: "第二段译文。", blockIds: ["second"], sourceLines: [3, 3] },
+        ...(!missingSecondTarget ? [{ id: "translated-second", text: "第二段译文。", blockIds: ["second"], sourceLines: [3, 3] as const }] : []),
       ] },
     }),
     sourceOriginalUrl: () => "/paper.pdf", selectDiscussionSource: async () => readerSuccess(snapshot),
@@ -87,7 +87,8 @@ function setup() {
 it.each([
   ["wheel", (pane: HTMLElement) => fireEvent.wheel(pane, { deltaY: 120 })],
   ["touch", (pane: HTMLElement) => fireEvent.touchStart(pane)],
-  ["scrollbar", (pane: HTMLElement) => fireEvent.pointerDown(pane)],
+  ["scrollbar pointer", (pane: HTMLElement) => fireEvent.pointerDown(pane)],
+  ["scrollbar native scroll", (pane: HTMLElement) => { pane.scrollTop = 60; fireEvent.scroll(pane); }],
   ["keyboard", (pane: HTMLElement) => fireEvent.keyDown(pane, { key: "PageDown" })],
 ])("cancels a waiting citation when the reader uses %s", async (_method, manuallyBrowse) => {
   const key = "focus.sourceBookmark:local:paper:0:bundle";
@@ -151,4 +152,19 @@ it.each(["success", "failure"] as const)("a pending PDF %s cannot replace the la
   expect(within(card).getByText("Second paragraph.")).toBeVisible();
   expect(pane.scrollTop).toBe(position);
   expect(screen.queryByText("PDF 加载失败", { exact: false })).not.toBeInTheDocument();
+});
+
+
+it("does not replay an unavailable citation after the reader closes its card and reconnects", async () => {
+  const session = setup(true);
+  const pane = await screen.findByLabelText("文章原文");
+  const answer = within(screen.getByLabelText("文章对话"));
+  fireEvent.click(await answer.findByRole("button", { name: "2" }));
+  const card = await screen.findByLabelText("原文证据");
+  expect(within(card).getByText("Second paragraph.")).toBeVisible();
+  expect(pane.scrollTop).toBe(0);
+  fireEvent.click(within(card).getByRole("button", { name: "关闭证据" }));
+  await act(async () => session.reconnect());
+  expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
+  expect(pane.scrollTop).toBe(0);
 });
