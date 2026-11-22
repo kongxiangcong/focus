@@ -11,14 +11,13 @@ from pathlib import Path
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
+from .ingestion import _file_fingerprint
 from .mineru import mineru_artifact_name
-from .reading_workspace import _write_document
 
 
 @lru_cache(maxsize=256)
 def _digest(path, identity):
-    with path.open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+    return _file_fingerprint(path)
 
 
 def file_digest(path):
@@ -114,8 +113,6 @@ def align(markdown, pages):
     return result
 
 
-# Bump when the source IR and its PDF anchor semantics change.
-IR_SCHEMA_VERSION = 1
 _ARTIFACTS_BY_PRIORITY = ('middle_json.json', 'content_list.json', 'content_list_v2.json', 'structured_content.json')
 _OBJECT_TYPES = ('image', 'table', 'chart', 'code', 'algorithm', 'list', 'index')
 _UNROTATED_SPACES = ('normalized_unrotated_top_left', 'page_unrotated_top_left')
@@ -346,10 +343,23 @@ def _archive_paths(bundle):
             yield name, paths[0]
 
 
+def text_fingerprint(text):
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+def quote_fingerprint(text):
+    return 'sha256:' + text_fingerprint(text)
+
+
+def layout_fingerprint(schema, pdf_hash, markdown_digest, pages, geometry):
+    fingerprint = json.dumps([schema, pdf_hash, markdown_digest, pages, geometry],
+                             sort_keys=True, separators=(',', ':'))
+    return text_fingerprint(fingerprint)
+
+
 @lru_cache(maxsize=16)
-def _layout(content, markdown_digest, pdf, pdf_hash, artifacts):
+def _archive_layout(markdown, pdf, pdf_hash, artifacts, markdown_digest):
     pages = _pdf_pages(pdf, pdf_hash)
-    markdown = content.read_text(encoding='utf-8')
     blocks, geometry = [], []
     for name, path, _ in artifacts:
         try:
@@ -362,16 +372,32 @@ def _layout(content, markdown_digest, pdf, pdf_hash, artifacts):
                            for block in page['blocks']]) for page in archive])
         if not blocks:
             blocks = align(markdown, archive)
-    fingerprint = json.dumps([IR_SCHEMA_VERSION, pdf_hash, markdown_digest, pages, geometry, blocks],
+    # Keep the historical layout fingerprint byte-for-byte for existing Bundles.
+    fingerprint = json.dumps([1, pdf_hash, markdown_digest, pages, geometry, blocks],
                              sort_keys=True, separators=(',', ':'))
-    version = hashlib.sha256(fingerprint.encode()).hexdigest()
-    return {'version': version, 'pdfHash': pdf_hash, 'pages': pages, 'blocks': blocks}
+    return {'version': text_fingerprint(fingerprint), 'pdfHash': pdf_hash, 'pages': pages, 'blocks': blocks}
 
 
-def layout(bundle: Path, *, persist=False):
-    pdf, content = bundle / 'source.pdf', bundle / 'content.md'
+def archive_layout(bundle, markdown, *, markdown_digest=None):
+    pdf = bundle / 'source.pdf'
     artifacts = tuple((name, path, file_digest(path)) for name, path in _archive_paths(bundle))
-    index = _layout(content, file_digest(content), pdf, file_digest(pdf), artifacts)
-    if persist:
-        _write_document(bundle / 'source-layout.json', index)
-    return index
+    return _archive_layout(markdown, pdf, file_digest(pdf), artifacts, markdown_digest or text_fingerprint(markdown))
+
+
+def layout(bundle: Path, *, markdown=None, source_ir=None):
+    from .source_ir import IR_FILE, IR_VERSION, load_source_ir, project_pdf_layout
+    content = bundle / 'content.md'
+    if markdown is None:
+        markdown = content.read_text(encoding='utf-8')
+    if source_ir is None:
+        source_ir = load_source_ir(bundle, markdown)
+    if source_ir is not None and source_ir['source_kind'] == 'paper_pdf':
+        return project_pdf_layout(bundle, source_ir, markdown)
+    if (bundle / IR_FILE).is_file():
+        # A mismatched IR cannot authorize coordinates from its old parser inputs.
+        pdf = bundle / 'source.pdf'
+        pdf_hash = file_digest(pdf)
+        pages = _pdf_pages(pdf, pdf_hash)
+        version = layout_fingerprint(IR_VERSION, pdf_hash, text_fingerprint(markdown), pages, None)
+        return {'version': version, 'pdfHash': pdf_hash, 'pages': pages, 'blocks': []}
+    return archive_layout(bundle, markdown, markdown_digest=file_digest(content))

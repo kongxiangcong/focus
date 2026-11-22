@@ -110,12 +110,14 @@ def blog_root(workspace: Path, source_id: str) -> Path:
     return Path(workspace).resolve() / "sources" / validate_source_id(source_id) / BLOG_DIRECTORY_NAME
 
 
-def bundle_fingerprint(bundle: Path) -> str:
-    """Fingerprint the published Bundle a Blog Output was derived from."""
+def bundle_fingerprint(bundle: Path, *, markdown: bytes | None = None) -> str:
+    """Fingerprint canonical Markdown and the Bundle images it references."""
     bundle = Path(bundle).resolve()
     digest = hashlib.sha256()
     content = bundle / "content.md"
-    if content.is_file():
+    if markdown is not None:
+        digest.update(markdown)
+    elif content.is_file():
         digest.update(content.read_bytes())
     images = bundle / "images"
     if images.is_dir():

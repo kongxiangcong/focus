@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Shared MinerU precision transport and PDF bundle normalization.
 
-Uses only the Python standard library. Credentials are read from MINERU_API_TOKEN
-and are never serialized. MinerU's ZIP is normalized into one compact bundle and
+Credentials are read from MINERU_API_TOKEN and are never serialized. MinerU's ZIP is normalized into one compact bundle and
 discarded after extraction.
 """
 
@@ -321,7 +320,6 @@ def _normalize(source: Path, archive: Path, output: Path, batch_id: str, model: 
         _safe_extract(archive, raw_root)
         markdown = _select_full_markdown(raw_root)
         paper, images = _rewrite_and_copy_images(markdown, raw_root, output)
-        (output / "content.md").write_text(paper, encoding="utf-8")
         evidence = {}
         artifacts = {}
         for path in raw_root.rglob("*.json"):
@@ -345,6 +343,8 @@ def _normalize(source: Path, archive: Path, output: Path, batch_id: str, model: 
     finally:
         shutil.rmtree(raw_root, ignore_errors=True)
     shutil.copy2(source, output / "source.pdf")
+    from .source_ir import build_source_ir, publish_source_ir
+    publish_source_ir(output, build_source_ir(output, paper, source_kind="paper_pdf"))
     metadata = {
         "source_kind": "paper_pdf",
         "source_file": source.name,

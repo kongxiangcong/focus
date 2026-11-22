@@ -16,7 +16,7 @@ def source_lines(markdown):
 
 
 class SourceBlocks:
-    def __init__(self, bundle, markdown=None):
+    def __init__(self, bundle, markdown=None, *, pdf=None):
         if markdown is None:
             markdown = (bundle / 'content.md').read_text(encoding='utf-8', errors='replace')
         self.markdown = markdown
@@ -26,11 +26,18 @@ class SourceBlocks:
         self.starts = [0]
         for line in self.lines:
             self.starts.append(self.starts[-1] + len(line) + 1)
+        self.pdf = pdf
+        if bundle is not None:
+            from .source_ir import load_source_ir, project_source_blocks
+            ir = load_source_ir(bundle, markdown)
+            if (bundle / 'source.pdf').is_file():
+                from .pdf_layout import layout
+                self.pdf = layout(bundle, markdown=markdown, source_ir=ir)
+            if ir is not None:
+                self.blocks = project_source_blocks(ir)
+                return
         self.blocks = self._markdown_blocks()
-        self.pdf = None
-        if (bundle / 'source.pdf').is_file():
-            from .pdf_layout import layout
-            self.pdf = layout(bundle)
+        if self.pdf is not None:
             self.blocks = self._with_pdf_blocks(self.pdf['blocks'])
 
     def _markdown_blocks(self):

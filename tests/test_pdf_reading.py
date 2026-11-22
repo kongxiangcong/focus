@@ -71,6 +71,40 @@ class PdfReadingTests(unittest.TestCase):
         source_id = host.batch_list()[0]['items'][0]['sourceId']
         return host, source_id
 
+    def test_new_pdf_publishes_reproducible_source_ir_and_signed_canonical_text(self):
+        markdown = '# Paper\n\n## Results\n\n**Exact result.**\n\nNext paragraph.\n'
+        payload = {'coordinate_space': 'normalized_unrotated_top_left', 'pages': [page(
+            0, ('Next paragraph.', None), ('Exact result.', None),
+        )]}
+        payload['pages'][0]['blocks'][1]['bboxes'] = [[0.1, 0.1, 0.2, 0.2], [0.3, 0.3, 0.4, 0.4]]
+        host, sid = self.upload_archive('paper_middle.json', payload, markdown.replace('\n', '\r\n'))
+        bundle = host.workspace / 'sources' / sid / 'parser-bundle'
+        ir = json.loads((bundle / 'source-ir.json').read_text(encoding='utf-8'))
+        from core.source_ir import IRSerializer
+        self.assertEqual(markdown.encode(), (bundle / 'content.md').read_bytes())
+        self.assertEqual([markdown, markdown], [IRSerializer.markdown(ir), IRSerializer.markdown(ir)])
+        self.assertEqual((1, 'paper_pdf'), (ir['ir_version'], ir['source_kind']))
+        document = host.source_document(sid)
+        self.assertEqual(document['bundleVersion'], ir['bundle_version'])
+        self.assertEqual(document['pdf']['version'], ir['layout_version'])
+        self.assertEqual(90, ir['pages'][0]['rotation'])
+        paper, results = ir['sections']
+        self.assertIsNone(paper['parent_id'])
+        self.assertEqual(paper['section_id'], results['parent_id'])
+        exact = next(block for block in ir['blocks'] if block['markdown'] == '**Exact result.**')
+        self.assertEqual('Exact result.', exact['plain_text'])
+        self.assertEqual([5, 5], exact['anchors']['markdown']['source_lines'])
+        span = exact['anchors']['markdown']['char_span']
+        self.assertEqual('**Exact result.**', markdown[span['start']:span['end']])
+        self.assertEqual(2, len(exact['anchors']['pdf']['regions'][0]['bboxes']))
+        scope = host.discussion_app.bind(source_id=sid, request_id='cite-new-ir', content='results')
+        quote = '**Exact result.**\n\nNext paragraph.'
+        citation = SourceReading(host.workspace).cite(scope, {'start': 5, 'end': 7, 'quote': quote,
+            'block_ids': [exact['block_id'], ir['blocks'][-1]['block_id']]})
+        self.assertEqual(quote, citation['quote']['exact'])
+        self.assertEqual(document['pdf']['version'], citation['layoutVersion'])
+        self.assertEqual(2, len(citation['pdfRegions'][0]['bboxes']))
+
     def test_prefixed_middle_archive_binds_all_rotated_boxes_to_the_original(self):
         payload = {'coordinate_space': 'normalized_unrotated_top_left', 'pages': [page(
             0, ('Two column result.', None),
@@ -85,12 +119,22 @@ class PdfReadingTests(unittest.TestCase):
                          doc['pdf']['blocks'][0]['bboxes'])
 
         bundle = host.workspace / 'sources' / sid / 'parser-bundle'
-        block['bboxes'][1][3] = 0.75
-        archive = bundle / 'mineru' / 'middle_json.json'
-        archive.write_text(json.dumps(payload))
+        path = bundle / 'source-ir.json'
+        ir = json.loads(path.read_text(encoding='utf-8'))
+        ir['blocks'][0]['anchors']['pdf']['regions'][0]['bboxes'][1][0] = 0.25
+        path.write_text(json.dumps(ir), encoding='utf-8')
         changed = host.source_document(sid)
         self.assertEqual(doc['bundleVersion'], changed['bundleVersion'])
         self.assertNotEqual(doc['pdf']['version'], changed['pdf']['version'])
+
+        # Historical Bundles still derive their layout from verifiable parser assets.
+        path.unlink()
+        old = host.source_document(sid)
+        block['bboxes'][1][3] = 0.75
+        (bundle / 'mineru' / 'middle_json.json').write_text(json.dumps(payload), encoding='utf-8')
+        changed_legacy = host.source_document(sid)
+        self.assertNotEqual(old['pdf']['version'], changed_legacy['pdf']['version'])
+        self.assertFalse(path.exists())
 
     def test_incompatible_middle_geometry_still_locates_the_independent_page(self):
         payload = {'pages': [page(
@@ -171,6 +215,10 @@ class PdfReadingTests(unittest.TestCase):
         bundle = host.workspace / 'sources' / sid / 'parser-bundle'
         (bundle / 'source.pdf').write_bytes(b'%PDF repaginated')
         self.assertNotEqual(citation['layoutVersion'], layout(bundle)['version'])
+        self.assertEqual([], host.source_document(sid)['pdf']['blocks'])
+        current = SourceReading(host.workspace).cite(scope, {'start': 15, 'end': 15, 'quote': 'throughput'})
+        self.assertEqual([], current['pdfRegions'])
+        self.assertEqual(citation['bundleVersion'], current['bundleVersion'])
 
     def test_repeated_paragraphs_and_split_table_wrappers(self):
         pages = [page(0, ('Repeated paragraph', [0, 0, .4, .3]), ('Repeated paragraph', [.5, 0, 1, .3]))]

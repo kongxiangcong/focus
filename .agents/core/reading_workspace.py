@@ -119,10 +119,10 @@ def _restore(path: Path, snapshot: bytes | None) -> None:
     temporary.replace(path)
 
 
-def _replace_text(path: Path, value: str) -> None:
+def _replace_text(path: Path, value: str, *, newline: str | None = None) -> None:
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:
-        temporary.write_text(value, encoding="utf-8")
+        temporary.write_text(value, encoding="utf-8", newline=newline)
         temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)
@@ -860,6 +860,9 @@ class WorkspaceCore:
         if task.source_kind == "paper_pdf" and "deepstack" in title.casefold():
             short_name = task.short_name.strip() if task.short_name else "DeepStack"
         short_name = normalize_short_name(short_name)
+        if task.source_kind == "paper_pdf":
+            from .source_ir import publish_pdf_source_ir
+            publish_pdf_source_ir(staging)
         result = SourceLibrary(self.workspace).register(
             staging,
             source_kind=task.source_kind,

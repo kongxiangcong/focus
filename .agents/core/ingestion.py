@@ -180,8 +180,8 @@ class IngestionCore:
         if state["version"] != expected_version:
             return {"status": "version_conflict", "version": state["version"]}
         if _source_kind(item) == "paper_pdf":
-            from .pdf_layout import layout
-            layout(candidate, persist=True)
+            from .source_ir import publish_pdf_source_ir
+            publish_pdf_source_ir(candidate)
         result = SourceLibrary(self.workspace).register(
             candidate,
             source_kind=_source_kind(item),
