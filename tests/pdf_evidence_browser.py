@@ -57,6 +57,7 @@ class CitationRuntime(LineCitationRuntime):
     def __init__(self, *args, requests, **kwargs):
         super().__init__(*args, answer_id=uuid4().hex, **kwargs)
         self.requests = requests
+        self.closed = False
 
     def start_turn(self, **kwargs):
         self.label = kwargs['prompt'].splitlines()[0]
@@ -90,6 +91,9 @@ class CitationRuntime(LineCitationRuntime):
 
     def interrupt(self):
         self.events.put({'method': 'turn/completed', 'params': {'status': 'interrupted'}})
+
+    def close(self):
+        self.closed = True
 
 
 class TranslationRuntime(ReadingRuntimeDouble):
