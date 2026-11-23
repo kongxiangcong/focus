@@ -30,6 +30,8 @@ class Store:
         self.state.setdefault('displayReading', True)
         self.state.setdefault('timeline', [])
         self.state.setdefault('resumeBackend', None)
+        if (self.state.get('noteFeedback') or {}).get('status') == 'saved':
+            self.state.pop('noteFeedback')
         # Native sessions are machine-local and never resumed from a backup.
         self.state['threadId'] = None
         self.state['resumeBackend'] = None

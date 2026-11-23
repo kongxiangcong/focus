@@ -453,7 +453,7 @@ class Handler(BaseHTTPRequestHandler):
             elif method == 'POST' and len(parts) == 2 and parts[1] in ('reread', 'replan', 'open'):
                 payload = self._body()
                 result = service.library_read(source_id, reread=parts[1] == 'reread', replan=parts[1] == 'replan',
-                                              request_id=payload.get('requestId'))
+                                              request_id=payload.get('requestId'), restore=payload.get('restore') is True)
             else:
                 raise ValueError('Unknown Library operation')
         elif method == 'GET' and path == '/reader/window':

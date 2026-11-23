@@ -15,12 +15,14 @@ async function saveFromDiscussion(placed: boolean, detached = false) {
   const note: SourceNote = { noteId: "n1", sourceId: "demo-paper", revision: 1, content: "讨论中的结论", kind: "thought", origin: "dialogue", evidenceRole: "explanation",
     bundle: "v1", anchor: null, placement: placed ? { sourceId: "demo-paper", bundle: "v1", sourceLines: [1, 4] } : null,
     referenceStatus: "current", sourceUpdated: false, deleted: false, canUndo: true };
-  const saved: ReadingWindow = { ...initial, sourceNotes: [note], noteFeedback: { sourceId: "demo-paper", status: "saved" } };
-  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(initial)), continueReading: vi.fn(), sendMessage: vi.fn(async () => readerSuccess(saved)) };
+  const saved: ReadingWindow = { ...initial, sourceNotes: [note] };
+  let current = initial;
+  const host: ReaderHost = { getReadingWindow: vi.fn(async () => readerSuccess(current)), continueReading: vi.fn(), sendMessage: vi.fn(async () => { current = saved; return readerSuccess(saved); }) };
   if (detached) localStorage.setItem("focus.attachNotes", "false");
   render(<FocusReader host={host} appearance="mist" />); await screen.findByText("Reading content.");
   fireEvent.change(screen.getByRole("textbox", { name: "输入问题或阅读需求" }), { target: { value: "记一下" } });
   fireEvent.click(screen.getByRole("button", { name: "发送" }));
+  return host;
 }
 it("announces the projected paragraph after discussion save and jumps only on View", async () => {
   await saveFromDiscussion(true);
@@ -40,6 +42,21 @@ it("automatically expands the saved paragraph note while attachment is off", asy
   const target = document.querySelector<HTMLElement>(".focus-stream [data-chunk-note-id='n1']");
   expect(target).toBeVisible();
   fireEvent.click(toggle); expect(toggle).toHaveAttribute("aria-expanded", "false");
+});
+it("leaves the saved note available after reload without repeating save feedback", async () => {
+  const host = await saveFromDiscussion(true);
+  await screen.findByText("已存为第 1 段的小段笔记");
+  cleanup();
+  const saved = await host.getReadingWindow();
+  if (!saved.ok) throw new Error(saved.error.message);
+  const legacyHost = { ...host, getReadingWindow: async () => readerSuccess({
+    ...saved.value, noteFeedback: { sourceId: "demo-paper", status: "saved" as const },
+  }) };
+  render(<FocusReader host={legacyHost} appearance="mist" />);
+  await screen.findByText("Reading content.");
+  expect(screen.getAllByText("讨论中的结论")[0]).toBeInTheDocument();
+  expect(screen.queryByText("已记下")).not.toBeInTheDocument();
+  expect(screen.queryByText(/已存为第 1 段/)).not.toBeInTheDocument();
 });
 it("saves an unreferenced answer as a whole-source note even when a reading chunk is current", async () => {
   const window: ReadingWindow = { ...initial, conversation: [{ messageId: "answer", sourceId: "demo-paper", chunkId: "", role: "assistant", content: "这是整篇讨论的回答" }] };

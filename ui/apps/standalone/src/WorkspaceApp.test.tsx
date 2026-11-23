@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ProcessingBatch, type ReaderHostResult, type ReaderHost, type ReadingDocument, type ReadingOpening, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
+import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ProcessingBatch, type ReaderChunk, type ReaderHostResult, type ReaderHost, type ReadingDocument, type ReadingOpening, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
 import { WorkspaceApp } from "./WorkspaceApp";
 const empty: ReadingWindow = { status: "empty", current: null, history: [], conversation: [], source: { sourceId: "", title: "", topicId: null }, sessionId: "s1",
   agent: { run: null, catalog: { sources: [], topics: [] }, backend: "codex", backends: [{ id: "codex", label: "Codex" }, { id: "deepseek", label: "DeepSeek" }] } };
@@ -497,24 +497,29 @@ it("keeps preparation details collapsed while its main action reflects progress"
   expect(host.openSource).toHaveBeenCalledTimes(1);
 });
 it.each([
-  ["plan", "running", false, 0, 0, null, "阅读准备中 · 正在生成计划"],
-  ["translate", "running", false, 9, 10, null, "阅读准备中 · 正在翻译 · 9/10 段"],
-  ["check", "running", false, 10, 10, null, "阅读准备中 · 正在检查 · 10/10 段"],
-  ["ready", "ready", true, 10, 10, null, "阅读已准备好，可手动点击开始阅读"],
-  ["translate", "failed", false, 9, 10, "网络错误", "阅读准备失败 · 网络错误"],
-  ["translate", "interrupted", false, 9, 10, null, "阅读准备已中断"],
-] as const)("reveals %s/%s preparation only when details are requested", async (step, status, ready, completed, total, error, message) => {
-  const preparation: ReadingPreparation = { source_id: "a-paper", step, status, ready, completed, total, error, plan_id: ready ? "plan-001" : null };
-  const { host } = setup([], { ...empty, preparations: { "a-paper": preparation } });
+  ["plan", "running", 0, 0, null, "阅读准备中 · 正在生成计划"],
+  ["translate", "running", 9, 10, null, "阅读准备中 · 正在翻译 · 9/10 段"],
+  ["check", "running", 10, 10, null, "阅读准备中 · 正在检查 · 10/10 段"],
+  ["translate", "failed", 9, 10, "网络错误", "阅读准备失败 · 网络错误"],
+  ["translate", "interrupted", 9, 10, null, "阅读准备已中断"],
+] as const)("reveals %s/%s preparation only when details are requested", async (step, status, completed, total, error, message) => {
+  const preparation: ReadingPreparation = { source_id: "a-paper", step, status, ready: false, completed, total, error, plan_id: null };
+  setup([], { ...empty, preparations: { "a-paper": preparation } });
   const card = (await screen.findByRole("heading", { name: "A Paper" })).closest("article")!;
   expect(within(card).getByRole("button", { name: "A Paper" })).toHaveAttribute("aria-expanded", "false");
   expect(within(card).queryByText(message)).not.toBeInTheDocument();
   fireEvent.click(within(card).getByRole("button", { name: "A Paper" }));
   expect(within(screen.getByRole("complementary", { name: "来源详情" })).getByText(message)).toBeVisible();
-  if (ready) {
-    fireEvent.click(within(card).getByRole("button", { name: "继续阅读" }));
-    await waitFor(() => expect(host.openSource).toHaveBeenCalledWith("a-paper", expect.any(String)));
-  }
+});
+
+it("offers continued reading from library details without a redundant readiness notice", async () => {
+  const preparation: ReadingPreparation = { source_id: "a-paper", step: "ready", status: "ready", ready: true, completed: 3, total: 3, error: null, plan_id: "plan-001" };
+  const { host } = setup([], { ...empty, preparations: { "a-paper": preparation } });
+  fireEvent.click(await screen.findByRole("button", { name: "A Paper" }));
+  const details = screen.getByRole("complementary", { name: "来源详情" });
+  expect(within(details).queryByLabelText("准备阅读状态")).not.toBeInTheDocument();
+  fireEvent.click(within(details).getByRole("button", { name: "继续阅读" }));
+  await waitFor(() => expect(host.openSource).toHaveBeenCalledWith("a-paper", expect.any(String)));
 });
 it.each([
   ["invalid", "completed", 4, "failed"],
@@ -1108,4 +1113,88 @@ it("keeps the chosen source when the previous document, guide and stream snapsho
   expect(screen.getByText("Current reading guide.")).toBeVisible();
   expect(screen.queryByText("Previous original text.")).not.toBeInTheDocument();
   expect(screen.queryByText("Previous reading guide.")).not.toBeInTheDocument();
+});
+
+it.each(["success", "failure"] as const)("restores the selected Plan after switching sources and ignores a late %s", async outcome => {
+  history.replaceState(null, "", "/reading");
+  localStorage.setItem("focus.readingMode", "chunks");
+  const savedWindow = (sourceId: string, title: string, revision: number): ReadingWindow => ({
+    ...empty, revision, source: { sourceId, title, topicId: null },
+    preparations: { [sourceId]: {
+      source_id: sourceId, status: "ready", step: "ready", total: 3, completed: 3, error: null,
+      ready: true, plan_id: "candidate-plan", selected_plan_id: "saved-plan", selected_ready: true, candidate: true,
+    } },
+  });
+  const previous = savedWindow("previous", "Previous Paper", 1);
+  const selected = savedWindow("a-paper", "A Paper", 2);
+  const body = (sourceId: string, text: string): ReaderChunk => ({
+    sourceId, planId: "saved-plan", chunkId: "saved-position", index: 2, total: 3, sectionPath: [],
+    sourceLines: [3, 5], sourceMarkdown: text, translation: null, images: [], relevantGlossary: [],
+  });
+  let resolvePrevious!: (result: ReaderHostResult<ReadingWindow>) => void;
+  const { host } = setup([], previous, {
+    getSourceDocument: async sourceId => readerSuccess({ sourceId, bundleVersion: "v1", title: "Original", markdown: "Read the original source.", lineCount: 1 }),
+    selectDiscussionSource: async () => readerSuccess(selected),
+    activateReadingCandidate: vi.fn(),
+    openSource: vi.fn(sourceId => sourceId === "previous" ? new Promise(resolve => { resolvePrevious = resolve; }) : Promise.resolve(readerSuccess({
+      ...selected, revision: 3, readingRevision: 2, status: "reading", current: body(sourceId, "Saved second passage in A."),
+    }))),
+  });
+  await waitFor(() => expect(resolvePrevious).toBeDefined());
+  fireEvent.click(screen.getByRole("link", { name: "知识库" }));
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "阅读" }));
+  expect(await screen.findByText("Saved second passage in A.")).toBeVisible();
+  await act(async () => resolvePrevious(outcome === "success" ? readerSuccess({
+    ...previous, revision: 4, status: "reading", current: body("previous", "Previous passage arriving late."),
+  }) : { ok: false, error: { code: "unavailable", message: "Previous source failed.", retryable: true } }));
+  expect(screen.getByText("Saved second passage in A.")).toBeVisible();
+  expect(screen.getByRole("button", { name: "精读" })).toHaveAttribute("aria-pressed", "true");
+  expect(screen.queryByText("Previous passage arriving late.")).not.toBeInTheDocument();
+  expect(screen.queryByText("Previous source failed.")).not.toBeInTheDocument();
+  expect(screen.queryByText(/已就绪|已打开|正在阅读 A Paper/)).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "打开新计划" })).toBeVisible();
+  expect(host.activateReadingCandidate).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "对话" }));
+  expect(await screen.findByText("Read the original source.")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "精读" }));
+  expect(screen.getByText("Saved second passage in A.")).toBeVisible();
+  expect(host.continueReading).not.toHaveBeenCalled();
+});
+
+it("prepares and retries the current source inside close reading while conversation stays available", async () => {
+  history.replaceState(null, "", "/reading");
+  const selected: ReadingWindow = { ...empty, revision: 1, source: { sourceId: "a-paper", title: "A Paper", topicId: null } };
+  const running: ReadingPreparation = { source_id: "a-paper", status: "running", step: "translate", completed: 1, total: 3, ready: false, error: null, plan_id: "new-plan" };
+  const snapshot = (preparation: ReadingPreparation, revision: number): ReadingWindow => ({ ...selected, revision, preparations: { "a-paper": preparation } });
+  const prepared = snapshot({ ...running, status: "ready", step: "ready", completed: 3, ready: true }, 4);
+  const current: ReaderChunk = { sourceId: "a-paper", chunkId: "first", planId: "new-plan", index: 1, total: 3, sectionPath: [], sourceLines: [1, 2],
+    sourceMarkdown: "Newly prepared first passage.", images: [], translation: null, relevantGlossary: [] };
+  let publish!: (result: ReaderHostResult<ReadingWindow>) => void;
+  const { host } = setup([], selected, {
+    getSourceDocument: async sourceId => readerSuccess({ sourceId, bundleVersion: "v1", title: "Original", markdown: "Read this while preparing.", lineCount: 1 }),
+    selectDiscussionSource: async () => readerSuccess(selected),
+    subscribe: listener => { publish = listener; return () => {}; },
+    openSource: vi.fn<NonNullable<ReaderHost["openSource"]>>()
+      .mockResolvedValueOnce(readerSuccess(snapshot(running, 2)))
+      .mockResolvedValueOnce(readerSuccess({ ...prepared, revision: 5, status: "reading", current })),
+    resumePreparation: async () => readerSuccess(snapshot({ ...running, completed: 2 }, 3)),
+  });
+  await screen.findByText("Read this while preparing.");
+  fireEvent.click(screen.getByRole("button", { name: "精读" }));
+  expect(host.openSource).not.toHaveBeenCalled();
+  const pane = screen.getByRole("region", { name: "精读", exact: true });
+  fireEvent.click(within(pane).getByRole("button", { name: "准备精读" }));
+  expect(await within(pane).findByText(/正在翻译 · 1\/3 段/)).toBeVisible();
+  expect(within(pane).queryByRole("alert")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "对话" }));
+  expect(screen.getByText("Read this while preparing.")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "精读" }));
+  await act(async () => publish(readerSuccess(snapshot({ ...running, status: "failed", error: "翻译中断" }, 3))));
+  expect(within(pane).getByText(/准备失败.*翻译中断/)).toBeVisible();
+  fireEvent.click(within(pane).getByRole("button", { name: "重试准备" }));
+  expect(await within(pane).findByText(/正在翻译 · 2\/3 段/)).toBeVisible();
+  await act(async () => publish(readerSuccess(prepared)));
+  expect(await within(pane).findByText("Newly prepared first passage.")).toBeVisible();
+  expect(screen.queryByText(/已就绪|已打开|正在阅读 A Paper/)).not.toBeInTheDocument();
 });
