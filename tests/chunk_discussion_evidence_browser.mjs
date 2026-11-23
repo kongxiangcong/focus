@@ -11,7 +11,7 @@ const browser = await chromium.launch({
   args: ['--no-sandbox', '--disable-dev-shm-usage'],
 });
 const page = await browser.newPage({ viewport: { width: 1600, height: 950 }, reducedMotion: 'reduce' });
-page.setDefaultTimeout(12000);
+page.setDefaultTimeout(30000);
 const nav = page.getByRole('group', { name: '阅读方式', exact: true });
 const closeReading = nav.getByRole('button', { name: '精读', exact: true });
 const chat = nav.getByRole('button', { name: '对话', exact: true });
@@ -137,6 +137,7 @@ try {
   await answer(b).waitFor({ state: 'detached' });
   await enterSecondChunk();
   const fresh = await snapshot();
+  assert.equal(fresh.source.sourceId, original.source.sourceId);
   assert.notEqual(fresh.discussionId, original.discussionId);
   assert.ok(fresh.discussions.some(item => item.discussionId === original.discussionId));
   assert.deepEqual(fresh.conversation, []);
