@@ -15,7 +15,7 @@ export function TranslatedPaper({ document, evidence }: { document: ReadingDocum
     const items = evidence.filter(item => item.translationChunks.includes(chunk.id)).map(item => item.evidence);
     return <section key={chunk.id} data-translation-chunk={chunk.id} data-source-line={chunk.sourceLines[0]} data-source-end={chunk.sourceLines[1]}
       data-evidence-block={items.map(e => e.evidenceId).join(" ") || undefined}>
-      <MarkdownContent text={chunk.text} sourceId={document.sourceId} /><SourceEvidenceMarkers items={items} />
+      <SourceEvidenceMarkers items={items} /><MarkdownContent text={chunk.text} sourceId={document.sourceId} />
     </section>;
   })}</article>;
 }
@@ -31,39 +31,46 @@ function PaperSurface({ page, element }: { page: PDFPageProxy; element: RefObjec
   useEffect(() => {
     const node = element.current!, surface = canvas.current!;
     let layer: TextLayer | undefined;
-    let task: RenderTask | undefined, shown = true, generation = 0;
+    let task: RenderTask | undefined;
+    let live = true, shown = false, drawing = false, lastWidth = -1;
     async function draw() {
-      const revision = ++generation;
-      layer?.cancel();
-      task?.cancel();
-      await task?.promise.catch(() => {});
-      if (revision !== generation) return;
+      if (!live || drawing) return;
+      const width = shown ? node.clientWidth : 0;
+      if (width === lastWidth) return;
+      lastWidth = width;
       const container = text.current!;
       container.replaceChildren();
-      if (!shown) { surface.width = surface.height = 0; return; }
+      if (!width) { surface.width = surface.height = 0; return; }
       const base = page.getViewport({ scale: 1 });
-      const scale = Math.min(2400 / Math.max(base.width, base.height), node.clientWidth * Math.min(devicePixelRatio || 1, 2) / base.width);
-      if (!scale) return;
+      const scale = Math.min(2400 / Math.max(base.width, base.height), width * Math.min(devicePixelRatio || 1, 2) / base.width);
       const sized = page.getViewport({ scale });
       surface.width = Math.ceil(sized.width); surface.height = Math.ceil(sized.height);
+      drawing = true;
       try {
         task = page.render({ canvas: surface, viewport: sized });
         await task.promise;
         const { TextLayer } = await import("pdfjs-dist");
-        if (revision !== generation) return;
-        setError(false);
-        const display = page.getViewport({ scale: node.clientWidth / base.width });
+        if (!live) return;
+        const display = page.getViewport({ scale: width / base.width });
         container.style.setProperty("--total-scale-factor", String(display.scale * page.userUnit));
         layer = new TextLayer({ textContentSource: page.streamTextContent(), container, viewport: display });
         await layer.render();
+        if (live) setError(false);
+      } catch {
+        if (live) setError(true);
+      } finally {
+        drawing = false;
+        if (live) void draw();
       }
-      catch { if (revision === generation) setError(true); }
     }
-    const resize = new ResizeObserver(() => { if (shown) void draw(); });
+    const resize = new ResizeObserver(() => void draw());
     resize.observe(node);
-    const observer = new IntersectionObserver(([entry]) => { shown = entry.isIntersecting; void draw(); }, { rootMargin: "700px" });
+    const observer = new IntersectionObserver(entries => {
+      shown = entries.at(-1)?.isIntersecting ?? false;
+      void draw();
+    }, { root: node.closest(".source-original"), rootMargin: "700px" });
     observer.observe(node);
-    return () => { generation++; observer.disconnect(); resize.disconnect(); layer?.cancel(); task?.cancel(); };
+    return () => { live = false; observer.disconnect(); resize.disconnect(); layer?.cancel(); task?.cancel(); };
   }, [element, page]);
   return <>
     <canvas ref={canvas} aria-label={`原版 PDF 第 ${page.pageNumber} 页`} />
@@ -86,8 +93,8 @@ function Page({ document, pageNumber, size, blocks, evidence, active, requested,
   useEffect(() => {
     const node = element.current;
     if (!node) return;
-    const observer = new IntersectionObserver(([entry]) => {
-      if (!entry.isIntersecting) return;
+    const observer = new IntersectionObserver(entries => {
+      if (!entries.at(-1)?.isIntersecting) return;
       observer.disconnect();
       setNearby(true);
     }, { rootMargin: "700px" });

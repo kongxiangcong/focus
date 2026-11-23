@@ -46,7 +46,7 @@
   --reader-battery-mid:#D97706;
   --reader-battery-high:#4ADE80;
   --reader-battery-full:#15803D;
-  --reader-battery-high-line:var(--reader-battery-full);
+  --reader-battery-high-line:#166534;
   /* Quoted content emphasis */
   --reader-mark:rgba(232,178,62,.34);
   --reader-mark-soft:rgba(232,178,62,.14);

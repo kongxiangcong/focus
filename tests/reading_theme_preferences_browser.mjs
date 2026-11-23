@@ -53,11 +53,11 @@ try {
   ]) {
     await page.getByRole('radio', { name, exact: true }).check();
     await checkTheme(page, 'light', accent, action);
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await checkTheme(page, 'dark', accent, '#e4e6eb');
+    await page.emulateMedia({ colorScheme: 'light' });
+    await checkTheme(page, 'light', accent, action);
   }
-  await page.emulateMedia({ colorScheme: 'dark' });
-  await checkTheme(page, 'dark', 'neutral', '#e4e6eb');
-  await page.emulateMedia({ colorScheme: 'light' });
-  await checkTheme(page, 'light', 'neutral', '#18181b');
   await page.getByRole('radio', { name: '深色', exact: true }).check();
   await checkTheme(page, 'dark', 'neutral', '#e4e6eb');
   assert.equal(await page.getByRole('group', { name: '浅色配色' }).count(), 0);
