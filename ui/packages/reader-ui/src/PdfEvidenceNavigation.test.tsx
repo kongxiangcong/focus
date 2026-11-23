@@ -201,10 +201,10 @@ it("returns to the chosen answer from the PDF block and its translation", async 
   const [firstNumber, secondNumber] = within(screen.getByLabelText("文章对话")).getAllByRole("button", { name: "1" });
   fireEvent.click(page.getByRole("button", { name: "查看 2 条相关回答" }));
   fireEvent.click(within(screen.getByRole("dialog", { name: "选择回答" })).getByRole("button", { name: /The second interpretation/ }));
-  expect(secondNumber).toHaveFocus();
+  expect(secondNumber.closest(".source-message")).toHaveFocus();
 
   fireEvent.click(screen.getByRole("button", { name: "中文译文" }));
   fireEvent.click(within(screen.getByLabelText("文章原文")).getByRole("button", { name: "查看 2 条相关回答" }));
   fireEvent.click(within(screen.getByRole("dialog", { name: "选择回答" })).getByRole("button", { name: /回答 1/ }));
-  expect(firstNumber).toHaveFocus();
+  expect(firstNumber.closest(".source-message")).toHaveFocus();
 });

@@ -27,6 +27,8 @@ function isScrollKey(event: ReactKeyboardEvent) {
 }
 
 type AnswerLocation = { messageId: string; evidenceId: string; origin?: HTMLButtonElement };
+type DiscussionCitation = AnswerLocation & { discussionId?: string };
+type AnswerReturn = { messageId: string; evidenceId?: string; origin?: HTMLButtonElement; discussionId?: string };
 
 type FullscreenControls = { fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void };
 
@@ -230,7 +232,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const [hoverEvidence, setHoverEvidence] = useState<string | undefined>();
   const [activeMessage, setActiveMessage] = useState<string | null>(null), [activeEvidence, setActiveEvidence] = useState<string | undefined>();
   const [answerChoices, setAnswerChoices] = useState<{ ids: readonly string[]; opener: HTMLElement; discussionId?: string } | null>(null);
-  const [answerReturn, setAnswerReturn] = useState<(AnswerLocation & { discussionId?: string }) | null>(null);
+  const [answerReturn, setAnswerReturn] = useState<AnswerReturn | null>(null);
+  const [lastAnswerCitation, setLastAnswerCitation] = useState<DiscussionCitation | null>(null);
   const [mobile, setMobile] = useState("chat"), [guideOpen, setGuideOpen] = useState(false), [notesOpen, setNotesOpen] = useState(false);
   const notesButton = useRef<HTMLButtonElement>(null);
   const noteInput = useRef<HTMLTextAreaElement>(null);
@@ -264,7 +267,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const original = useRef<HTMLDivElement>(null), chat = useRef<HTMLDivElement>(null), shell = useRef<HTMLDivElement>(null);
   const sendRequest = useRef<{ content: string; id: string } | null>(null);
   const sendBusy = useRef(false);
-  const composer = useRef<ComposerHandle>(null), returnFocus = useRef<AnswerLocation | null>(null);
+  const composer = useRef<ComposerHandle>(null);
+  const pendingAnswerCitation = useRef<(DiscussionCitation & { nonce: string }) | null>(null);
   const [answerTarget, setAnswerTarget] = useState<(AnswerLocation & { discussionId: string }) | null>(null);
   const manual = useRef(false), followChat = useRef(true), turn = useRef<{ seen: Set<string>; cancelled: boolean; located: boolean } | null>(null);
   const jumpOrigin = useRef<number | null>(null);
@@ -283,7 +287,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setActiveEvidence(undefined);
     setAnswerChoices(null);
     setAnswerTarget(target => target?.discussionId === view.discussionId ? target : null);
-    returnFocus.current = null;
+    pendingAnswerCitation.current = null;
+    setLastAnswerCitation(current => current?.discussionId === view.discussionId ? current : null);
     turn.current = null;
   }, [draftKey, view.discussionId]);
 
@@ -351,17 +356,23 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   function switchPaper(next: boolean) {
     const pane = original.current;
     if (!pane || !document?.pdf || translated === next) return;
-    const rect = pane.getBoundingClientRect(), y = rect.top + rect.height * .32;
+    const rect = pane.getBoundingClientRect(), y = rect.top + pane.clientHeight * .32;
     const x = pointerX.current ?? rect.left + rect.width / 2;
     const pages = [...pane.querySelectorAll<HTMLElement>("[data-pdf-page]")];
-    const page = pages.find(el => el.getBoundingClientRect().bottom >= y) ?? pages.at(-1);
+    const page = pages.find(el => {
+      const bounds = el.getBoundingClientRect();
+      return bounds.top <= y && bounds.bottom >= y;
+    });
     const bounds = (el: HTMLElement) => (el.closest("[data-page-only]") ?? el).getBoundingClientRect();
     const dist = (el: HTMLElement) => {
       const r = bounds(el);
       return Math.max(r.top - y, y - r.bottom, 0) + Math.max(r.left - x, x - r.right, 0);
     };
-    const anchors = [...(page ?? pane).querySelectorAll<HTMLElement>(next ? "[data-block-id]" : "[data-translation-chunk]")]
-      .filter(el => (el.closest("[data-page-only]") ?? el).getClientRects().length);
+    const anchors = [...((next ? page : pane)?.querySelectorAll<HTMLElement>(next ? "[data-block-id]" : "[data-translation-chunk]") ?? [])]
+      .filter(el => {
+        const r = bounds(el);
+        return r.bottom > rect.top && r.top < rect.bottom;
+      });
     const cited = !manual.current && activeEvidence ?
       pane.querySelectorAll<HTMLElement>(`[data-evidence-block~="${activeEvidence}"]`)[regionNumber] : null;
     const citedBlock = cited?.matches("[data-block-id], [data-translation-chunk]") ? cited :
@@ -379,8 +390,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const r = current && bounds(current);
     const fraction = r ? Math.max(0, Math.min(1, (y - r.top) / Math.max(1, r.height))) : 0;
     position.current = chunk ? { chunk: chunk.id, block: (block ?? linkedBlock ?? linkedBlocks[0])?.blockId, fraction } : null;
-    if (next) lastPdfScroll.current = pane.scrollTop;
-    else lastTranslationScroll.current = pane.scrollTop;
+    if (!next) lastTranslationScroll.current = pane.scrollTop;
+    else if (settledPdf?.pageCount && settledPdf.url === activePdfUrl) lastPdfScroll.current = pane.scrollTop;
     setPositionNotice(next && !chunk && page ? `第 ${page.dataset.pdfPage} 页暂无对应译块` : "");
     stopNavigation(); restorePaperPosition.current = true; movedSinceSwitch.current = false;
     manual.current = false; setSelection(""); setTranslated(next);
@@ -396,7 +407,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       [...pane.querySelectorAll<HTMLElement>("[data-block-id]")].find(el => el.dataset.blockId === anchor?.block);
     if (node && anchor) {
       const r = (node.closest("[data-page-only]") ?? node).getBoundingClientRect();
-      pane.scrollTop += r.top - pane.getBoundingClientRect().top + anchor.fraction * r.height - pane.clientHeight * .32;
+      const offset = translated ? 0 : anchor.fraction * r.height;
+      pane.scrollTop += r.top - pane.getBoundingClientRect().top + offset - pane.clientHeight * .32;
     } else {
       pane.scrollTop = translated ? lastTranslationScroll.current : lastPdfScroll.current;
       if (!translated && settledPdf?.pageCount && anchor?.chunk) {
@@ -441,7 +453,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   }, [document, annotationKey, sourceId]);
 
   const active = projections.find(p => p.evidence.evidenceId === activeEvidence);
-  const highlightedEvidenceId = hoverEvidence ?? activeEvidence;
+  const rememberedAnswer = lastAnswerCitation?.discussionId === view.discussionId ? lastAnswerCitation : null;
+  const highlightedEvidenceId = hoverEvidence ?? activeEvidence ?? rememberedAnswer?.evidenceId;
   const run = view.agent?.run?.sourceId === sourceId ? view.agent.run : null;
   const agent = run ? view.agent : undefined;
   const running = !!run && ["running", "approval", "stopping"].includes(run.status);
@@ -466,6 +479,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const stopNavigation = useCallback(() => {
     setAnswerTarget(null);
     cancel();
+    pendingAnswerCitation.current = null;
     setAnswerReturn(null);
     setAnswerChoices(null);
     jumpOrigin.current = null;
@@ -493,6 +507,14 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       .filter(element => !pages || pages.has(Number(element.closest<HTMLElement>("[data-pdf-page]")?.dataset.pdfPage)));
     return candidates.find(element => element.dataset.pageOnly !== "true") ?? candidates[0];
   };
+
+  // Keep the previous return until the new jump reaches its source location.
+  const rememberAnswerReturn = useCallback((navigationIntent: EvidenceNavigationIntent) => {
+    const pending = pendingAnswerCitation.current;
+    if (pending?.nonce !== navigationIntent.nonce) return;
+    const { messageId, evidenceId, origin, discussionId } = pending;
+    setLastAnswerCitation({ messageId, evidenceId, origin, discussionId });
+  }, []);
 
   const moveTo = useCallback((id: string, keyboard = false, automatic = false, navigationIntent?: EvidenceNavigationIntent, el = target(id)) => {
     const pane = original.current;
@@ -528,6 +550,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setCardAtTop(automatic && visibleTarget && bottom > paneRect.bottom - cardClearance);
     const complete = () => {
       if (!current() || (navigationIntent && !consume(navigationIntent))) return;
+      if (navigationIntent) rememberAnswerReturn(navigationIntent);
       waitingPosition.current = null;
       setReturnPosition(jumpOrigin.current);
       setActiveEvidence(id);
@@ -544,8 +567,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       pane.scrollTo({ top: to, behavior: "instant" });
       trackScroll();
       complete();
-    }
-    else {
+    } else {
       const started = performance.now();
       const duration = parseFloat(getComputedStyle(pane).getPropertyValue("--reader-duration-move")) || 240;
       const tick = (now: number) => {
@@ -558,14 +580,14 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       };
       scrollAnimation.current = requestAnimationFrame(tick);
     }
-  }, [consume, isCurrentSource, isLatest]);
+  }, [consume, isCurrentSource, isLatest, rememberAnswerReturn]);
 
   useLayoutEffect(() => {
     if (visible) return;
     manual.current = false;
     if (!readingSession) stopNavigation();
     turn.current = null;
-    returnFocus.current = null;
+    pendingAnswerCitation.current = null;
     jumpOrigin.current = null;
     setAnswerChoices(null);
     setAnswerReturn(null);
@@ -640,12 +662,10 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       const needsTranslation = !destination;
       if (needsTranslation && translationReady) {
         const pane = original.current;
-        if (pane) {
-          lastPdfScroll.current = pane.scrollTop;
-          if (paper?.translationChunks.length) {
-            jumpOrigin.current = pane.scrollTop;
-            jumpFromPdf.current = true;
-          }
+        if (pane && settledPdf?.pageCount && settledPdf.url === activePdfUrl) lastPdfScroll.current = pane.scrollTop;
+        if (paper?.translationChunks.length) {
+          jumpOrigin.current = lastPdfScroll.current;
+          jumpFromPdf.current = true;
         }
         waitingPosition.current = null;
         setSelection("");
@@ -672,13 +692,13 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     restored.current = true;
     restorePaperPosition.current = false;
     setPositionNotice("");
-    returnFocus.current = { messageId: message.messageId, evidenceId: id, origin };
     setHoverEvidence(undefined);
     safeWrite(`focus.activeAnswer:${draftKey}`, message.messageId);
     setActiveMessage(message.messageId);
     setActiveEvidence(undefined);
-    start({ sourceId, discussionId: view.discussionId, selectionGeneration, messageId: message.messageId, evidenceId: id,
+    const next = start({ sourceId, discussionId: view.discussionId, selectionGeneration, messageId: message.messageId, evidenceId: id,
       preferredView: showingTranslation ? "translation" : pdfUrl ? "pdf" : "source", keyboard });
+    pendingAnswerCitation.current = { nonce: next.nonce, messageId: message.messageId, evidenceId: id, origin, discussionId: view.discussionId };
   }, [stopNavigation, draftKey, isCurrentSource, sourceId, view.discussionId, selectionGeneration, showingTranslation, pdfUrl, start]);
 
   const handleSelectMessage = useCallback((messageId: string) => {
@@ -756,17 +776,21 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
 
   function backToAnswer(evidenceId: string) {
     const item = evidence.find(entry => entry.evidenceId === evidenceId);
-    if (!item || !isCurrentSource()) return;
+    if (item) goToAnswer(item.messageId, evidenceId);
+  }
+
+  function goToAnswer(messageId: string, evidenceId?: string) {
+    if (!isCurrentSource() || !evidence.some(item => item.messageId === messageId)) return;
+    const openedFrom = [rememberedAnswer, pendingAnswerCitation.current].find(item =>
+      item && item.discussionId === view.discussionId && item.messageId === messageId && item.evidenceId === evidenceId);
     stopNavigation();
     manual.current = false;
     followChat.current = false;
-    safeWrite(`focus.activeAnswer:${draftKey}`, item.messageId);
-    setActiveMessage(item.messageId);
+    safeWrite(`focus.activeAnswer:${draftKey}`, messageId);
+    setActiveMessage(messageId);
     setActiveEvidence(evidenceId);
     setMobile("chat");
-    const openedFrom = returnFocus.current;
-    const origin = openedFrom?.messageId === item.messageId && openedFrom.evidenceId === evidenceId ? openedFrom.origin : undefined;
-    setAnswerReturn({ messageId: item.messageId, evidenceId, origin, discussionId: view.discussionId });
+    setAnswerReturn({ messageId, evidenceId, origin: openedFrom?.origin, discussionId: view.discussionId });
   }
 
   useLayoutEffect(() => {
@@ -774,10 +798,12 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setAnswerReturn(null);
     if (!visible || mobile !== "chat" || !isCurrentSource() || answerReturn.discussionId !== view.discussionId) return;
     const { messageId, evidenceId, origin } = answerReturn;
-    const citation = origin && chat.current?.contains(origin) ? origin :
-      chat.current?.querySelector<HTMLElement>(`[data-message-id="${messageId}"] [data-citation="${evidenceId}"]`);
-    citation?.scrollIntoView({ block: "nearest", behavior: "instant" });
-    citation?.focus({ preventScroll: true });
+    const answer = [...(chat.current?.querySelectorAll<HTMLElement>("[data-message-id]") ?? [])]
+      .find(element => element.dataset.messageId === messageId);
+    const destination = !evidenceId ? answer : origin && answer?.contains(origin) ? origin :
+      answer?.querySelector<HTMLElement>(`[data-citation="${evidenceId}"]`);
+    destination?.scrollIntoView({ block: evidenceId ? "nearest" : "start", behavior: "instant" });
+    destination?.focus({ preventScroll: true });
   }, [answerReturn, isCurrentSource, mobile, view.discussionId, visible]);
 
   // Update focused turn smoothly on chat scroll (Mist Focus Lens for conversation).
@@ -856,7 +882,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       if (notesOpen) { e.stopPropagation(); closeNotes(); return; }
       if (choiceItems.length) { e.stopPropagation(); closeAnswerChooser(); return; }
       if (!activeEvidence || fullscreen) return;
-      if (returnFocus.current?.evidenceId === activeEvidence) backToAnswer(activeEvidence);
+      if (rememberedAnswer?.evidenceId === activeEvidence || pendingAnswerCitation.current?.evidenceId === activeEvidence) backToAnswer(activeEvidence);
       else stopNavigation();
       setActiveEvidence(undefined);
     }}>
@@ -893,7 +919,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
             const node = e.target as HTMLElement;
             const choices = node.closest<HTMLElement>("[data-evidence-choices]");
             const id = node.closest<HTMLElement>("[data-evidence]")?.dataset.evidence;
+            const messageId = node.closest<HTMLElement>("[data-evidence-answer]")?.dataset.evidenceAnswer;
             if (id) backToAnswer(id);
+            else if (messageId) goToAnswer(messageId);
             else if (choices?.dataset.evidenceChoices && isCurrentSource()) {
               stopNavigation();
               setAnswerChoices({ ids: choices.dataset.evidenceChoices.split(" "), opener: choices, discussionId: view.discussionId });
@@ -902,14 +930,14 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
               if (mark) openNotes(mark);
             }
           }}>
-          <ActiveSourceCitation.Provider value={returnFocus.current?.evidenceId === activeEvidence ? activeEvidence : undefined}>
+          <ActiveSourceCitation.Provider value={rememberedAnswer?.evidenceId}>
             {document?.pdf && pdfUrl ? showingTranslation ? <TranslatedPaper document={document} evidence={paperLocations} /> :
               <OriginalPaper key={pdfUrl} pdf={document.pdf} url={pdfUrl} evidence={paperLocations} active={highlightedEvidenceId} requestedPages={requestedPdfPages}
                 onReady={pdfReady} onUnavailable={pdfUnavailable} onPageSettled={pdfPageSettled} /> : document ? <article><MarkdownContent text={document.markdown} sourceId={sourceId} marks={permanentMarks} sourceEvidence={sourceInput} /></article> : <span role="status" className="source-loading">加载中…</span>}
           </ActiveSourceCitation.Provider>
         </div>
         {selection && <div className="source-selection-actions"><button onClick={() => { composer.current?.insertQuote(selection); setSelection(""); setMobile("chat"); }}>引用</button><button onClick={e => { setNoteDraft(`「${selection}」\n`); openNotes(e.currentTarget); setSelection(""); }}>记笔记</button><button aria-label="取消选择" onClick={() => setSelection("")}>×</button></div>}
-        {choiceItems.length > 0 && <SourceAnswerChooser items={choiceItems} answers={answers} onChoose={backToAnswer} onClose={closeAnswerChooser} />}
+        {choiceItems.length > 0 && <SourceAnswerChooser items={choiceItems} answers={answers} onChoose={goToAnswer} onClose={closeAnswerChooser} />}
         {active && !choiceItems.length && <aside className="source-evidence-card" data-top={cardAtTop} aria-label="原文证据"><button aria-label="关闭证据" onClick={() => { stopNavigation(); setActiveEvidence(undefined); }}>×</button><button onClick={() => backToAnswer(active.evidence.evidenceId)}>证据 {active.evidence.displayNumber}{locationLabel}</button><p>{active.evidence.quote.exact}</p>{partCount > 1 && <button onClick={nextRegion}>下一处（{regionNumber + 1}/{partCount}）</button>}{returnPosition !== null && <button onClick={returnToReading}>返回阅读位置</button>}</aside>}
       </div>
       <div className="source-splitter" role="separator" aria-label="调整原文宽度" aria-orientation="vertical" aria-valuemin={40} aria-valuemax={70} aria-valuenow={share} tabIndex={0}
