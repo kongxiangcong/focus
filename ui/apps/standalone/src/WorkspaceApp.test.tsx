@@ -532,7 +532,7 @@ it("offers continued reading from library details without a redundant readiness 
 it.each([
   ["invalid", "completed", 4, "failed"],
   ["ready", "unplanned", 0, "unread"],
-  ["ready", "reading", 0, "unread"],
+  ["ready", "reading", 0, "reading"],
   ["ready", "reading", 1, "reading"],
   ["ready", "completed", 4, "completed"],
 ] as const)("projects %s / %s / %i to the %s card state", async (parseStatus, readingStatus, completed, expected) => {

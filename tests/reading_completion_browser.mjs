@@ -34,10 +34,9 @@ function progress(view) {
 async function battery(completed) {
   await page.getByRole('link', { name: '知识库', exact: true }).click();
   const bar = page.getByRole('progressbar', { name: /精读进度$/ });
-  await bar.waitFor();
-  assert.equal(await bar.getAttribute('aria-valuenow'), String(completed));
+  const level = completed ? 'full' : 'empty';
+  await bar.and(page.locator(`[aria-valuenow="${completed}"][data-level="${level}"]`)).waitFor();
   assert.equal(await bar.getAttribute('aria-valuemax'), String(total));
-  assert.equal(await bar.getAttribute('data-level'), completed ? 'full' : 'empty');
   await page.getByRole('button', { name: completed ? /已读完\s*1/ : /阅读中\s*1/ }).waitFor();
 }
 
