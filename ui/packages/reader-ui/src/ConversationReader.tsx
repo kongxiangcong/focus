@@ -274,7 +274,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const jumpOrigin = useRef<number | null>(null);
   const jumpFromPdf = useRef(false);
   const localNavigation = useEvidenceNavigation();
-  const { intent, start, isLatest, consume, cancel } = evidenceNavigation ?? localNavigation;
+  const { intent, start, isLatest, consume, cancel, isResettingDiscussion } = evidenceNavigation ?? localNavigation;
+  const resettingDiscussion = isResettingDiscussion(sourceId, view.discussionId);
   const waitingPosition = useRef<{ nonce: string; scrollTop: number } | null>(null);
   const [cardAtTop, setCardAtTop] = useState(false);
   const [returnPosition, setReturnPosition] = useState<number | null>(null);
@@ -425,8 +426,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const selectedIdRef = useRef(selected?.messageId);
   selectedIdRef.current = selected?.messageId;
 
-  const validated = useMemo(() => document ? answers.flatMap(message => messageEvidence(message, document, view.discussionId)) : [],
-    [answers, document, view.discussionId]);
+  const validated = useMemo(() => !resettingDiscussion && document ? answers.flatMap(message => messageEvidence(message, document, view.discussionId)) : [],
+    [answers, document, view.discussionId, resettingDiscussion]);
   const evidenceKey = JSON.stringify(validated);
   const evidence = useMemo(() => validated, [evidenceKey]);
   // Do NOT include hoverEvidence/activeEvidence here; toggling active highlight via DOM avoids reparsing the full document.
@@ -453,7 +454,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   }, [document, annotationKey, sourceId]);
 
   const active = projections.find(p => p.evidence.evidenceId === activeEvidence);
-  const rememberedAnswer = lastAnswerCitation?.discussionId === view.discussionId ? lastAnswerCitation : null;
+  const rememberedAnswer = !resettingDiscussion && lastAnswerCitation?.discussionId === view.discussionId ? lastAnswerCitation : null;
   const highlightedEvidenceId = hoverEvidence ?? activeEvidence ?? rememberedAnswer?.evidenceId;
   const run = view.agent?.run?.sourceId === sourceId ? view.agent.run : null;
   const agent = run ? view.agent : undefined;
@@ -492,6 +493,14 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     }
     if (turn.current) turn.current.cancelled = true;
   }, [cancel]);
+
+  useLayoutEffect(() => {
+    if (!resettingDiscussion) return;
+    stopNavigation();
+    setActiveEvidence(undefined);
+    setHoverEvidence(undefined);
+    setLastAnswerCitation(null);
+  }, [resettingDiscussion, stopNavigation]);
 
   const manualBrowse = useCallback(() => {
     stopNavigation();
@@ -686,7 +695,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     selected?.messageId, mobile, prep?.status, translationState, translationReady, showingTranslation, projections, paperLocations, activePdfUrl, settledPdf, pdfPages, moveTo]);
 
   const cite = useCallback((message: ReaderMessage, id: string, keyboard: boolean, origin: HTMLButtonElement) => {
-    if (!isCurrentSource()) return;
+    if (!isCurrentSource() || resettingDiscussion) return;
     stopNavigation();
     manual.current = false;
     restored.current = true;
@@ -699,7 +708,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const next = start({ sourceId, discussionId: view.discussionId, selectionGeneration, messageId: message.messageId, evidenceId: id,
       preferredView: showingTranslation ? "translation" : pdfUrl ? "pdf" : "source", keyboard });
     pendingAnswerCitation.current = { nonce: next.nonce, messageId: message.messageId, evidenceId: id, origin, discussionId: view.discussionId };
-  }, [stopNavigation, draftKey, isCurrentSource, sourceId, view.discussionId, selectionGeneration, showingTranslation, pdfUrl, start]);
+  }, [stopNavigation, draftKey, isCurrentSource, resettingDiscussion, sourceId, view.discussionId, selectionGeneration, showingTranslation, pdfUrl, start]);
 
   const handleSelectMessage = useCallback((messageId: string) => {
     if (selectedIdRef.current !== messageId) {
@@ -966,8 +975,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
             const focusBand = turns.length <= 1 || dist === 0 ? "0" : dist === 1 ? "1" : "far";
             return <div key={group.id} className="source-turn" data-focus-distance={focusBand} onClick={() => setFocusedTurn(idx)}>
               {group.messages.map(message => {
-                const refs = document ? messageEvidence(message, document, view.discussionId) : [];
-                const text = message.role === "assistant" ? citedMarkdown(message, refs) : message.content;
+                const refs = !resettingDiscussion && document ? messageEvidence(message, document, view.discussionId) : [];
+                const text = message.role === "assistant" ? citedMarkdown(message, refs, resettingDiscussion) : message.content;
                 return <ConversationMessage
                   key={message.messageId}
                   message={message}

@@ -316,20 +316,24 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
 
   useEffect(() => { if (uploadOpen) uploadDialog.current?.showModal(); else uploadDialog.current?.close(); }, [uploadOpen]);
 
-  async function operate(label: string, operation: () => Promise<ReaderHostResult<ReadingWindow>>, read = false) {
+  async function operate(label: string, operation: () => Promise<ReaderHostResult<ReadingWindow>>, read = false,
+    begin?: () => (() => void) | undefined) {
     if (locked.current || (active && !label.startsWith("停止") && label !== '全部清空')) return;
     locked.current = true; setBusy(label); setError(""); setRetryAction(null);
     const started = selection.current.generation;
+    const retry = () => void operate(label, operation, read, begin);
+    let finish: (() => void) | undefined;
     try {
+      finish = begin?.();
       const result = await operation();
       if (!isCurrentSelection(started)) return;
-      if (!result.ok) { setError(result.error.message); setRetryAction(() => () => void operate(label, operation, read)); return; }
+      if (!result.ok) { setError(result.error.message); setRetryAction(() => retry); return; }
       setRetryAction(null); acceptView(result.value, started, read || label === "删除"); setDeleteConfirmation(null);
       if (read) navigate("/reading");
       if (label === "上传") { setUploadOpen(false); setSelectedFiles([]); }
       await refresh();
-    } catch (e) { if (isCurrentSelection(started)) { setError(String(e)); setRetryAction(() => () => void operate(label, operation, read)); } }
-    finally { locked.current = false; setBusy(""); }
+    } catch (e) { if (isCurrentSelection(started)) { setError(String(e)); setRetryAction(() => retry); } }
+    finally { finish?.(); locked.current = false; setBusy(""); }
   }
   async function discuss(sourceId: string) {
     if (!host.selectDiscussionSource || locked.current || active) return;
@@ -548,7 +552,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           try { sessionStorage.removeItem(storageKey); } catch { /* Storage is optional. */ }
         }
         return result;
-      })),
+      }), false, () => {
+        const current = viewRef.current;
+        if (current?.source.sourceId === sourceId) return evidenceNavigation.beginDiscussionReset(sourceId, current.discussionId);
+      }),
     });
   }
   async function confirmDelete(source: LibrarySource) {

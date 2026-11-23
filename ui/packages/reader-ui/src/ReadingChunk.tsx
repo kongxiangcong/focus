@@ -79,7 +79,7 @@ function referencedFigures(message: ReaderMessage, chunks: readonly ReaderChunk[
   });
 }
 
-export function ReaderConversation({ messages, chunks = [], figures = [], figureSourceId, sourceFigures = [], onFigure, onZoom, streaming, onJump, onHighlight, onClearHighlight, onSaveNote, discussionId, onEvidence }: {
+export function ReaderConversation({ messages, chunks = [], figures = [], figureSourceId, sourceFigures = [], onFigure, onZoom, streaming, onJump, onHighlight, onClearHighlight, onSaveNote, discussionId, onEvidence, hideEvidence }: {
   messages: readonly ReaderMessage[]; chunks?: readonly ReaderChunk[]; figures?: readonly ReaderImage[]; figureSourceId?: string;
   onZoom?: (figure: Figure, origin: HTMLElement) => void;
   streaming?: boolean;
@@ -88,6 +88,7 @@ export function ReaderConversation({ messages, chunks = [], figures = [], figure
   onSaveNote?: (message: ReaderMessage, chunk?: ReaderChunk) => void;
   discussionId?: string;
   onEvidence?: (item: ValidatedAnswerEvidence) => void;
+  hideEvidence?: boolean;
   sourceFigures?: readonly Figure[]; onFigure?: (figure: Figure) => void;
 }) {
   const instanceId = useContext(AssetInstanceContext);
@@ -96,7 +97,7 @@ export function ReaderConversation({ messages, chunks = [], figures = [], figure
     const sourceId = message.sourceId ?? message.reference?.sourceId;
     const refs = message.role === "assistant" && sourceId && !message.sourceDeleted
       ? messageEvidence(message, { sourceId }, discussionId ?? message.discussionId) : [];
-    const markdown = message.role === "assistant" ? citedMarkdown(message, refs) : message.content;
+    const markdown = message.role === "assistant" ? citedMarkdown(message, refs, hideEvidence) : message.content;
     const excerpt = message.content.startsWith("> ") ? message.content.split("\n\n")[0].replace(/^> /gm, "") : (reference?.translation ?? reference?.sourceMarkdown ?? "").replace(/[#*`]/g, "").split(/[。！？\n]/).find(s => s.trim() && !s.includes("!["))?.slice(0, 100) ?? "";
     return <article className={`focus-message${message.role === "assistant" ? " focus-reader__chunk" : ""}`} data-message-id={message.messageId} data-role={message.role} key={message.messageId}>
     <header>{message.role === "user" ? "你" : "FOCUS"}{message.sourceDeleted && <small> · 来源已删除</small>}</header>
