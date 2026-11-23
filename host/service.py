@@ -119,7 +119,6 @@ class HostService:
         self.reading_app.core.interrupt_running()
         self.reading_workers = {}
         self.opening_workers = {}
-        self.opening_errors = {}
         self.progress_core = ReadingProgress(self.workspace)
         self.progress_core.interrupt_running()
         self.progress_app = ProgressApplication(self.progress_core, progress_runtime or
@@ -157,6 +156,8 @@ class HostService:
         self.resetting = False
         self._snapshot_cache = None
         self._disk_memo = {}
+        if (self.workspace / 'ingestion' / 'batches.json').is_file():
+            self._batch_app()  # Recover a paused batch before its first task snapshot.
         if backend_factory is None and not saved and backend and self.startup is None:
             self.registry.get_spec(backend)
         if not self.state['timeline'] and self.state['displayReading']:
@@ -369,7 +370,7 @@ class HostService:
             )
             if preparation:
                 preparations[source_id] = {key: preparation.get(key) for key in
-                    ('source_id', 'status', 'step', 'total', 'completed', 'ready', 'error', 'plan_id', 'attempt',
+                    ('source_id', 'status', 'step', 'total', 'completed', 'ready', 'error', 'plan_id', 'run_id', 'attempt',
                      'glossary_revision',
                      'selected_plan_id', 'selected_ready', 'candidate')}
                 projected = preparations[source_id]
@@ -380,9 +381,10 @@ class HostService:
                     'run_id': preparation['run_id'], 'attempt': preparation['attempt']}
         window['preparations'] = preparations
         window['clearBusySources'] = [source['sourceId'] for source in sources_overview if self.source_clear_busy(source['sourceId'])]
-        window['agent'] = {'run': self.state['run'], 'catalog': self.core.catalog(),
+        window['agent'] = {'run': self._active_run(), 'catalog': self.core.catalog(),
                            'backend': self.backend_name,
                            'backends': window['configuration']['backends']}
+        window['taskInbox'], window['taskBatches'] = self._upload_tasks(sources_overview)
         window['workItems'] = self.work_items(window, overview=sources_overview, state=selected_state)
         for item in window['workItems']:
             if item['kind'] == 'preparation' and item['dismissed']:
@@ -413,7 +415,7 @@ class HostService:
                     # belongs to the authority, never to a detached projection.
                     discussions.select(self.state, source_id)
                 view = copy.copy(self)
-                for name in ('reading_workers', 'opening_workers', 'opening_errors', 'progress_workers', 'ingestion_workers',
+                for name in ('reading_workers', 'opening_workers', 'progress_workers', 'ingestion_workers',
                              'batch_workers', 'blog_workers', 'blog_errors'):
                     setattr(view, name, dict(getattr(self, name)))
                 view.lock = threading.RLock()
@@ -435,41 +437,157 @@ class HostService:
         return {'baseRevision': revision, 'revision': self.generation,
                 'sessionId': self.state['sessionId'], 'instanceId': self.lease.instance_id,
                 'messages': copy.deepcopy(list(self.stream_messages.values())),
-                'run': copy.deepcopy(self.state['run'])}
+                'run': copy.deepcopy(self._active_run())}
+
+    def _active_run(self):
+        run = self.state['run']
+        if not run or run['status'] == 'completed':
+            return None
+        approvals = [approval for approval in run.get('approvals', [])
+                     if run['status'] == 'approval' and not approval.get('status')]
+        return {**run, 'approvals': approvals}
 
     def work_items(self, window, *, overview=None, state=None):
         """Project durable business attempts; never infer work from the last log line."""
         items = []
         sources_overview = overview if overview is not None else SourceLibrary(self.workspace).overview()
         titles = {s['sourceId']: s.get('shortName') or s['title'] for s in sources_overview}
-        def add(kind, target, status, label, error=None, record=None):
-            item = {'kind': kind, 'targetId': target, 'status': status,
-                    'label': label, 'error': error, 'notificationId': fingerprint(record or {}),
-                    'executing': bool((record or {}).get('executing'))}
-            items.append(StatusNotifications(self.store).project('work', kind + ':' + target, item))
-        run = self.state.get('run')
-        if run and run['status'] in ('running', 'approval', 'stopping', 'failed', 'interrupted'):
-            add('chat', run['runId'], run['status'], '等待你的确认' if run['status'] == 'approval' else '正在回答问题' if run['status'] == 'running' else '问答任务', run.get('error'), {'runId': run['runId']})
+        notices = StatusNotifications(self.store)
+
+        def add(kind, target, attempt, status, phase, label, *, source=None, stage=None,
+                percent=None, error=None, executing=False, retryable=False, cancellable=False):
+            key = kind + ':' + target
+            item = {'id': f'{key}:{attempt}', 'kind': kind, 'targetId': target, 'attemptId': attempt,
+                    'sourceId': source, 'sourceTitle': titles.get(source), 'status': status, 'phase': phase,
+                    'label': label, 'stage': stage, 'percent': percent, 'error': error,
+                    'executing': executing, 'retryable': retryable, 'cancellable': cancellable,
+                    'notificationId': fingerprint({'attemptId': attempt})}
+            items.append(notices.project('work', key, item))
+
+        run = window['agent']['run']
+        if run and run.get('runId') and run['status'] in ('running', 'approval', 'stopping', 'failed', 'interrupted'):
+            status = run['status']
+            phase = 'approval' if run['approvals'] else 'running' if status in ACTIVE else 'error'
+            label = '等待你的确认' if phase == 'approval' else '正在回答问题' if phase == 'running' else '问答任务'
+            add('chat', run['runId'], run['runId'], status, phase, label, source=run.get('sourceId'),
+                stage=(run.get('progress') or {}).get('label'), error=run.get('error'),
+                retryable=phase == 'error', cancellable=status in ('running', 'approval'))
         for source_id, preparation in window['preparations'].items():
-            if not preparation.get('dismissed') and preparation['status'] in ('running', 'failed', 'interrupted', 'cancelled', 'bundle_changed', 'commit_conflict'):
-                add('preparation', source_id, preparation['status'], '准备阅读 · ' + titles.get(source_id, source_id), preparation.get('error'), {'attempt': preparation['attempt']})
+            status = preparation['status']
+            if source_id in titles and not preparation.get('dismissed') and status in ('running', 'failed', 'interrupted', 'cancelled', 'bundle_changed', 'commit_conflict'):
+                running = status == 'running'
+                total = preparation.get('total') or 0
+                add('preparation', source_id, f"{preparation['run_id']}:{preparation['attempt']}",
+                    status, 'running' if running else 'error', '准备阅读', source=source_id,
+                    stage=preparation['step'], percent=100 * preparation['completed'] / total if total else None,
+                    error=preparation.get('error'), retryable=not running, cancellable=running)
+        for source_id, attempt in (self.store.get('openingAttempts') or {}).items():
+            if source_id not in titles:
+                continue
+            try:
+                opening = self.source_opening(source_id)
+            except (OSError, WorkspaceError):
+                continue  # A concurrent source removal invalidates the snapshot.
+            if opening['status'] in ('running', 'failed', 'interrupted'):
+                running = opening['status'] == 'running'
+                add('opening', source_id, attempt['attemptId'], opening['status'],
+                    'running' if running else 'error', '生成开篇导读', source=source_id,
+                    error=opening.get('error'), retryable=not running)
+        batched_blogs = {(child['sourceId'], child['blog']['attemptId'])
+                         for batch in window['taskBatches'] for child in batch['items']
+                         if child['blog'] and (attempt := child['blog'].get('attemptId'))
+                         and attempt.startswith(batch['attemptId'] + ':')}
         for source_id, blog in window['blog'].items():
-            if blog.get('runStatus') in ('running', 'failed', 'interrupted', 'cancelled'):
-                add('blog', source_id, blog['runStatus'], '生成博客 · ' + titles.get(source_id, source_id), (blog.get('error') or {}).get('message'), {'attemptId': blog.get('attemptId'), 'executing': blog.get('executing')})
-        # Inbox/Core files are atomic. Avoid taking the batch lock under the Host lock.
-        for item in self.ingestion.list_inbox():
-            if not item.get('deleted') and item['status'] not in ('completed', 'awaiting_confirmation'):
-                add('ingestion', item['item_id'], item['status'], '正在解析 ' + item['file_name'] if item['status'] in ('processing', 'confirmed') else '解析待处理 · ' + item['file_name'], (item.get('error') or {}).get('message'), item)
+            status = blog.get('runStatus')
+            if status in ('running', 'failed', 'interrupted', 'cancelled') and (source_id, blog.get('attemptId')) not in batched_blogs:
+                running = status == 'running'
+                stage = next((name for name, artifact in blog['artifacts'].items() if artifact['status'] == 'generating'), None)
+                add('blog', source_id, blog.get('attemptId') or source_id, status,
+                    'running' if running else 'error', '生成博客', source=source_id, stage=stage,
+                    error=(blog.get('error') or {}).get('message'), executing=bool(blog.get('executing')),
+                    retryable=not running, cancellable=running)
+        for item in window['taskInbox']:
+            status = item['status']
+            progress = item.get('parser_progress') or {}
+            add('ingestion', item['item_id'], item['attemptId'], status, item['phase'], item['file_name'],
+                source=item.get('source_id'), stage=progress.get('status'), percent=progress.get('percent'),
+                error=(item.get('topic_error') or item.get('error') or {}).get('message'),
+                cancellable=status == 'processing', retryable=item['phase'] == 'error')
+        for batch in window['taskBatches']:
+            add('batch', batch['batchId'], batch['attemptId'], batch['status'], batch['phase'],
+                '上传任务', error=(batch.get('error') or {}).get('message'), executing=batch['executing'],
+                cancellable=batch['phase'] == 'running', retryable=batch['phase'] == 'error')
         if state is None:
             state_path = self.workspace / 'state.json'
             state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
         for entry in state.get('reading_progress', {}).values():
-            if not entry['deleted'] and entry['status'] in ('pending', 'generating', 'failed', 'interrupted'):
+            if not entry['deleted'] and entry['source_id'] in titles and entry['status'] in ('pending', 'generating', 'failed', 'interrupted'):
                 attempts = [receipt.get('result', {}).get('attempt')
                             for receipt in state.get('progress_requests', {}).values()
                             if receipt.get('input', {}).get('progress_id') == entry['progress_id']]
-                add('progress', entry['progress_id'], entry['status'], '整理阅读记录 · ' + titles.get(entry['source_id'], entry['source_id']), entry.get('error'), {**entry, 'attempts': attempts})
+                running = entry['status'] in ('pending', 'generating')
+                attempt = entry.get('attempt') or next((value for value in reversed(attempts) if value), entry['progress_id'])
+                add('progress', entry['progress_id'], attempt, entry['status'], 'running' if running else 'error',
+                    '整理阅读记录', source=entry['source_id'], error=entry.get('error'),
+                    retryable=not running, cancellable=entry['status'] == 'generating')
         return items
+
+    def _upload_tasks(self, sources):
+        records = {item['item_id']: item for item in self.ingestion.list_inbox()}
+        sources = {item['sourceId']: item.get('shortName') or item['title'] for item in sources}
+        notices = StatusNotifications(self.store)
+
+        def metadata(item):
+            status = item['status']
+            if status in ('processing', 'confirmed'):
+                phase = 'running'
+            elif status in ('awaiting_confirmation', 'status_check_required', 'retry_waiting', 'topic_attachment_pending') or item.get('resubmit_risk'):
+                phase = 'needs_action'
+            else:
+                phase = 'error'
+            return {'attemptId': item.get('request_id') or item['item_id'], 'phase': phase,
+                    'sourceTitle': sources.get(item.get('source_id'))}
+
+        batches = self.batches.task_snapshot(records) if self.batches else []
+        # A retried original can occur in several durable batches. Prefer its current batch.
+        batches = sorted(reversed(batches), key=lambda entry: entry[1]['status'] not in ('confirmed', 'running', 'paused'))
+        owned = set()
+        task_batches = []
+        for attempt, batch in batches:
+            batch = self._batch_notifications(batch, records)
+            children = []
+            for child in batch['items']:
+                item_id = child['itemId']
+                if item_id in owned:
+                    continue
+                owned.add(item_id)
+                if child['status'] in ('completed', 'deleted') or child['dismissed']:
+                    continue
+                item = records[item_id]
+                details = metadata(item)
+                if child['status'] in ('queued', 'processing'):
+                    details['phase'] = 'needs_action' if batch['status'] == 'paused' else 'running'
+                elif details['phase'] != 'needs_action':
+                    details['phase'] = 'error'
+                if child['blog'] and child['blog'].get('attemptId'):
+                    details['attemptId'] = child['blog']['attemptId']
+                children.append({**child, **details})
+            if not children or batch['dismissed']:
+                continue
+            phase = 'running' if batch['status'] in ('confirmed', 'running') else 'needs_action' if batch['status'] == 'paused' or any(child['phase'] == 'needs_action' for child in children) else 'error'
+            task_batches.append({**batch, 'items': children, 'attemptId': attempt, 'phase': phase})
+
+        task_inbox = []
+        for item_id, item in records.items():
+            if item_id in owned or item.get('deleted') or item['status'] == 'completed':
+                continue
+            item = notices.project('inbox', item_id, item)
+            fields = ('item_id', 'file_name', 'status', 'topic_title', 'topic_id', 'source_id',
+                      'document_status', 'topic_status', 'services', 'confirmation', 'dismissed',
+                      'remote_reference', 'parser_backend', 'selection_reason', 'parser_progress',
+                      'resubmit_risk', 'error', 'topic_error')
+            task_inbox.append({**{key: item[key] for key in fields if key in item}, **metadata(item)})
+        return task_inbox, task_batches
 
     def clear_finished_statuses(self, request_id):
         # Batch -> Host is the existing lock order. Capture batch views before
@@ -538,29 +656,44 @@ class HostService:
                 worker = self.reading_workers.get(source_id)
                 if worker and worker.is_alive() and hasattr(self.reading_app.runtime, 'overview_structure'):
                     return {**result, 'status': 'running'}
-            workers = self.opening_workers
-            errors = self.opening_errors
             if result['status'] == 'ready':
                 return result
-            if source_id in workers and workers[source_id].is_alive():
+            if source_id in self.opening_workers and self.opening_workers[source_id].is_alive():
                 return {**result, 'status': 'running'}
+            attempts = self.store.get('openingAttempts') or {}
             if not prepare:
-                return {**result, **({'status': 'failed', 'error': errors[source_id]} if source_id in errors else {})}
+                attempt = attempts.get(source_id)
+                if not attempt or attempt['bundleVersion'] != result['bundleVersion']:
+                    return result
+                if attempt['status'] == 'running':
+                    return {**result, 'status': 'failed', 'error': '导读生成已中断，请重试。'}
+                return {**result, 'status': 'failed', 'error': attempt['error']}
             self._require_backend_admission()
             if self.shutting_down or self.resetting:
                 raise ValueError('工作区正在关闭或重置')
-            errors.pop(source_id, None)
+            attempt = {'attemptId': uuid.uuid4().hex, 'bundleVersion': result['bundleVersion'], 'status': 'running'}
+            self.store.put('openingAttempts', {**attempts, source_id: attempt})
+
             def generate():
+                error = None
                 try:
                     app.generate(source_id, self.reading_app.runtime, stopped=lambda: self.shutting_down or self.resetting)
                 except Exception as exc:
-                    errors[source_id] = str(exc)
+                    error = str(exc)
                 finally:
                     with self.lock:
+                        self.opening_workers.pop(source_id, None)
                         if not self.shutting_down:
+                            current = self.store.get('openingAttempts') or {}
+                            if error is None:
+                                current.pop(source_id, None)
+                            else:
+                                current[source_id] = {**attempt, 'status': 'failed', 'error': error}
+                            self.store.put('openingAttempts', current)
                             self.changed()
-            workers[source_id] = threading.Thread(target=generate, daemon=True)
-            workers[source_id].start()
+            self.opening_workers[source_id] = threading.Thread(target=generate, daemon=True)
+            self.opening_workers[source_id].start()
+            self._publish_snapshot_locked()
             return {**result, 'status': 'running'}
 
     def article_overview(self, source_id):
@@ -906,6 +1039,9 @@ class HostService:
                         *(('batch', batch_id) for batch_id in batch_ids),
                     ])
                     self.changed()
+        else:
+            with self.lock:
+                self._publish_snapshot_locked()
         return item
 
     def inbox_confirm(self, item_id, *, generate_blog=False):
@@ -917,10 +1053,12 @@ class HostService:
         with self.lock:
             self._library_idle()
             if generate_blog:
-                return self._processing_app().confirm(item_id, request_id='ingestion-' + item_id)
-            confirmed = self.ingestion.confirm(
-                item_id, services=self.ingestion.get(item_id)["services"], purpose='register source', scope='ingestion'
-            )
+                confirmed = self._processing_app().confirm(item_id, request_id='ingestion-' + item_id)
+            else:
+                confirmed = self.ingestion.confirm(
+                    item_id, services=self.ingestion.get(item_id)["services"], purpose='register source', scope='ingestion'
+                )
+            self._publish_snapshot_locked()
             return confirmed
 
     def _prepare_uploaded_pdf(self, source_id, *, start_allowed):
@@ -964,14 +1102,17 @@ class HostService:
         batches = self._batch_app().list()
         records = {item['item_id']: item for item in self.ingestion.list_inbox()}
         with self.lock:
-            for batch in batches:
-                worker = self.batch_workers.get(batch['batchId'])
-                batch['executing'] = bool(worker and worker.is_alive())
-                for item in batch['items']:
-                    item['notificationId'] = fingerprint(records.get(item['itemId'], item))
-                batch['items'] = [StatusNotifications(self.store).project('batch-item', item['itemId'], item) for item in batch['items']]
-                batch.update(StatusNotifications(self.store).project('batch', batch['batchId'], batch))
-        return batches
+            return [self._batch_notifications(batch, records) for batch in batches]
+
+    def _batch_notifications(self, batch, records):
+        notices = StatusNotifications(self.store)
+        worker = self.batch_workers.get(batch['batchId'])
+        items = [notices.project('batch-item', item['itemId'], {
+            **item, 'notificationId': fingerprint(records.get(item['itemId'], item)),
+        }) for item in batch['items']]
+        return notices.project('batch', batch['batchId'], {
+            **batch, 'executing': bool(worker and worker.is_alive()), 'items': items,
+        })
 
     def batch_start(self, item_ids, *, request_id, generate_blog=True, prepare_reading=False):
         if type(prepare_reading) is not bool or (prepare_reading and not generate_blog):
@@ -1039,6 +1180,7 @@ class HostService:
             batch_id = batch['batchId']
             worker = self.batch_workers.get(batch_id)
             if (worker and worker.is_alive()) or batch['status'] != 'confirmed':
+                self._publish_snapshot_locked()
                 return batch
 
             def submit_blog(source_id, **kwargs):
@@ -1047,21 +1189,24 @@ class HostService:
                     blog_worker = self.blog_workers.get(source_id)
                 return blog_worker.join if blog_worker else None
 
+            def progress_changed():
+                with self.lock:
+                    self._publish_snapshot_locked()
+
             def run():
                 try:
                     with self.batch_serial:
-                        app.run(batch_id, submit_blog=submit_blog, should_stop=lambda: self.shutting_down)
+                        app.run(batch_id, submit_blog=submit_blog, should_stop=lambda: self.shutting_down,
+                                on_progress=progress_changed)
                 finally:
                     with self.lock:
                         self.batch_workers.pop(batch_id, None)
-                        self.generation += 1
-                        self.page_generation = self.generation
-                        self.stream_messages.clear()
-                        self.condition.notify_all()
+                        self._publish_snapshot_locked()
 
             worker = threading.Thread(target=run, name='focus-batch-' + batch_id[:8], daemon=True)
             self.batch_workers[batch_id] = worker
             worker.start()
+            self._publish_snapshot_locked()
             return batch
 
     def inbox_process(self, item_id, *, request_id):
@@ -1106,14 +1251,12 @@ class HostService:
                 finally:
                     with self.lock:
                         self.ingestion_workers.pop(item_id, None)
-                        self.generation += 1
-                        self.page_generation = self.generation
-                        self.stream_messages.clear()
-                        self.condition.notify_all()
+                        self._publish_snapshot_locked()
 
             worker = threading.Thread(target=run, name='focus-ingestion-' + item_id[:8], daemon=True)
             self.ingestion_workers[item_id] = worker
             worker.start()
+            self._publish_snapshot_locked()
             return self.ingestion.get(item_id)
 
     def inbox_item(self, item_id):
@@ -1138,7 +1281,9 @@ class HostService:
 
     def inbox_cancel(self, item_id):
         with self.lock:
-            return self.ingestion.cancel(item_id)
+            item = self.ingestion.cancel(item_id)
+            self._publish_snapshot_locked()
+            return item
 
     def _library_idle(self):
         self.source_clear.recover()
@@ -1475,6 +1620,12 @@ class HostService:
         deleted = SourceLibrary(self.workspace).deleted_sources()
         if not deleted:
             return
+        opening_attempts = self.store.get('openingAttempts') or {}
+        remaining_openings = {source: attempt for source, attempt in opening_attempts.items() if source not in deleted}
+        if remaining_openings != opening_attempts:
+            self.store.put('openingAttempts', remaining_openings)
+        for source_id in deleted:
+            self.blog_errors.pop(source_id, None)
         before = self.store.state
         state = json.loads(json.dumps(before))
         def references(value):
@@ -1917,6 +2068,7 @@ class HostService:
     def _run(self, content, attachments, receipt, discussion=None, *, selection=None, pending=None):
         backend = None
         temporary = None
+        completed = False
         try:
             with self.lock:
                 if self.stop_requested:
@@ -2025,7 +2177,7 @@ class HostService:
                 if self.state['run']['status'] == 'running':
                     if discussion and discussion['saveIntent'] and (self.discussion_app.result(discussion) or {}).get('status') != 'saved':
                         self.state['noteFeedback'] = {'sourceId': discussion['sourceId'], 'status': 'failed'}
-                    self.state['run']['status'] = 'completed'
+                    completed = True
                     self.state['run']['phaseTiming']['completed'] = int(time.time() * 1000)
         except Exception as exc:
             with self.lock:
@@ -2050,7 +2202,9 @@ class HostService:
                     self.state['run']['runtimeCleanup'] = dict(backend.cleanup)
                 self.state['run']['approvals'] = [
                     approval for approval in self.state['run']['approvals'] if approval.get('status') == 'expired']
-                if self.state['run']['status'] in ACTIVE:
+                if completed:
+                    self.state['run']['status'] = 'completed'
+                elif self.state['run']['status'] in ACTIVE:
                     self.state['run']['status'] = 'interrupted'
                 if self.state['run'].get('progress'):
                     self.state['run']['progress']['finishedAt'] = int(time.time() * 1000)
@@ -2330,7 +2484,9 @@ class HostService:
                 raise ValueError('Invalid approval decision')
             # Claim once; double clicks and stale tabs cannot answer again.
             waiter, _ = self.pending.pop(approval['id'])
+            approval['status'] = 'answered'
             waiter.put(payload if approval['kind'] != 'continue' else payload.get('decision') == 'accept')
+            self.changed()
             return self.snapshot()
 
     def _interrupt(self):

@@ -22,7 +22,7 @@ type AnswerLocation = { messageId: string; evidenceId: string; origin?: HTMLButt
 
 type FullscreenControls = { fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void };
 
-export function ConversationReader({ host, visible = true, fontSize = "standard", readingSession, evidenceNavigation, ...fullscreenControls }: { host: ReaderHost; visible?: boolean; fontSize?: string; readingSession?: ReadingSession; evidenceNavigation?: EvidenceNavigation } & FullscreenControls) {
+export function ConversationReader({ host, visible = true, fontSize = "standard", readingSession, evidenceNavigation, approvalManaged, ...fullscreenControls }: { host: ReaderHost; visible?: boolean; fontSize?: string; readingSession?: ReadingSession; evidenceNavigation?: EvidenceNavigation; approvalManaged?: boolean } & FullscreenControls) {
   const [localView, setView] = useState<ReadingWindow | null>(null), [error, setError] = useState("");
   const managed = !!readingSession;
   const view = readingSession ? readingSession.view : localView;
@@ -37,7 +37,7 @@ export function ConversationReader({ host, visible = true, fontSize = "standard"
   }, [host, acceptView, managed]);
   if (!view) return <div className="conversation-reader" role="status" hidden={!visible}>{error || "加载中…"}</div>;
   if (!view.source.sourceId) return <div className="conversation-reader" hidden={!visible} />;
-  return <AssetInstanceContext.Provider value={view.workspace?.instanceId}><ReadingSurface key={`${view.workspace?.instanceId}:${view.source.sourceId}:${view.sourceBundleVersion ?? ""}:${view.sourceGeneration ?? view.resetVersion ?? 0}:${readingSession?.generation ?? 0}`} {...fullscreenControls} host={host} view={view} setView={acceptView} readingSession={readingSession} evidenceNavigation={evidenceNavigation} visible={visible} fontSize={fontSize} /></AssetInstanceContext.Provider>;
+  return <AssetInstanceContext.Provider value={view.workspace?.instanceId}><ReadingSurface key={`${view.workspace?.instanceId}:${view.source.sourceId}:${view.sourceBundleVersion ?? ""}:${view.sourceGeneration ?? view.resetVersion ?? 0}:${readingSession?.generation ?? 0}`} {...fullscreenControls} host={host} view={view} setView={acceptView} readingSession={readingSession} evidenceNavigation={evidenceNavigation} approvalManaged={approvalManaged} visible={visible} fontSize={fontSize} /></AssetInstanceContext.Provider>;
 }
 
 interface ComposerHandle {
@@ -50,13 +50,14 @@ interface ComposerProps {
   running: boolean;
   sending: boolean;
   agent: ReadingWindow["agent"];
+  approvalManaged?: boolean;
   onSend: (content: string) => Promise<boolean>;
   onStop: () => void;
   onApprove: (input: Parameters<NonNullable<ReaderHost["approve"]>>[0]) => Promise<boolean>;
 }
 
 const ConversationComposer = memo(forwardRef<ComposerHandle, ComposerProps>(function ConversationComposer(
-  { draftKey, running, sending, agent, onSend, onStop, onApprove }, ref,
+  { draftKey, running, sending, agent, approvalManaged, onSend, onStop, onApprove }, ref,
 ) {
   const [draft, setDraft] = useState(() => safeRead(draftKey) ?? "");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -102,9 +103,10 @@ const ConversationComposer = memo(forwardRef<ComposerHandle, ComposerProps>(func
     }
   }
 
+  const sharedApproval = approvalManaged && agent?.run?.status === "approval" && agent.run.approvals.some(approval => approval.status !== "expired");
   return <form className="source-composer focus-composer" onSubmit={e => { e.preventDefault(); void submit(); }}>
-    {agent && (running || !!agent.run?.error || agent.run?.approvals.some(approval => approval.status === "expired")) &&
-      <AgentControls agent={agent} onStop={onStop} onAnswer={onApprove} />}
+    {agent && !sharedApproval && (running || !!agent.run?.error) &&
+      <AgentControls agent={agent} showApproval={!approvalManaged} showStop={false} onStop={onStop} onAnswer={onApprove} />}
     <textarea
       ref={textareaRef}
       rows={1}
@@ -115,7 +117,7 @@ const ConversationComposer = memo(forwardRef<ComposerHandle, ComposerProps>(func
       onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void submit(); } }}
     />
     <div className="focus-composer__actions">
-      {running
+      {running && !sharedApproval
         ? <button type="button" className="focus-primary focus-composer__send" onClick={onStop} aria-label="停止回复" title="停止回复"><StopSquare /></button>
         : <button type="submit" className="focus-primary focus-composer__send" disabled={sending || running || !draft.trim()} aria-label="发送" title="发送"><ArrowUp /></button>}
     </div>
@@ -173,7 +175,7 @@ function groupIntoTurns(messages: readonly ReaderMessage[]): TurnGroup[] {
   return turns;
 }
 
-function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, onFullscreenChange, readingSession, evidenceNavigation }: { host: ReaderHost; view: ReadingWindow; setView: (v: ReadingWindow) => void; visible: boolean; fontSize: string; readingSession?: ReadingSession; evidenceNavigation?: EvidenceNavigation } & FullscreenControls) {
+function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, onFullscreenChange, readingSession, evidenceNavigation, approvalManaged }: { host: ReaderHost; view: ReadingWindow; setView: (v: ReadingWindow) => void; visible: boolean; fontSize: string; readingSession?: ReadingSession; evidenceNavigation?: EvidenceNavigation; approvalManaged?: boolean } & FullscreenControls) {
   const sourceId = view.source.sourceId!;
   const selectionGeneration = readingSession?.generation;
   const isCurrentSelection = readingSession?.isCurrent;
@@ -870,6 +872,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
             running={running}
             sending={sending}
             agent={view.agent}
+            approvalManaged={approvalManaged}
             onSend={sendMessage}
             onStop={handleStop}
             onApprove={handleApprove}

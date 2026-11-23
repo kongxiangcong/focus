@@ -104,7 +104,7 @@ class DiscussionTests(unittest.TestCase):
         self.assertEqual(1, len(notes))
         self.assertEqual('An example and conclusion.', notes[0]['content'])
         self.assertIsNone(notes[0]['placement'])
-        self.assertEqual('completed', self.host.snapshot()['agent']['run']['status'])
+        self.assertIsNone(self.host.snapshot()['agent']['run'])
         self.host.start({'requestId': 'request-1234', 'sourceId': 'fixture-paper',
                          'sessionId': selected['sessionId'], 'receipt': None, 'content': '请记下来'})
         self.assertEqual(1, len(self.host.snapshot()['sourceNotes']))
@@ -306,7 +306,8 @@ class DiscussionTests(unittest.TestCase):
         self.assertNotIn('answerSubmitted', running['phaseTiming'])
         release.set()
         self.host.worker.join(6)
-        finished = self.host.snapshot()['agent']['run']
+        self.assertIsNone(self.host.snapshot()['agent']['run'])
+        finished = self.host.execution_log(running['runId'])
         self.assertEqual('completed', finished['status'])
         timing = finished['phaseTiming']
         self.assertLessEqual(timing['summaryStart'], timing['summaryEnd'])
@@ -398,14 +399,14 @@ class DiscussionTests(unittest.TestCase):
         self.host.start({'requestId': 'summary-reuse-first', 'sourceId': 'fixture-paper',
                          'sessionId': selected['sessionId'], 'receipt': None, 'content': '解释'})
         self.host.worker.join(5)
-        self.assertEqual('completed', self.host.snapshot()['agent']['run']['status'])
+        self.assertIsNone(self.host.snapshot()['agent']['run'])
         self.assertEqual(1, len(calls))
         self.assertIsNotNone(self.host.state['discussions'][discussion_id]['summaryThrough'])
         selected = self.host.select_discussion_source('fixture-paper')
         self.host.start({'requestId': 'summary-reuse-second', 'sourceId': 'fixture-paper',
                          'sessionId': selected['sessionId'], 'receipt': None, 'content': '再解释'})
         self.host.worker.join(5)
-        self.assertEqual('completed', self.host.snapshot()['agent']['run']['status'])
+        self.assertIsNone(self.host.snapshot()['agent']['run'])
         self.assertEqual(1, len(calls))
 
 

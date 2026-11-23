@@ -315,7 +315,7 @@ class SharedWorkflowTests(unittest.TestCase):
                              'sourceId': 'fixture-paper', 'receipt': None, 'content': '请记下来'})
             self.host.worker.join(10)
             snapshot = self.host.snapshot()
-            self.assertEqual('completed', snapshot['agent']['run']['status'], snapshot['agent']['run'])
+            self.assertIsNone(snapshot['agent']['run'])
             self.assertEqual('共同讨论的例子和结论。', snapshot['sourceNotes'][0]['content'])
             self.assertTrue(AcpDiscussion.replies[0]['isError'])
             self.assertFalse(AcpDiscussion.replies[1]['isError'])
@@ -339,7 +339,7 @@ class SharedWorkflowTests(unittest.TestCase):
                 answer = {'answers': {'topic': {'answers': ['方法']}}} if kind == 'input' else {'decision': 'decline'}
                 self.host.approve({'approvalId': approval['id'], **answer})
             self.host.worker.join(5)
-            self.assertEqual('completed', self.host.snapshot()['agent']['run']['status'])
+            self.assertIsNone(self.host.snapshot()['agent']['run'])
             self.assertIn('decline', AcpInteraction.replies[-1]['content'][0]['text'])
 
     def test_delayed_input_answer_is_not_lost_while_host_still_displays_it(self):
@@ -363,7 +363,7 @@ class SharedWorkflowTests(unittest.TestCase):
                 self.host.approve({'approvalId': approval['id'], **(
                     {'answers': {'topic': {'answers': ['方法']}}} if kind == 'input' else {'decision': 'decline'})})
             self.host.worker.join(5)
-            self.assertEqual('completed', self.host.snapshot()['agent']['run']['status'])
+            self.assertIsNone(self.host.snapshot()['agent']['run'])
             self.assertTrue(all(not r['isError'] for r in AcpInteraction.replies), AcpInteraction.replies)
 
     def test_discussion_restores_visible_history_and_context_after_host_restart(self):
@@ -428,7 +428,7 @@ class SharedWorkflowTests(unittest.TestCase):
                 self.host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': prompt})
                 self.host.worker.join(5)
                 snapshot = self.host.snapshot()
-                self.assertEqual('completed', snapshot['agent']['run']['status'])
+                self.assertIsNone(snapshot['agent']['run'])
                 self.assertIn('量子香蕉', snapshot['conversation'][-1]['content'])
                 self.assertEqual(selected['discussionId'], snapshot['discussionId'])
                 self.assertEqual([], snapshot['sourceNotes'])

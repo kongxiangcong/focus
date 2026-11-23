@@ -85,8 +85,8 @@ class SourceReadingHTTPTests(unittest.TestCase):
         while True:
             window = self.value(port, '/reader/window')
             run = window['agent']['run']
-            if run['status'] != 'running' or time.monotonic() >= deadline:
-                self.assertEqual('completed', run['status'], run)
+            if run is None or run['status'] != 'running' or time.monotonic() >= deadline:
+                self.assertIsNone(run)
                 return window
             time.sleep(.01)
 

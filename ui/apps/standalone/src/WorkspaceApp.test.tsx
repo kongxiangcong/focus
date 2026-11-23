@@ -2,10 +2,14 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readerSuccess, type BlogArtifactName, type BlogStatus, type IngestionItem, type ProcessingBatch, type ReaderHostResult, type ReaderHost, type ReadingDocument, type ReadingOpening, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
+import { readerSuccess, type ActiveStatusItem, type BlogArtifactName, type BlogStatus, type IngestionItem, type ProcessingBatch, type ReaderHostResult, type ReaderHost, type ReadingDocument, type ReadingOpening, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
 import { WorkspaceApp } from "./WorkspaceApp";
 const empty: ReadingWindow = { status: "empty", current: null, history: [], conversation: [], source: { sourceId: "", title: "", topicId: null }, sessionId: "s1",
   agent: { run: null, catalog: { sources: [], topics: [] }, backend: "codex", backends: [{ id: "codex", label: "Codex" }, { id: "deepseek", label: "DeepSeek" }] } };
+function workItem(value: Pick<ActiveStatusItem, "kind" | "targetId" | "status" | "label" | "error">): ActiveStatusItem {
+  const running = value.status === "running";
+  return { ...value, id: `${value.kind}:${value.targetId}:test-attempt`, attemptId: "test-attempt", phase: running ? "running" : "error", cancellable: running };
+}
 function blogStatus(overrides: Partial<BlogStatus> = {}, artifacts: Partial<Record<BlogArtifactName, { status: BlogStatus["artifacts"]["html"]["status"]; updatedAt: string | null }>> = {}): BlogStatus {
   return {
     sourceId: "a-paper", generated: true, methodVersion: "article-blog-v1", runStatus: "completed",
@@ -569,8 +573,8 @@ it.each(["existing", "new", "unclassified"] as const)("uploads with a %s topic f
 it('clears terminal statuses while an active chat continues, and keeps source management available later', async () => {
   const failed: IngestionItem = { itemId: 'failed', fileName: 'failed.pdf', status: 'failed', topicId: null, topicTitle: null, sourceId: null, documentStatus: 'failed', topicStatus: 'not_started' };
   const initial: ReadingWindow = { ...empty, workItems: [
-    { kind: 'chat', targetId: 'chat-active', status: 'running', label: '正在回答问题' },
-    { kind: 'blog', targetId: 'a-paper', status: 'failed', label: '旧博客失败', error: 'old failure' },
+    workItem({ kind: 'chat', targetId: 'chat-active', status: 'running', label: '正在回答问题' }),
+    workItem({ kind: 'blog', targetId: 'a-paper', status: 'failed', label: '旧博客失败', error: 'old failure' }),
   ], agent: { ...empty.agent!, run: { runId: 'chat-active', status: 'running', approvals: [], activity: [], error: null } } };
   const { host } = setup([failed], initial);
   vi.mocked(host.clearFinishedStatuses!).mockImplementation(async () => {
@@ -624,8 +628,8 @@ it("falls back to the default reading font for an unknown saved value", async ()
 
 it("T17/T18 routes expose all work and Stop targets only the selected preparation", async () => {
   const { host } = setup([], { ...empty, workItems: [
-    { kind: "preparation", targetId: "a-paper", status: "running", label: "准备 A" },
-    { kind: "blog", targetId: "b-paper", status: "running", label: "生成 B" },
+    workItem({ kind: "preparation", targetId: "a-paper", status: "running", label: "准备 A" }),
+    workItem({ kind: "blog", targetId: "b-paper", status: "running", label: "生成 B" }),
   ] });
   host.cancelPreparation = vi.fn(async () => readerSuccess(empty));
   host.stop = vi.fn(async () => readerSuccess(empty));
@@ -670,11 +674,11 @@ it("T19 disconnection is never presented as idle and keeps the last known task",
 });
 
 
-it("keeps work and upload history hidden until the shared disclosure is opened, then hides both again", async () => {
+it("keeps the shared task box collapsed and hides successful uploads", async () => {
   const item: IngestionItem = { itemId: "pending-1", fileName: "pending.pdf", status: "processing", topicTitle: null, topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started" };
   const { host } = setup([item], { ...empty, workItems: [
-    { kind: "ingestion", targetId: "pending-1", status: "running", label: "解析 pending.pdf" },
-    { kind: "blog", targetId: "b-paper", status: "running", label: "生成 B" },
+    workItem({ kind: "ingestion", targetId: "pending-1", status: "running", label: "解析 pending.pdf" }),
+    workItem({ kind: "blog", targetId: "b-paper", status: "running", label: "生成 B" }),
   ] });
   vi.mocked(host.listBatches!).mockResolvedValue(readerSuccess([{ batchId: "done", topicId: null, status: "completed", items: [], error: null }]));
   cleanup(); render(<WorkspaceApp host={host} />);
@@ -689,12 +693,51 @@ it("keeps work and upload history hidden until the shared disclosure is opened, 
   expect(screen.getByLabelText("任务框")).toHaveTextContent("生成 B");
   expect(within(screen.getByLabelText("任务框")).getByText("pending.pdf")).toBeVisible();
   expect(screen.queryByText("解析 pending.pdf · 进行中")).not.toBeInTheDocument();
-  expect(screen.getByText("已完成任务").closest("details")).not.toHaveAttribute("open");
-  expect(screen.getByText("未关联专题 · 完成")).toBeInTheDocument();
+  expect(screen.queryByText("已完成任务")).not.toBeInTheDocument();
+  expect(screen.queryByText("未关联专题 · 完成")).not.toBeInTheDocument();
   fireEvent.click(toggle);
   expect(screen.queryByRole("region", { name: "任务框" })).not.toBeInTheDocument();
   expect(document.getElementById("workspace-tasks")).toHaveAttribute("inert");
   expect(document.getElementById("workspace-tasks")).toHaveAttribute("aria-hidden", "true");
+});
+
+it("removes successful upload rows on the first new snapshot with cached lists", async () => {
+  const pending: IngestionItem = { itemId: "stale-item", fileName: "stale.pdf", status: "processing", topicTitle: null, topicId: null,
+    sourceId: null, documentStatus: "not_started", topicStatus: "not_started" };
+  let emit!: (result: ReaderHostResult<ReadingWindow>) => void;
+  setup([pending], { ...empty, revision: 1, taskInbox: [pending], taskBatches: [] }, {
+    subscribe: listener => { emit = listener; return () => undefined; },
+  });
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "任务详情", exact: true }));
+  expect(within(screen.getByRole("region", { name: "任务框" })).getByText("stale.pdf")).toBeVisible();
+  await act(async () => emit(readerSuccess({ ...empty, revision: 2, taskInbox: [], taskBatches: [], workItems: [] })));
+  expect(screen.queryByText("stale.pdf")).not.toBeInTheDocument();
+  expect(screen.getByText("当前无工作")).toBeInTheDocument();
+});
+
+it("provides one approval on each route and removes it when the request expires", async () => {
+  const run = { runId: "run-approval", status: "approval" as const, error: null, activity: [], approvals: [{
+    id: "unique-approval", kind: "approval" as const, title: "读取授权", detail: "", choices: ["accept", "decline"], questions: [],
+  }] };
+  const awaiting: ReadingWindow = { ...empty, revision: 1, agent: { ...empty.agent!, run } };
+  let emit!: (result: ReaderHostResult<ReadingWindow>) => void;
+  const { host } = setup([], awaiting, {
+    approve: vi.fn(async () => readerSuccess(awaiting)),
+    subscribe: listener => { emit = listener; return () => undefined; },
+  });
+  await screen.findByRole("button", { name: "允许本次" });
+  fireEvent.click(screen.getByRole("link", { name: "阅读" }));
+  expect(screen.getAllByRole("button", { name: "允许本次" })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "拒绝" }));
+  await waitFor(() => expect(host.approve).toHaveBeenCalledWith({ approvalId: "unique-approval", decision: "decline" }));
+  fireEvent.click(screen.getByRole("link", { name: "设置" }));
+  expect(screen.getAllByRole("button", { name: "允许本次" })).toHaveLength(1);
+  await act(async () => emit(readerSuccess({ ...awaiting, revision: 2, agent: { ...empty.agent!, run: {
+    ...run, status: "failed", error: "运行时断开", approvals: [{ ...run.approvals[0], status: "expired" }],
+  } } })));
+  expect(screen.queryByRole("button", { name: "允许本次" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "拒绝" })).not.toBeInTheDocument();
 });
 
 it("uses a modal blog viewer and restores the workspace on Escape", async () => {

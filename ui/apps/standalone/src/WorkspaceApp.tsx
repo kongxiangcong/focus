@@ -3,7 +3,7 @@ import { Fragment } from "react";
 import { NavigationResize } from "./NavigationResize";
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
-import { FocusReader, AgentControls, TaskProgress, readingFontSizes, useEvidenceNavigation, BookOpen, ChatBubble, DocText, type ReadingMode } from "@focus/reader-ui";
+import { FocusReader, AgentControls, readingFontSizes, useEvidenceNavigation, BookOpen, ChatBubble, DocText, type ReadingMode } from "@focus/reader-ui";
 import { BackendSetupPanel } from "./BackendSetupPanel";
 import { WorkspaceSelection } from './WorkspaceSelection';
 import { UploadTopicPicker } from "./UploadTopicPicker";
@@ -149,6 +149,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const seenPreparation = useRef<Record<string, string>>({});
   const workPollKey = `${connectionLost}:${view?.configuration?.busy}:${(view?.workItems ?? []).map(item => `${item.kind}:${item.targetId}:${item.status}`).join("|")}`;
   const active = !!view?.agent?.run && ["running", "approval", "stopping"].includes(view.agent.run.status);
+  const approval = view?.agent?.run?.status === "approval" && view.agent.run.approvals.some(item => item.status !== "expired") ? view.agent : null;
 
   const actionIds = useRef<Record<string, string>>({});
   async function identified<T>(key: string, task: (requestId: string) => Promise<ReaderHostResult<T>>) {
@@ -582,10 +583,19 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   };
   const resumableStatuses: readonly IngestionItem["status"][] = ["retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "cancelled", "interrupted"];
   function continueInbox(item: IngestionItem) { if (host.continueIngestion) void ingest("继续", () => host.continueIngestion!(item.itemId, createReaderId())); }
-  const runningStatuses = ["running", "approval", "stopping", "processing", "confirmed", "pending", "generating"];
   const work = (view?.workItems ?? []).filter(item => !item.dismissed && (item.kind !== "preparation" || !preparationHidden(item.targetId)));
-  const taskBatches = batches.filter(batch => !batch.dismissed).map(batch => ({ ...batch, items: batch.items.filter(item => !item.dismissed) }));
-  const taskInbox = inbox.filter(item => !item.dismissed && !taskBatches.some(batch => batch.items.some(entry => entry.itemId === item.itemId)));
+  const uploadBatches = view?.taskBatches ?? batches;
+  const taskBatches = uploadBatches.filter(batch => !batch.dismissed).map(batch => ({ ...batch,
+    items: batch.items.filter(item => !item.dismissed && item.status !== "completed" && item.status !== "deleted"),
+  })).filter(batch => batch.items.length > 0);
+  const taskInbox = (view?.taskInbox ?? inbox).filter(item => !item.dismissed && item.status !== "completed" &&
+    (view?.taskInbox !== undefined || !uploadBatches.some(batch => batch.items.some(entry => entry.itemId === item.itemId))));
+  const taskWork = work.filter(item => {
+    if (item.kind === "batch") return false;
+    if (item.kind !== "ingestion") return true;
+    return view?.taskInbox === undefined && !inbox.some(entry => entry.itemId === item.targetId) &&
+      !uploadBatches.some(batch => batch.items.some(entry => entry.itemId === item.targetId));
+  });
   useEffect(() => {
     if (!pendingTaskFocus || !taskDetails || uploadOpen || busy) return;
     const rows = Array.from(taskFrame.current?.querySelectorAll<HTMLElement>("[data-task-item-id]") ?? [])
@@ -596,15 +606,16 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     row.scrollIntoView({ block: "nearest" });
     (row.querySelector<HTMLElement>("[data-task-retry]:not(:disabled), button:not(:disabled)") ?? row).focus({ preventScroll: true });
     setPendingTaskFocus(null);
-  }, [pendingTaskFocus, taskDetails, uploadOpen, busy, inbox, batches]);
+  }, [pendingTaskFocus, taskDetails, uploadOpen, busy, view?.taskInbox, view?.taskBatches, inbox, batches]);
 
   async function clearStatuses() {
     if (!host.clearFinishedStatuses || locked.current) return;
     await operate('全部清空', () => identified('clear-statuses', id => host.clearFinishedStatuses!(id)));
   }
-  const runningWork = work.filter(w => runningStatuses.includes(w.status));
-  const attention = work.filter(w => !runningStatuses.includes(w.status));
-  const primaryWork = runningWork.find(w => w.status === "approval") ?? runningWork.find(w => w.kind === "ingestion") ?? runningWork[0];
+  const runningWork = work.filter(w => w.phase === "running" || w.phase === "approval");
+  const attention = work.filter(w => w.phase === "needs_action" || w.phase === "error");
+  const primaryWork = runningWork.find(w => w.phase === "approval") ?? runningWork.find(w => w.kind === "ingestion") ?? runningWork[0];
+  const workLabel = (item: (typeof work)[number]) => item.sourceTitle ? `${item.label} · ${item.sourceTitle}` : item.label;
   async function stopWork(item: (typeof work)[number]) {
     if (item.kind === "chat" && host.stop) await operate("停止问答", () => host.stop!());
     if (item.kind === "preparation" && host.cancelPreparation) await operate("取消准备", () => host.cancelPreparation!(item.targetId));
@@ -615,6 +626,13 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       if (batch) await controlBatch(batch.batchId, "cancel-item", item.targetId);
       else if (host.cancelIngestion) await ingest("取消解析", () => host.cancelIngestion!(item.targetId));
     }
+  }
+  async function retryOpening(sourceId: string) {
+    if (!host.getSourceOpening) return;
+    await operate("生成开篇导读", async () => {
+      const result = await host.getSourceOpening!(sourceId, true);
+      return result.ok ? host.getReadingWindow() : result;
+    });
   }
   useEffect(() => {
     if (!readingFullscreen) return;
@@ -664,7 +682,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         {route === "/reading" ? <div className="reading-library-picker"><div className="reading-mode-picker" data-branch-open={readingBranchOpen} ref={setPickerSlot} /><span className="workspace-reading-title" title={view?.source.title}>{view?.source.title || "阅读"}</span></div> : route === "/library" ? <LibraryToolbar {...{ selectedTopic, topic, filtered, topics, unfiledCount, setTopic, libraryView, setLibraryView, setMoreSource, query, setQuery }} /> : <h1>设置</h1>}
         <div className="workspace-header-actions">
           <section className="workspace-status" aria-label="当前工作">
-            <span className="workspace-sr-only" role="status">{connectionLost ? "连接中断，正在恢复" : !view ? "正在连接" : primaryWork ? `${primaryWork.label} · ${runningWork.length} 项进行中` : "当前无工作"}{attention.length > 0 ? ` · ${attention.length} 项需查看` : ""}</span>
+            <span className="workspace-sr-only" role="status">{connectionLost ? "连接中断，正在恢复" : !view ? "正在连接" : primaryWork ? `${workLabel(primaryWork)} · ${runningWork.length} 项进行中` : attention.length ? `${attention.length} 项需查看` : "当前无工作"}{primaryWork && attention.length > 0 ? ` · ${attention.length} 项需查看` : ""}</span>
             <button className="workspace-task-toggle" aria-label="任务详情" aria-controls="workspace-tasks" aria-expanded={taskDetails} onClick={() => setTaskDetails(!taskDetails)}>
               <span className="workspace-status-dot" data-active={runningWork.length > 0} data-attention={connectionLost || attention.length > 0} aria-hidden="true" />
               <span>{connectionLost ? "连接中断" : !view ? "连接中" : runningWork.length ? `${runningWork.length} 项进行中` : attention.length ? `${attention.length} 项需查看` : "任务"}</span>
@@ -676,23 +694,26 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       </div>
       {(taskDetails || taskVisited) && <div ref={taskFrame} className="workspace-task-frame" id="workspace-tasks" role="region" aria-label="任务框" data-open={taskDetails} aria-hidden={!taskDetails} inert={!taskDetails} onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setTaskDetails(false); document.querySelector<HTMLButtonElement>(".workspace-task-toggle")?.focus(); } }}>
         <div className="workspace-task-actions"><span>任务状态</span><button disabled={!!busy || !host.clearFinishedStatuses} onClick={() => void clearStatuses()}>全部清空</button></div>
-        <small>清空已结束状态，运行中及等待开始的任务保留。</small>
-        {work.length === 0 && taskBatches.length === 0 && taskInbox.length === 0 && <p>没有进行中或待处理的任务。</p>}
-        {work.filter(item => item.kind !== "ingestion" || (!inbox.some(entry => entry.itemId === item.targetId) && !batches.some(batch => batch.items.some(entry => entry.itemId === item.targetId)))).map(item => <div key={`${item.kind}:${item.targetId}`}><span>{item.label}{item.kind === "preparation" && preparationFailed(item.targetId) ? "" : ` · ${runningStatuses.includes(item.status) ? "进行中" : "待处理"}`}</span>
+        <small>清空已结束的失败提示，保留仍需操作的任务。</small>
+        {taskWork.length === 0 && taskBatches.length === 0 && taskInbox.length === 0 && <p>没有进行中或待处理的任务。</p>}
+        {taskWork.map(item => <div key={item.id}><span>{workLabel(item)}{item.kind === "preparation" && preparationFailed(item.targetId) ? "" : ` · ${{ running: "进行中", approval: "待确认", needs_action: "待处理", error: "待查看" }[item.phase]}`}</span>
+          {item.stage && <small>{item.kind === "preparation" ? preparationSteps[item.stage] : item.kind === "blog" ? (item.stage === "html" ? "生成 HTML" : "生成带读博客") : item.stage}</small>}
+          {typeof item.percent === "number" && <progress aria-label={workLabel(item)} max={100} value={item.percent} />}
           {item.error && (item.kind !== "preparation" || !view?.preparations?.[item.targetId]) && <p role="alert">{item.error}</p>}
-          {runningStatuses.includes(item.status) && item.status !== "pending" && <button disabled={!!busy} onClick={() => void stopWork(item)}>{item.kind === "preparation" ? "取消准备" : "停止此任务"}</button>}
+          {item.cancellable && item.phase !== "approval" && <button disabled={!!busy} onClick={() => void stopWork(item)}>{item.kind === "preparation" ? "取消准备" : "停止此任务"}</button>}
           {item.kind === "preparation" && preparationFailed(item.targetId) && preparationNotice(item.targetId)}
-          {!runningStatuses.includes(item.status) && item.kind === "progress" && host.retryReadingProgress && <button disabled={!!busy} onClick={() => void operate("补记", () => identified(`progress:${item.targetId}`, id => host.retryReadingProgress!(item.targetId, id)))}>补记</button>}
-          {!runningStatuses.includes(item.status) && (item.kind === "ingestion" || item.kind === "blog") && <button onClick={() => navigate("/library")}>查看并恢复</button>}
-          {!runningStatuses.includes(item.status) && item.kind === "chat" && <button onClick={() => navigate("/reading")}>查看并重新提问</button>}
+          {item.retryable && item.kind === "progress" && host.retryReadingProgress && <button disabled={!!busy} onClick={() => void operate("补记", () => identified(`progress:${item.targetId}`, id => host.retryReadingProgress!(item.targetId, id)))}>补记</button>}
+          {item.retryable && item.kind === "opening" && host.getSourceOpening && <button disabled={!!busy} onClick={() => void retryOpening(item.targetId)}>重试导读</button>}
+          {item.retryable && (item.kind === "ingestion" || item.kind === "blog") && <button onClick={() => navigate("/library")}>查看并恢复</button>}
+          {item.retryable && item.kind === "chat" && <button onClick={() => item.sourceId ? void enterReading(item.sourceId) : navigate("/reading")}>查看并重新提问</button>}
         </div>)}
-      {taskBatches.length > 0 && <section className="library-inbox" aria-label="处理任务"><h2>上传任务</h2>{taskBatches.map(batch => <details key={batch.batchId}><summary>{batch.status === "completed" ? "已完成任务" : "当前任务 / 待处理"}</summary><article>
+      {taskBatches.length > 0 && <section className="library-inbox" aria-label="处理任务"><h2>上传任务</h2>{taskBatches.map(batch => <details key={batch.batchId}><summary>当前任务 / 待处理</summary><article>
         <h3>{topics.find(t => t.topicId === batch.topicId)?.title ?? batch.topicId ?? '未关联专题'} · {batchStatusText[batch.status]}</h3>
         {["confirmed", "running"].includes(batch.status) && <button disabled={!!busy || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "stop")}>停止整批</button>}
         {["paused", "partial"].includes(batch.status) && <button disabled={!!busy || batch.executing || !host.controlBatch} onClick={() => void controlBatch(batch.batchId, "continue")}>继续剩余工作</button>}
         {batch.error && <p role="status">{batch.error.message}</p>}
         {batch.items.map(item => <div className="library-inbox-item" data-task-item-id={item.itemId} tabIndex={-1} data-status={item.ingestionStatus === "failed" ? "failed" : item.status} key={item.itemId}>
-          <strong>{item.fileName}</strong><span>{itemStatusText[item.status]}</span>
+          <strong>{item.fileName}</strong><span>{itemStatusText[item.status]}</span>{item.sourceTitle && <small>{item.sourceTitle}</small>}
           <small>{item.status === "deleted" ? "原处理授权已失效" : item.ingestionStatus === "completed" ? "解析完成" : "解析：" + (statusText[item.ingestionStatus as IngestionItem["status"]] ?? "待处理")}{item.blog ? " · 博客：" + ({ running: "生成中", completed: "已完成", failed: "失败", cancelled: "已取消", interrupted: "已中断" }[item.blog.runStatus ?? ""] ?? "待生成") : ""}</small>
           {item.parserBackend && <small>{item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"}{item.selectionReason ? ` · ${item.selectionReason}` : ""}{item.parserProgress?.status ? ` · ${item.parserProgress.status === "queued" ? "排队中" : "解析中"}` : ""}{typeof item.parserProgress?.percent === "number" ? ` · ${Math.round(item.parserProgress.percent)}%` : ""}</small>}
           {item.error && <p>{item.error.message}</p>}
@@ -707,7 +728,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         </div>)}
       </article></details>)}</section>}
       {taskInbox.length > 0 && <section className="library-inbox" aria-label="Inbox"><div className="library-inbox-heading"><h2>单项上传</h2><button disabled={!!busy} onClick={() => void refresh()}>刷新状态</button></div>{taskInbox.map(item => <article key={item.itemId} className="library-inbox-item" data-task-item-id={item.itemId} tabIndex={-1} data-status={item.status}>
-        <div><strong>{item.fileName}</strong><span>{statusText[item.status]}</span><small>{item.topicTitle ?? topics.find(t => t.topicId === item.topicId)?.title ?? "不关联专题"}</small></div>
+        <div><strong>{item.fileName}</strong><span>{statusText[item.status]}</span>{item.sourceTitle && <small>{item.sourceTitle}</small>}<small>{item.topicTitle ?? topics.find(t => t.topicId === item.topicId)?.title ?? "不关联专题"}</small></div>
         {item.parserBackend && <p role="status">{item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"}{item.selectionReason ? ` · ${item.selectionReason}` : ""}{item.parserProgress?.status ? ` · ${item.parserProgress.status === "queued" ? "排队中" : item.parserProgress.status === "running" ? "解析中" : item.parserProgress.status}` : ""}{typeof item.parserProgress?.percent === "number" ? ` · ${Math.round(item.parserProgress.percent)}%` : ""}</p>}
         {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>PDF 由服务器自动选择本地 MinerU 或远端 MinerU API。HTML 和 Markdown 在本地解析。</p>
           <button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>{ingestionFormat(item.fileName) === "Markdown" ? "仅解析入库" : "开始解析并生成博客"}</button></div>}
@@ -727,10 +748,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       </article>)}</section>}
       {managementBusy && <p role="status">部分操作暂不可用：当前任务正在使用材料。可在任务详情停止对应任务后重试。</p>}
       </div>}
-      {view?.agent?.run && (view.agent.run.status === "approval" || view.agent.run.approvals.some(approval => approval.status === "expired")) &&
-        <AgentControls agent={view.agent} onStop={() => host.stop && void host.stop().then(result => { if (result.ok) acceptView(result.value); })} onAnswer={async input => {
+      {approval && <div className="workspace-approval">
+        <AgentControls agent={approval} showStop={!!host.stop} onStop={() => host.stop && void host.stop().then(result => { if (result.ok) acceptView(result.value); })} onAnswer={async input => {
         const result = await host.approve?.(input); if (result?.ok) { acceptView(result.value); return true; } return false;
-      }} />}
+      }} /></div>}
       {!uploadOpen && error && <div className="workspace-error" role="alert">{error}<button onClick={() => { setError(""); if (retryAction) retryAction(); else void refresh(); }}>{retryAction ? "重试此操作" : "刷新状态"}</button></div>}
       {!error && (notice || readyNotice) && <div className="workspace-notice" role="status">{readyNotice || notice}<button onClick={() => { setNotice(""); setReadyNotice(""); }}>关闭</button></div>}
     </header>
@@ -781,7 +802,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
             </div>
           </div>;
         } : undefined}
-        host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"}
+        host={host} approvalManaged appearance="mist" fontSize={fontSize} visible={route === "/reading"}
         evidenceNavigation={unifiedReading ? evidenceNavigation : undefined}
         readingSession={unifiedReading ? {
           view: view?.source.sourceId === selection.current.sourceId ? view : null,

@@ -7,7 +7,7 @@ try {
   await page.getByRole('heading',{name:'知识库',exact:true}).waitFor();
   await page.getByRole('button',{name:'任务详情'}).click();
   await page.getByText('failed.pdf',{exact:true}).waitFor({state:'attached'});
-  await page.getByText('completed.pdf',{exact:true}).waitFor({state:'attached'});
+  assert.equal(await page.getByText('completed.pdf',{exact:true}).count(),0);
   await page.getByRole('button',{name:'全部清空',exact:true}).click();
   await page.getByText('failed.pdf',{exact:true}).waitFor({state:'detached'});
   assert.equal(await page.getByText('completed.pdf',{exact:true}).count(),0);
@@ -21,5 +21,5 @@ try {
   await page.getByRole('button',{name:'上传',exact:true}).click();
   assert.equal(await page.getByRole('combobox',{name:'专题',exact:true}).inputValue(),'');
   await page.screenshot({path:'tmp/status-clear-browser.png',fullPage:true});
-  console.log('PASS: bulk clear removes failed/completed statuses, preserves pending, survives refresh; unclassified upload remains available');
+  console.log('PASS: successful uploads are hidden and bulk clear removes failed statuses across reload');
 } finally { await browser.close(); }
