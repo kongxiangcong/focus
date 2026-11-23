@@ -631,9 +631,12 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   useEffect(() => {
     if (!readingFullscreen) return;
-    const exit = (event: KeyboardEvent) => { if (event.key === "Escape") setReadingFullscreen(false); };
-    document.addEventListener("keydown", exit);
-    return () => document.removeEventListener("keydown", exit);
+    const exit = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented && !event.isComposing && event.keyCode !== 229 &&
+          !document.querySelector("dialog[open]")) setReadingFullscreen(false);
+    };
+    window.addEventListener("keydown", exit);
+    return () => window.removeEventListener("keydown", exit);
   }, [readingFullscreen]);
   useEffect(() => { if (route !== "/reading") setReadingFullscreen(false); }, [route]);
   return <div className="workspace-app" data-route={route} data-nav-collapsed={navCollapsed} data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-body-font": readingFontFamily(readingFont) } as CSSProperties}>
@@ -660,7 +663,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
             </button>
             <div className="reading-branch-collapse" data-open={readingBranchOpen}>
-              <div id="reading-children" ref={setBranchSlot} hidden={!readingBranchOpen} role="group" aria-label="阅读方式" />
+              <div id="reading-children" ref={setBranchSlot} inert={!readingBranchOpen} aria-hidden={!readingBranchOpen} role="group" aria-label="阅读方式" />
             </div>
           </div>}
         </Fragment>)}</nav>
@@ -895,7 +898,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     }}>{busy || (confirm?.action === "clear" ? "确认重新阅读" : confirm?.action === "delete" ? "永久删除" : confirm?.action === "replan" ? "确认重新规划" : "确认从头阅读")}</button></div>{error && <p role="alert">{error}</p>}</dialog>
     {view?.configuration?.startupError && route !== "/settings" && <aside role="alert" className="configuration-notice">
       <p>{view.configuration.startupError}</p>
-      <button onClick={() => navigate("/settings")}>Backend 设置</button>
+      <button onClick={() => navigate("/settings")}>模型与后端设置</button>
     </aside>}
     {view?.configuration?.pending && <aside role="status" className="configuration-notice"
       >

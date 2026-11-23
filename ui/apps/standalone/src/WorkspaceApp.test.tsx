@@ -804,6 +804,27 @@ it("hides top chrome in reading fullscreen and restores it from the exit control
   expect(screen.queryByRole("combobox", { name: "选择阅读材料" })).not.toBeInTheDocument();
 });
 
+it("closes the conversation notes drawer before exiting fullscreen and restores focus", async () => {
+  history.replaceState(null, "", "/reading");
+  const source = { sourceId: "a-paper", title: "A Paper", topicId: null };
+  const selected = { ...empty, source };
+  setup([], selected, {
+    getSourceDocument: async () => readerSuccess({ sourceId: source.sourceId, bundleVersion: "v1", title: source.title, markdown: "Original.", lineCount: 1 }),
+    selectDiscussionSource: async () => readerSuccess(selected),
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "对话全屏" }));
+  expect(screen.getByRole("tab", { name: "对话" })).toHaveAttribute("aria-selected", "true");
+  const opener = screen.getByRole("button", { name: "笔记", exact: true });
+  fireEvent.click(opener);
+  const input = screen.getByRole("textbox", { name: "笔记内容" });
+  expect(input).toHaveFocus();
+  fireEvent.keyDown(input, { key: "Escape" });
+  expect(opener).toHaveFocus();
+  expect(screen.getByRole("button", { name: "关闭全屏模式" })).toBeInTheDocument();
+  fireEvent.keyDown(opener, { key: "Escape" });
+  expect(screen.queryByRole("button", { name: "关闭全屏模式" })).not.toBeInTheDocument();
+});
+
 it.each([false, true])("keeps reading text, draft and controls intact when browsing materials (fullscreen=%s)", async fullscreen => {
   history.replaceState(null, "", "/reading");
   const initialWindow: ReadingWindow = { ...empty, status: "reading", current: {

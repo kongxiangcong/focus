@@ -207,6 +207,11 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const restorePaperPosition = useRef(false);
   const lastPdfScroll = useRef(0), lastTranslationScroll = useRef(0);
   const [positionNotice, setPositionNotice] = useState("");
+  useEffect(() => {
+    if (!positionNotice) return;
+    const timer = setTimeout(() => setPositionNotice(""), 3000);
+    return () => clearTimeout(timer);
+  }, [positionNotice]);
   const pointerX = useRef<number | undefined>(undefined);
   const [selection, setSelection] = useState("");
   const [noteEdit, setNoteEdit] = useState<{ id: string; revision: number } | null>(null);
@@ -216,6 +221,22 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const [answerChoices, setAnswerChoices] = useState<{ ids: readonly string[]; opener: HTMLElement; discussionId?: string } | null>(null);
   const [answerReturn, setAnswerReturn] = useState<(AnswerLocation & { discussionId?: string }) | null>(null);
   const [mobile, setMobile] = useState("chat"), [guideOpen, setGuideOpen] = useState(false), [notesOpen, setNotesOpen] = useState(false);
+  const notesButton = useRef<HTMLButtonElement>(null);
+  const noteInput = useRef<HTMLTextAreaElement>(null);
+  const notesOpener = useRef<HTMLElement | null>(null);
+  function openNotes(opener: HTMLElement) {
+    if (!notesOpen) notesOpener.current = opener;
+    setNotesOpen(true);
+  }
+  function closeNotes() { setNotesOpen(false); }
+  useLayoutEffect(() => {
+    if (notesOpen && visible) noteInput.current?.focus({ preventScroll: true });
+    else if (notesOpener.current) {
+      const opener = notesOpener.current;
+      notesOpener.current = null;
+      if (visible) (opener.isConnected ? opener : notesButton.current)?.focus({ preventScroll: true });
+    }
+  }, [notesOpen, visible]);
   const [share, setShare] = useState(() => Math.max(40, Math.min(70, Number(safeRead("focus.sourceShare")) || 60)));
   const scope = `${view.workspace?.workspaceId ?? "local"}:${sourceId}:${view.sourceGeneration ?? view.resetVersion ?? 0}`;
   const draftKey = `focus.sourceDraft:${scope}:${view.discussionId ?? ""}`;
@@ -422,6 +443,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
 
   const manualBrowse = useCallback(() => {
     stopNavigation();
+    setPositionNotice("");
     restorePaperPosition.current = false;
     restored.current = true;
     movedSinceSwitch.current = true;
@@ -486,13 +508,10 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     if (keyboard) { el.tabIndex = -1; el.focus({ preventScroll: true }); }
   }, [isCurrentSource, isLatest]);
 
-  const wasFullscreen = useRef(fullscreen);
   useLayoutEffect(() => {
-    const exitedFullscreen = wasFullscreen.current && !fullscreen;
-    wasFullscreen.current = fullscreen;
+    if (visible) return;
     manual.current = false;
-    if (visible && !exitedFullscreen) return;
-    if (exitedFullscreen || !readingSession) stopNavigation();
+    if (!readingSession) stopNavigation();
     turn.current = null;
     returnFocus.current = null;
     jumpOrigin.current = null;
@@ -502,7 +521,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setActiveEvidence(undefined);
     setHoverEvidence(undefined);
     setReturnPosition(null);
-  }, [visible, fullscreen, selectionGeneration, stopNavigation]);
+  }, [visible, selectionGeneration, stopNavigation]);
 
   useLayoutEffect(() => {
     if (!visible || !intent || intent.sourceId !== sourceId || !isCurrentSource() || !isLatest(intent)) return;
@@ -772,9 +791,10 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
 
   return <section ref={shell} className="conversation-reader" data-fullscreen={!!fullscreen} data-mobile={mobile} data-font-size={fontSize} hidden={!visible} style={{ "--source-share": `${share}%`, "--source-font-size": `${readingFontSizes[fontSize as keyof typeof readingFontSizes] ?? 18}px` } as CSSProperties}
     onKeyDown={e => {
-      if (e.key !== "Escape") return;
-      if (choiceItems.length) { closeAnswerChooser(); return; }
-      if (!activeEvidence) return;
+      if (e.key !== "Escape" || e.defaultPrevented || e.nativeEvent.isComposing || e.keyCode === 229 || globalThis.document.querySelector("dialog[open]")) return;
+      if (notesOpen) { e.stopPropagation(); closeNotes(); return; }
+      if (choiceItems.length) { e.stopPropagation(); closeAnswerChooser(); return; }
+      if (!activeEvidence || fullscreen) return;
       if (returnFocus.current?.evidenceId === activeEvidence) backToAnswer(activeEvidence);
       else stopNavigation();
       setActiveEvidence(undefined);
@@ -809,14 +829,17 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
             else if (choices?.dataset.evidenceChoices && isCurrentSource()) {
               stopNavigation();
               setAnswerChoices({ ids: choices.dataset.evidenceChoices.split(" "), opener: choices, discussionId: view.discussionId });
-            } else if (node.closest("[data-anno-key], [data-anno-bulb]")) setNotesOpen(true);
+            } else {
+              const mark = node.closest<HTMLElement>("[data-anno-key], [data-anno-bulb]");
+              if (mark) openNotes(mark);
+            }
           }}>
           <ActiveSourceCitation.Provider value={returnFocus.current?.evidenceId === activeEvidence ? activeEvidence : undefined}>
             {document?.pdf && pdfUrl ? showingTranslation ? <TranslatedPaper document={document} evidence={paperLocations} /> :
               <OriginalPaper key={pdfUrl} pdf={document.pdf} url={pdfUrl} evidence={paperLocations} active={highlightedEvidenceId} onReady={pdfReady} onUnavailable={pdfUnavailable} /> : document ? <article><MarkdownContent text={document.markdown} sourceId={sourceId} marks={permanentMarks} sourceEvidence={sourceInput} /></article> : <span role="status" className="source-loading">加载中…</span>}
           </ActiveSourceCitation.Provider>
         </div>
-        {selection && <div className="source-selection-actions"><button onClick={() => { composer.current?.insertQuote(selection); setSelection(""); setMobile("chat"); }}>引用</button><button onClick={() => { setNoteDraft(`「${selection}」\n`); setNotesOpen(true); setSelection(""); }}>记笔记</button><button aria-label="取消选择" onClick={() => setSelection("")}>×</button></div>}
+        {selection && <div className="source-selection-actions"><button onClick={() => { composer.current?.insertQuote(selection); setSelection(""); setMobile("chat"); }}>引用</button><button onClick={e => { setNoteDraft(`「${selection}」\n`); openNotes(e.currentTarget); setSelection(""); }}>记笔记</button><button aria-label="取消选择" onClick={() => setSelection("")}>×</button></div>}
         {choiceItems.length > 0 && <SourceAnswerChooser items={choiceItems} answers={answers} onChoose={backToAnswer} onClose={closeAnswerChooser} />}
         {active && !choiceItems.length && <aside className="source-evidence-card" data-top={cardAtTop} aria-label="原文证据"><button aria-label="关闭证据" onClick={() => { stopNavigation(); setActiveEvidence(undefined); }}>×</button><button onClick={() => backToAnswer(active.evidence.evidenceId)}>证据 {active.evidence.displayNumber}{locationLabel}</button><p>{active.evidence.quote.exact}</p>{partCount > 1 && <button onClick={nextRegion}>下一处（{regionNumber + 1}/{partCount}）</button>}{returnPosition !== null && <button onClick={returnToReading}>返回阅读位置</button>}</aside>}
       </div>
@@ -875,7 +898,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
                   <ListOutline />
                 </button>
               )}
-              <button type="button" className="source-icon-btn" aria-label="笔记" title="笔记" aria-pressed={notesOpen} onClick={() => setNotesOpen(!notesOpen)}>
+              <button ref={notesButton} type="button" className="source-icon-btn" aria-label="笔记" title="笔记" aria-pressed={notesOpen} onClick={e => notesOpen ? closeNotes() : openNotes(e.currentTarget)}>
                 <Pin />
               </button>
               {host.newSession && view.sessionId && (
@@ -884,7 +907,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
                 </button>
               )}
               {onFullscreenChange && (
-                <button type="button" className="source-icon-btn" aria-label={fullscreen ? "退出全屏" : "对话全屏"} title={fullscreen ? "退出全屏" : "对话全屏"} aria-pressed={!!fullscreen} onClick={() => { if (!fullscreen) setMobile("chat"); onFullscreenChange(!fullscreen); }}>
+                <button type="button" className="source-icon-btn" aria-label={fullscreen ? "退出全屏" : "对话全屏"} title={fullscreen ? "退出全屏" : "对话全屏"} aria-pressed={!!fullscreen} onClick={() => onFullscreenChange(!fullscreen)}>
                   {fullscreen ? <Collapse /> : <Expand />}
                 </button>
               )}
@@ -906,9 +929,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     {notesOpen && <aside className="source-notes-drawer" aria-label="来源笔记">
       <div className="source-notes-drawer__head">
         <h3>笔记</h3>
-        <button type="button" className="source-icon-btn" onClick={() => setNotesOpen(false)} aria-label="关闭笔记"><Close /></button>
+        <button type="button" className="source-icon-btn" onClick={closeNotes} aria-label="关闭笔记"><Close /></button>
       </div>
-      <textarea aria-label="笔记内容" placeholder="记录想法或结论…" value={noteDraft} onChange={e => setNoteDraft(e.target.value)} />
+      <textarea ref={noteInput} aria-label="笔记内容" placeholder="记录想法或结论…" value={noteDraft} onChange={e => setNoteDraft(e.target.value)} />
       {host.createSourceNote && <button className="source-notes-save" disabled={!noteDraft.trim()} onClick={async () => { const request = noteEdit && host.changeSourceNote ? host.changeSourceNote(sourceId, noteEdit.id, "edit", noteEdit.revision, createReaderId(), noteDraft.trim()) : host.createSourceNote!({ sourceId, requestId: createReaderId(), content: noteDraft.trim(), kind: "thought", origin: "user" });
         await apply("note-save", request, result => {
           if (result.noteOperation?.status === "conflict") {

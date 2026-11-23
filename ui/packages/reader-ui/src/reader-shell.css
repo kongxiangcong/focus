@@ -55,6 +55,7 @@
 .focus-dialog::backdrop { background:rgba(15,15,15,.45); }
 .focus-dialog > header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
 .focus-dialog h2 { font-size:18px; margin:0; font-weight:600; }
+.focus-confirm-actions { display:flex; justify-content:flex-end; gap:var(--reader-gap-sm); }
 .focus-dialog h3 { font-size:12px; color:var(--reader-muted); margin:24px 0 8px; letter-spacing:.04em; }
 .focus-material { display:block; width:100%; text-align:left; overflow-wrap:anywhere; border-bottom:1px solid var(--reader-line) !important; border-radius:0 !important; padding:12px 4px !important; justify-content:flex-start; }
 .focus-full-title { overflow-wrap:anywhere; font-size:15px; line-height:1.6; }

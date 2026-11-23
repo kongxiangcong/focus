@@ -574,12 +574,13 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
 .reading-branch-toggle[aria-expanded=false] { transform:rotate(-90deg); }
 .reading-branch-collapse { display:grid; grid-template-rows:0fr; opacity:0; transition:grid-template-rows var(--reader-duration-move) var(--reader-ease-out), opacity var(--reader-duration-quick) var(--reader-ease-out); }
 .reading-branch-collapse[data-open=true] { grid-template-rows:1fr; opacity:1; }
-#reading-children { overflow:hidden; }
-#reading-children:not([hidden]) {
+#reading-children {
+  min-height:0; overflow:hidden;
   display:flex; flex-direction:column; gap:2px;
   margin:2px 0 6px 16px; padding-left:10px;
   border-left:1px solid var(--reader-line);
 }
+.reading-mode-tabs--fullscreen { padding-right:60px; }
 .workspace-app #reading-children button.reading-branch-item {
   position:relative; display:flex; align-items:center; justify-content:flex-start; gap:8px;
   width:100%; min-height:30px; padding:0 10px;

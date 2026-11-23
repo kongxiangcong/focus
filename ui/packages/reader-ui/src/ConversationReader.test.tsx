@@ -78,20 +78,29 @@ it("restores saved answers without replaying an automatic jump", async () => {
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
 });
 
-it.each(["leave chat", "exit fullscreen"])("dismisses open evidence on %s", async transition => {
+it("dismisses open evidence when leaving chat", async () => {
   const app = setup();
-  if (transition === "exit fullscreen") app.display(true, true);
   await send();
   app.emit(answer([first]));
   fireEvent.click(await screen.findByRole("button", { name: "返回回答证据 1" }));
   expect(screen.getByLabelText("原文证据")).toBeInTheDocument();
-  app.display(transition === "exit fullscreen");
+  app.display(false);
   app.display(true);
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "返回回答证据 1" }));
   expect(screen.getByLabelText("原文证据")).toBeInTheDocument();
 });
 
+it("keeps the evidence and return-to-answer focus when exiting fullscreen", async () => {
+  const app = setup(answer([first]));
+  app.display(true, true);
+  const citation = await screen.findByRole("button", { name: "返回回答证据 1" });
+  fireEvent.click(citation);
+  expect(screen.getByLabelText("原文证据")).toBeInTheDocument();
+  app.display(true);
+  fireEvent.click(within(screen.getByLabelText("原文证据")).getByRole("button", { name: /证据 1/ }));
+  expect(citation).toHaveFocus();
+});
 it("does not replay evidence when a reply arrives after leaving chat", async () => {
   const app = setup(); await send();
   app.display(false);

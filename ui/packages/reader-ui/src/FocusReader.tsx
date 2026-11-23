@@ -28,6 +28,7 @@ import { useReadingScroll } from "./reading-scroll";
 import { useReadingLens } from "./reading-lens";
 import { ArticleOverviewPanel } from "./ArticleOverviewPanel";
 import { ArticleStructure } from "./ArticleStructure";
+import { ReaderConfirmation, type ReaderConfirmationInput } from "./ReaderConfirmation";
 import "./article-structure.css";
 import { chunkFigures, figureChunk, extractFigures, figureNumber, imageIdentity, mergeFigures, type Figure } from "./figures";
 
@@ -65,6 +66,7 @@ export function groupReadingDiscussion<C extends { chunkId: string }>(
 
 function LegacyFocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange, readingSession, evidenceNavigation }: FocusReaderProps) {
   const mist = appearance === "mist";
+  const [confirmation, setConfirmation] = useState<ReaderConfirmationInput | null>(null);
   const [attachNotes, setAttachNotes] = useState(() => {
     try { localStorage.removeItem("focus.attachDiscussion"); return localStorage.getItem("focus.attachNotes") !== "false"; } catch { return true; }
   });
@@ -717,9 +719,14 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     }}><Close /></button></span>}
   </div>;
   const continueLabel = view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total) ? "已读完" : (view?.sessionFresh && view.readingStarted && frontier?.index === frontier?.total) || (!view?.sessionFresh && displayed?.index === displayed?.total && !reviewChunk) ? "完成本篇" : operation === "下一段" ? "打开中…" : "继续";
-  return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-measure={measure} data-notes-layout={notesLayout} data-anno-rail={Object.values(stackedRails).some(Boolean) ? "stacked" : undefined} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && structureOpen) {
+  return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-measure={measure} data-notes-layout={notesLayout} data-anno-rail={Object.values(stackedRails).some(Boolean) ? "stacked" : undefined} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => {
+    if (event.key !== "Escape" || event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 || document.querySelector("dialog[open]")) return;
+    if (annotations.escape()) { event.stopPropagation(); return; }
+    if (structureOpen) {
+      event.stopPropagation();
       setStructureOpen(false); layout.current?.querySelector<HTMLButtonElement>(".reader-location-badge")?.focus({ preventScroll: true });
-    } else if (event.key === "Escape" && sideMode && !(event.target as HTMLElement).closest("dialog")) {
+    } else if (sideMode) {
+    event.stopPropagation();
     preserveReading(() => setSideMode(null)); event.currentTarget.querySelector<HTMLButtonElement>(mist ? ".reader-side-toggle" : ".reader-figures-toggle")?.focus({ preventScroll: true });
   } }} data-materials-open={mist && materialsOpen && !showStructure} data-side-open={!!sideMode && !showStructure} className={`focus-reader reader-split${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}
     style={{ "--reader-column": `calc(${readingMeasures.find(m => m.id === measure)!.characters} * var(--reader-reading-size))`, "--reader-notes-width": `${readingLayout.noteWidth}px`, "--reader-notes-gap": `${readingLayout.noteGap}px`, "--reader-notes-max-height": readingHeight ? `${Math.max(80, readingHeight - 28)}px` : "60dvh", "--reader-available-width": availableWidth ? `${availableWidth}px` : "100%", "--reader-shift": `${readerShift}px`, "--reader-reading-size": `${readingFontSizes[fontSize]}px`, "--reader-text-share": `${textShare}fr`, "--reader-side-share": `${100 - textShare}fr` } as CSSProperties}>
@@ -781,7 +788,10 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
               </div> : <>
                 <span>{entry.deleted ? "已删除" : [entry.fact, entry.topic, entry.user_understanding].filter(Boolean).join(" · ")}</span>
                 {!entry.deleted && <button onClick={() => { setEditingProgressId(entry.progress_id); setProgressDraft(entry.topic ?? entry.fact); setProgressBaseRevision(entry.revision); setProgressConflict(null); setProgressError(""); }}>更正</button>}
-                {!entry.deleted && <button onClick={() => { if (window.confirm("删除这条阅读记录？阅读位置不会改变。")) void changeProgress(entry, "delete"); }}>删除</button>}
+                {!entry.deleted && <button onClick={event => setConfirmation({
+                  title: "删除阅读记录", description: "删除这条阅读记录？阅读位置不会改变。",
+                  label: "删除", opener: event.currentTarget, confirm: () => void changeProgress(entry, "delete"),
+                })}>删除</button>}
                 {!entry.deleted && ["pending", "failed", "interrupted"].includes(entry.status) && host.retryReadingProgress &&
                   <button onClick={() => { const requestId = createReaderId(); void perform("补记", () => host.retryReadingProgress!(entry.progress_id, requestId)); }}>补记</button>}
                 {!entry.deleted && entry.status === "generating" && <small>整理中…</small>}
@@ -865,7 +875,13 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
           </div>)}
           </div>;
         })}
-        {view?.status === "completed" && !reviewChunk && <div className="focus-finished">已完成本篇 <button disabled={!host.clearSource || blocked} onClick={() => { if (view && window.confirm("将清除本篇讨论、笔记和阅读记录，并从第一段重新开始。原文、译文和博客保留。")) { const requestId = createReaderId(); void perform("重新阅读", () => host.clearSource!(view.source.sourceId, requestId)); } }}>重新阅读</button><button onClick={() => setPanel("contents")}>查看已读段落</button></div>}
+        {view?.status === "completed" && !reviewChunk && <div className="focus-finished">已完成本篇 <button disabled={!host.clearSource || blocked} onClick={event => setConfirmation({
+          title: "重新阅读", description: "将清除本篇讨论、笔记和阅读记录，并从第一段重新开始。原文、译文和博客保留。",
+          label: "确认重新阅读", opener: event.currentTarget, confirm: () => {
+            const requestId = createReaderId();
+            void perform("重新阅读", () => host.clearSource!(view.source.sourceId, requestId));
+          },
+        })}>重新阅读</button><button onClick={() => setPanel("contents")}>查看已读段落</button></div>}
         </div>
       </div>
       <div ref={scrolling.end} aria-hidden="true" />
@@ -972,6 +988,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
       }) : <p>打开材料后显示。</p>}</nav>}
       {renderedPanel === "settings" && <label><input type="checkbox" checked={largeText} onChange={e => setLargeText(e.target.checked)} /> 使用较大正文字号</label>}
     </dialog>
+    {confirmation && <ReaderConfirmation input={confirmation} onClose={() => setConfirmation(null)} />}
   </div></AssetInstanceContext.Provider>;
 }
 
@@ -1085,9 +1102,9 @@ function UnifiedReader(props: FocusReaderProps) {
   const modeLabel = (m: ReadingMode) => m === "chunks" ? "精读" : m === "chat" ? "对话" : "带读博客";
 
   return <div className="unified-reader" hidden={props.visible === false}>
-    {props.renderModeNavigation
-      ? (!props.fullscreen && props.renderModeNavigation(mode, selectMode, !sourceId || !props.host.openSource || !props.host.selectDiscussionSource))
-      : <div className="reading-mode-tabs" role="tablist" aria-label="阅读方式">
+    {props.renderModeNavigation && !props.fullscreen
+      ? props.renderModeNavigation(mode, selectMode, !sourceId || !props.host.openSource || !props.host.selectDiscussionSource)
+      : <div className={`reading-mode-tabs${props.fullscreen ? " reading-mode-tabs--fullscreen" : ""}`} role="tablist" aria-label="阅读方式">
           {modeTabs.map((value, index) => <button key={value}
             id={`reading-tab-${value}`} role="tab" aria-selected={mode === value}
             aria-controls="reading-mode-panel" disabled={busy || !sourceId || !props.host.openSource || !props.host.selectDiscussionSource}

@@ -113,7 +113,9 @@ export function ChunkNoteList({ chunk, notes, host, onAccept, onToast, freshNote
       }
       <textarea autoFocus aria-label="小段笔记" placeholder="写下这一段的笔记…" maxLength={8000} value={text} onChange={event => { setText(event.target.value); persist(event.target.value); }} onKeyDown={event => {
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); void save(); }
-        else if (event.key === "Escape") { persist(null); setEditor(null); }
+        else if (event.key === "Escape" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
+          event.preventDefault(); event.stopPropagation(); persist(null); setEditor(null);
+        }
       }} />
       <div className="reader-anno-editor__bar"><small>Enter 保存 · Shift+Enter 换行 · Esc 取消</small>
         <button className="reader-anno-ghost" onClick={() => { persist(null); setEditor(null); }}>取消</button>

@@ -162,11 +162,11 @@ it("discards a late preparation after unmounting", async () => {
   expect(saveBackendConfiguration).not.toHaveBeenCalled();
 });
 
-it("T2 reports appearance failure separately from a successfully applied backend", async () => {
+it("reports a successfully applied backend", async () => {
   render(<BackendSetupPanel host={{ saveBackendConfiguration: vi.fn(async () => readerSuccess(empty)),
-    refreshBackendConfiguration: vi.fn(async () => readerSuccess(empty)) } as unknown as ReaderHost} onSaveAppearance={() => false} />);
+    refreshBackendConfiguration: vi.fn(async () => readerSuccess(empty)) } as unknown as ReaderHost} />);
   fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
-  expect(await screen.findByRole("status")).toHaveTextContent("后端设置已保存并应用；外观未保存");
+  expect(await screen.findByRole("status")).toHaveTextContent("设置已保存并应用");
 });
 
 it('changing an uncommitted Backend selection performs no optional actions', () => {

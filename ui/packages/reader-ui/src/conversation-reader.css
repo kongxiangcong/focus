@@ -195,14 +195,6 @@
   .source-original { padding:24px 22px 160px; }
 }
 
-.conversation-reader[data-fullscreen=true] .source-mobile-toggle { display:inline-flex !important; }
-.conversation-reader[data-fullscreen=true] .source-reader-columns { display:flex; }
-.conversation-reader[data-fullscreen=true] :is(.source-original-pane, .source-chat-pane) { width:100%; }
-.conversation-reader[data-fullscreen=true] .source-splitter,
-.conversation-reader[data-fullscreen=true][data-mobile=chat] .source-original-pane,
-.conversation-reader[data-fullscreen=true][data-mobile=original] .source-chat-pane { display:none; }
-.conversation-reader[data-fullscreen=true] .source-chat-pane { max-width:820px; margin-inline:auto; padding-top:12px; }
-
 @media(pointer:coarse) {
   .conversation-reader .answer-evidence-number, .conversation-reader .source-evidence-number { display:inline-block; min-width:28px; min-height:28px; line-height:26px; }
   .source-icon-btn { width:34px; height:34px; }
