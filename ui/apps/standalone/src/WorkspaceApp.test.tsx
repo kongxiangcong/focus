@@ -80,6 +80,24 @@ it("clears only the connection alert when the workspace stream recovers", async 
   expect(subscribe).toHaveBeenCalledTimes(1);
 });
 
+it("reloads the library after reconnecting without discarding a separate operation error", async () => {
+  let receive!: (result: ReaderHostResult<ReadingWindow>) => void;
+  const { host } = setup([], empty, {
+    subscribe: listener => { receive = listener; return () => {}; },
+    openSource: async () => ({ ok: false, error: { code: "invalid-request", message: "本地计划有冲突", retryable: false } }),
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "继续阅读" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("本地计划有冲突");
+  const sources = await host.listSources!();
+  vi.mocked(host.listSources!).mockResolvedValueOnce({ ok: false, error: { code: "unavailable", message: "来源列表已断线", retryable: true } });
+  act(() => receive(readerSuccess({ ...empty, revision: 2, readingRevision: 2 })));
+  expect(await screen.findByText("来源列表已断线")).toBeVisible();
+  vi.mocked(host.listSources!).mockResolvedValue(sources);
+  act(() => receive(readerSuccess({ ...empty, revision: 2, readingRevision: 2 })));
+  await waitFor(() => expect(screen.queryByText("来源列表已断线")).not.toBeInTheDocument());
+  expect(screen.getByRole("alert")).toHaveTextContent("本地计划有冲突");
+});
+
 it("accepts saved HTML and defaults to parsing with blog generation", async () => {
   const { host } = setup();
   const staged: IngestionItem = { itemId: "html-1", fileName: "article.html", status: "awaiting_confirmation", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["local-html"] };
@@ -783,6 +801,33 @@ it("provides one approval on each route and removes it when the request expires"
   expect(screen.queryByRole("button", { name: "拒绝" })).not.toBeInTheDocument();
 });
 
+it("keeps one approval and stop control in prepared close reading and in fullscreen", async () => {
+  history.replaceState(null, "", "/reading");
+  localStorage.setItem("focus.readingMode", "chunks");
+  const current: ReaderChunk = {
+    sourceId: "a-paper", planId: "plan-001", chunkId: "chunk-001", index: 1, total: 2, sectionPath: [],
+    sourceLines: [1, 2], sourceMarkdown: "Prepared passage.", images: [], translation: null, relevantGlossary: [], presentationStatus: "source-ready",
+  };
+  const run = { runId: "run-approval", sourceId: "a-paper", status: "approval" as const, error: null, activity: [], approvals: [{
+    id: "unique-approval", kind: "approval" as const, title: "读取授权", detail: "", choices: ["accept", "decline"], questions: [],
+  }] };
+  const awaiting: ReadingWindow = { ...empty, status: "reading", current,
+    source: { sourceId: "a-paper", title: "A Paper", topicId: null }, agent: { ...empty.agent!, run } };
+  const { host } = setup([], awaiting, {
+    getSourceDocument: async sourceId => readerSuccess({ sourceId, bundleVersion: "v1", title: "Original", markdown: "Original passage.", lineCount: 1 }),
+    approve: vi.fn(async () => readerSuccess(awaiting)),
+    stop: vi.fn(async () => readerSuccess(awaiting)),
+  });
+  await screen.findByText("Prepared passage.");
+  expect(screen.getAllByRole("button", { name: "允许本次" })).toHaveLength(1);
+  expect(screen.getAllByRole("button", { name: "停止", exact: true })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "全屏", exact: true }));
+  expect(screen.getByRole("button", { name: "关闭全屏模式" })).toBeVisible();
+  expect(screen.getAllByRole("button", { name: "允许本次" })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "停止", exact: true }));
+  await waitFor(() => expect(host.stop).toHaveBeenCalledTimes(1));
+});
+
 it("uses a modal blog viewer and restores the workspace on Escape", async () => {
   const { host } = setup();
   host.blogStatus = vi.fn(async () => readerSuccess(blogStatus()));
@@ -1142,10 +1187,39 @@ it("opens unified reading without a Plan or a separate overview action", async (
   await screen.findByRole("heading", { name: "A Paper" });
   expect(screen.queryByRole("button", { name: "文章结构" })).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "阅读" }));
-  await waitFor(() => expect(host.selectDiscussionSource).toHaveBeenCalledWith("a-paper"));
+  await waitFor(() => expect(host.selectDiscussionSource).toHaveBeenCalledWith(
+    "a-paper", undefined, { workbenchId: expect.any(String), generation: expect.any(Number) }));
   expect(host.openSource).not.toHaveBeenCalled();
   expect(await screen.findByText("Original full article.")).toBeInTheDocument();
   expect(await screen.findByText("中文导读。")).toBeInTheDocument();
+});
+
+it("orders concurrent source selections for the Host and ignores the delayed result", async () => {
+  const sourceA = {
+    sourceId: "a-paper", title: "A Paper", kind: "paper" as const, parseStatus: "ready" as const, error: null,
+    noteCount: 0, topicIds: [], progress: { completed: 0, total: 0, planId: null, chunkId: null },
+  };
+  const sourceB = { ...sourceA, sourceId: "b-paper", title: "B Paper" };
+  let finishA!: (result: ReaderHostResult<ReadingWindow>) => void;
+  const { host } = setup([], empty, {
+    listSources: vi.fn(async () => readerSuccess([sourceA, sourceB])),
+    getSourceDocument: async sourceId => readerSuccess({ sourceId, bundleVersion: "v1", title: "Original", markdown: sourceId, lineCount: 1 }),
+    selectDiscussionSource: vi.fn<NonNullable<ReaderHost["selectDiscussionSource"]>>(sourceId => sourceId === sourceA.sourceId
+      ? new Promise(resolve => { finishA = resolve; })
+      : Promise.resolve(readerSuccess({ ...empty, source: { ...sourceB, topicId: null }, revision: 2 }))),
+  });
+  const read = await screen.findAllByRole("button", { name: "阅读" });
+  fireEvent.click(read[0]);
+  fireEvent.click(read[1]);
+  const calls = vi.mocked(host.selectDiscussionSource!).mock.calls;
+  expect(calls.map(([source]) => source)).toEqual([sourceA.sourceId, sourceB.sourceId]);
+  const first = calls[0][2];
+  const second = calls[1][2];
+  expect(first).toMatchObject({ workbenchId: expect.any(String), generation: expect.any(Number) });
+  expect(second).toMatchObject({ workbenchId: first!.workbenchId, generation: first!.generation + 1 });
+  await act(async () => finishA({ ok: false, error: { code: "cursor-changed", message: "A 已过期", retryable: false } }));
+  expect(await screen.findByText("b-paper")).toBeVisible();
+  expect(screen.queryByText("A 已过期")).not.toBeInTheDocument();
 });
 
 

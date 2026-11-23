@@ -81,8 +81,6 @@ class HostService:
         self.discussion_app = DiscussionApplication(self.workspace, writer_id=writer_id)
         self.source_notes = self.discussion_app.notes
         self.source_highlights = self.discussion_app.highlights
-        self.source_clear = SourceClear(self.store, self.source_notes)
-        self.source_clear.recover()
         self.source_management = SourceManagement(self.workspace, self.store)
         self.ingestion = IngestionApplication(
             self.workspace,
@@ -91,6 +89,7 @@ class HostService:
         )
         self.lock = threading.RLock()
         self.condition = threading.Condition(self.lock)
+        self.workbench_selections = {}
         self._backend_switching = False
         self._foreground_ai_admissions = 0
         self.generation = int(time.time() * 1000)
@@ -117,6 +116,8 @@ class HostService:
         if reading_runtime is None:
             reading_runtime = AgentReadingRuntime(self._build_backend, self._backend_configuration)
         self.reading_app = ReadingApplication(self.workspace, runtime=reading_runtime, writer_id=writer_id)
+        self.source_clear = SourceClear(self.store, self.source_notes, self.reading_app.core)
+        self.source_clear.recover()
         self.reading_app.core.interrupt_running()
         self.reading_workers = {}
         self.opening_workers = {}
@@ -297,10 +298,6 @@ class HostService:
         except (OSError, ValueError, WorkspaceError):
             window['sourceBundleVersion'] = None
         window['sourceGeneration'] = self.source_notes.generation(note_source) if note_source else 0
-        try:
-            window['sourceCompletion'] = SourceReading(self.workspace).completion(note_source) if note_source else None
-        except (OSError, ValueError, WorkspaceError):
-            window['sourceCompletion'] = None
         window['resetVersion'] = sum(1 for source in selected_state.get('source_resets', {}).values() if source == note_source)
         if not self.state['displayReading'] or (window['navigationCurrent'] and not window['readingStarted']):
             window['sessionFresh'] = True
@@ -477,10 +474,18 @@ class HostService:
                 item['dismissed'] = dismissed
             items.append(item)
 
-        run = window['agent']['run']
-        if run and run.get('runId') and run['status'] in ('running', 'approval', 'stopping', 'failed', 'interrupted'):
+        current_run = window['agent']['run']
+        chat_runs = [current_run] if current_run else []
+        for source, run_id in self.state.get('failedChatRuns', {}).items():
+            if (not source or source in titles) and (not current_run or current_run.get('runId') != run_id):
+                archived = (self.store.get('execution:' + run_id) or {}).get('run')
+                if archived:
+                    chat_runs.append(archived)
+        for run in chat_runs:
+            if not run.get('runId') or run['status'] not in (*ACTIVE, 'failed', 'interrupted'):
+                continue
             status = run['status']
-            phase = 'approval' if run['approvals'] else 'running' if status in ACTIVE else 'error'
+            phase = 'approval' if status == 'approval' and run['approvals'] else 'running' if status in ACTIVE else 'error'
             label = '等待你的确认' if phase == 'approval' else '正在回答问题' if phase == 'running' else '问答任务'
             add('chat', run['runId'], run['runId'], status, phase, label, source=run.get('sourceId'),
                 stage=(run.get('progress') or {}).get('label'), error=run.get('error'),
@@ -846,9 +851,18 @@ class HostService:
             self.changed()
             return {**self.snapshot(), 'readingOperation': operation}
 
-    def select_discussion_source(self, source_id, *, discussion_id=None):
+    def select_discussion_source(self, source_id, *, discussion_id=None, selection=None):
         """Select a Source for discussion without touching the Reading Cursor."""
         with self.lock:
+            if selection is not None:
+                client = selection.get('workbenchId') if isinstance(selection, dict) else None
+                generation = selection.get('generation') if isinstance(selection, dict) else None
+                if (not isinstance(client, str) or not re.fullmatch(r'[\w-]{8,128}', client, re.ASCII)
+                        or type(generation) is not int or not 0 < generation <= 2**53 - 1):
+                    raise ValueError('工作台选择身份无效。')
+                if generation <= self.workbench_selections.get(client, 0):
+                    raise WorkspaceError('cursor_changed', '已选择其他材料，请继续阅读当前材料。')
+                self.workbench_selections[client] = generation
             self.source_clear.recover()
             SourceLibrary(self.workspace).get(source_id)
             self.source_notes.bundle_version(source_id)
@@ -1736,6 +1750,8 @@ class HostService:
                 message['reference'] = None
                 message['sourceDeleted'] = True
         state['requests'] = {k: v for k, v in state['requests'].items() if not references(v)}
+        for source_id in deleted:
+            state.get('failedChatRuns', {}).pop(source_id, None)
         for key in ('noteFeedback', 'noteOperation', 'highlightOperation', 'run'):
             if references(state.get(key)):
                 state[key] = None
@@ -1841,6 +1857,7 @@ class HostService:
                        'discussionId': discussion.get('discussionId') if discussion else None,
                        'readingPass': discussion.get('readingPass') if discussion else None,
                        'content': display_content + ''.join('\n附件：' + f['name'] for f in attachments)}
+            self.state.get('failedChatRuns', {}).pop(source_id or '', None)
             self.state['run'] = {'runId': run_id, 'status': 'running', 'turnId': None,
                                  'phaseTiming': {'sentAt': int(time.time() * 1000),
                                                  'summaryBatches': 0, 'summaryInputChars': 0},
@@ -2308,7 +2325,7 @@ class HostService:
                 if self.state['run'].get('progress'):
                     self.state['run']['progress']['finishedAt'] = int(time.time() * 1000)
                 self.state['run']['terminalAt'] = self.clock()
-                self.store.put('execution:' + self.state['run']['runId'], {'run': self.state['run']})
+                self.store.archive_execution(self.state['run'])
                 self.changed()
             if discussion and self.state['run'] and self.state['run']['status'] == 'completed':
                 self._schedule_early_summary(discussion)

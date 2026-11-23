@@ -101,6 +101,55 @@ class DiscussionTests(unittest.TestCase):
         self.assertEqual(selected['source'], self.host.snapshot()['source'])
         self.assertEqual(selected['preparations'], self.host.snapshot()['preparations'])
 
+    def test_late_workbench_selection_cannot_change_newer_discussion(self):
+        workbench = {'workbenchId': 'workbench-test-001'}
+        selected = self.host.select_discussion_source(
+            'fixture-b-paper', selection={**workbench, 'generation': 2})
+        with self.assertRaises(WorkspaceError) as stale:
+            self.host.select_discussion_source(
+                'fixture-paper', selection={**workbench, 'generation': 1})
+        self.assertEqual('cursor_changed', stale.exception.error_id)
+        self.assertEqual(selected['source'], self.host.snapshot()['source'])
+        self.host.start({'requestId': 'question-after-select', 'sourceId': 'fixture-b-paper',
+                         'sessionId': selected['sessionId'], 'receipt': None, 'content': 'Explain the method.'})
+        self.host.worker.join(3)
+        self.assertEqual('Explain the method.', self.host.snapshot()['conversation'][0]['content'])
+
+    def test_failed_chat_remains_in_tasks_after_another_source_succeeds(self):
+        self.pause_runtime = True
+        a = self.host.select_discussion_source('fixture-paper')
+        self.host.start({'requestId': 'question-a-fails', 'sourceId': 'fixture-paper',
+                         'sessionId': a['sessionId'], 'receipt': None, 'content': 'Explain A.'})
+        self.assertTrue(self.runtime_ready.wait(3))
+        self.runtime.events.put({'method': 'turn/completed', 'params': {'status': 'failed', 'error': 'A failed.'}})
+        self.host.worker.join(3)
+        failed, = [item for item in self.host.snapshot()['workItems'] if item['kind'] == 'chat']
+
+        self.pause_runtime = False
+        b = self.host.select_discussion_source('fixture-b-paper')
+        self.host.start({'requestId': 'question-b-passes', 'sourceId': 'fixture-b-paper',
+                         'sessionId': b['sessionId'], 'receipt': None, 'content': 'Explain B.'})
+        self.host.worker.join(3)
+        window = self.host.snapshot()
+        self.assertIsNone(window['agent']['run'])
+        self.assertEqual([failed], [item for item in window['workItems'] if item['kind'] == 'chat'])
+        self.assertEqual('fixture-paper', failed['sourceId'])
+        self.assertEqual('A failed.', self.host.execution_log(failed['targetId'])['error'])
+
+        self.host.close()
+        self.host = HostService(self.workspace, self.fixture.root / 'host', backend_factory=CandidateRuntime)
+        window = self.host.snapshot()
+        self.assertEqual([failed], [item for item in window['workItems'] if item['kind'] == 'chat'])
+        self.host.clear_finished_statuses('clear-failed-chat', window['clearableStatusTokens'])
+        self.assertTrue(next(item for item in self.host.snapshot()['workItems'] if item['id'] == failed['id'])['dismissed'])
+        self.assertEqual('A failed.', self.host.execution_log(failed['targetId'])['error'])
+
+        a = self.host.select_discussion_source('fixture-paper')
+        self.host.start({'requestId': 'question-a-retries', 'sourceId': 'fixture-paper',
+                         'sessionId': a['sessionId'], 'receipt': None, 'content': 'Try A again.'})
+        self.host.worker.join(3)
+        self.assertFalse(any(item['kind'] == 'chat' for item in self.host.snapshot()['workItems']))
+
     def test_no_plan_discussion_saves_only_explicit_note_and_replays(self):
         selected = self.host.select_discussion_source('fixture-paper')
         self.assertEqual('fixture-paper', selected['source']['sourceId'])

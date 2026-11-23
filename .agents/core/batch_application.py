@@ -121,14 +121,14 @@ class BatchApplication:
                 status = 'deleted'
             elif item_id in batch['excluded']:
                 status = 'cancelled'
+            elif not error and item['status'] == 'completed' and ((blog or {}).get('runStatus') == 'completed' or not self.processing.wants_blog(item_id)):
+                status = 'completed'
             elif item_id == batch['activeItemId'] and batch['status'] == 'running':
                 status = 'processing'
             elif item['status'] in ('confirmed', 'awaiting_confirmation') and not error:
                 status = 'queued'
             elif item['status'] == 'cancelled' or (blog or {}).get('runStatus') == 'cancelled':
                 status = 'cancelled'
-            elif not error and item['status'] == 'completed' and ((blog or {}).get('runStatus') == 'completed' or not self.processing.wants_blog(item_id)):
-                status = 'completed'
             else:
                 status = 'partial' if item.get('source_id') else 'failed'
             items.append({'itemId': item_id, 'fileName': item['file_name'], 'sourceId': item.get('source_id'),

@@ -98,8 +98,10 @@ class SourceReadingHTTPTests(unittest.TestCase):
             self.assertEqual((200, b'image'), self.request(port, image + doc['bundleVersion']))
             self.assertEqual(400, self.request(port, image + '0' * 64)[0])
             before = (self.workspace / 'state.json').read_bytes()
-            self.value(port, '/library/sources/fixture-paper/completion', {
+            recorded = self.value(port, '/library/sources/fixture-paper/completion', {
                 'requestId': 'http-complete-test', 'bundleVersion': doc['bundleVersion'], 'generation': doc['generation']})
+            self.assertNotIn('sourceCompletion', recorded)
+            self.assertNotIn('sourceCompletion', self.value(port, '/reader/window'))
             self.assertEqual(before, (self.workspace / 'state.json').read_bytes())
 
     def test_legacy_discussion_can_append_line_citations_without_rewriting_the_bundle(self):
