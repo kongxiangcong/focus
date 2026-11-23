@@ -316,10 +316,11 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
   const sourceBundleVersion = view?.sourceBundleVersion;
   const sourceGeneration = view?.sourceGeneration ?? view?.resetVersion;
   const discussionId = view?.discussionId;
+  const resettingDiscussion = evidenceNavigation?.isResettingDiscussion(sourceId, discussionId);
   const [evidenceDocument, setEvidenceDocument] = useState<ReadingDocument | null>(null);
-  const discussionEvidence = useMemo(() => (view?.conversation ?? []).flatMap(message =>
+  const discussionEvidence = useMemo(() => (resettingDiscussion ? [] : view?.conversation ?? []).flatMap(message =>
     message.role === "assistant" && !message.sourceDeleted ? messageEvidence(message, { sourceId }, discussionId) : [],
-  ), [view?.conversation, sourceId, discussionId]);
+  ), [view?.conversation, sourceId, discussionId, resettingDiscussion]);
   const needsBlocks = visible && !!evidenceNavigation && discussionEvidence.length > 0;
   useEffect(() => {
     if (!needsBlocks || !sourceId || !host.getSourceDocument) return;
@@ -346,7 +347,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     return [...matches.values()];
   };
   const openEvidenceAnswer = (item: ValidatedAnswerEvidence) => {
-    if (!evidenceNavigation || !discussionId || item.discussionId !== discussionId ||
+    if (!evidenceNavigation || resettingDiscussion || !discussionId || item.discussionId !== discussionId ||
         (readingSession && !readingSession.isCurrent(readingSession.generation, sourceId))) return;
     evidenceNavigation.start({ destination: "answer", sourceId, discussionId, bundleVersion: sourceBundleVersion,
       sourceGeneration, selectionGeneration: readingSession?.generation, messageId: item.messageId, evidenceId: item.evidenceId });
@@ -906,7 +907,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
             afterBody={finishGroup?.id === group.id && completion.inline &&
               <button type="button" className="focus-finish-chunk" disabled={finishPaused} onClick={finish}>读完</button>}
             pending={annotations.pending?.groupId === group.id ? annotations.pending : null} fresh={annotations.fresh} onMarks={annotations.onMarks(group.id)}
-            onReference={referenceChunk} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} onLanguage={(chunk, original) => preserveReading(() => setFigureLanguages(old => ({ ...old, [chunkKey(chunk)]: original })))} /> : message ? <ReaderConversation messages={[message]} discussionId={discussionId} onEvidence={evidenceNavigation ? openEvidenceAnswer : undefined} chunks={chunks} figures={view?.figures} figureSourceId={sourceId} sourceFigures={sourceFigures} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} streaming={active && message.messageId === view?.conversation.at(-1)?.messageId}
+            onReference={referenceChunk} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} onLanguage={(chunk, original) => preserveReading(() => setFigureLanguages(old => ({ ...old, [chunkKey(chunk)]: original })))} /> : message ? <ReaderConversation messages={[message]} discussionId={discussionId} hideEvidence={resettingDiscussion} onEvidence={evidenceNavigation ? openEvidenceAnswer : undefined} chunks={chunks} figures={view?.figures} figureSourceId={sourceId} sourceFigures={sourceFigures} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} streaming={active && message.messageId === view?.conversation.at(-1)?.messageId}
             onJump={jumpReference} onHighlight={highlight} onClearHighlight={() => { if (!highlightTimer.current) clearHighlight(); }} onSaveNote={(reply, chunk) => send(`请把下面的回答记下来：\n\n${reply.content}`, false, false, chunk ?? null)} /> : null;
           const identity = eventKeys[index];
           return <TimelineEvent key={`${eventScope}:${identity}`} identity={identity} current={index === focusedIndex} fresh={committedEvents.current?.scope === eventScope && !committedEvents.current.ids.has(identity)} streaming={!folded && active && message?.role === "assistant" && message.messageId === view?.conversation.at(-1)?.messageId}>{content}</TimelineEvent>;

@@ -2,7 +2,8 @@
 
 Build the standalone UI, then run this file with the imported workspace path
 from .scratch/evidence-backannotation-unified-ir/batch-b-acceptance.md.
-Set FOCUS_BROWSER_URL to the printed origin for current_discussion_evidence_browser.mjs.
+Set FOCUS_BROWSER_URL to the printed origin for current_discussion_evidence_browser.mjs,
+or FOCUS_BROWSER_PORT to its port for evidence_navigation_browser.mjs.
 """
 from argparse import ArgumentParser
 from contextlib import closing
@@ -29,6 +30,12 @@ SOURCE = 'Evaluating Emerging CXL-enabled Memory Pooling for HPC Systems-paper'
 SCENARIO = {
     'boundaries': [96, 185, 241],
     'requests': {
+        '证据跳转验收': [
+            {'lines': [127, 127], 'quote': 'using the same emulated memory pool. The application is also executed'},
+            {'lines': [103, 103], 'quote': 'To capture memory usage metrics'},
+            {'lines': [266, 266], 'quote': 'a scalable high-bandwidth system'},
+            {'lines': [236, 236], 'quote': 'The performance of seven scientific applications'},
+        ],
         '归档回答 A': [
             {'lines': [266, 266], 'quote': 'a scalable high-bandwidth system'},
         ],

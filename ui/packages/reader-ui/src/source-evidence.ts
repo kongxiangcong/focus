@@ -13,8 +13,9 @@ export function answerEvidenceKey({ messageId, displayNumber }: ValidatedAnswerE
   return JSON.stringify([messageId, displayNumber]);
 }
 
-export function citedMarkdown(message: ReaderMessage, evidence: readonly ValidatedAnswerEvidence[]) {
+export function citedMarkdown(message: ReaderMessage, evidence: readonly ValidatedAnswerEvidence[], hideEvidence = false) {
   return message.content.replace(/\[\[e:([0-9a-f]{24})\]\]/g, (_, id: string) => {
+    if (hideEvidence) return "";
     const e = evidence.find(e => e.evidenceId === id);
     return e ? `[${e.displayNumber}](#e-${id})` : "〔原文证据不可定位〕";
   }).replace(/\[\[e:[^\]]*$/, "");

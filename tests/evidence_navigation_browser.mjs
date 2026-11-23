@@ -7,6 +7,7 @@ const base = `http://127.0.0.1:${process.env.FOCUS_BROWSER_PORT || '8765'}`;
 const answerLabel = process.env.FOCUS_EVIDENCE_ANSWER || '证据跳转验收';
 const sourceA = process.env.FOCUS_EVIDENCE_SOURCE || 'Evaluating Emerging CXL-enabled Memory Pooling for HPC Systems-paper';
 const sourceB = process.env.FOCUS_EVIDENCE_COMPARE || 'Evaluating Emerging CXL-enabled Memory Pooling for HPC Systems-2-paper';
+const firstQuote = 'using the same emulated memory pool. The application is also executed';
 const thirdQuote = 'a scalable high-bandwidth system';
 const fourthQuote = 'The performance of seven scientific applications';
 const browser = await chromium.launch({
@@ -65,14 +66,14 @@ async function open({ blocked = [], touch = false, configure } = {}) {
   await configure?.(page);
   await page.goto(`${base}/reading`);
   await pane(page).waitFor();
-  async function snapshot() {
+  async function host(path) {
     assert.ok(instance);
-    const response = await page.request.get(`${base}/reader/window`, { headers: { 'X-FOCUS-Instance': instance } });
+    const response = await page.request.get(`${base}${path}`, { headers: { 'X-FOCUS-Instance': instance } });
     const result = await response.json();
     assert.ok(result.ok, JSON.stringify(result));
     return result.value;
   }
-  return { page, errors, snapshot, instance: () => instance };
+  return { page, errors, host, snapshot: () => host('/reader/window'), instance: () => instance };
 }
 
 async function prepareAnswer() {
@@ -344,6 +345,123 @@ async function exitFullscreen(interrupt) {
   await page.close();
 }
 
+async function resetNavigation({ confirm, fail = false, releaseDuringReset = false }) {
+  let resumeReset;
+  const holdReset = new Promise(resolve => { resumeReset = resolve; });
+  let resetCount = 0;
+  const isReset = url => new URL(url).pathname.endsWith('/reset-reading');
+  const { page, errors, host, snapshot } = await open({ blocked: [8], async configure(page) {
+    await page.route(url => isReset(url), async route => {
+      resetCount++;
+      await holdReset;
+      await route.continue();
+    });
+  } });
+  const completed = async id => (await host('/library/sources')).find(source => source.sourceId === id).progress.completed;
+  const returnTo = number => pane(page).getByRole('button', { name: `返回回答证据 ${number}`, exact: true }).first();
+  const tab = name => switches(page).getByRole('button', { name, exact: true });
+  const archivedAnswer = view => view.conversation.find(message => message.role === 'assistant' && message.content.includes(answerLabel));
+  function noOldNavigation() {
+    return Promise.all([
+      card(page).waitFor({ state: 'hidden' }),
+      returnTo(1).waitFor({ state: 'detached' }),
+      returnTo(3).waitFor({ state: 'detached' }),
+      page.getByText(/此页渲染失败|版面位置暂不可用|原文证据不可定位/).filter({ visible: true }).first().waitFor({ state: 'hidden' }),
+    ]);
+  }
+
+  try {
+    const before = await snapshot();
+    const sourceId = before.source.sourceId;
+    const readCount = await completed(sourceId);
+    assert.ok(before.navigationCurrent?.chunkId && readCount > 0, 'there is saved close-reading progress to reset');
+    const answer = archivedAnswer(before);
+    assert.deepEqual(answer.evidence.slice(2).map(item => item.quote.exact), [thirdQuote, fourthQuote]);
+
+    await firstPage(page);
+    await citations(page).first().click();
+    await card(page).getByText(firstQuote, { exact: true }).waitFor();
+    await returnTo(1).waitFor();
+    await firstPage(page);
+    await citations(page).nth(2).click();
+    await waitForHeldPage(page, 8);
+    const latePage = await page.evaluateHandle(() => window.heldPdfPages.get(8));
+    const settleLatePage = async () => {
+      await latePage.evaluate((deliver, fail) => deliver(fail), fail);
+      await frames(page);
+    };
+    await page.getByRole('button', { name: '重新阅读', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '重新阅读本篇？', exact: true });
+
+    if (!confirm) {
+      await dialog.getByRole('button', { name: '取消', exact: true }).click();
+      await returnTo(1).waitFor();
+      await settleLatePage();
+      await card(page).getByText(thirdQuote, { exact: true }).waitFor();
+      await returnTo(3).click();
+      assert.equal(await citations(page).nth(2).evaluate(node => document.activeElement === node), true);
+      const after = await snapshot();
+      assert.equal(resetCount, 0);
+      assert.equal(after.discussionId, before.discussionId);
+      assert.deepEqual(progress(after), progress(before));
+      assert.equal(await completed(sourceId), readCount);
+    } else {
+      await Promise.all([
+        page.waitForRequest(request => request.method() === 'POST' && isReset(request.url())),
+        dialog.getByRole('button', { name: '确认重新阅读', exact: true }).click(),
+      ]);
+      const waitingPosition = await top(page);
+      assert.equal((await snapshot()).discussionId, before.discussionId, 'the reset request is still held');
+      await noOldNavigation();
+      assert.equal(await citations(page).count(), 0);
+      if (releaseDuringReset) {
+        await settleLatePage();
+        await noOldNavigation();
+        assert.equal(await top(page), waitingPosition);
+        assert.equal(await page.getByRole('button', { name: '原版 PDF', exact: true }).getAttribute('aria-pressed'), 'true');
+      }
+      const resetResponse = page.waitForResponse(response => isReset(response.url()) && response.ok());
+      resumeReset();
+      await resetResponse;
+      await tab('精读').waitFor();
+      await page.waitForFunction(() => document.querySelector('.reading-mode-panel')?.getAttribute('aria-label') === '精读');
+      await page.locator('.focus-stream').waitFor();
+      const after = await snapshot();
+      assert.notEqual(after.discussionId, before.discussionId);
+      assert.equal(after.source.sourceId, sourceId);
+      assert.notEqual(after.navigationCurrent?.planId, before.navigationCurrent.planId);
+      assert.equal(after.navigationCurrent?.index, 1);
+      assert.equal(after.readingProgress.length, 0);
+      assert.equal(await completed(sourceId), 0);
+      assert.deepEqual(after.conversation, []);
+
+      await tab('对话').click();
+      await firstPage(page);
+      const freshPosition = await top(page);
+      if (!releaseDuringReset) await settleLatePage();
+      await noOldNavigation();
+      assert.equal(await top(page), freshPosition);
+      assert.equal(await citations(page).count(), 0);
+      assert.equal(await pane(page).getByRole('button', { name: /返回相关回答|查看 \d+ 条相关回答/ }).count(), 0);
+      const discussions = page.getByLabel('对话记录', { exact: true });
+      await discussions.selectOption(before.discussionId);
+      await citations(page).nth(3).waitFor();
+      await noOldNavigation();
+      const archived = await snapshot();
+      assert.equal(archived.discussionId, before.discussionId);
+      assert.equal(archivedAnswer(archived).content, answer.content);
+      assert.deepEqual(archivedAnswer(archived).evidence, answer.evidence);
+      assert.equal(await completed(sourceId), 0);
+      await discussions.selectOption(after.discussionId);
+      await citations(page).nth(3).waitFor({ state: 'detached' });
+    }
+    assert.deepEqual(errors, []);
+  } finally {
+    resumeReset();
+    await page.close();
+  }
+}
+
 try {
   await prepareAnswer();
   const scenarios = {
@@ -357,11 +475,21 @@ try {
       for (const asset of ['document', 'original', 'opening']) await sourceRoundTrip(asset);
       await sourceRoundTrip('original', true);
     },
+    reset: async () => {
+      await resetNavigation({ confirm: false });
+      const confirmations = [
+        { releaseDuringReset: true }, { fail: true, releaseDuringReset: true }, {}, { fail: true },
+      ];
+      for (const [index, options] of confirmations.entries()) {
+        if (index) await prepareAnswer();
+        await resetNavigation({ confirm: true, ...options });
+      }
+    },
   };
   for (const [name, scenario] of Object.entries(scenarios)) {
     if (!process.env.FOCUS_EVIDENCE_CASE || process.env.FOCUS_EVIDENCE_CASE === name) {
       await scenario();
-      console.log(`PASS ${name} evidence navigation and unchanged reading progress through the formal Host`);
+      console.log(`PASS ${name} evidence navigation and persisted reading progress through the formal Host`);
     }
   }
 } finally {
