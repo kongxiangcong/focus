@@ -106,6 +106,13 @@ def _restore(path: Path, snapshot: bytes | None) -> None:
     temporary.replace(path)
 
 
+def has_started_reading(source_state: dict[str, Any]) -> bool:
+    """An advanced Cursor also identifies historical reading without a start marker."""
+    return bool(source_state.get("current_plan_id") and (
+        source_state.get("reading_started") or source_state.get("current_chunk_id") != "chunk-001"
+    ))
+
+
 def _current_source_state(
     workspace: Path,
 ) -> tuple[Path, dict[str, Any], dict[str, Any], str, Path]:

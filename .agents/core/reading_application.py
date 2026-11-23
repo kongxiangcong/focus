@@ -19,7 +19,7 @@ from .reading_workspace import (
     WorkspaceCore, WorkspaceError, _identifier, _needs_translation,
     _read_chunk_records, _read_document, _read_glossary, _read_reading_record,
     _reading_plan_records, _source_heading_paths, _protected_source_ranges, _validate_parser_bundle, _write_document,
-    validate_source_id,
+    has_started_reading, validate_source_id,
 )
 from .source_library import SourceLibrary
 from .source_blocks import source_lines
@@ -241,7 +241,7 @@ class ReadingCore:
                 selected['reading_pass'] = 1
             elif selected.get('reading_pass') is None:
                 selected['reading_pass'] = 1
-            selected.setdefault("reading_started", False)
+            selected["reading_started"] = has_started_reading(selected)
             state["current_source_id"] = source_id
             if changed:
                 state["reading_revision"] = int(state.get("reading_revision", 0)) + 1
@@ -400,7 +400,7 @@ class ReadingCore:
             if not self._plan_ready(source_id, plan_id):
                 raise WorkspaceError("reading_not_ready", "Reading Plan is not ready")
             if operation == 'start':
-                if selected.get('reading_started') or selected.get('current_chunk_id') != chunk_id or chunk_id is None:
+                if has_started_reading(selected) or selected.get('current_chunk_id') != chunk_id or chunk_id is None:
                     raise WorkspaceError('cursor_changed', '阅读位置已改变，请刷新后重试。')
                 selected['reading_started'] = True
                 state['reading_revision'] = reading_revision + 1
@@ -409,7 +409,7 @@ class ReadingCore:
                 state.setdefault('reading_requests', {})[request_id] = {'input': payload, 'result': result}
                 _write_document(state_path, state)
                 return result
-            if not selected.get('reading_started'):
+            if not has_started_reading(selected):
                 raise WorkspaceError('reading_not_started', '请先进入正文。')
             chunks = _read_chunk_records(self._root(source_id) / "reading" / "plans" / plan_id / "chunks.jsonl")
             ids = [chunk["chunk_id"] for chunk in chunks]
@@ -475,7 +475,7 @@ class ReadingCore:
             chunks = _read_chunk_records(self._root(source_id) / "reading" / "plans" / plan_id / "chunks.jsonl")
             ids = [chunk["chunk_id"] for chunk in chunks]
             current = selected.get("current_chunk_id")
-            if not selected.get("reading_started") or chunk_id not in ids or (current is not None and ids.index(chunk_id) > ids.index(current)):
+            if not has_started_reading(selected) or chunk_id not in ids or (current is not None and ids.index(chunk_id) > ids.index(current)):
                 raise WorkspaceError("reading_review_unread", "Only already read Chunks may be reviewed")
             return self.core.preparation_chunk(source_id=source_id, plan_id=plan_id, chunk_id=chunk_id)
 

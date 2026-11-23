@@ -50,7 +50,7 @@ it.each(["missing-source", "missing-cursor", "missing-section", "invalid-index",
   if (condition === "invalid-index") view.current.index = 0;
   if (condition === "invalid-total") view.current.total = 0;
   if (condition === "wrong-source") view.current.sourceId = "B";
-  setup({ view, sources: condition === "completed" ? sources.map(s => s.sourceId === "A" ? { ...s, progress: { ...s.progress, chunkId: null } } : s) : sources }); await loaded();
+  setup({ view, sources: condition === "completed" ? sources.map(s => s.sourceId === "A" ? { ...s, progress: { ...s.progress, completed: 4, chunkId: null } } : s) : sources }); await loaded();
   if (condition === "topic") chooseTopic("topic");
   if (condition === "query") fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Alpha" } });
   if (condition === "filter") fireEvent.click(filters().getByRole("button", { name: "阅读中1" }));
@@ -59,13 +59,69 @@ it.each(["missing-source", "missing-cursor", "missing-section", "invalid-index",
 it("counts and applies all five filters including blog failures within Topic and search scope", async () => {
   setup({ view: { ...empty, blog: { A: { error: { message: "blog failure" }, artifacts: {} } as BlogStatus } } }); await loaded();
   await waitFor(() => expect(filters().getByRole("button", { name: "需处理2" })).toBeEnabled());
-  for (const name of ["全部4", "阅读中1", "未开始1", "已读完1", "需处理2"]) expect(filters().getByRole("button", { name })).toBeEnabled();
-  for (const [name, titles] of [["阅读中1", ["Alpha"]], ["未开始1", ["Beta"]], ["已读完1", ["Gamma"]], ["需处理2", ["Alpha", "Delta"]], ["全部4", ["Alpha", "Beta", "Gamma", "Delta"]]] as const) {
+  for (const name of ["全部4", "阅读中1", "未开始2", "已读完1", "需处理2"]) expect(filters().getByRole("button", { name })).toBeEnabled();
+  for (const [name, titles] of [["阅读中1", ["Alpha"]], ["未开始2", ["Beta", "Delta"]], ["已读完1", ["Gamma"]], ["需处理2", ["Alpha", "Delta"]], ["全部4", ["Alpha", "Beta", "Gamma", "Delta"]]] as const) {
     fireEvent.click(filters().getByRole("button", { name })); expect(within(screen.getByRole("list", { name: "来源" })).getAllByRole("listitem").map(row => within(row).getByRole("heading").textContent)).toEqual(titles);
   }
   chooseTopic("topic"); expect(filters().getByRole("button", { name: "全部2" })).toBeEnabled(); expect(filters().getByRole("button", { name: "已读完0" })).toBeDisabled();
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "Beta" } }); expect(filters().getByRole("button", { name: "全部1" })).toBeEnabled(); expect(filters().getByRole("button", { name: "阅读中0" })).toBeDisabled();
 });
+it("shows the same empty battery and reading status for an entered single-chunk plan in both layouts", async () => {
+  const alpha: LibrarySource = { ...sources[0], readingStatus: "reading", progress: { completed: 0, total: 1, planId: "plan", chunkId: "chunk-1" } };
+  const beta: LibrarySource = { ...sources[1], readingStatus: "completed", progress: { completed: 0, total: 1, planId: "plan", chunkId: "chunk-1" } };
+  setup({ sources: [alpha, beta], overrides: { getSourceDocument: vi.fn() } });
+  await loaded();
+
+  for (const layout of ["列表显示", "卡片显示"]) {
+    fireEvent.click(screen.getByRole("button", { name: layout }));
+    expect(filters().getByRole("button", { name: "已读完0" })).toBeDisabled();
+    expect(filters().getByRole("button", { name: "未开始1" })).toBeEnabled();
+    fireEvent.click(filters().getByRole("button", { name: "阅读中1" }));
+    const row = screen.getByRole("listitem");
+    expect(row).toHaveTextContent("Alpha");
+    expect(row).toHaveTextContent("阅读中");
+    expect(row).toHaveTextContent("0/1 段 (0%)");
+    const battery = within(row).getByRole("progressbar", { name: "Alpha 精读进度" });
+    expect(battery).toHaveAttribute("aria-valuenow", "0");
+    expect(battery).toHaveAttribute("aria-valuemax", "1");
+    expect(battery).toHaveAttribute("aria-valuetext", "0/1 段 (0%)");
+  }
+  chooseTopic("topic");
+  expect(screen.getByRole("region", { name: "专题概览" })).toHaveTextContent("已读完 0 / 2 篇 · 1 篇阅读中");
+});
+it("uses plan coverage for battery colors, including the 20% and 60% boundaries", async () => {
+  const cases = [
+    { title: "Alpha", completed: 0, level: "empty" },
+    { title: "Low", completed: 1, level: "low" },
+    { title: "Mid", completed: 2, level: "mid" },
+    { title: "High", completed: 3, level: "high" },
+    { title: "Full", completed: 5, level: "full" },
+  ];
+  setup({ sources: cases.map(({ title, completed }, index) => ({
+    ...sources[0], title, sourceId: String(index),
+    progress: { completed, total: 5, planId: "plan", chunkId: completed === 5 ? null : `chunk-${completed + 1}` },
+  })) });
+  await loaded();
+  for (const { title, level } of cases) {
+    expect(screen.getByRole("progressbar", { name: `${title} 精读进度` })).toHaveAttribute("data-level", level);
+  }
+});
+
+it("keeps a failed preparation actionable without counting its prepared chunks as reading", async () => {
+  setup({
+    view: { ...empty, preparations: { B: { source_id: "B", status: "failed", step: "check", total: 4, completed: 4, ready: false, error: null, plan_id: "plan" } } },
+    overrides: { getSourceDocument: vi.fn(), resumePreparation: vi.fn() },
+  });
+  await loaded();
+  fireEvent.click(filters().getByRole("button", { name: "未开始2" }));
+  const beta = screen.getByRole("button", { name: "Beta" });
+  expect(beta.closest("article")).toHaveTextContent("准备失败");
+  expect(screen.getByRole("progressbar", { name: "Beta 精读进度" })).toHaveAttribute("aria-valuenow", "0");
+  fireEvent.click(beta);
+  const inspector = screen.getByRole("complementary", { name: "来源详情" });
+  expect(within(inspector).getByRole("button", { name: "重试" })).toBeEnabled();
+});
+
 it("keeps the selected zero-count filter enabled, shows filter empty state and pauses every ordering route", async () => {
   const host = setup(); await loaded(); chooseTopic("topic"); fireEvent.click(filters().getByRole("button", { name: "阅读中1" }));
   expect(screen.getByText("筛选时暂停排序；显示全部状态后可调整专题顺序。")).toBeInTheDocument();

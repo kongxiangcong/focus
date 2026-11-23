@@ -1,7 +1,7 @@
-import { LibraryProgress } from "./LibraryProgress";
+import { BatteryProgress } from "./BatteryProgress";
 import type { ReactNode } from "react";
 import type { BlogStatus, LibrarySource, LibraryTopic } from "@focus/reader-contracts";
-import { blogSummary, readingStatus, type SourceStatus, type primaryAction } from "./source-status";
+import { blogSummary, type SourceStatus, type primaryAction } from "./source-status";
 
 export type SourceViewProps = {
   source: LibrarySource; status: SourceStatus; action: ReturnType<typeof primaryAction>; blog: BlogStatus | undefined;
@@ -9,8 +9,8 @@ export type SourceViewProps = {
   unified?: boolean; onOverview?: () => void; onBlog?: () => void;
   onSelect: () => void; onPrimary: () => void; onTopic: (id: string) => void;
 };
-export function sourceAttributes(source: LibrarySource) {
-  return { "data-reading-status": readingStatus(source), "data-status": source.parseStatus !== "ready" ? "failed" : readingStatus(source) === "completed" ? "completed" : source.progress.completed > 0 ? "reading" : "unread" };
+export function sourceAttributes(source: LibrarySource, status: SourceStatus) {
+  return { "data-reading-status": status.phase, "data-status": source.parseStatus !== "ready" ? "failed" : status.phase === "unstarted" ? "unread" : status.phase };
 }
 export function SourceKind({ source }: { source: LibrarySource }) {
   return <span className="source-badge" data-kind={source.kind}>{source.format ?? (source.kind === "paper" ? "PDF" : "HTML")}</span>;
@@ -23,7 +23,12 @@ export function SourceMeta({ source, topics, onTopic }: Pick<SourceViewProps, "s
   return <div className="library-source-meta"><span>{[source.venue, source.publishedAt].filter(Boolean).join(" · ")}</span>{source.topicIds.map(id => <a href="/library" key={id} onClick={event => { event.preventDefault(); event.stopPropagation(); onTopic(id); }} onDoubleClick={event => event.stopPropagation()}>#{topics.find(t => t.topicId === id)?.title ?? id}</a>)}{source.topicIds.length === 0 && <span>未归类</span>}</div>;
 }
 export function SourceState({ source, status, candidate, bar = true }: Pick<SourceViewProps, "source" | "status" | "candidate"> & { bar?: boolean }) {
-  return <div className="library-source-status" data-tone={status.tone}><span><i aria-hidden="true" />{status.label}<small>{status.detail}{candidate ? " · 新计划可用" : ""}</small></span>{bar && <LibraryProgress label={`${source.title} 阅读进度`} value={status.ratio * Math.max(1, source.progress.total)} max={source.progress.total || 1} />}</div>;
+  const { operation } = status;
+  return <div className="library-source-status" data-tone={status.tone}>
+    <span><i aria-hidden="true" />{status.label}{candidate && <small>新计划可用</small>}</span>
+    {operation && <small className="library-source-operation" data-tone={operation.tone}>{operation.label}{operation.detail && ` · ${operation.detail}`}</small>}
+    {bar && <BatteryProgress label={`${source.title} 精读进度`} progress={status.progress} />}
+  </div>;
 }
 export function SourceArtifacts({ source, blog, onOverview, onBlog, unified }: Pick<SourceViewProps, "source" | "blog" | "onOverview" | "onBlog" | "unified">) {
   const summary = blogSummary(blog);

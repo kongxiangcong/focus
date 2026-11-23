@@ -231,7 +231,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     });
     return () => { alive = false; unsubscribe?.(); window.removeEventListener("popstate", pop); requestVersion.current++; };
   }, [host, acceptView, isCurrentSelection, cancelEvidenceNavigation]);
-  useEffect(() => { if (route !== "/settings") void refresh(); }, [route, view?.agent?.run?.status, host]);
+  useEffect(() => { if (route !== "/settings") void refresh(route === "/library"); }, [route, view?.agent?.run?.status, host]);
   useEffect(() => {
     if (!inbox.some(item => item.status === "processing") && !batches.some(b => b.executing || ["confirmed", "running"].includes(b.status))) return;
     const timer = window.setInterval(() => void refresh(), 1200);
@@ -437,10 +437,11 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const managementBusy = !!busy || !!view?.configuration?.busy || active || batches.some(b => b.executing || ["confirmed", "running"].includes(b.status)) || Object.values(blogs).some(b => b.executing || b.runStatus === "running");
   const sortingReason = sortingDisabledReason({ managementBusy, query, statusFilter, libraryView, canManage: !!host.manageTopic });
   const unfiledCount = sources.filter(s => s.topicIds.length === 0).length;
-  const completedCount = (ids: readonly string[]) => sources.filter(s => ids.includes(s.sourceId) && sourceStatus(s, view?.preparations?.[s.sourceId], preparationHidden(s.sourceId)).phase === "completed").length;
+  const statusFor = (source: LibrarySource) => sourceStatus(source, view?.preparations?.[source.sourceId], preparationHidden(source.sourceId));
+  const completedCount = (ids: readonly string[]) => sources.filter(s => ids.includes(s.sourceId) && statusFor(s).phase === "completed").length;
   const scoped = sources.filter(s => (!topic || (topic === UNFILED ? s.topicIds.length === 0 : s.topicIds.includes(topic))) &&
     [s.title, s.displayTitle, s.shortName].filter(Boolean).join(" ").toLowerCase().includes(query.toLowerCase()));
-  const filtered = scoped.filter(s => matchesStatus(sourceStatus(s, view?.preparations?.[s.sourceId], preparationHidden(s.sourceId)), statusFilter, blogs[s.sourceId]));
+  const filtered = scoped.filter(s => matchesStatus(statusFor(s), statusFilter, blogs[s.sourceId]));
   if (selectedTopic) filtered.sort((a, b) => selectedTopic.sourceIds.indexOf(a.sourceId) - selectedTopic.sourceIds.indexOf(b.sourceId));
   function openManagement(kind: "create" | "rename" | "delete" | "source", id?: string, title = "") {
     const source = sources.find(s => s.sourceId === id);
@@ -780,7 +781,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           view: !unifiedReading || view?.source.sourceId === selection.current.sourceId ? view : null,
           generation, isCurrent: isCurrentSelection, accept: acceptView,
         }} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
-    {route === "/library" && <LibraryPage {...{ scoped, statusFilter, setStatusFilter, sourcesFailed, refresh, taskInbox, taskBatches, statusText, itemStatusText, continueInbox, controlBatch, sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, setConfirm, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} onTasks={() => setTaskDetails(true)} />}
+    {route === "/library" && <LibraryPage {...{ scoped, statusFilter, setStatusFilter, sourcesFailed, refresh, statusFor, taskInbox, taskBatches, statusText, itemStatusText, continueInbox, controlBatch, sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, setConfirm, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} onTasks={() => setTaskDetails(true)} />}
     {route === "/settings" && <main className="settings-page">
       <div className="settings-shell">
         <nav className="settings-toc" aria-label="设置分组">

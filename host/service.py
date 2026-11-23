@@ -23,6 +23,7 @@ from .backend_setup import BackendSetup
 from .progress import CORE_LABELS, activity_label
 from core import INGESTION_SERVICES, BlogApplication, IngestionApplication, AutoMinerUParser
 from core.reading_application import ReadingApplication
+from core.reading_workspace import has_started_reading
 from core.reading_progress import ReadingProgress, ProgressApplication
 from core.processing_application import ProcessingApplication, supports_ingestion_blog
 from core.batch_application import BatchApplication
@@ -162,9 +163,9 @@ class HostService:
         if not self.state['timeline'] and self.state['displayReading']:
             window = self.core.window()
             selection = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8")).get('sources', {}).get(window['source']['sourceId'], {}) if (self.workspace / 'state.json').is_file() else {}
-            for c in ([*window['history'], *([window['current']] if window['current'] else [])] if selection.get('reading_started') else []):
+            for c in ([*window['history'], *([window['current']] if window['current'] else [])] if has_started_reading(selection) else []):
                 self._append_reading({k: c[k] for k in ('sourceId', 'planId', 'chunkId')})
-            if selection.get('reading_started') and window['current']:
+            if has_started_reading(selection) and window['current']:
                 self.state['readingMarker'] = [{k: window['current'][k] for k in ('sourceId', 'planId', 'chunkId')}, window.get('readingRevision'), self.state['sessionId']]
             self.state['timeline'].extend({'kind': 'message', 'messageId': m['messageId']} for m in self.state['conversation'])
             self.store.save()
@@ -191,7 +192,7 @@ class HostService:
         if self.state['displayReading']:
             current = self._safe_state()
             selected = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8")).get('sources', {}).get(current.get('source_id'), {}) if (self.workspace / 'state.json').is_file() else {}
-            if current.get('chunk_id') and selected.get('reading_started'):
+            if current.get('chunk_id') and has_started_reading(selected):
                 receipt = {'sourceId': current['source_id'], 'planId': current['plan_id'], 'chunkId': current['chunk_id']}
                 marker = [receipt, self.core.window().get('readingRevision'), self.state['sessionId']]
                 if self.state.get('readingMarker') != marker:
@@ -267,7 +268,7 @@ class HostService:
         state_path = self.workspace / 'state.json'
         state_stamp = self._path_stamp(state_path)
         selected_state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
-        window['readingStarted'] = bool(selected_state.get('sources', {}).get(note_source, {}).get('reading_started'))
+        window['readingStarted'] = has_started_reading(selected_state.get('sources', {}).get(note_source, {}))
         window['structureIntro'] = bool(window.get('structure') and window['navigationCurrent'] and not window['readingStarted'])
         if note_source and window.get('structure'):
             reading_dir = self.workspace / 'sources' / note_source / 'reading'
@@ -877,13 +878,8 @@ class HostService:
             return SourceLibrary(self.workspace).deletion_impact(source_id)
 
     def library_sources(self):
-        from .core_bridge import SourceLibrary
         with self.lock:
-            sources = SourceLibrary(self.workspace).overview()
-            for source in sources:
-                if source.get('parseStatus') == 'ready' and SourceReading(self.workspace).completion(source['sourceId']):
-                    source['readingStatus'] = 'completed'
-            return sources
+            return SourceLibrary(self.workspace).overview()
 
     def inbox_stage(self, attachment_id, *, topic_title=None, topic_id=None):
         with self.lock:
@@ -1304,7 +1300,7 @@ class HostService:
             newly_committed = self.reading_request_result(payload.get('requestId')) is None
             selected = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8"))['sources'].get(receipt.get('sourceId'), {})
             previous_operation = self.reading_request_result(payload.get('requestId'))
-            if payload.get('beginBody') or not selected.get('reading_started') or (previous_operation and previous_operation.get('operation') == 'start'):
+            if payload.get('beginBody') or not has_started_reading(selected) or (previous_operation and previous_operation.get('operation') == 'start'):
                 state = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8"))
                 if newly_committed and (state.get('current_source_id') != receipt.get('sourceId') or selected.get('current_plan_id') != receipt.get('planId') or selected.get('current_chunk_id') != receipt.get('chunkId') or state.get('reading_revision', 0) != receipt.get('readingRevision')):
                     raise WorkspaceError('cursor_changed', '阅读位置已改变，请刷新后重试。')

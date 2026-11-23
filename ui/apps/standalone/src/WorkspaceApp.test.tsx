@@ -276,7 +276,7 @@ it("filters source cards, exposes source resources, and rejects unsupported inge
   const { host } = setup(); await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole("button", { name: "A Paper" }));
   expect(document.querySelector(".source-badge")?.closest("article")).toBeInTheDocument();
-  expect(screen.getByRole("progressbar", { name: "A Paper 阅读进度" })).toHaveAttribute("aria-valuenow", "1");
+  expect(screen.getByRole("progressbar", { name: "A Paper 精读进度" })).toHaveAttribute("aria-valuenow", "1");
   fireEvent.change(screen.getByRole("searchbox"), { target: { value: "missing" } });
   expect(screen.getByText("没有标题匹配这次搜索。")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "清除搜索" }));
