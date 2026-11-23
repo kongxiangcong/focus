@@ -8,7 +8,8 @@ import { BackendSetupPanel } from "./BackendSetupPanel";
 import { WorkspaceSelection } from './WorkspaceSelection';
 import { UploadTopicPicker } from "./UploadTopicPicker";
 import { readingFonts, readReadingFont, readingFontFamily, type ReadingFont } from "./reading-fonts";
-import { applyAppearance, readPreference, type Theme, type Density } from "./appearance";
+import { applyAppearance, readAccent, readPreference, readTheme, type Density } from "./appearance";
+import { AppearanceThemePicker } from "./AppearanceThemePicker";
 
 import { LibraryToolbar } from "./library/LibraryToolbar";
 import { LibraryPage } from "./library/LibraryPage";
@@ -39,20 +40,21 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [route, setRoute] = useState<Route>(routeFromLocation);
   const [fontSize, setFontSize] = useState<FontSize>(readFont);
   const [readingFont, setReadingFont] = useState<ReadingFont>(readReadingFont);
-  const [theme, setTheme] = useState<Theme>(() => readPreference("focus.theme", ["light", "dark", "system"], "system"));
+  const [theme, setTheme] = useState(readTheme);
+  const [accent, setAccent] = useState(readAccent);
   const [reducedMotion, setReducedMotion] = useState(() => readPreference("focus.reducedMotion", ["true", "false"], "false") === "true");
   const [density, setDensity] = useState<Density>(() => readPreference("focus.density", ["compact", "comfortable"], "compact"));
   const [navCollapsed, setNavCollapsed] = useState(() => readPreference("focus.navigation", ["expanded", "collapsed"], globalThis.matchMedia?.("(max-width: 1180px)").matches ? "collapsed" : "expanded") === "collapsed");
   const [appearanceFeedback, setAppearanceFeedback] = useState("");
   const [moreSource, setMoreSource] = useState<string | null>(null);
-  const savedAppearance = useRef({ fontSize, readingFont, theme, density, reducedMotion });
   useEffect(() => {
-    applyAppearance(theme, density, reducedMotion);
+    const update = () => applyAppearance(theme, accent, density, reducedMotion);
+    update();
+    if (theme !== "system") return;
     const media = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
-    const update = () => applyAppearance(theme, density, reducedMotion);
     media?.addEventListener?.("change", update);
     return () => media?.removeEventListener?.("change", update);
-  }, [theme, density, reducedMotion]);
+  }, [theme, accent, density, reducedMotion]);
   const [readingBranchOpen, setReadingBranchOpen] = useState(true);
   const [branchSlot, setBranchSlot] = useState<HTMLDivElement | null>(null);
   const [pickerSlot, setPickerSlot] = useState<HTMLDivElement | null>(null);
@@ -163,11 +165,11 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   function saveAppearance() {
     try {
-      const changes = { "focus.fontSize": fontSize, "focus.readingFont": readingFont, "focus.theme": theme, "focus.density": density, "focus.reducedMotion": String(reducedMotion) };
+      const changes = { "focus.fontSize": fontSize, "focus.readingFont": readingFont, "focus.theme": theme, "focus.accent": accent, "focus.density": density, "focus.reducedMotion": String(reducedMotion) };
       const old = Object.keys(changes).map(key => [key, localStorage.getItem(key)] as const);
       try { for (const [key, value] of Object.entries(changes)) localStorage.setItem(key, value); }
       catch (e) { for (const [key, value] of old) { if (value !== null) localStorage.setItem(key, value); else localStorage.removeItem(key); } throw e; }
-      savedAppearance.current = { fontSize, readingFont, theme, density, reducedMotion }; return true;
+      return true;
     } catch { return false; }
   }
   useEffect(() => {
@@ -189,7 +191,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     if (!ok) return;
     const timer = setTimeout(() => setAppearanceFeedback(""), 1800);
     return () => clearTimeout(timer);
-  }, [fontSize, readingFont, theme, density, reducedMotion]);
+  }, [fontSize, readingFont, theme, accent, density, reducedMotion]);
   function navigate(next: Route) {
     if (next !== "/reading") cancelEvidenceNavigation();
     history.pushState(null, "", next);
@@ -888,7 +890,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
             </div>
             <div className="settings-appearance-grid">
               <div className="settings-appearance-controls">
-                <div className="settings-row"><label htmlFor="focus-theme">主题</label><select id="focus-theme" value={theme} onChange={e => setTheme(e.target.value as Theme)}><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></div>
+                <AppearanceThemePicker theme={theme} accent={accent} onTheme={setTheme} onAccent={setAccent} />
                 <div className="settings-row"><label htmlFor="focus-density">界面密度</label><select id="focus-density" value={density} onChange={e => setDensity(e.target.value as Density)}><option value="compact">紧凑</option><option value="comfortable">舒适</option></select></div>
                 <div className="settings-row"><label htmlFor="font-size">字号</label><input id="font-size" type="range" min="0" max="3" step="1" value={fontOptions.findIndex(([key]) => key === fontSize)} aria-valuetext={fontOptions.find(([key]) => key === fontSize)?.[1]} onChange={e => { const value = fontOptions[Number(e.target.value)][0]; setFontSize(value); }} /><output htmlFor="font-size">{readingFontSizes[fontSize]}px</output></div>
                 <div className="settings-row"><label htmlFor="reading-font">正文字体</label><select id="reading-font" value={readingFont} onChange={e => setReadingFont(e.target.value as ReadingFont)}>
@@ -897,7 +899,11 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
                 <div className="settings-row"><label htmlFor="focus-reduced-motion">低动态模式</label><input id="focus-reduced-motion" type="checkbox" checked={reducedMotion} onChange={e => setReducedMotion(e.target.checked)} /></div>
               </div>
               <div className="settings-font-preview" aria-label="阅读字体预览" style={{ fontSize: `${readingFontSizes[fontSize]}px` }}>
-                <span className="settings-preview-badge">实时预览</span>
+                <div className="settings-theme-preview" aria-label="界面配色预览">
+                  <span data-preview="action">主按钮</span><span data-preview="active">当前标签</span>
+                  <span data-preview="error"><b aria-hidden="true">!</b> 错误</span>
+                  <span data-preview="success">✓ 成功</span>
+                </div>
                 <p>阅读让我们看见问题的来处，也理解方法成立的原因。保留疑问，沿着证据继续探索。</p>
                 <p lang="en">Reading brings ideas into focus. Follow the evidence, ask clear questions, and keep exploring.</p>
                 <p><strong>重要结论</strong> · Focus 2026 · 0123456789</p>

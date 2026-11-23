@@ -1,5 +1,6 @@
 /* FOCUS-owned numerical authority for the CDS 2.0 presentation (ADR 0025).
-   Colours and reading type: docs/design/FOCUS_READING_REDESIGN_SPEC.md §2–3.
+   Colours: docs/design/20261122-refactor/03_focus_theme_and_ui_consistency_refactor_design.md §2.
+   Reading type: docs/design/FOCUS_READING_REDESIGN_SPEC.md §3.
    Other geometry and motion: docs/design/FOCUS_UI_CDS2_DESIGN_SPEC.md §6–7.
    Every consumer (workbench, reader, dialogs, tasks) resolves values here;
    component CSS must not introduce a second colour/size/motion table. */
@@ -13,36 +14,48 @@
 
   color-scheme:light;
   /* Surfaces */
-  --reader-canvas:#f5f4f0;
-  --reader-surface-1:#eceae4;
-  --reader-surface-2:#fffffe;
+  --reader-canvas:#fff;
+  --reader-surface-1:#f7f7f8;
+  --reader-surface-2:#fff;
   --reader-popover:var(--reader-surface-2);
   --reader-paper:var(--reader-canvas);
   --reader-sidebar:var(--reader-surface-1);
   --reader-surface:var(--reader-surface-2);
   --reader-subtle:var(--reader-surface-1);
   /* Text */
-  --reader-ink:#1d2125;
-  --reader-ink-2:#4f5964;
-  --reader-ink-3:#67717c;
+  --reader-ink:#111827;
+  --reader-ink-2:#4b5563;
+  --reader-ink-3:#667085;
   --reader-text:var(--reader-ink);
-  --reader-secondary:#5d636b;
+  --reader-secondary:var(--reader-ink-2);
   --reader-muted:var(--reader-secondary); /* informative small text stays legible */
   --reader-faint:#8b9097;      /* decorative/disabled only */
   /* Interaction state and position */
-  --reader-accent:#2d5f7f;
-  --reader-accent-ink:#24506c;
-  --reader-accent-soft:rgba(45,95,127,.10);
-  --reader-accent-line:rgba(45,95,127,.38);
+  --reader-swatch-blue:#1d4ed8;
+  --reader-swatch-green:#0f766e;
+  --reader-swatch-red:#9f1239;
+  --reader-swatch-neutral:#18181b;
+  --reader-accent:var(--reader-swatch-blue);
+  --reader-accent-hover:#1e40af;
+  --reader-accent-ink:#1e40af;
+  --reader-accent-soft:rgba(29,78,216,.09);
+  --reader-accent-line:rgba(29,78,216,.42);
+  --reader-accent-ring:rgba(29,78,216,.18);
+  --reader-on-accent:#fff;
   --reader-battery-low:#DC2626;
   --reader-battery-mid:#D97706;
   --reader-battery-high:#4ADE80;
   --reader-battery-full:#15803D;
+  --reader-battery-high-line:var(--reader-battery-full);
   /* Quoted content emphasis */
   --reader-mark:rgba(232,178,62,.34);
   --reader-mark-soft:rgba(232,178,62,.14);
-  --reader-mark-strong:#c28a1e;
-  --reader-mark-ink:#8a5d0c;
+  --reader-mark-strong:#9a6b0a;
+  --reader-mark-ink:#79520a;
+  --reader-pdf-mark:#eaac3833;
+  --reader-pdf-mark-line:#926124;
+  --reader-pdf-marker-bg:#fff4d8;
+  --reader-pdf-marker-ink:#79520a;
   /* Reading Highlight and sentence Reading Note presentation (ADR 0033). */
   --reader-anno-highlight:rgba(247,206,70,.50);
   --reader-anno-highlight-strong:#d6a514;
@@ -64,21 +77,24 @@
   --reader-anno-bubble-selected:rgba(247,206,70,.18);
   --reader-anno-bubble-muted:rgba(248,247,244,.75);
   /* Actions and status (status colours retain ADR 0025 values) */
-  --reader-action:#1d2125;
-  --reader-on-action:#f8f7f4;
+  --reader-action:var(--reader-accent);
+  --reader-action-hover:var(--reader-accent-hover);
+  --reader-on-action:var(--reader-on-accent);
   --reader-focus:var(--reader-accent-ink);
-  --reader-danger:#a32b31;
+  --reader-danger:#dc2626;
+  --reader-danger-line:#fecaca;
   --reader-warning:#8a5a17;
-  --reader-success:#2c6b45;
-  --reader-error-bg:#fdf1ef;
-  --reader-success-bg:#f0f7f2;
+  --reader-success:#15803d;
+  --reader-error-bg:#fff7f7;
+  --reader-success-bg:#f0fdf4;
   --reader-warning-bg:#fbf5ea;
   /* Boundaries */
-  --reader-line:rgba(29,33,37,.10);
-  --reader-line-strong:rgba(29,33,37,.18);
-  --reader-hover:rgba(29,33,37,.055);
+  --reader-line:#e5e7eb;
+  --reader-line-strong:#d1d5db;
+  --reader-hover:rgba(17,24,39,.055);
+  --reader-backdrop:rgba(17,24,39,.42);
   --reader-selected:var(--reader-accent-soft);
-  --reader-user-bubble:#e9ecef;
+  --reader-user-bubble:#f3f4f6;
   /* Type */
   --reader-serif:"FOCUS Source Han Serif","Iowan Old Style","Palatino Linotype","Noto Serif CJK SC","Songti SC","SimSun",Georgia,serif;
   --reader-ui:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
@@ -150,24 +166,51 @@
   --reader-glass-edge:var(--reader-line);
   --reader-blur:0px;
 }
+:root[data-theme=light][data-accent=green] {
+  --reader-accent:var(--reader-swatch-green);
+  --reader-accent-hover:#115e59;
+  --reader-accent-ink:#115e59;
+  --reader-accent-soft:rgba(15,118,110,.09);
+  --reader-accent-line:rgba(15,118,110,.42);
+  --reader-accent-ring:rgba(15,118,110,.18);
+}
+:root[data-theme=light][data-accent=red] {
+  --reader-accent:var(--reader-swatch-red);
+  --reader-accent-hover:#881337;
+  --reader-accent-ink:#881337;
+  --reader-accent-soft:rgba(159,18,57,.08);
+  --reader-accent-line:rgba(159,18,57,.40);
+  --reader-accent-ring:rgba(159,18,57,.16);
+}
+:root[data-theme=light][data-accent=neutral] {
+  --reader-accent:var(--reader-swatch-neutral);
+  --reader-accent-hover:#27272a;
+  --reader-accent-ink:var(--reader-swatch-neutral);
+  --reader-accent-soft:rgba(24,24,27,.07);
+  --reader-accent-line:rgba(24,24,27,.35);
+  --reader-accent-ring:rgba(24,24,27,.14);
+}
 :root[data-theme=dark] {
   color-scheme:dark;
-  --reader-canvas:#151719;
-  --reader-surface-1:#1c1f22;
-  --reader-surface-2:#212529;
-  --reader-ink:#e8e6e1;
-  --reader-ink-2:#a5a9af;
-  --reader-ink-3:#7d858f;
-  --reader-secondary:#9ca1a8;
+  --reader-canvas:#161719;
+  --reader-surface-1:#1d1f23;
+  --reader-surface-2:#24272c;
+  --reader-ink:#eceef1;
+  --reader-ink-2:#a6acb6;
+  --reader-ink-3:#8b929e;
   --reader-faint:#6c7177;
-  --reader-accent:#8db8d6;
-  --reader-accent-ink:#a9cbe3;
-  --reader-accent-soft:rgba(141,184,214,.14);
-  --reader-accent-line:rgba(141,184,214,.45);
+  --reader-accent:#e4e6eb;
+  --reader-accent-hover:#f3f4f6;
+  --reader-accent-ink:var(--reader-accent);
+  --reader-accent-soft:rgba(228,230,235,.12);
+  --reader-accent-line:rgba(228,230,235,.38);
+  --reader-accent-ring:rgba(228,230,235,.22);
+  --reader-on-accent:#161719;
   --reader-battery-low:#F87171;
   --reader-battery-mid:#FBBF24;
   --reader-battery-high:#86EFAC;
   --reader-battery-full:#16A34A;
+  --reader-battery-high-line:var(--reader-battery-high);
   --reader-mark:rgba(217,164,65,.30);
   --reader-mark-soft:rgba(217,164,65,.12);
   --reader-mark-strong:#d9a441;
@@ -192,18 +235,19 @@
   --reader-anno-saved:rgba(230,190,60,.7);
   --reader-anno-bubble-selected:rgba(247,206,70,.18);
   --reader-anno-bubble-muted:rgba(248,247,244,.75);
-  --reader-action:#e8e6e1;
-  --reader-on-action:#151719;
-  --reader-danger:#ff9d9d;
-  --reader-warning:#e3b06a;
-  --reader-success:#8fd0a9;
-  --reader-error-bg:#3a2224;
-  --reader-success-bg:#1e2f27;
-  --reader-warning-bg:#352a1c;
-  --reader-line:rgba(232,230,225,.09);
-  --reader-line-strong:rgba(232,230,225,.17);
-  --reader-hover:rgba(232,230,225,.06);
-  --reader-user-bubble:#2a2f34;
+  --reader-danger:#f87171;
+  --reader-danger-line:rgba(248,113,113,.45);
+  --reader-warning:#fbbf24;
+  --reader-success:#4ade80;
+  --reader-error-bg:#2c1618;
+  --reader-success-bg:#132a1e;
+  --reader-warning-bg:#2b2212;
+  --reader-line:rgba(255,255,255,.08);
+  --reader-line-strong:rgba(255,255,255,.17);
+  --reader-hover:rgba(255,255,255,.06);
+  --reader-backdrop:rgba(0,0,0,.65);
+  --reader-measure-panel-shadow:0 8px 24px #0007;
+  --reader-user-bubble:#2b2f36;
   --reader-shadow:0 0 0 1px rgba(232,230,225,.07),0 14px 34px -18px rgba(0,0,0,.7);
   --reader-shadow-hover:0 4px 24px rgba(0,0,0,.45),inset 0 0 0 1px var(--reader-line-strong);
   --reader-shadow-popover:0 0 0 1px rgba(232,230,225,.10),0 18px 44px -16px rgba(0,0,0,.75);

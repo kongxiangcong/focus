@@ -18,7 +18,7 @@
 .focus-reader button:disabled { opacity:.45; cursor:default; }
 .focus-reader button[aria-pressed=true] { background:var(--reader-selected); }
 .focus-reader .focus-primary { background:var(--reader-action); color:var(--reader-on-action); border-color:var(--reader-action); font-weight:500; }
-.focus-reader .focus-primary:hover:not(:disabled) { background:var(--reader-action); color:var(--reader-on-action); filter:brightness(1.12); }
+.focus-reader .focus-primary:hover:not(:disabled) { background:var(--reader-action-hover); color:var(--reader-on-action); border-color:var(--reader-action-hover); }
 .focus-reader .focus-finish-chunk { margin-top:var(--reader-gap-sm); border-color:var(--reader-line-strong); color:var(--reader-accent-ink); }
 .focus-reader :focus-visible { outline:2px solid var(--reader-focus); outline-offset:2px; border-radius:var(--reader-radius); }
 
@@ -53,7 +53,7 @@
 .focus-dialog { width:min(620px,calc(100vw - 32px)); max-height:80dvh; padding:20px 24px; overflow:auto;
   background:var(--reader-popover); color:var(--reader-ink); border:1px solid var(--reader-line);
   border-radius:var(--reader-dialog-radius); box-shadow:var(--reader-shadow-popover); }
-.focus-dialog::backdrop { background:rgba(15,15,15,.45); }
+.focus-dialog::backdrop { background:var(--reader-backdrop); }
 .focus-dialog > header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px; }
 .focus-dialog h2 { font-size:18px; margin:0; font-weight:600; }
 .focus-confirm-actions { display:flex; justify-content:flex-end; gap:var(--reader-gap-sm); }
