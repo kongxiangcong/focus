@@ -270,6 +270,11 @@ class WebHostTests(unittest.TestCase):
         self.assertEqual(('example', 'dialogue', 'explanation'),
                          (notes[0]['kind'], notes[0]['origin'], notes[0]['evidenceRole']))
         self.assertEqual('chunk-001', self.host.snapshot()['current']['chunkId'])
+        self.assertIsNone(self.host.snapshot()['noteFeedback'])
+        self.host.close()
+        self.host = HostService(self.workspace, self.data)
+        self.assertEqual(notes, self.host.snapshot()['sourceNotes'])
+        self.assertIsNone(self.host.snapshot()['noteFeedback'])
 
     def test_unauthorized_agent_advance_is_refused_without_approval(self):
         ProtocolDouble.mode = 'advance'

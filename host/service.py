@@ -1145,18 +1145,25 @@ class HostService:
         if self.resetting or self.shutting_down or (self.worker and self.worker.is_alive()) or any(w.is_alive() for w in self.ingestion_workers.values()) or (self.state['run'] and self.state['run']['status'] in ACTIVE):
             raise ValueError('请等待当前任务结束后再管理材料。')
 
-    def library_read(self, source_id, *, reread=False, replan=False, request_id=None):
+    def library_read(self, source_id, *, reread=False, replan=False, request_id=None, restore=False):
         request_id = request_id or uuid.uuid4().hex
         if replan:
             return self.prepare_reading(source_id, request_id=request_id, rebuild=True)
         if reread:
             raise ValueError('从头重读尚未接入新版阅读操作。')
-        status = self.reading_app.status(source_id)
-        if status and (status.get('selected_ready') or (status['ready'] and not status.get('candidate'))):
-            return self.open_prepared_reading(source_id, request_id=request_id)
-        if status and status['status'] in ('failed', 'cancelled', 'interrupted'):
-            raise ValueError('准备已中断，请明确选择恢复。')
-        return self.prepare_reading(source_id, request_id=request_id)
+        with self.lock:
+            if restore:
+                selected = self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']
+                if source_id != selected:
+                    raise WorkspaceError('cursor_changed', '当前材料已变化，请重新打开。')
+            status = self.reading_app.status(source_id)
+            if status and (status.get('selected_ready') or (status['ready'] and not status.get('candidate'))):
+                return self.open_prepared_reading(source_id, request_id=request_id)
+            if restore:
+                return self.snapshot()
+            if status and status['status'] in ('failed', 'cancelled', 'interrupted'):
+                raise ValueError('准备已中断，请明确选择恢复。')
+            return self.prepare_reading(source_id, request_id=request_id)
 
     # ------------------------------------------------------------------- blog
 
@@ -2162,7 +2169,8 @@ class HostService:
                     else:
                         value = self.discussion_app.candidate(discussion, action, candidate)
                     if action == 'source_note':
-                        self.state['noteFeedback'] = {'sourceId': discussion['sourceId'], 'status': 'saved'}
+                        if (self.state.get('noteFeedback') or {}).get('sourceId') == discussion['sourceId']:
+                            self.state.pop('noteFeedback', None)
                         self.changed()
                 self._answer(request_id, {'success': True, 'text': json.dumps(value, ensure_ascii=False)})
                 return

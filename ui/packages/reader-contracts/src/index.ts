@@ -498,7 +498,8 @@ export interface ReaderHost {
   rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   getArticleOverview?(sourceId: string): Promise<ReaderHostResult<ArticleOverview>>;
   prepareArticleOverview?(sourceId: string, requestId: string): Promise<ReaderHostResult<ArticleOverview>>;
-  openSource?(sourceId: string, requestId?: string): Promise<ReaderHostResult<ReadingWindow>>;
+  /** Restore only reopens ready reading for the currently selected Source. */
+  openSource?(sourceId: string, requestId?: string, options?: { restore?: boolean }): Promise<ReaderHostResult<ReadingWindow>>;
   activateReadingCandidate?(sourceId: string, planId: string, readingRevision: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   dismissPreparation?(sourceId: string, attempt: string): Promise<ReaderHostResult<ReadingWindow>>;
   resumePreparation?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;

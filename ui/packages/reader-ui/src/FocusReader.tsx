@@ -1,5 +1,6 @@
 import { useEvidenceNavigation, type EvidenceNavigation } from "./evidence-navigation";
 import type { ReadingSession } from "./reading-session";
+import { preparationText } from "./reading-preparation";
 import { ConversationReader } from "./ConversationReader";
 import { evidenceBySourceBlock, messageEvidence } from "./source-evidence";
 import { useLatestNotice } from "./latest-notice";
@@ -185,8 +186,8 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     if (readingSession && publish && !readingSession.accept(value, readingSession.generation, allowSourceChange)) return;
     if (!alive.current || (value.revision !== undefined && value.revision < revision.current)) return;
     const priorNotes = acceptedNoteIds.current;
-    if (priorNotes?.source === value.source.sourceId && value.noteFeedback?.status === "saved" &&
-      value.sourceNotes?.some(note => note.origin === "dialogue" && !priorNotes.ids.has(note.noteId))) scrolling.controller.current?.hold();
+    if (priorNotes?.source === value.source.sourceId &&
+      value.sourceNotes?.some(note => note.sourceId === value.source.sourceId && note.origin === "dialogue" && !note.deleted && !priorNotes.ids.has(note.noteId))) scrolling.controller.current?.hold();
     acceptedNoteIds.current = { source: value.source.sourceId, ids: new Set(value.sourceNotes?.map(note => note.noteId) ?? []) };
     const owner = `${value.source.sourceId}:${value.discussionId ?? value.sessionId}`;
     if (draftOwner.current && owner !== draftOwner.current) {
@@ -758,7 +759,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
         </div>
 
         <div className="reader-panel" hidden={renderedSideMode !== "notes"}>
-        {view?.noteFeedback && <p role="status" className="focus-note-feedback">{view.noteFeedback.status === "saved" ? "已记下" : "未保存，可重试"}</p>}
+        {view?.noteFeedback?.status === "failed" && <p role="status" className="focus-note-feedback">未保存，可重试</p>}
         {view?.source.sourceId && view.sourceNotes && <SourceNotesPanel notes={view.sourceNotes} chunks={visibleChunks}
           error={noteError} lostSentenceNoteIds={sentenceNoteController.current?.lostSentenceNoteIds}
           editing={{ noteId: editingNoteId, draft: editDraft, revision: editBaseRevision, conflict: noteConflict }}
@@ -997,31 +998,35 @@ function UnifiedReader(props: FocusReaderProps) {
     return { chunks: initial === "chunks", chat: initial === "chat", blog: initial === "blog" };
   });
   const [busy, setBusy] = useState(false);
-  const modeRequest = useRef(0);
-  const [error, setError] = useState("");
-  const [localSource, setLocalSource] = useState<string | null>(null);
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const [localView, setLocalView] = useState<ReadingWindow | null>(null);
+  const request = useRef<symbol | null>(null);
+  const autoOpened = useRef(false);
   const managed = !!props.readingSession;
-  const sourceId = managed ? props.readingSession?.view?.source.sourceId ?? null : localSource;
-  const sourceRef = useRef<string | null>(null);
-  const syncedModeRef = useRef<{ sourceId: string; chunks: boolean; chat: boolean }>({ sourceId: "", chunks: false, chat: false });
+  const view = managed ? props.readingSession?.view : localView;
+  const sourceId = view?.source.sourceId ?? "";
+  const generation = props.readingSession?.generation;
+  const preparation = view?.preparations?.[sourceId];
+  const hasPlan = !!(view?.navigationCurrent ?? view?.current) || view?.status === "completed";
+  const readyToOpen = !!(preparation?.selected_ready || (preparation?.ready && !preparation.candidate));
+  const acceptSession = props.readingSession?.accept;
+  const isCurrentSelection = props.readingSession?.isCurrent;
 
   useLayoutEffect(() => {
-    if (sourceRef.current === sourceId) return;
-    sourceRef.current = sourceId;
-    modeRequest.current += 1;
-    syncedModeRef.current = { sourceId: sourceId ?? "", chunks: false, chat: true };
     const preferred = readSavedMode(hasBlog);
     setMode(preferred);
     setMounted({ chunks: preferred === "chunks", chat: preferred === "chat", blog: preferred === "blog" });
-    setError("");
+    autoOpened.current = false;
+    setFailure(null);
     setBusy(false);
-  }, [sourceId, props.readingSession?.generation, hasBlog]);
+    return () => { request.current = null; };
+  }, [sourceId, generation, hasBlog]);
 
   useEffect(() => {
     if (managed) return;
     let live = true;
     const receive = (result: ReaderHostResult<ReadingWindow>) => {
-      if (live && result.ok) setLocalSource(result.value.source.sourceId);
+      if (live && result.ok) setLocalView(result.value);
     };
     void props.host.getReadingWindow().then(receive);
     const off = props.host.subscribe?.(receive);
@@ -1031,66 +1036,72 @@ function UnifiedReader(props: FocusReaderProps) {
   useLayoutEffect(() => {
     const intent = evidenceNavigation.intent;
     if (props.visible === false || !intent || intent.sourceId !== sourceId || mode === "chat") return;
-    modeRequest.current += 1;
-    setBusy(false);
-    setError("");
     setMode("chat");
     setMounted(previous => ({ ...previous, chat: true }));
   }, [mode, evidenceNavigation.intent, props.visible, sourceId]);
 
-  const cancelEvidenceNavigation = evidenceNavigation.cancel;
-  const selectMode = useCallback(async (next: ReadingMode) => {
-    if (next === mode || !sourceId) return;
-    cancelEvidenceNavigation?.();
-    const requested = ++modeRequest.current;
-    setBusy(false);
-    setError("");
-    // Optimistic instant switch + keep-alive mount: zero teardown/reparse lag.
-    setMode(next);
-    setMounted(prev => (prev[next] ? prev : { ...prev, [next]: true }));
-    try { localStorage.setItem("focus.readingMode", next); } catch { /* ignore */ }
-    if (next === "blog") return;
-
-    const selectedSource = sourceId;
-    const readingSession = props.readingSession;
-    const current = () => sourceRef.current === selectedSource &&
-      (!readingSession || readingSession.isCurrent(readingSession.generation, selectedSource));
-    const latestMode = () => current() && modeRequest.current === requested;
-    const alreadySynced = syncedModeRef.current.sourceId === selectedSource && syncedModeRef.current[next];
-    if (alreadySynced) return;
-
+  const run = useCallback(async (label: string, operation: (requestId: string) => Promise<ReaderHostResult<ReadingWindow>>, requestId = createReaderId()): Promise<void> => {
+    if (request.current || !sourceId || (generation !== undefined && !isCurrentSelection?.(generation, sourceId))) return;
+    const attempt = Symbol();
+    request.current = attempt;
+    const current = () => request.current === attempt &&
+      (generation === undefined || isCurrentSelection?.(generation, sourceId));
+    const failed = (message: string) => setFailure({ message, label, retry: () => void run(label, operation, requestId) });
+    setFailure(null);
     setBusy(true);
     try {
-      const result = next === "chunks"
-        ? await props.host.openSource?.(selectedSource, createReaderId())
-        : await props.host.selectDiscussionSource?.(selectedSource);
-      if (!current() || !result) return;
-      if (!result.ok) { if (latestMode()) setError(result.error.message); return; }
-      readingSession?.accept(result.value, readingSession.generation);
-      if (!latestMode()) return;
-      const preparation = result.value.preparations?.[selectedSource];
-      if (next === "chunks" && preparation && !preparation.selected_ready && !preparation.ready) {
-        setError(preparation.error || "正在准备逐段精读，完成后可再次打开。");
-        return;
-      }
-      if (syncedModeRef.current.sourceId === selectedSource) syncedModeRef.current[next] = true;
-    } catch (failure) {
-      if (latestMode()) setError(failure instanceof Error ? failure.message : String(failure));
+      const result = await operation(requestId);
+      if (!current()) return;
+      if (!result.ok) { failed(result.error.message); return; }
+      if (result.value.source.sourceId !== sourceId) return;
+      if (generation !== undefined) acceptSession?.(result.value, generation);
+      else setLocalView(result.value);
+    } catch (error) {
+      if (current()) failed(error instanceof Error ? error.message : String(error));
     } finally {
-      if (latestMode()) setBusy(false);
+      if (current()) { request.current = null; setBusy(false); }
     }
-  }, [mode, sourceId, props.host, props.readingSession, cancelEvidenceNavigation]);
+  }, [sourceId, generation, acceptSession, isCurrentSelection]);
+
+  const openSource = props.host.openSource;
+  const open = useCallback((requestId: string) => managed
+    ? props.host.openSource!(sourceId, requestId, { restore: true })
+    : props.host.openSource!(sourceId, requestId), [props.host, sourceId, managed]);
+  useEffect(() => {
+    if (!readyToOpen) autoOpened.current = false;
+    if (props.visible === false || mode !== "chunks" || hasPlan || !readyToOpen || !openSource || request.current || autoOpened.current) return;
+    autoOpened.current = true;
+    void run("重试打开精读", open);
+  }, [props.visible, mode, hasPlan, readyToOpen, busy, openSource, open, run]);
+
+  function selectMode(next: ReadingMode) {
+    if (next === mode || !sourceId) return;
+    evidenceNavigation.cancel();
+    setMode(next);
+    setMounted(prev => (prev[next] ? prev : { ...prev, [next]: true }));
+    try { localStorage.setItem("focus.readingMode", next); } catch { /* keep in-memory selection */ }
+    if (!managed && next === "chunks" && hasPlan && openSource) void run("重试打开精读", open);
+  }
+
+  const candidatePlan = preparation?.candidate && preparation.ready ? preparation.plan_id : null;
+  const canActivate = candidatePlan &&
+    view?.readingRevision !== undefined && props.host.activateReadingCandidate;
+  const preparing = preparation?.status === "running";
+  const prepFailed = !!preparation && !preparing && !readyToOpen && !candidatePlan;
+  const resume = prepFailed && ["failed", "cancelled", "interrupted"].includes(preparation.status) ? props.host.resumePreparation : undefined;
+  const prepare = (prepFailed ? resume ?? props.host.replanSource : undefined) ?? openSource;
+  const canChangeMode = !!sourceId;
 
   const modeTabs: readonly ReadingMode[] = hasBlog ? ["chunks", "chat", "blog"] : ["chunks", "chat"];
   const modeLabel = (m: ReadingMode) => m === "chunks" ? "精读" : m === "chat" ? "对话" : "带读博客";
 
   return <div className="unified-reader" hidden={props.visible === false}>
     {props.renderModeNavigation
-      ? (!props.fullscreen && props.renderModeNavigation(mode, selectMode, !sourceId || !props.host.openSource || !props.host.selectDiscussionSource))
+      ? (!props.fullscreen && props.renderModeNavigation(mode, selectMode, !canChangeMode))
       : <div className="reading-mode-tabs" role="tablist" aria-label="阅读方式">
           {modeTabs.map((value, index) => <button key={value}
             id={`reading-tab-${value}`} role="tab" aria-selected={mode === value}
-            aria-controls="reading-mode-panel" disabled={busy || !sourceId || !props.host.openSource || !props.host.selectDiscussionSource}
+            aria-controls="reading-mode-panel" disabled={!canChangeMode}
             onClick={() => void selectMode(value)}
             onKeyDown={event => {
               if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
@@ -1101,10 +1112,19 @@ function UnifiedReader(props: FocusReaderProps) {
               }
             }}>{value === "chunks" ? "逐段精读" : modeLabel(value)}</button>)}
         </div>}
-    {error && <p role="alert" className="source-reader-error">{error}</p>}
-    <div id="reading-mode-panel" className="reading-mode-panel" role={props.renderModeNavigation ? "region" : "tabpanel"} aria-label={modeLabel(mode)} aria-busy={busy}>
+    <div id="reading-mode-panel" className="reading-mode-panel" role={props.renderModeNavigation ? "region" : "tabpanel"} aria-label={modeLabel(mode)} aria-busy={mode === "chunks" && busy}>
       {mounted.chunks && <div className="reading-mode-layer" hidden={mode !== "chunks"}>
-        <LegacyFocusReader key={props.readingSession?.generation} {...props} evidenceNavigation={evidenceNavigation} visible={props.visible !== false && mode === "chunks"} />
+        {failure && <div className="source-reader-error" role="alert">{failure.message}<button type="button" onClick={failure.retry}>{failure.label}</button><button type="button" aria-label="关闭错误" onClick={() => setFailure(null)}>×</button></div>}
+        {canActivate && <div className="reading-plan-action"><button type="button" disabled={busy} onClick={
+          () => void run("重试打开新计划", requestId => props.host.activateReadingCandidate!(sourceId, candidatePlan, view.readingRevision!, requestId))
+        }>打开新计划</button></div>}
+        {hasPlan || !sourceId ? <LegacyFocusReader key={generation} {...props} evidenceNavigation={evidenceNavigation} visible={props.visible !== false && mode === "chunks"} /> :
+          <section className="reading-preparation" aria-label="精读准备">
+            {preparation && (preparing || prepFailed) && <p role={prepFailed ? "alert" : "status"}>{preparationText(preparation, "精读")}</p>}
+            {!preparing && !failure && !readyToOpen && !candidatePlan && prepare && <button type="button" disabled={busy} onClick={
+              () => void run("重试准备", requestId => prepare.call(props.host, sourceId, requestId))
+            }>{prepFailed ? "重试准备" : "准备精读"}</button>}
+          </section>}
       </div>}
       {mounted.chat && <div className="reading-mode-layer" hidden={mode !== "chat"}>
         <ConversationReader {...props} evidenceNavigation={evidenceNavigation} visible={props.visible !== false && mode === "chat"} />

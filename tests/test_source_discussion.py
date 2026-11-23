@@ -92,6 +92,15 @@ class DiscussionTests(unittest.TestCase):
         self.host.close()
         self.fixture.tearDown()
 
+    def test_stale_close_reading_restore_keeps_the_selected_source(self):
+        self.host.select_discussion_source('fixture-paper')
+        selected = self.host.select_discussion_source('fixture-b-paper')
+        with self.assertRaises(WorkspaceError) as stale:
+            self.host.library_read('fixture-paper', request_id='stale-close-reading-restore', restore=True)
+        self.assertEqual('cursor_changed', stale.exception.error_id)
+        self.assertEqual(selected['source'], self.host.snapshot()['source'])
+        self.assertEqual(selected['preparations'], self.host.snapshot()['preparations'])
+
     def test_no_plan_discussion_saves_only_explicit_note_and_replays(self):
         selected = self.host.select_discussion_source('fixture-paper')
         self.assertEqual('fixture-paper', selected['source']['sourceId'])

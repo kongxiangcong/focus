@@ -2,8 +2,8 @@ import { createPortal } from "react-dom";
 import { Fragment } from "react";
 import { NavigationResize } from "./NavigationResize";
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
-import { FocusReader, AgentControls, TaskProgress, readingFontSizes, useEvidenceNavigation, BookOpen, ChatBubble, DocText, type ReadingMode } from "@focus/reader-ui";
+import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingWindow } from "@focus/reader-contracts";
+import { FocusReader, AgentControls, TaskProgress, readingFontSizes, preparationText, useEvidenceNavigation, BookOpen, ChatBubble, DocText, type ReadingMode } from "@focus/reader-ui";
 import { BackendSetupPanel } from "./BackendSetupPanel";
 import { WorkspaceSelection } from './WorkspaceSelection';
 import { UploadTopicPicker } from "./UploadTopicPicker";
@@ -24,19 +24,6 @@ function readFont(): FontSize {
   catch { return "standard"; }
 }
 function routeFromLocation(): Route { return ["/library", "/reading", "/settings"].includes(location.pathname) ? location.pathname as Route : "/library"; }
-
-const preparationSteps: Record<string, string> = {
-  context: "正在分析全文", plan: "正在生成计划", translate: "正在翻译", check: "正在检查", repair: "正在修订译文", ready: "已完成",
-};
-function preparationText(preparation: ReadingPreparation) {
-  if (preparation.ready) return preparation.candidate ? "新计划已就绪；旧阅读仍保留，可手动打开新计划" : "阅读已准备好，可手动点击开始阅读";
-  if (preparation.timed_out) return "准备超时";
-  const subject = preparation.candidate ? "新计划" : "阅读";
-  const step = preparationSteps[preparation.step] ?? "正在准备";
-  if (preparation.status === "running") return `${subject}准备中 · ${step}${preparation.total > 0 ? ` · ${preparation.completed}/${preparation.total} 段` : ""}`;
-  const status = ({ failed: "准备失败", interrupted: "准备已中断", cancelled: "准备已取消", bundle_changed: "原件已变化", commit_conflict: "提交冲突" } as Record<string, string>)[preparation.status] ?? "准备未完成";
-  return `${subject}${status}${preparation.error ? ` · ${preparation.error}` : ""}`;
-}
 
 const blogArtifacts: readonly [BlogArtifactName, string][] = [["reading_blog", "带读博客"], ["html", "HTML"]];
 const blogStatusText: Record<BlogArtifactStatus, string> = {
@@ -129,7 +116,6 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [sourcesFailed, setSourcesFailed] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [readyNotice, setReadyNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [deletionImpact, setDeletionImpact] = useState<SourceDeletionImpact | null>(null);
@@ -146,7 +132,6 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const confirmation = useRef<HTMLDialogElement>(null);
   const locked = useRef(false);
   const requestVersion = useRef(0);
-  const seenPreparation = useRef<Record<string, string>>({});
   const workPollKey = `${connectionLost}:${view?.configuration?.busy}:${(view?.workItems ?? []).map(item => `${item.kind}:${item.targetId}:${item.status}`).join("|")}`;
   const active = !!view?.agent?.run && ["running", "approval", "stopping"].includes(view.agent.run.status);
 
@@ -264,15 +249,6 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   useEffect(() => { if (confirm) confirmation.current?.showModal(); else confirmation.current?.close(); }, [confirm]);
   useEffect(() => { if (view?.blog) setBlogs(view.blog); }, [view?.blog]);
   useEffect(() => {
-    if (!view?.preparations) return;
-    for (const [sourceId, preparation] of Object.entries(view.preparations)) {
-      if (preparation.ready && seenPreparation.current[sourceId] === "running") {
-        setReadyNotice(`${sources.find(source => source.sourceId === sourceId)?.shortName ?? sourceId} 已就绪`);
-      }
-      seenPreparation.current[sourceId] = preparation.status;
-    }
-  }, [view?.preparations, sources]);
-  useEffect(() => {
     const running = Object.values(blogs).filter(blog => blog.runStatus === "running" || blog.executing).map(blog => blog.sourceId);
     if (running.length === 0 || !host.blogStatus) return;
     const timer = window.setInterval(() => running.forEach(id => void refreshBlog(id)), 1500);
@@ -291,7 +267,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       if (!isCurrentSelection(started)) return;
       if (!result.ok) { setError(result.error.message); setRetryAction(() => () => void operate(label, operation, read)); return; }
       setRetryAction(null); acceptView(result.value, started, read || label === "删除"); setConfirm(null);
-      if (label === '全部清空') { setNotice(''); setReadyNotice(''); }
+      if (label === '全部清空') setNotice('');
       if (read) navigate("/reading");
       if (label === "上传") { setUploadOpen(false); setSelectedFiles([]); }
       await refresh();
@@ -345,7 +321,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   function preparationNotice(sourceId: string) {
     const prepared = view?.preparations?.[sourceId];
-    if (!prepared || preparationHidden(sourceId)) return null;
+    if (!prepared || prepared.ready || preparationHidden(sourceId)) return null;
     return <section className="preparation-notice" aria-label="准备阅读状态">
       <div className="preparation-notice-heading">
         <p role="status">{preparationText(prepared)}</p>
@@ -732,7 +708,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         const result = await host.approve?.(input); if (result?.ok) { acceptView(result.value); return true; } return false;
       }} />}
       {!uploadOpen && error && <div className="workspace-error" role="alert">{error}<button onClick={() => { setError(""); if (retryAction) retryAction(); else void refresh(); }}>{retryAction ? "重试此操作" : "刷新状态"}</button></div>}
-      {!error && (notice || readyNotice) && <div className="workspace-notice" role="status">{readyNotice || notice}<button onClick={() => { setNotice(""); setReadyNotice(""); }}>关闭</button></div>}
+      {!error && notice && <div className="workspace-notice" role="status">{notice}<button onClick={() => setNotice("")}>关闭</button></div>}
     </header>
     {route === "/reading" && readingFullscreen && <button type="button" className="reading-fullscreen-exit"
       aria-label="关闭全屏模式" title="退出全屏" onClick={() => setReadingFullscreen(false)}>×</button>}

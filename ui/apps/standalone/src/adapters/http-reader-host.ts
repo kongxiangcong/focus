@@ -410,8 +410,8 @@ export class HttpReaderHost implements ReaderHost {
     }
   }
 
-  openSource(sourceId: string, requestId = createReaderId()): Promise<ReaderHostResult<ReadingWindow>> {
-    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/open`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });
+  openSource(sourceId: string, requestId = createReaderId(), options?: { restore?: boolean }): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/open`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId, restore: options?.restore }) });
   }
   activateReadingCandidate(sourceId: string, planId: string, readingRevision: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/activate`, { method: "POST",

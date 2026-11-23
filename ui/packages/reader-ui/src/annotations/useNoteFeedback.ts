@@ -13,13 +13,12 @@ export function useNoteFeedback(options: Options) {
   const [fresh, setFresh] = useState<{ noteId: string; groupId: string; token: number } | null>(null);
   useLayoutEffect(() => {
     const { view, groups, projected } = options;
-    if (!view) return;
+    if (!view) { seen.current = null; setFresh(null); return; }
     const scope = `${view.source.sourceId}:${view.resetVersion ?? 0}:${view.noteClearVersion ?? 0}`;
     const notes = view.sourceNotes ?? [], previous = seen.current;
     seen.current = { scope, ids: new Set(notes.map(note => note.noteId)) };
     if (!previous || previous.scope !== scope) { setFresh(null); return; }
-    if (view.noteFeedback?.status !== "saved" || view.noteFeedback.sourceId !== view.source.sourceId) return;
-    const additions = notes.filter(note => !previous.ids.has(note.noteId) && !note.deleted && !note.sentence && note.origin === "dialogue");
+    const additions = notes.filter(note => note.sourceId === view.source.sourceId && !previous.ids.has(note.noteId) && !note.deleted && !note.sentence && note.origin === "dialogue");
     const note = additions.at(-1); if (!note) return;
     const groupId = [...projected].find(([, items]) => items.some(item => item.noteId === note.noteId))?.[0];
     const group = groups.find(item => item.id === groupId);
