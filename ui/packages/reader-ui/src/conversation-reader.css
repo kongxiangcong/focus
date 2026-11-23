@@ -30,6 +30,7 @@
 
 /* Left pane: original document with content-visibility optimization & evidence spotlight */
 .source-original { height:100%; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:38px clamp(24px,4vw,76px) 120px; }
+.source-original[data-evidence-pending=true] { overflow-anchor:none; }
 .source-original article { max-width:850px; margin:auto; }
 .source-original .focus-markdown { font-family:var(--reader-body-font,var(--reader-serif)); font-size:var(--source-font-size); line-height:var(--reader-prose-leading); overflow-wrap:anywhere; }
 .source-original .focus-markdown > * { content-visibility:auto; contain-intrinsic-size:auto 120px; transition:opacity var(--reader-duration-move) var(--reader-ease-out); }
@@ -198,6 +199,9 @@
   .source-mobile-toggle { display:inline-flex !important; }
   .source-reader-columns { display:flex; }
   .source-original-pane, .source-chat-pane { width:100%; }
+  .source-original-pane { display:flex; flex-direction:column; }
+  .source-original-pane > .source-original { flex:1; min-height:0; }
+  .source-mobile-return { align-self:flex-start; margin:var(--reader-gap-xs) 12px; }
   .source-splitter { display:none; }
   .conversation-reader[data-mobile=chat] .source-original-pane,
   .conversation-reader[data-mobile=original] .source-chat-pane { display:none; }

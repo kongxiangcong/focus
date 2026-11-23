@@ -342,7 +342,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     if (!evidenceNavigation || !discussionId || item.discussionId !== discussionId ||
         (readingSession && !readingSession.isCurrent(readingSession.generation, sourceId))) return;
     evidenceNavigation.start({ destination: "answer", sourceId, discussionId, bundleVersion: sourceBundleVersion,
-      sourceGeneration, messageId: item.messageId, evidenceId: item.evidenceId });
+      sourceGeneration, selectionGeneration: readingSession?.generation, messageId: item.messageId, evidenceId: item.evidenceId });
   };
   const { allFigures, sourceFigures } = useMemo(() => {
     const protectedImages = new Set(chunks.flatMap(c => [...extractFigures(c.sourceMarkdown, c.sourceId).protectedIds]));
@@ -1109,10 +1109,11 @@ function UnifiedReader(props: FocusReaderProps) {
 
   useLayoutEffect(() => {
     const intent = evidenceNavigation.intent;
-    if (props.visible === false || !intent || intent.sourceId !== sourceId || mode === "chat") return;
+    if (props.visible === false || !intent || intent.sourceId !== sourceId || mode === "chat" ||
+        intent.selectionGeneration !== generation || !evidenceNavigation.isLatest(intent)) return;
     setMode("chat");
     setMounted(previous => ({ ...previous, chat: true }));
-  }, [mode, evidenceNavigation.intent, props.visible, sourceId]);
+  }, [mode, evidenceNavigation.intent, evidenceNavigation.isLatest, props.visible, sourceId, generation]);
 
   const run = useCallback(async (label: string, operation: (requestId: string) => Promise<ReaderHostResult<ReadingWindow>>, requestId = createReaderId()): Promise<void> => {
     if (request.current || !sourceId || (generation !== undefined && !isCurrentSelection?.(generation, sourceId))) return;
