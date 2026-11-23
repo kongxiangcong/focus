@@ -172,10 +172,10 @@ _Avoid_: Backend-specific chat, native Runtime Session, Reading Note, reading ch
 _Avoid_: Delete Source, reset reading progress, clear one Backend chat
 
 **Reset Source Reading（重新阅读）**:
-用户明确确认后，清除目标 Source 的讨论、派生摘要、显式笔记（含句子备注）、Reading Highlights 及其恢复副本、全部阅读记录及其修改请求副本；将所选 Plan 的 Cursor 初始化到第一段但标记未开始。原件、Parser Bundle、Plan、译文、Blog、Topic 和其他 Source 保留。使用持久清除日志向前恢复；活动写者必须停止并等待，或明确阻止重置。知识库与阅读完成页均使用此操作。
+读者确认后为同一 Reading Source 开始全新精读，清除旧计划、精读进度、小段笔记、句子备注和重点，保留整篇笔记。重新准备精读并开启新的 FOCUS Discussion，旧讨论存档。
 
 **Fresh Reading Session（新会话）**:
-仅清空当前显示，创建新的讨论身份；资产（包括 Reading Highlights 与句子备注）、已读前沿和旧讨论事件保留。清屏跨刷新持久化，第一次继续从正式前沿打开下一段；回看不改变此起点。
+从空白对话上下文开始的 FOCUS Discussion，历史讨论独立存档。读者通过「重新阅读」开启新会话。
 
 **Reading Timeline**:
 按出现次序保存阅读窗口、用户问题和回复；每次阅读出现具有独立事件身份，并绑定 Source、Plan 和 Discussion。问题草稿保留起草时的引用，只有用户明确更改引用才跟随新段落。
@@ -201,11 +201,15 @@ _Avoid_: Full glossary projection, global vocabulary
 _Avoid_: Public fixture, reusable project asset, user profile
 
 **Reading Status**:
-来源的待规划、待阅读、阅读中或已完成状态；规划与开始阅读是不同事件，完成表示读者在最后一个 Chunk 明确完成本篇，查看历史内容不改变完成状态。
+阅读来源在精读中处于未开始、阅读中或已读完。进入精读正文后即处于阅读中，当前 Reading Plan 的全部 Chunk 已读完后才算完成。
 _Avoid_: Understanding score, per-Topic progress copy
 
+**精读覆盖率**:
+当前精读中已读完的 Reading Chunk 占该 Reading Plan 全部 Chunk 的比例。进入第一段后，Reading Status 可以是阅读中，精读覆盖率仍为零。
+_Avoid_: Reading Status, understanding score
+
 **Reading Review**:
-对已读 Reading Chunk 的回看，可围绕所查看内容提问或继续打开下一段；在已读范围内不改变 Reading Cursor、不重复补记，也不改变完成状态。已完成来源打开时展示全部段落并隐藏继续按钮；新会话仍先清空显示，显式重新打开来源后恢复全文。
+对已读 Reading Chunk 的回看，可围绕所查看内容提问或继续打开下一段；在已读范围内不改变 Reading Cursor、不重复补记，也不改变完成状态。打开已完成的来源时展示全部段落并隐藏继续按钮。
 _Avoid_: Second cursor, unread preview, reread from start
 
 **Reading Preparation**:

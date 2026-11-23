@@ -4,6 +4,8 @@ status: accepted
 
 # Source-bound answer evidence and unified reading
 
+[ADR 0035](0035-close-reading-completion-and-reset.md) 将来源完成统一到精读计划。
+
 2026-11-15: the user approved the simplified conversation-reading prototype and authorized implementation. Full original text and continuous Source discussion become the intended reading surface; the opening combines Chinese structure and guide without a preparation gate. Implemented in the local production reader and Host; no remote deployment is implied. Validation is recorded in `.scratch/conversation-reading/production-acceptance.md`.
 
 Answer Evidence belongs to a specific discussion message revision, bound to Source and Parser Bundle version. It is not a Reading Highlight, Reading Note, Placement or proof that the model's claim is true. Host validation and display projection are distinct. Display projection must reject wrong versions, ambiguous quotations and missing ranges; it must never choose the nearest occurrence as evidence. Existing user annotation relocation remains unchanged.

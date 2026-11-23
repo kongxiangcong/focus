@@ -10,7 +10,7 @@
 | 编号与文件名 | 专题范围 | 核心修改层 | 实施批次 |
 | :--- | :--- | :--- | :--- |
 | **01** `01_FOCUS_Evidence_BackAnnotation_and_Unified_IR_Design.md` | 对话阅读证据反标（含原文 PDF 块级多框与页级定位）、精读粗粒度联动、PDF/HTML/Markdown 统一 `source-ir.json` | 后端 `.agents/core/`、`host/core_bridge.py`、`host/service.py`；前端 `PaperViews.tsx` / `source-evidence.ts` / `ReadingChunk.tsx` | **Batch B**（单 PDF 垂直切片）→ **Batch C**（HTML/MD 与精读胶囊） |
-| **02** `02_FOCUS_StatusBar_and_Core_Logic_Refactor_Design.md` | 状态栏全链路语义治理（仅进行中 + 未解决错误）、核心运行时止血、完成语义 ADR 修订与知识库电量进度框 | 后端 `host/service.py` / `host/status_notifications.py` / Core 末段规则；前端 `WorkspaceApp.tsx` / `TaskProgress.tsx` / `source-status.ts` / `reading-scroll.ts` | **Batch A**（状态栏、SSE、rAF、焦点/Esc 先行）→ **Batch C**（ADR 修订后落地电量框） |
+| **02** `02_FOCUS_StatusBar_and_Core_Logic_Refactor_Design.md` | 任务框展示进行中与需处理的工作、移除重复阅读提示、核心运行时修复、完成语义 ADR 修订与知识库电量进度框 | 后端 `host/service.py` / `host/status_notifications.py` / Core 末段规则；前端 `WorkspaceApp.tsx` / `TaskProgress.tsx` / `source-status.ts` / `reading-scroll.ts` | **Batch A**（状态栏、SSE、rAF、焦点/Esc 先行）→ **Batch C**（ADR 修订后落地电量框） |
 | **03** `03_FOCUS_Theme_and_UI_Consistency_Refactor_Design.md` | 去“AI 味”简洁主题（单炭灰深色 + 4 套浅色配色）、CSP 安全启动脚本、全量布局错位清零与 UI/动效一致性 | 前端 `index.html`、`public/theme-init.js`、`appearance.ts`、`focus-tokens.css`、`standalone.css`、`mist-reader.css`、`conversation-reader.css` | **Batch A**（CSP 脚本、Token 底座与独立布局修复）→ **Batch C**（5 套主题最终视觉验收） |
 
 ---
@@ -30,7 +30,7 @@
    - 等待定位期间，读者用滚轮、触屏、滚动条或键盘主动浏览时，立即清空待处理意图。定位自身触发的程序滚动可继续完成。验收时让目标页在手动滚动后才加载，阅读位置应停在读者选择处。
    - 目标视图完成渲染并滚动命中对应回答的证据编号或来源块（或判定目标不存在并降级提示）后，**立即消费并清空该定位意图**；定位状态绝不作为持久状态驻留，也不阻断用户后续滚动或退全屏。
 3. **Cursor 移动的唯一合法权限**：
-   - 严守 ADR 0034：仅有精读模式下的显式阅读推进（及经 ADR 修订确认的末段触底自动完成）有权修改精读 `Cursor` 与进度；**证据跳转、两视图切换、跨 Tab 切换、全屏进出、SSE 重连刷新均绝对禁止移动 Cursor**。
+   - 精读推进、经 ADR 修订确认的末段完成，以及读者明确确认的重新阅读，可以修改精读 `Cursor` 与进度。证据跳转、两视图切换、跨 Tab 切换、全屏进出和 SSE 重连刷新均保持原进度。
 
 ---
 
@@ -38,10 +38,10 @@
 
 | 阶段 | 核心交付内容 | 为什么这样排 |
 | :--- | :--- | :--- |
-| **前置决策** | 1. 锁定 01 的独立版面版本指纹（`layoutVersion / irFingerprint`）、逐字引文签发与块级展示规则。<br>2. 修订完成语义 ADR，锁死单段文章、历史无 Plan 记录、重读与跨 Tab 不移 Cursor 四个边界。 | 在修改持久化数据和历史阅读行为之前消除歧义，避免返工。 |
+| **前置决策** | 1. 01 已确定独立版面版本、逐字引文签发与块级展示规则。<br>2. 02 的精读完成与重新阅读规则见 [ADR 0035](../../adr/0035-close-reading-completion-and-reset.md)。 | 为各批次实施提供共享契约。 |
 | **Batch A**<br>高收益止血 + 主题底座 | 1. **02 运行时止血**：单一 SSE 订阅 + 按作用域清错、状态栏彻底去已完成态、`ReadingScroll` 静止态 0 rAF、全屏 `Esc` 仲裁与焦点闭环。<br>2. **03 底座先行**：CSP 安全的同源外部启动脚本（`/theme-init.js`）、5 套主题 Token 体系（浅色 4 套 + 深色 1 套）与独立布局错位修复。 | 零磁盘 Schema 迁移风险，最快改善日常使用体感，同时提前扫清生产 CSP 阻断。 |
 | **Batch B**<br>01 单 PDF 垂直切片 | 选取 1 份含跨栏与旋转页的真实 PDF，端到端跑通：`入库 → host/core_bridge.py 白名单扩展 read_range → cite → 点击证据 → 核对原文引文与 PDF 块或已知页面`，同步验证“同文重排 PDF 不误标”与“未知坐标系安全降级为页级”。 | 在改变 `content.md` 正向生成方式之前，用真实论文检验最核心的坐标与引用假设。 |
-| **Batch C**<br>全格式扩展与终验 | 1. **01 扩展**：切入 HTML / Markdown 统一 IR、旧 Bundle 只读回归、精读粗粒度证据胶囊。<br>2. **02 完成态落地**：移除人工“完成本篇”按钮，上线知识库 `BatteryProgress` 电量式进度框。<br>3. **03 终验**：在全部新 DOM 定型后完成 5 套主题组件级对比度、全量页面截图与 `system` 切换回归。 | 所有新组件一次性纳入最终视觉验收，零重复返工。 |
+| **Batch C**<br>全格式扩展与终验 | 1. **01 扩展**：切入 HTML / Markdown 统一 IR、旧 Bundle 只读回归、精读粗粒度证据胶囊。<br>2. **02 精读完成与重新阅读**：统一精读完成依据、合并重读和新会话入口、上线知识库电量式进度框。<br>3. **03 终验**：在全部新 DOM 定型后完成 5 套主题组件级对比度、全量页面截图与 `system` 切换回归。 | 所有新组件一次性纳入最终视觉验收，零重复返工。 |
 
 ---
 
@@ -66,5 +66,5 @@
 ### 4.3 存储与向后兼容红线
 
 1. **旧 Bundle 只读兼容（01）**：历史无 `source-ir.json` 的 Bundle 不强制重解析，统一只读降级到原有 `content.md` + `pdf_layout.py`。读者可以继续提问，Host 根据规范 Markdown 行范围及逐字引文签发新证据，对话和证据写入讨论记录。不同版面版本绝不跨版本绘制 PDF 框。
-2. **状态归档不丢失（02）**：`agent.run` 完成后退出状态栏投影，但 `execution:<runId>` 归档继续保留；历史无 Plan 的完成记录只读投影为满电深绿。
+2. **状态归档不丢失（02）**：`agent.run` 完成后退出状态栏投影，`execution:<runId>` 归档继续保留。知识库完成状态与电量统一依据精读进度，历史独立完成记录退出当前状态投影。
 3. **偏好存储无损迁移（03）**：沿用 `localStorage` 的 `focus.theme` 键名，新增 `focus.accent`（缺省回退 `"blue"`，深色模式保留不应用，切回浅色自动恢复）。
