@@ -26,6 +26,7 @@ export class ReadingScroll {
   private geometry = "";
   private reserved = { px: 0, until: 0 };
   private heldUntil = 0;
+  private positionVersion = 0;
   private returnTo: number | null = null;
   private lastScroll = 0;
   private latestDismissed = false;
@@ -41,6 +42,7 @@ export class ReadingScroll {
     readonly follow: { current: boolean }, private notify: (latest: boolean, back: boolean) => void) {}
 
   get streaming() { return this.isStreaming; }
+  get programmaticPositionVersion() { return this.positionVersion; }
   set streaming(value: boolean) {
     if (this.isStreaming === value) return;
     this.isStreaming = value;
@@ -75,9 +77,10 @@ export class ReadingScroll {
     this.anchor = el ? { el, offset: layoutTop(this.pane, el) - this.pane.scrollTop } : null;
   };
   restore = () => {
-    if (this.anchor?.el.isConnected) this.pane.scrollTop = layoutTop(this.pane, this.anchor.el) - this.anchor.offset;
+    if (this.anchor?.el.isConnected) this.writePosition(layoutTop(this.pane, this.anchor.el) - this.anchor.offset);
   };
   hold = (extra = 0) => {
+    this.positionVersion += 1;
     this.cancel(); this.capture(); this.heldUntil = performance.now() + 700;
     this.reserved = { px: this.spacer.offsetHeight + extra, until: this.heldUntil };
     this.sizeSpacer();
@@ -90,16 +93,17 @@ export class ReadingScroll {
       Math.min(this.pane.clientHeight - button.offsetHeight, layoutTop(this.pane, button) - this.pane.scrollTop)) };
   };
   animateTo = (raw: number, done?: () => void) => {
+    this.positionVersion += 1;
     this.cancel(); this.sizeSpacer();
     const top = Math.max(0, Math.min(raw, this.pane.scrollHeight - this.pane.clientHeight));
     const from = this.pane.scrollTop, distance = top - from;
     if (document.documentElement.dataset.reducedMotion === 'true' || globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches || Math.abs(distance) < 2) {
-      this.pane.scrollTop = top; this.capture(); done?.(); return;
+      this.writePosition(top); this.capture(); done?.(); return;
     }
     const start = performance.now();
     const step = (now: number) => {
       const t = Math.min(1, (now - start) / scrollDuration(distance));
-      this.pane.scrollTop = from + distance * easeOutQuart(t);
+      this.writePosition(from + distance * easeOutQuart(t));
       this.capture();
       if (t < 1) this.animation = requestAnimationFrame(step);
       else { this.animation = null; done?.(); }
@@ -159,10 +163,15 @@ export class ReadingScroll {
     const output = !holding && this.animation === null && this.follow.current ? this.streamingOutput() : undefined;
     if (output) {
       const top = layoutTop(this.pane, output) + output.offsetHeight - this.pane.clientHeight + 24;
-      if (top > this.pane.scrollTop) this.pane.scrollTop = top;
+      if (top > this.pane.scrollTop) this.writePosition(top);
     }
     if (holding) this.schedule();
     else this.capture();
+  };
+  private writePosition = (top: number) => {
+    const previous = this.pane.scrollTop;
+    this.pane.scrollTop = top;
+    if (this.pane.scrollTop !== previous) this.positionVersion += 1;
   };
   private schedule = () => {
     if (this.tick === null) this.tick = requestAnimationFrame(this.sample);

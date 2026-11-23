@@ -1,7 +1,7 @@
 import { rehypeSourceEvidence } from "./source-evidence";
 import { SourceEvidenceMarkers } from "./SourceEvidenceMarkers";
 import type { ReadingDocument, ValidatedAnswerEvidence } from "@focus/reader-contracts";
-import { useCallback, memo, useContext, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, memo, useContext, useLayoutEffect, useMemo, useRef, type Ref } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import "katex/dist/katex.min.css";
 import { AssetInstanceContext } from "./asset-context";
@@ -28,8 +28,9 @@ const components: Components = {
   a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
   img: ({ src, alt }) => <img src={src} alt={alt ?? ""} loading="lazy" />,
 };
-export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, figures, onFigure, inlineFigures = false, marks, annotation, onAnnotations, sourceEvidence, onCitation, onCitationHover, activeCitation }: {
+export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, figures, onFigure, inlineFigures = false, marks, annotation, onAnnotations, sourceEvidence, onCitation, onCitationHover, activeCitation, bodyRef }: {
   text: string; sourceId?: string; figures?: readonly Figure[]; onFigure?: (figure: Figure) => void; inlineFigures?: boolean;
+  bodyRef?: Ref<HTMLDivElement>;
   activeCitation?: string;
   onCitationHover?: (id: string | undefined) => void;
   onCitation?: (id: string, keyboard: boolean, origin: HTMLButtonElement) => void;
@@ -112,5 +113,5 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
       }
       return defaultUrlTransform(url);
     }}>{markdown}</Markdown>, [markdown, activeCitation, sourceId, instanceId, inlineFigures, JSON.stringify(figures), !!onFigure, markKey, annotationKey, evidenceKey, !!onCitation]);
-  return <div className="focus-markdown">{rendered}</div>;
+  return <div className="focus-markdown" ref={bodyRef}>{rendered}</div>;
 });

@@ -1,5 +1,6 @@
 """Committed navigation produces durable, separately generated read progress."""
 import json
+import shutil
 import threading
 import unittest
 import uuid
@@ -7,6 +8,7 @@ import uuid
 import reading_fixture
 from workspace_fixture import HostService
 from core.reading_progress import ReadingProgress
+from core.reading_workspace import WorkspaceError
 from test_stage4_reading import ReadingRuntimeDouble, PlanningRuntime
 
 
@@ -76,6 +78,40 @@ class ReadingProgressTests(unittest.TestCase):
         state = json.loads((self.workspace / 'state.json').read_text(encoding='utf-8'))
         self.assertEqual(request_id, state['reading_progress'][request_id]['trigger_request_id'])
         self.assertEqual(result['readingOperation']['progress_id'], request_id)
+
+    def test_finish_rejects_a_previous_sources_frontier_and_replays_without_an_extra_record(self):
+        for _ in range(2):
+            self.host.continue_cached({'receipt': self.receipt(), 'requestId': uuid.uuid4().hex})
+        view = self.host.snapshot()
+        payload = {'receipt': self.receipt(), 'requestId': uuid.uuid4().hex, 'sessionId': view['sessionId']}
+        sources = self.workspace / 'sources'
+        other = sources / 'fixture-b-paper'
+        shutil.copytree(sources / 'fixture-paper', other)
+        shutil.rmtree(other / 'reading')
+        metadata = json.loads((other / 'source.yaml').read_text(encoding='utf-8'))
+        metadata['source_id'] = 'fixture-b-paper'
+        (other / 'source.yaml').write_text(json.dumps(metadata), encoding='utf-8')
+        self.host.select_discussion_source('fixture-b-paper')
+
+        with self.assertRaisesRegex(WorkspaceError, '阅读位置已改变'):
+            self.host.finish_reading(payload)
+        self.assertEqual('fixture-b-paper', self.host.snapshot()['source']['sourceId'])
+        restored = self.host.open_prepared_reading('fixture-paper', request_id=uuid.uuid4().hex)
+        self.assertEqual('chunk-003', restored['navigationCurrent']['chunkId'])
+        self.assertEqual(2, len(restored['readingProgress']))
+
+        payload['receipt'] = self.receipt()
+        result = self.host.finish_reading(payload)
+        self.assertEqual('completed', result['status'])
+        self.assertEqual(3, len(result['readingProgress']))
+        self.host.select_discussion_source('fixture-b-paper')
+        replay = self.host.finish_reading(payload)
+        self.assertEqual(result['readingOperation'], replay['readingOperation'])
+        self.assertEqual('fixture-b-paper', replay['source']['sourceId'])
+        self.host.open_prepared_reading('fixture-paper', request_id=uuid.uuid4().hex)
+        with self.assertRaisesRegex(WorkspaceError, '阅读位置已改变'):
+            self.host.finish_reading({**payload, 'requestId': uuid.uuid4().hex})
+        self.assertEqual(3, len(self.host.snapshot()['readingProgress']))
 
     def test_failed_generation_retry_does_not_advance_and_edit_fences_late_candidate(self):
         self.runtime.fail = True

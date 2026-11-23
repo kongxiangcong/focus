@@ -200,7 +200,7 @@ class WebHostTests(unittest.TestCase):
 
     def test_explicit_continue_in_chat_advances_once(self):
         self.prepare_all()
-        self.start(content='继续阅读'); self.finish()
+        self.host.start({'requestId': 'continue-chat-123', 'receipt': self.receipt, 'content': '继续阅读'})
         self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])
 
     def assert_web_presentation_contract(self, method):
@@ -255,7 +255,7 @@ class WebHostTests(unittest.TestCase):
 
     def test_chat_next_uses_cached_reading(self):
         self.prepare_all()
-        self.start(content='下一段')
+        self.host.start({'requestId': 'next-chat-123', 'receipt': self.receipt, 'content': '下一段'})
         self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])
         self.assertEqual([], ProtocolDouble.instances)
 

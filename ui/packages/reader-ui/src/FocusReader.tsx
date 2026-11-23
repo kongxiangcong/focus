@@ -26,6 +26,7 @@ import "./reader-annotations.css";
 import "./reader-figures.css";
 import { FigurePanel, FigureViewer, type ViewerRequest } from "./FigurePanel";
 import { useReadingScroll } from "./reading-scroll";
+import { useReadingCompletion } from "./reading-completion";
 import { useReadingLens } from "./reading-lens";
 import { ArticleOverviewPanel } from "./ArticleOverviewPanel";
 import { ArticleStructure } from "./ArticleStructure";
@@ -443,6 +444,13 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
   const reviewLanding = useRef(false);
   const pendingQuestion = useRef<string | null | undefined>(undefined);
   const scrolling = useReadingScroll(stream, follow, eventScope, active, visible && !showStructure);
+  const finishGroup = visible && !showStructure && !reviewChunk && view?.status === "reading" && view.readingStarted &&
+    current && frontier && frontier.index === frontier.total && chunkKey(current) === chunkKey(frontier) && host.finishReading
+    ? [...readingGroups].reverse().find(group => group.chunk && chunkKey(group.chunk) === chunkKey(frontier))
+    : undefined;
+  const finishScope = finishGroup && JSON.stringify([eventScope, finishGroup.id, view?.readingRevision, sourceGeneration]);
+  const finishPaused = blocked || !!panel || !!viewer || !!confirmation;
+  const completion = useReadingCompletion(stream, scrolling.controller, finishScope, fullscreen, finishPaused, finish);
   const noteFeedback = useNoteFeedback({ view, groups: paragraphGroups, projected: projectedNotes, stream,
     onToast: annotations.showToast, onJump: element => scrolling.controller.current?.jump(element) });
   useLayoutEffect(() => {
@@ -547,11 +555,6 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     follow.current = true;
     void perform("下一段", () => host.continueReading(input));
   }
-  function finishFresh() {
-    if (!view || !frontier || !host.finishReading || blocked) return;
-    const input = { receipt: cursorReceipt(view)!, sessionId: view.sessionId, requestId: createReaderId() };
-    void perform("完成本篇", () => host.finishReading!(input));
-  }
   function reset() {
     if (!host.newSession || !view?.sessionId || blocked) return;
     const id = view.sessionId;
@@ -578,8 +581,12 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     }
   }
   function finish() {
-    if (!view || !current || blocked || reviewChunk || current.index !== current.total || !host.finishReading) return;
-    const input = { receipt: cursorReceipt(view)!, sessionId: view.sessionId, requestId: createReaderId() };
+    if (!view || !finishScope || finishPaused || !host.finishReading ||
+      (readingSession && !readingSession.isCurrent(readingSession.generation, sourceId))) return;
+    const receipt = cursorReceipt(view);
+    if (!receipt || receipt.readingRevision === undefined) return;
+    const requestId = mutationId(JSON.stringify(["finish", eventScope, sourceGeneration, receipt]));
+    const input = { receipt, sessionId: view.sessionId, requestId };
     void perform("完成本篇", () => host.finishReading!(input), () => setReference(undefined));
   }
   function reread() {
@@ -808,9 +815,42 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
         </section>
     <main className="focus-stream" ref={stream} aria-label="阅读与对话" tabIndex={0}
       onClick={annotations.onClick} onPointerOver={annotations.onPointerOver} onPointerOut={annotations.onPointerOut}
-      onWheel={e => { if (!(e.target as HTMLElement).closest(".reader-anno-rail, .reader-chunk-notes-fold")) scrolling.controller.current?.userIntent(e.deltaY < 0); }} onTouchStart={e => { if (!(e.target as HTMLElement).closest(".reader-anno-rail, .reader-chunk-notes-fold")) pauseFollow(); }}
-      onKeyDown={e => { annotations.onKeyDown(e); if (!e.defaultPrevented && !(e.target as HTMLElement).closest(".reader-anno-rail, .reader-chunk-notes-fold") && ["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "].includes(e.key)) scrolling.controller.current?.userIntent(["PageUp", "Home", "ArrowUp"].includes(e.key)); }}
-      onMouseUp={annotations.readSelection} onScroll={e => { if (e.target !== e.currentTarget) return; annotations.closeSelection(); locateVisibleChunk(); scrolling.controller.current?.onScroll(); }}>
+      onWheel={event => {
+        if ((event.target as Element).closest(".reader-anno-rail, .reader-chunk-notes-fold")) return;
+        scrolling.controller.current?.userIntent(event.deltaY < 0);
+        if (event.nativeEvent.isTrusted && !event.defaultPrevented && !event.ctrlKey && !event.shiftKey) {
+          completion.scrollIntent(event.deltaY > 0 && event.deltaY >= Math.abs(event.deltaX));
+        }
+      }}
+      onTouchStart={event => {
+        if ((event.target as Element).closest(".reader-anno-rail, .reader-chunk-notes-fold")) return;
+        pauseFollow();
+        completion.onTouchStart(event.nativeEvent);
+      }}
+      onTouchMove={event => {
+        if (!(event.target as Element).closest(".reader-anno-rail, .reader-chunk-notes-fold")) completion.onTouchMove(event.nativeEvent);
+      }}
+      onTouchCancel={completion.cancelIntent}
+      onKeyDown={event => {
+        annotations.onKeyDown(event);
+        completion.cancelIntent();
+        const target = event.target as Element;
+        if (event.defaultPrevented || target.closest(".reader-anno-rail, .reader-chunk-notes-fold") ||
+            !["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "].includes(event.key)) return;
+        const up = ["PageUp", "Home", "ArrowUp"].includes(event.key) || (event.key === " " && event.shiftKey);
+        scrolling.controller.current?.userIntent(up);
+        if (!up && event.nativeEvent.isTrusted && !event.ctrlKey && !event.altKey && !event.metaKey &&
+            !target.closest("input, textarea, select, [contenteditable=true]") && (event.key !== " " || !target.closest("button, a, summary"))) {
+          completion.scrollIntent(true);
+        }
+      }}
+      onMouseUp={annotations.readSelection} onScroll={event => {
+        if (event.target !== event.currentTarget) return;
+        annotations.closeSelection();
+        locateVisibleChunk();
+        completion.onScroll();
+        scrolling.controller.current?.onScroll();
+      }}>
       {!mist && readingLocation}
       <div className="focus-content">
         {showStructure && view && (host.getArticleOverview ? <ArticleOverviewPanel host={host} sourceId={sourceId} title={view.source.title} view={view}
@@ -853,6 +893,9 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
           const e = entries[index];
           const message = e.kind === "message" ? view?.conversation.find(m => m.messageId === e.messageId) : null;
           const content = e.kind === "reading" ? <ReadingChunk chunk={e.chunk} evidence={chunkEvidence(e.chunk)} onEvidence={openEvidenceAnswer} located={annotations.located.get(group.id)}
+            bodyRef={finishGroup?.id === group.id ? completion.body : undefined}
+            afterBody={finishGroup?.id === group.id && completion.inline &&
+              <button type="button" className="focus-finish-chunk" disabled={finishPaused} onClick={finish}>读完</button>}
             pending={annotations.pending?.groupId === group.id ? annotations.pending : null} fresh={annotations.fresh} onMarks={annotations.onMarks(group.id)}
             onReference={referenceChunk} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} onLanguage={(chunk, original) => preserveReading(() => setFigureLanguages(old => ({ ...old, [chunkKey(chunk)]: original })))} /> : message ? <ReaderConversation messages={[message]} discussionId={discussionId} onEvidence={evidenceNavigation ? openEvidenceAnswer : undefined} chunks={chunks} figures={view?.figures} figureSourceId={sourceId} sourceFigures={sourceFigures} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} streaming={active && message.messageId === view?.conversation.at(-1)?.messageId}
             onJump={jumpReference} onHighlight={highlight} onClearHighlight={() => { if (!highlightTimer.current) clearHighlight(); }} onSaveNote={(reply, chunk) => send(`请把下面的回答记下来：\n\n${reply.content}`, false, false, chunk ?? null)} /> : null;

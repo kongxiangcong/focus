@@ -94,9 +94,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     const previous = viewRef.current;
     const sourceId = next.source.sourceId;
     const selected = selection.current.sourceId;
-    if (unifiedReading && selected && selected !== sourceId && !allowSourceChange) return false;
-    if (previous?.revision !== undefined && next.revision !== undefined && previous.revision > next.revision) return false;
-    if (unifiedReading && sourceId !== selected) changeSelection(sourceId);
+    const newInstance = previous?.workspace?.instanceId && next.workspace?.instanceId && previous.workspace.instanceId !== next.workspace.instanceId;
+    if (!newInstance && unifiedReading && selected && selected !== sourceId && !allowSourceChange) return false;
+    if (!newInstance && previous?.revision !== undefined && next.revision !== undefined && previous.revision > next.revision) return false;
+    if (newInstance || (unifiedReading && sourceId !== selected)) changeSelection(sourceId);
     viewRef.current = next;
     setView(next);
     return true;

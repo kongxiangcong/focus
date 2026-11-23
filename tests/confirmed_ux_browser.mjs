@@ -85,7 +85,7 @@ await page.getByRole('link',{name:'设置',exact:true}).click();await page.getBy
 await page.getByRole('button',{name:'保存外观',exact:true}).click();
 await page.getByRole('link',{name:'阅读',exact:true}).click();await page.setViewportSize({width:390,height:844});
 await page.waitForTimeout(300);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
-assert.ok((await page.getByRole('button',{name:'完成本篇',exact:true}).boundingBox()).y<844);
+assert.equal(await page.locator('.mist-reading-actions').getByRole('button',{name:'读完',exact:true}).count(),0);
 assert.equal(await page.locator('.reading-title-scroll').count(),0);
 const readingTitle=page.locator('.workspace-reading-title');
 assert.ok(await readingTitle.isVisible());assert.ok((await readingTitle.innerText()).trim().length>0);
@@ -99,7 +99,7 @@ await page.keyboard.press('Escape');
 assert.equal(await page.getByRole('button',{name:'资料',exact:true}).count(),1);
 if (process.env.FOCUS_BROWSER_CAPTURE !== '0') await page.screenshot({path:`${process.env.FOCUS_BROWSER_OUTPUT || '/tmp'}/focus-narrow.png`});results.push('T16/T21 sidebar toggle and narrow viewport / extra font');
 // Finish then review last remains terminal.
-await page.getByRole('button',{name:'完成本篇',exact:true}).click();await page.locator('.focus-finished').waitFor();assert.equal((await api()).status,'completed');
+await page.getByRole('button',{name:'读完',exact:true}).click();await page.locator('.focus-finished').waitFor();assert.equal((await api()).status,'completed');
 await page.getByRole('button',{name:'当前阅读位置'}).click();await page.getByRole('navigation',{name:'已读段落'}).getByRole('button',{name:/第 9 段/}).click();await latest(9);
 assert.equal(await page.locator('.focus-reader__continue').count(),0);assert.equal((await api()).status,'completed');results.push('T9 complete terminal state');
 // Reset via Library is confirmed and first Continue opens first, not second.

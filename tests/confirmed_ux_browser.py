@@ -15,7 +15,9 @@ metadata=json.loads((source/'source.yaml').read_text(encoding="utf-8"))
 metadata['title']='A very long research material title for compact toolbar layout ' * 5
 (source/'source.yaml').write_text(json.dumps(metadata), encoding="utf-8")
 lines=[];chunks=[]
-for i in range(1,10):
+finish_case = os.environ.get('FOCUS_BROWSER_FINISH_CASE')
+chunk_count = {'short': 1, 'long': 3}.get(finish_case, 9)
+for i in range(1, chunk_count + 1):
     lines.extend([f'## Section {i}', f'Paragraph {i}: source evidence and readable material.'])
     chunks.append({'chunk_id': f'chunk-{i:03}', 'index':i, 'section_path':[f'Section {i}'], 'source_lines':[i*2-1,i*2], 'images':[]})
 shutil.rmtree(source/'parser-bundle/images');(source/'parser-bundle/images').mkdir()
@@ -34,7 +36,9 @@ provenance['bundle'] = bundle_fingerprint(source/'parser-bundle')
 class Reading(ReadingRuntimeDouble):
  def translate(self, **kwargs):
   if figure_translations: return figure_translations[kwargs['chunk']['index']]
-  index=kwargs['chunk']['index'];return f'第 {index} 段译文。'+ ('\n\n'.join(['这是较长的阅读内容，用于验证滚动和大字号下的可读性。']*25) if index==2 else '这是一段供测试阅读、回看与提问的内容。')
+  index=kwargs['chunk']['index']
+  long = index == 2 or (finish_case == 'long' and index == chunk_count)
+  return f'第 {index} 段译文。'+ ('\n\n'.join(['这是较长的阅读内容，用于验证滚动和大字号下的可读性。']*25) if long else '这是一段供测试阅读、回看与提问的内容。')
  def progress(self, **kwargs): return {'topic': '确定性测试记录'}
  def overview_structure(self, **kwargs):
   from core.reading_structure import legacy_structure

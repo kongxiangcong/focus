@@ -1475,21 +1475,24 @@ class HostService:
         with self.lock:
             if payload.get('sessionId', self.state['sessionId']) != self.state['sessionId']:
                 raise ValueError('会话已更新，请重新连接。')
-            self._library_idle()
             receipt = payload.get('receipt') or {}
             newly_committed = self.reading_request_result(payload.get('requestId')) is None
             if newly_committed:
+                self._library_idle()
+                discussion_source = self.state.get('discussionSourceId')
+                if not self.state['displayReading'] or (discussion_source and discussion_source != receipt.get('sourceId')):
+                    raise WorkspaceError('cursor_changed', '阅读位置已改变，请刷新后重试。')
                 self._require_backend_admission()
-            self.state['displayReading'] = True
             result = self.reading_app.finish_reading(
                 source_id=receipt.get('sourceId'), plan_id=receipt.get('planId'),
                 chunk_id=receipt.get('chunkId'), reading_revision=receipt.get('readingRevision'),
                 request_id=payload.get('requestId'))
-            self.changed()
-            window = {**self.snapshot(), 'readingOperation': result}
             if newly_committed:
+                self.changed()
+                window = {**self.snapshot(), 'readingOperation': result}
                 self._start_progress(result['progress_id'])
-            return window
+                return window
+            return {**self.snapshot(), 'readingOperation': result}
 
     def _start_progress(self, progress_id, request_id=None):
         entry = self.progress_core.get(progress_id)
