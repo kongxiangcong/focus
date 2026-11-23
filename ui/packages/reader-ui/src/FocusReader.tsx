@@ -2,7 +2,7 @@ import { useEvidenceNavigation, type EvidenceNavigation } from "./evidence-navig
 import type { ReadingSession } from "./reading-session";
 import { preparationFailed, preparationText } from "./reading-preparation";
 import { ConversationReader } from "./ConversationReader";
-import { evidenceBySourceBlock, messageEvidence } from "./source-evidence";
+import { answerEvidenceKey, evidenceBySourceBlock, messageEvidence } from "./source-evidence";
 import { useLatestNotice } from "./latest-notice";
 import { discussionFoldKey, useDiscussionFolds } from "./discussion-fold";
 import { AnnotationRail } from "./annotations/AnnotationRail";
@@ -336,7 +336,14 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     [currentEvidenceDocument, discussionEvidence]);
   const chunkEvidence = (chunk: ReaderChunk) => {
     if (!byBlock || chunk.sourceId !== sourceId || (chunk.bundleVersion && chunk.bundleVersion !== currentEvidenceDocument?.bundleVersion)) return [];
-    return [...new Set((chunk.blockIds ?? []).flatMap(id => byBlock.get(id) ?? []))];
+    const matches = new Map<string, ValidatedAnswerEvidence>();
+    for (const blockId of chunk.blockIds ?? []) {
+      for (const item of byBlock.get(blockId) ?? []) {
+        const key = answerEvidenceKey(item);
+        if (!matches.has(key)) matches.set(key, item);
+      }
+    }
+    return [...matches.values()];
   };
   const openEvidenceAnswer = (item: ValidatedAnswerEvidence) => {
     if (!evidenceNavigation || !discussionId || item.discussionId !== discussionId ||

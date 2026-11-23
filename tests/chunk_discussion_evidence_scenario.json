@@ -1,0 +1,17 @@
+{
+  "boundaries": [96, 185, 241],
+  "requests": {
+    "精读证据四条引文": [
+      {"lines": [236, 236], "quote": "The performance of seven scientific applications"},
+      {"lines": [266, 266], "quote": "a scalable high-bandwidth system"},
+      {"lines": [127, 127], "quote": "using the same emulated memory pool. The application is also executed"},
+      {"lines": [127, 127], "quote": "scheduling constraints required to maintain performance"}
+    ],
+    "新讨论单条引文": [
+      {"lines": [127, 127], "quote": "scheduling constraints required to maintain performance"}
+    ],
+    "同编号另一回答": [
+      {"lines": [127, 127], "quote": "using the same emulated memory pool. The application is also executed"}
+    ]
+  }
+}
