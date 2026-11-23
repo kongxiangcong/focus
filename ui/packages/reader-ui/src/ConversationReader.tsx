@@ -30,6 +30,15 @@ type AnswerLocation = { messageId: string; evidenceId: string; origin?: HTMLButt
 type DiscussionCitation = AnswerLocation & { discussionId?: string };
 type AnswerReturn = { messageId: string; evidenceId?: string; origin?: HTMLButtonElement; discussionId?: string };
 
+function answerDestination(chat: HTMLElement | null, messageId: string, evidenceId?: string, origin?: HTMLButtonElement) {
+  const answer = [...(chat?.querySelectorAll<HTMLElement>("[data-message-id]") ?? [])]
+    .find(element => element.dataset.messageId === messageId);
+  if (!evidenceId) return answer;
+  if (origin && answer?.contains(origin)) return origin;
+  return [...(answer?.querySelectorAll<HTMLButtonElement>("[data-citation]") ?? [])]
+    .find(element => element.dataset.citation === evidenceId);
+}
+
 type FullscreenControls = { fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void };
 
 export function ConversationReader({ host, visible = true, fontSize = "standard", readingSession, evidenceNavigation, approvalManaged, ...fullscreenControls }: { host: ReaderHost; visible?: boolean; fontSize?: string; readingSession?: ReadingSession; evidenceNavigation?: EvidenceNavigation; approvalManaged?: boolean } & FullscreenControls) {
@@ -215,7 +224,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const [settledPdf, setSettledPdf] = useState<{ url: string; pageCount: number }>();
   const [pdfPages, setPdfPages] = useState<ReadonlyMap<number, PdfPageState>>(() => new Map());
   const mountedPdfUrl = useRef<string | false | undefined>(undefined);
-  const position = useRef<{ block?: string; chunk?: string; fraction: number } | null>(null);
+  const position = useRef<{ block?: string; page?: number; chunk: string; fraction: number } | null>(null);
   const movedSinceSwitch = useRef(false);
   const restorePaperPosition = useRef(false);
   const lastPdfScroll = useRef(0), lastTranslationScroll = useRef(0);
@@ -279,7 +288,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const waitingPosition = useRef<{ nonce: string; scrollTop: number } | null>(null);
   const [cardAtTop, setCardAtTop] = useState(false);
   const [returnPosition, setReturnPosition] = useState<number | null>(null);
+  const [regionNumber, setRegionNumber] = useState(0);
   const [focusedTurn, setFocusedTurn] = useState<number>(-1);
+  const chatScrollTop = useRef(0);
   const scrollAnimation = useRef<number | null>(null);
   useEffect(() => () => { if (scrollAnimation.current !== null) cancelAnimationFrame(scrollAnimation.current); }, []);
   const restored = useRef(false), bookmark = document ? `focus.sourceBookmark:${scope}:${document.bundleVersion}` : "";
@@ -347,6 +358,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const pdfReady = useCallback((pageCount: number) => {
     if (!activePdfUrl || activePdfUrl !== mountedPdfUrl.current || !isCurrentSource()) return;
     setSettledPdf({ url: activePdfUrl, pageCount });
+    setPdfPages(new Map());
     setPdfRevision(revision => revision + 1);
   }, [activePdfUrl, isCurrentSource]);
   const pdfUnavailable = useCallback(() => pdfReady(0), [pdfReady]);
@@ -372,7 +384,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const anchors = [...((next ? page : pane)?.querySelectorAll<HTMLElement>(next ? "[data-block-id]" : "[data-translation-chunk]") ?? [])]
       .filter(el => {
         const r = bounds(el);
-        return r.bottom > rect.top && r.top < rect.bottom;
+        return r.top <= y && r.bottom >= y;
       });
     const cited = !manual.current && activeEvidence ?
       pane.querySelectorAll<HTMLElement>(`[data-evidence-block~="${activeEvidence}"]`)[regionNumber] : null;
@@ -387,10 +399,12 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const chunk = next ? chunks.find(item => block && matchesTranslationChunk(item, block.sourceLines, [block.blockId])) :
       chunks.find(item => item.id === current?.dataset.translationChunk);
     const linkedBlocks = chunk ? document.pdf.blocks.filter(item => matchesTranslationChunk(chunk, item.sourceLines, [item.blockId])) : [];
-    const linkedBlock = !movedSinceSwitch.current ? linkedBlocks.find(item => item.blockId === previous?.block) : undefined;
+    const linkedBlock = !movedSinceSwitch.current ? linkedBlocks.find(item => item.blockId === previous?.block && item.page === previous.page) : undefined;
     const r = current && bounds(current);
     const fraction = r ? Math.max(0, Math.min(1, (y - r.top) / Math.max(1, r.height))) : 0;
-    position.current = chunk ? { chunk: chunk.id, block: (block ?? linkedBlock ?? linkedBlocks[0])?.blockId, fraction } : null;
+    const placement = block ?? linkedBlock ?? linkedBlocks[0];
+    position.current = chunk ? { chunk: chunk.id, block: placement?.blockId, page: placement?.page,
+      fraction: linkedBlock && previous ? previous.fraction : fraction } : null;
     if (!next) lastTranslationScroll.current = pane.scrollTop;
     else if (settledPdf?.pageCount && settledPdf.url === activePdfUrl) lastPdfScroll.current = pane.scrollTop;
     setPositionNotice(next && !chunk && page ? `第 ${page.dataset.pdfPage} 页暂无对应译块` : "");
@@ -405,7 +419,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     manual.current = false;
     const node = translated ? [...pane.querySelectorAll<HTMLElement>("[data-translation-chunk]")]
       .find(el => el.dataset.translationChunk === anchor?.chunk) :
-      [...pane.querySelectorAll<HTMLElement>("[data-block-id]")].find(el => el.dataset.blockId === anchor?.block);
+      [...pane.querySelectorAll<HTMLElement>(`[data-pdf-page="${anchor?.page}"] [data-block-id]`)]
+        .find(el => el.dataset.blockId === anchor?.block);
     if (node && anchor) {
       const r = (node.closest("[data-page-only]") ?? node).getBoundingClientRect();
       const offset = translated ? 0 : anchor.fraction * r.height;
@@ -525,7 +540,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setLastAnswerCitation({ messageId, evidenceId, origin, discussionId });
   }, []);
 
-  const moveTo = useCallback((id: string, keyboard = false, automatic = false, navigationIntent?: EvidenceNavigationIntent, el = target(id)) => {
+  const moveTo = useCallback((id: string, { keyboard = false, automatic = false, navigationIntent, el = target(id), instant = false }: {
+    keyboard?: boolean; automatic?: boolean; navigationIntent?: EvidenceNavigationIntent; el?: HTMLElement; instant?: boolean;
+  } = {}) => {
     const pane = original.current;
     if (!el || !pane || !isCurrentSource()) return;
     const current = () => isCurrentSource() && (!navigationIntent || isLatest(navigationIntent));
@@ -572,7 +589,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     if (automatic && visibleTarget) { complete(); return; }
     const from = pane.scrollTop;
     const to = Math.max(0, Math.min(pane.scrollHeight - pane.clientHeight, from + top - paneRect.top - inset));
-    if (keyboard || reduced() || Math.abs(to - from) > pane.clientHeight * 1.2) {
+    if (instant || keyboard || reduced() || Math.abs(to - from) > pane.clientHeight * 1.2) {
       pane.scrollTo({ top: to, behavior: "instant" });
       trackScroll();
       complete();
@@ -606,7 +623,21 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setReturnPosition(null);
   }, [visible, selectionGeneration, stopNavigation]);
 
+  const wasFullscreen = useRef(fullscreen);
   useLayoutEffect(() => {
+    const layoutChanged = wasFullscreen.current !== fullscreen;
+    wasFullscreen.current = fullscreen;
+    if (layoutChanged) {
+      // A pending placement must use the resized PDF geometry and keep its nonce.
+      if (scrollAnimation.current !== null) cancelAnimationFrame(scrollAnimation.current);
+      scrollAnimation.current = null;
+      const pane = original.current;
+      if (waitingPosition.current && pane) waitingPosition.current.scrollTop = pane.scrollTop;
+      if (!fullscreen && visible && mobile === "original" && activeEvidence && !intent && !manual.current && pane?.clientHeight) {
+        const region = pane.querySelectorAll<HTMLElement>(`[data-evidence-block~="${activeEvidence}"]`)[regionNumber];
+        if (region) moveTo(activeEvidence, { automatic: true, el: region, instant: true });
+      }
+    }
     if (!visible || !intent || intent.sourceId !== sourceId || !isCurrentSource() || !isLatest(intent)) return;
     if (intent.discussionId !== view.discussionId || intent.selectionGeneration !== selectionGeneration) {
       consume(intent);
@@ -622,10 +653,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       const cited = message && messageEvidence(message, document, view.discussionId).some(item => item.evidenceId === intent.evidenceId);
       if (!cited) { consume(intent); return; }
       if (mobile !== "chat") { setMobile("chat"); return; }
-      const answer = [...(chat.current?.querySelectorAll<HTMLElement>("[data-message-id]") ?? [])]
-        .find(element => element.dataset.messageId === intent.messageId);
-      const citation = [...(answer?.querySelectorAll<HTMLButtonElement>("[data-citation]") ?? [])]
-        .find(element => element.dataset.citation === intent.evidenceId);
+      const citation = answerDestination(chat.current, intent.messageId, intent.evidenceId);
       if (!consume(intent) || !citation) return;
       followChat.current = false;
       if (turn.current) turn.current.cancelled = true;
@@ -683,14 +711,14 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       }
       if (needsTranslation && (translationState === "running" || prep?.status === "running")) return;
     }
-    if (destination) moveTo(intent.evidenceId, intent.keyboard, false, intent, destination);
+    if (destination) moveTo(intent.evidenceId, { keyboard: intent.keyboard, navigationIntent: intent, el: destination, instant: layoutChanged });
     else if (consume(intent)) {
       if (showingTranslation && intent.preferredView !== "translation" && original.current) {
         original.current.scrollTop = lastTranslationScroll.current;
       }
       setActiveEvidence(intent.evidenceId);
     }
-  }, [visible, intent, sourceId, selectionGeneration, isCurrentSource, isLatest, consume, document, messages, draftKey, view.discussionId,
+  }, [fullscreen, visible, intent, activeEvidence, regionNumber, sourceId, selectionGeneration, isCurrentSource, isLatest, consume, document, messages, draftKey, view.discussionId,
     view.sourceBundleVersion, view.sourceGeneration, view.resetVersion,
     selected?.messageId, mobile, prep?.status, translationState, translationReady, showingTranslation, projections, paperLocations, activePdfUrl, settledPdf, pdfPages, moveTo]);
 
@@ -740,10 +768,15 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const pending = turn.current;
     if (!visible || intent || !pending || pending.located || pending.cancelled || !latest || pending.seen.has(latest.messageId) || !evidence.length) return;
     const first = projections.find(p => p.evidence.messageId === latest.messageId && p.kind !== "unavailable");
-    if (first && selected?.messageId === latest.messageId) { pending.located = true; if ((shell.current?.clientWidth ?? 0) >= 960) moveTo(first.evidence.evidenceId, false, true); }
+    if (first && selected?.messageId === latest.messageId) { pending.located = true; if ((shell.current?.clientWidth ?? 0) >= 960) moveTo(first.evidence.evidenceId, { automatic: true }); }
   }, [visible, intent, latest, evidence, projections, selected, moveTo]);
 
-  useLayoutEffect(() => { if (followChat.current && chat.current) chat.current.scrollTop = chat.current.scrollHeight; }, [messages.at(-1)?.content]);
+  useLayoutEffect(() => {
+    if (!chat.current) return;
+    if (followChat.current) chat.current.scrollTop = chat.current.scrollHeight;
+    chatScrollTop.current = chat.current.scrollTop;
+  }, [messages.at(-1)?.content]);
+  useLayoutEffect(() => { chatScrollTop.current = chat.current?.scrollTop ?? 0; }, [fullscreen, mobile]);
 
   const acceptSession = readingSession?.accept;
   const apply = useCallback(async (key: string, operation: Promise<ReaderHostResult<ReadingWindow>>, success?: (value: ReadingWindow) => void) => {
@@ -807,10 +840,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setAnswerReturn(null);
     if (!visible || mobile !== "chat" || !isCurrentSource() || answerReturn.discussionId !== view.discussionId) return;
     const { messageId, evidenceId, origin } = answerReturn;
-    const answer = [...(chat.current?.querySelectorAll<HTMLElement>("[data-message-id]") ?? [])]
-      .find(element => element.dataset.messageId === messageId);
-    const destination = !evidenceId ? answer : origin && answer?.contains(origin) ? origin :
-      answer?.querySelector<HTMLElement>(`[data-citation="${evidenceId}"]`);
+    const destination = answerDestination(chat.current, messageId, evidenceId, origin);
     destination?.scrollIntoView({ block: evidenceId ? "nearest" : "start", behavior: "instant" });
     destination?.focus({ preventScroll: true });
   }, [answerReturn, isCurrentSource, mobile, view.discussionId, visible]);
@@ -819,6 +849,12 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const updateChatFocus = useCallback(() => {
     const el = chat.current;
     if (!el) return;
+    const previousTop = chatScrollTop.current;
+    chatScrollTop.current = el.scrollTop;
+    // Native scrollbar drags do not always dispatch pointer events to the scroller.
+    const limit = Math.max(0, el.scrollHeight - el.clientHeight);
+    if (intent && isLatest(intent) && previousTop !== el.scrollTop &&
+        !(previousTop > limit && Math.abs(el.scrollTop - limit) <= 1)) stopNavigation();
     followChat.current = el.scrollHeight - el.clientHeight - el.scrollTop < 64;
     if (!followChat.current && turn.current) turn.current.cancelled = true;
     if (turns.length <= 1) return;
@@ -835,19 +871,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       if (dist < bestDist) { bestDist = dist; best = idx; }
     });
     setFocusedTurn(prev => (prev === best ? prev : best));
-  }, [turns.length]);
+  }, [intent, isLatest, stopNavigation, turns.length]);
 
-  const [regionNumber, setRegionNumber] = useState(0);
   useEffect(() => { setRegionNumber(0); }, [activeEvidence, translated]);
-  const wasFullscreen = useRef(fullscreen);
-  useLayoutEffect(() => {
-    const exiting = wasFullscreen.current && !fullscreen;
-    wasFullscreen.current = fullscreen;
-    const pane = original.current;
-    if (!exiting || !visible || mobile !== "original" || !activeEvidence || intent || manual.current || !pane?.clientHeight) return;
-    const region = pane.querySelectorAll<HTMLElement>(`[data-evidence-block~="${activeEvidence}"]`)[regionNumber];
-    if (region) moveTo(activeEvidence, false, true, undefined, region);
-  }, [fullscreen, visible, mobile, activeEvidence, intent, regionNumber, moveTo]);
   function nextRegion() {
     if (!activeEvidence || !original.current) return;
     const regions = original.current.querySelectorAll<HTMLElement>(`[data-evidence-block~="${activeEvidence}"]`);
@@ -962,7 +988,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
         onKeyDown={e => { if (["ArrowLeft", "ArrowRight"].includes(e.key)) { e.preventDefault(); const v = Math.max(40, Math.min(70, share + (e.key === "ArrowLeft" ? -2 : 2))); setShare(v); safeWrite("focus.sourceShare", String(v)); } }}
         onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); }} onPointerMove={e => { if (!e.currentTarget.hasPointerCapture(e.pointerId) || !shell.current) return; const rect = shell.current.getBoundingClientRect(); const v = Math.max(40, Math.min(70, (e.clientX - rect.left) / rect.width * 100)); setShare(v); safeWrite("focus.sourceShare", String(v)); }} onPointerUp={e => e.currentTarget.releasePointerCapture(e.pointerId)} />
       <div className="source-chat-pane">
-        <div ref={chat} className="source-chat" aria-label="文章对话" onWheel={e => { if (!e.ctrlKey) stopNavigation(); }}
+        <div ref={chat} className="source-chat" aria-label="文章对话" data-evidence-pending={intent ? "true" : undefined} onWheel={e => { if (!e.ctrlKey) stopNavigation(); }}
           onTouchStart={stopNavigation} onKeyDown={e => { if (isScrollKey(e)) stopNavigation(); }} onScroll={updateChatFocus}>
           {opening?.status === "ready" && opening.bundleVersion === document?.bundleVersion && (
             <section className="source-opening" data-open={guideOpen}>

@@ -111,7 +111,7 @@ function battery(page) {
   return page.getByRole('progressbar', { name: /精读进度$/ }).filter({ visible: true }).first();
 }
 
-async function fixture() {
+async function fixture(targetCompleted) {
   const { page, host } = await open();
   try {
     await mode(page, '精读').click();
@@ -124,7 +124,7 @@ async function fixture() {
     }
     await page.locator('.focus-stream .focus-reading').first().waitFor();
     const read = (await host('/reader/window')).readingProgress.length;
-    for (let completed = read; completed < 3; completed++) {
+    for (let completed = read; completed < targetCompleted; completed++) {
       const receipt = page.waitForResponse(response => response.url().endsWith('/reader/continue') && response.ok());
       await page.getByRole('button', { name: '继续', exact: true }).click();
       assert.ok((await (await receipt).json()).ok);
@@ -244,6 +244,40 @@ async function checkBattery(page, theme) {
   };
 }
 
+async function checkMidBattery(theme) {
+  const { page, host } = await open(theme);
+  try {
+    const { source, readingProgress } = await host('/reader/window');
+    assert.equal(readingProgress.length, 2);
+    await page.getByRole('link', { name: '知识库', exact: true }).click();
+    const row = page.getByRole('listitem').and(page.locator(`[data-source-id=${JSON.stringify(source.sourceId)}]`));
+    const progress = row.getByRole('progressbar');
+    await fullyVisible(progress);
+    assert.match(await progress.getAttribute('aria-valuetext'), /2\/4 段 \(50%\)/);
+    const fill = progress.locator('.library-battery__fill');
+    const fillWidth = await fill.evaluate(node => node.getBoundingClientRect().width / node.offsetWidth);
+    assert.ok(Math.abs(fillWidth - .5) < .02, `the mid battery should show 50%, measured ${fillWidth}`);
+    const measure = async state => {
+      assert.equal(await fill.evaluate(node => getComputedStyle(node).borderTopWidth), '1px');
+      return {
+        boundary: minimum(await contrast(fill, 'border-top-color', 'parent'), 3, `${theme} ${state} mid battery boundary against its track`),
+        ...(theme === 'dark' ? {} : { interior: minimum(await contrast(fill, 'border-top-color'), 3, `${theme} ${state} amber fill against its border`) }),
+      };
+    };
+    await page.mouse.move(1, 1);
+    const resting = await measure('resting');
+    await row.hover();
+    const hover = await measure('hovered');
+    await row.locator('h3').click();
+    assert.equal(await row.getAttribute('data-selected'), 'true');
+    const selected = await measure('selected');
+    if (theme !== 'dark') assert.notDeepEqual(selected.boundary.background, hover.boundary.background);
+    return { theme, resting, hover, selected };
+  } finally {
+    await page.close();
+  }
+}
+
 async function checkAction(control, touch) {
   const page = control.page();
   await hitTarget(control);
@@ -256,6 +290,25 @@ async function checkAction(control, touch) {
   const hover = minimum(await contrast(control), 4.5, 'primary control hover');
   assert.notDeepEqual(hover.background, action.background);
   return { action, hover };
+}
+
+async function checkStatus(status, glyph, tone) {
+  await fullyVisible(status);
+  const icon = status.locator(':scope > [aria-hidden="true"]');
+  assert.equal(await icon.innerText(), glyph);
+  assert.ok(await icon.isVisible());
+  await status.evaluate((node, tone) => {
+    const style = getComputedStyle(node);
+    const reference = document.createElement('span');
+    reference.style.color = `var(--reader-${tone}-line)`;
+    node.append(reference);
+    const border = getComputedStyle(reference).color;
+    reference.remove();
+    if (style.borderTopWidth !== '1px' || style.borderTopColor !== border) {
+      throw new Error(`Expected a 1px ${tone} border, got ${style.borderTopWidth} ${style.borderTopColor}`);
+    }
+  }, tone);
+  return minimum(await contrast(status), 4.5, `${tone} status`);
 }
 
 async function checkPdf(pane, card) {
@@ -428,9 +481,23 @@ async function run(theme, { width, kind, hasTouch, reducedMotion, appReducedMoti
     await take(page.getByRole('link', { name: '设置', exact: true }));
     await page.getByLabel('界面密度', { exact: true }).selectOption('comfortable');
     const saved = page.getByRole('status').filter({ hasText: '已自动保存' });
-    await fullyVisible(saved);
-    result.contrast.success = minimum(await contrast(saved), 4.5, 'success status');
+    result.contrast.success = await checkStatus(saved, '✓', 'success');
+    const preview = page.getByLabel('界面配色预览');
+    result.contrast.previewSuccess = await checkStatus(preview.locator('[data-workspace-status="success"]'), '✓', 'success');
+    result.contrast.previewError = await checkStatus(preview.locator('[data-workspace-status="danger"]'), '!', 'danger');
     if (theme === 'red' && width === 1440 || theme === 'dark' && hasTouch) await save('settings');
+    const revertStorage = await page.evaluateHandle(() => {
+      const save = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (key, value) {
+        if (key === 'focus.density') throw new DOMException('Read only', 'SecurityError');
+        return save.call(this, key, value);
+      };
+      return () => { Storage.prototype.setItem = save; };
+    });
+    await page.getByLabel('界面密度', { exact: true }).selectOption('compact');
+    result.contrast.storageError = await checkStatus(page.getByRole('alert').filter({ hasText: '外观保存失败' }), '!', 'danger');
+    await revertStorage.evaluate(revert => revert());
+    await revertStorage.dispose();
 
     await page.route('**/library/sources/*/document', route => route.fulfill({
       json: { ok: false, error: { code: 'unavailable', message: '源文档加载失败', retryable: true } },
@@ -458,7 +525,14 @@ async function run(theme, { width, kind, hasTouch, reducedMotion, appReducedMoti
 
 try {
   if (artifacts) await mkdir(artifacts, { recursive: true });
-  await fixture();
+  await fixture(2);
+  const midBattery = [];
+  for (const theme of themes) {
+    if (!process.env.FOCUS_THEME_CASE || process.env.FOCUS_THEME_CASE.startsWith(theme)) {
+      midBattery.push(await checkMidBattery(theme));
+    }
+  }
+  await fixture(3);
   const rows = [];
   const failures = [];
   const selected = process.env.FOCUS_THEME_CASE;
@@ -475,7 +549,7 @@ try {
     }
   }
   assert.ok(rows.length || failures.length, 'FOCUS_THEME_CASE did not match a theme or matrix entry');
-  const results = { chromium: browser.version(), rows, failures };
+  const results = { chromium: browser.version(), midBattery, rows, failures };
   if (artifacts) await writeFile(join(artifacts, 'results.json'), JSON.stringify(results, null, 2) + '\n');
   assert.equal(failures.length, 0, 'All formal Host theme combinations must pass');
   console.log(`PASS ${rows.length} formal Host theme combinations on Chromium ${results.chromium}`);

@@ -345,6 +345,97 @@ async function exitFullscreen(interrupt) {
   await page.close();
 }
 
+async function exitDuringPlacement() {
+  const { page, errors, snapshot } = await open({ blocked: [8] });
+  await firstPage(page);
+  const before = progress(await snapshot());
+  await page.getByRole('button', { name: '对话全屏', exact: true }).click();
+  await pane(page).evaluate(node => {
+    node.style.setProperty('--reader-duration-move', '1600ms');
+    const destination = node.querySelector('[data-pdf-page="8"]');
+    node.scrollTop += destination.getBoundingClientRect().top - node.getBoundingClientRect().top - node.clientHeight * .7;
+  });
+  await frames(page);
+  const from = await top(page);
+  await citations(page).nth(2).click();
+  await waitForHeldPage(page, 8);
+  await release(page, 8);
+  await page.waitForFunction(from => document.querySelector('[aria-label="文章原文"]').scrollTop !== from, from);
+  assert.equal(await card(page).count(), 0, 'the smooth placement is in flight when Escape is pressed');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '关闭全屏模式', exact: true }).waitFor({ state: 'hidden' });
+  await card(page).getByText(thirdQuote, { exact: true }).waitFor();
+  const visible = await pageAt(page, 8).locator('[data-active="true"]').first().evaluate(block => {
+    const region = block.getBoundingClientRect();
+    const view = block.closest('.source-original').getBoundingClientRect();
+    return region.top >= view.top && region.bottom <= view.bottom;
+  });
+  assert.ok(visible, 'the existing jump retargets to the cited region in the window layout');
+  await card(page).getByRole('button', { name: /^证据 3/ }).click();
+  assert.ok(await citations(page).nth(2).evaluate(node => node === document.activeElement), 'the completed jump keeps its citation return');
+  assert.deepEqual(progress(await snapshot()), before);
+  assert.deepEqual(errors, []);
+  await page.close();
+}
+
+async function chatScrollbarCancels() {
+  const { page, errors, snapshot } = await open({ blocked: [8] });
+  await firstPage(page);
+  const chat = page.getByLabel('文章对话', { exact: true });
+  for (let index = 0; index < 6; index++) {
+    const question = `对话滚动测试 ${index}`;
+    await page.getByRole('textbox', { name: '输入消息' }).fill(question);
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await chat.locator('[data-role="assistant"]').getByText(`${question}。`, { exact: true }).waitFor();
+  }
+  const before = progress(await snapshot());
+  await citations(page).nth(2).click();
+  await waitForHeldPage(page, 8);
+  const position = await top(page);
+  const thumb = await chat.evaluate(node => {
+    const box = node.getBoundingClientRect();
+    const gap = box.width - node.clientWidth - node.clientLeft;
+    const height = node.clientHeight ** 2 / node.scrollHeight;
+    const travel = node.clientHeight - height;
+    const offset = travel * node.scrollTop / (node.scrollHeight - node.clientHeight);
+    return { x: box.right - gap / 2, y: box.top + offset + height / 2, gap, top: node.scrollTop, delta: offset < travel / 2 ? 70 : -70 };
+  });
+  assert.ok(thumb.gap > 3, 'the chat has a native scrollbar hit target');
+  await page.mouse.move(thumb.x, thumb.y);
+  await page.mouse.down();
+  await page.mouse.move(thumb.x, thumb.y + thumb.delta, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForFunction(top => document.querySelector('[aria-label="文章对话"]').scrollTop !== top, thumb.top);
+  await release(page, 8);
+  assert.equal(await top(page), position);
+  assert.equal(await card(page).count(), 0);
+  assert.deepEqual(progress(await snapshot()), before);
+  assert.deepEqual(errors, []);
+  await page.close();
+}
+
+async function retryFailedPage() {
+  const { page, errors } = await open({ blocked: [8] });
+  await firstPage(page);
+  await citations(page).nth(2).click();
+  await waitForHeldPage(page, 8);
+  await browse(page, 'wheel');
+  await release(page, 8, true);
+  assert.equal(await page.getByRole('alert').filter({ hasText: '此页渲染失败' }).count(), 0);
+  await pageAt(page, 8).scrollIntoViewIfNeeded();
+  const alert = pageAt(page, 8).getByRole('alert').filter({ hasText: '此页渲染失败' });
+  await alert.waitFor();
+  const before = await top(page);
+  await alert.getByRole('button', { name: '重试', exact: true }).click();
+  await waitForHeldPage(page, 8);
+  await release(page, 8);
+  await pageAt(page, 8).locator('.paper-text span').first().waitFor({ state: 'attached' });
+  assert.equal(await alert.count(), 0);
+  assert.ok(Math.abs(await top(page) - before) <= 1, 'retry keeps the PDF at the page the reader chose');
+  assert.deepEqual(errors, []);
+  await page.close();
+}
+
 async function resetNavigation({ confirm, fail = false, releaseDuringReset = false }) {
   let resumeReset;
   const holdReset = new Promise(resolve => { resumeReset = resolve; });
@@ -471,6 +562,9 @@ try {
       await mobileCancels();
     },
     fullscreen: async () => { await exitFullscreen(false); await exitFullscreen(true); },
+    'fullscreen-placement': exitDuringPlacement,
+    'chat-scrollbar': chatScrollbarCancels,
+    'pdf-retry': retryFailedPage,
     sources: async () => {
       for (const asset of ['document', 'original', 'opening']) await sourceRoundTrip(asset);
       await sourceRoundTrip('original', true);
