@@ -320,6 +320,7 @@ export interface RereadReadingInput {
 
 export interface SendReaderMessageInput {
   sessionId?: string;
+  discussionId?: string;
   receipt: CursorReceipt | null;
   content: string;
   sourceId?: string;
@@ -495,6 +496,7 @@ export interface ReaderHost {
   deleteSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   saveSourceDetails?(sourceId: string, title: string, topicIds: readonly string[], requestId: string, displayTitle?: string): Promise<ReaderHostResult<ReadingWindow>>;
   clearSource?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  resetSourceReading?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   replanSource?(sourceId: string, requestId?: string): Promise<ReaderHostResult<ReadingWindow>>;
   rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   getArticleOverview?(sourceId: string): Promise<ReaderHostResult<ArticleOverview>>;

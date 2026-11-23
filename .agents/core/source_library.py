@@ -575,6 +575,8 @@ class SourceLibrary:
         state['reading_progress'] = {k: v for k, v in state.get('reading_progress', {}).items() if k not in progress_ids}
         state['progress_requests'] = {k: v for k, v in state.get('progress_requests', {}).items() if v.get('input', {}).get('progress_id') not in progress_ids}
         state['reading_requests'] = {k: v for k, v in state.get('reading_requests', {}).items() if v.get('input', {}).get('source_id') != source_id}
+        state.get('pending_reading_resets', {}).pop(source_id, None)
+        state.get('reading_plan_numbers', {}).pop(source_id, None)
         state.setdefault('current_topic_id', None)
         state['sources'].pop(source_id, None)
         if state.get('current_source_id') == source_id:

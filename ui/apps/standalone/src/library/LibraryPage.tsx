@@ -25,7 +25,7 @@ export type LibraryPageProps = Pick<IngestionRowsProps, "taskInbox" | "taskBatch
   preparationHidden: (id: string) => boolean; blogs: Readonly<Record<string, BlogStatus>>; setBlogViewer: (id: string) => void;
   busy: string; active: boolean; enterReading: (id: string) => Promise<void>; preparationFailed: (id: string) => boolean; retryPreparation: (id: string) => Promise<void>;
   refreshBlog: (id: string) => Promise<void>; moreSource: string | null; setMoreSource: (id: string | null) => void;
-  moveSource: (id: string, offset: number) => void; setConfirm: (value: { source: LibrarySource; action: "delete" | "reread" | "replan" | "clear"; requestId?: string } | null) => void;
+  moveSource: (id: string, offset: number) => void; requestReadingReset: (id: string, opener: HTMLElement) => void;
   confirmDelete: (source: LibrarySource) => Promise<void>; preparationNotice: (id: string) => ReactNode; activateCandidate: (id: string) => Promise<void>;
   blogArtifacts: readonly [BlogArtifactName, string][]; blogStatusText: Record<BlogArtifactStatus, string>; blogRetryLabel: Record<BlogArtifactName, string>;
   generateBlog: (id: string) => Promise<void>; cancelBlog: (id: string) => Promise<void>; regenerateBlog: (id: string, target: BlogRegenerationTarget) => Promise<void>;

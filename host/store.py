@@ -86,6 +86,20 @@ class Store:
         self.state = current
         self.db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
 
+    def archive_for_reading_reset(self, source_id, request_id, current_source):
+        self.lease.require_current()
+        from core.source_clear import archive_for_reset
+
+        with self.lock, self.db:
+            current = archive_for_reset(self.state, source_id, current_source)
+            operations = self.get('sourceClears')
+            operations[request_id]['status'] = 'completed'
+            self.db.executemany('UPDATE state SET value=? WHERE key=?', (
+                (json.dumps(current, ensure_ascii=False), 'session'),
+                (json.dumps(operations), 'sourceClears'),
+            ))
+        self.state = current
+
     def expire_logs(self):
         self.lease.require_current()
         """Only Host-owned diagnostics expire; history and receipts never do."""

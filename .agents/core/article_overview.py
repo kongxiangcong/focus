@@ -85,15 +85,21 @@ class ArticleOverview:
                 'chunkNodes': tree['chunk_nodes']}
 
     def generate(self, source_id, *, stopped=lambda: False, on_progress=lambda: None):
-        if self.status(source_id)['status'] == 'ready':
-            return
-        root, chunks, identity = self.target(source_id)
-        path = root / 'overview.json'
-        attempt = uuid.uuid4().hex
-        run = {**identity, 'revision': attempt, 'status': 'running'}
-        if self.lease:
-            self.lease.require_current()
-        _write_document(path, run)
+        from .reading_application import _LOCK
+
+        with _LOCK:
+            if self.status(source_id)['status'] == 'ready':
+                return
+            target = self.target(source_id)
+            if target is None:
+                return
+            root, chunks, identity = target
+            path = root / 'overview.json'
+            attempt = uuid.uuid4().hex
+            run = {**identity, 'revision': attempt, 'status': 'running'}
+            if self.lease:
+                self.lease.require_current()
+            _write_document(path, run)
         on_progress()
         def guard():
             target = self.target(source_id)
@@ -130,12 +136,15 @@ class ArticleOverview:
                     feedback = str(exc)
             if guide is None:
                 raise WorkspaceError('overview_invalid', feedback)
-            guard()
-            _write_document(path, {**run, 'status': 'ready', 'structure': tree, 'guide': guide,
-                                   'runtime': getattr(self.app.runtime, 'provenance', None)})
+            runtime = getattr(self.app.runtime, 'provenance', None)
+            with _LOCK:
+                guard()
+                _write_document(path, {**run, 'status': 'ready', 'structure': tree, 'guide': guide,
+                                       'runtime': runtime})
         except Exception as exc:
-            if path.exists() and _read_document(path).get('revision') == attempt:
-                _write_document(path, {**run, 'status': 'failed', 'error': str(exc)})
+            with _LOCK:
+                if path.exists() and _read_document(path).get('revision') == attempt:
+                    _write_document(path, {**run, 'status': 'failed', 'error': str(exc)})
             raise
         finally:
             on_progress()

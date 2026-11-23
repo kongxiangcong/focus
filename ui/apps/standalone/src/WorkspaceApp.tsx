@@ -3,7 +3,7 @@ import { Fragment } from "react";
 import { NavigationResize } from "./NavigationResize";
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
-import { FocusReader, AgentControls, TaskProgress, readingFontSizes, useEvidenceNavigation, BookOpen, ChatBubble, DocText, type ReadingMode } from "@focus/reader-ui";
+import { FocusReader, AgentControls, TaskProgress, readingFontSizes, useEvidenceNavigation, BookOpen, ChatBubble, DocText, ReaderConfirmation, type ReaderConfirmationInput, type ReadingMode } from "@focus/reader-ui";
 import { BackendSetupPanel } from "./BackendSetupPanel";
 import { WorkspaceSelection } from './WorkspaceSelection';
 import { UploadTopicPicker } from "./UploadTopicPicker";
@@ -135,7 +135,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [deletionImpact, setDeletionImpact] = useState<SourceDeletionImpact | null>(null);
-  const [confirm, setConfirm] = useState<{ source: LibrarySource; action: "delete" | "reread" | "replan" | "clear"; requestId?: string } | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<LibrarySource | null>(null);
+  const [resetConfirmation, setResetConfirmation] = useState<ReaderConfirmationInput | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<readonly File[]>([]);
   const [batches, setBatches] = useState<readonly ProcessingBatch[]>([]);
@@ -274,7 +275,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }, [host, workPollKey, acceptView, isCurrentSelection]);
   useEffect(() => { if (blogViewer) blogDialog.current?.showModal(); else blogDialog.current?.close(); }, [blogViewer]);
   useEffect(() => { if (management) managementDialog.current?.showModal(); else managementDialog.current?.close(); }, [management]);
-  useEffect(() => { if (confirm) confirmation.current?.showModal(); else confirmation.current?.close(); }, [confirm]);
+  useEffect(() => { if (deleteConfirmation) confirmation.current?.showModal(); else confirmation.current?.close(); }, [deleteConfirmation]);
   useEffect(() => { if (view?.blog) setBlogs(view.blog); }, [view?.blog]);
   useEffect(() => {
     if (!view?.preparations) return;
@@ -303,7 +304,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       const result = await operation();
       if (!isCurrentSelection(started)) return;
       if (!result.ok) { setError(result.error.message); setRetryAction(() => () => void operate(label, operation, read)); return; }
-      setRetryAction(null); acceptView(result.value, started, read || label === "删除"); setConfirm(null);
+      setRetryAction(null); acceptView(result.value, started, read || label === "删除"); setDeleteConfirmation(null);
       if (label === '全部清空') { setNotice(''); setReadyNotice(''); }
       if (read) navigate("/reading");
       if (label === "上传") { setUploadOpen(false); setSelectedFiles([]); }
@@ -507,11 +508,28 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     return succeeded;
   }
 
-  function rereadReceipt(sourceId: string) {
-    if (!view || view.source.sourceId !== sourceId || view.readingRevision === undefined) return null;
-    const chunk = view.current ?? view.history.at(-1);
-    return chunk ? { sourceId, planId: chunk.planId, chunkId: view.current?.chunkId ?? null,
-      readingRevision: view.readingRevision } : null;
+  function requestReadingReset(sourceId: string, opener: HTMLElement) {
+    const reset = host.resetSourceReading?.bind(host);
+    if (!reset) return;
+    const storageKey = `focus.resetReading:${view?.workspace?.workspaceId ?? "local"}:${sourceId}`;
+    setResetConfirmation({
+      title: "重新阅读本篇？",
+      description: "将清除精读进度、旧计划、小段笔记、句子备注和重点。整篇笔记会保留，旧对话归档，并开启新对话。",
+      label: "确认重新阅读",
+      opener,
+      confirm: () => void operate("重新阅读", () => identified(storageKey, async fallbackId => {
+        let requestId = fallbackId;
+        try {
+          requestId = sessionStorage.getItem(storageKey) ?? fallbackId;
+          sessionStorage.setItem(storageKey, requestId);
+        } catch { /* The in-memory identity still covers retries. */ }
+        const result = await reset(sourceId, requestId);
+        if (result.ok) {
+          try { sessionStorage.removeItem(storageKey); } catch { /* Storage is optional. */ }
+        }
+        return result;
+      })),
+    });
   }
   async function confirmDelete(source: LibrarySource) {
     if (!host.deletionImpact || managementBusy) return;
@@ -519,7 +537,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     try {
       const result = await host.deletionImpact(source.sourceId);
       if (!result.ok) { setError(result.error.message); return; }
-      setDeletionImpact(result.value); setConfirm({ source, action: "delete" });
+      setDeletionImpact(result.value); setDeleteConfirmation(source);
     } finally { setBusy(""); }
   }
   async function controlBatch(batchId: string, action: Parameters<NonNullable<ReaderHost["controlBatch"]>>[1], itemId?: string, riskChoiceId?: string) {
@@ -639,6 +657,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     return () => window.removeEventListener("keydown", exit);
   }, [readingFullscreen]);
   useEffect(() => { if (route !== "/reading") setReadingFullscreen(false); }, [route]);
+  const readingResetAction = route === "/reading" && view?.source.sourceId && host.resetSourceReading &&
+    <button type="button" className={`workspace-task-toggle${readingFullscreen ? " reading-reset-fullscreen" : ""}`}
+      disabled={!!busy || active || view.clearBusySources?.includes(view.source.sourceId)}
+      onClick={event => requestReadingReset(view.source.sourceId, event.currentTarget)}>重新阅读</button>;
   return <div className="workspace-app" data-route={route} data-nav-collapsed={navCollapsed} data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-body-font": readingFontFamily(readingFont) } as CSSProperties}>
     <NavigationResize enabled={!navCollapsed && !(route === "/reading" && readingFullscreen)} />
     <aside id="workspace-navigation" className="workspace-nav" aria-label="工作台导航">
@@ -679,6 +701,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <div className={route === "/library" ? "workspace-toolbar library-toolbar" : "workspace-toolbar"}>
         {route === "/reading" ? <div className="reading-library-picker"><div className="reading-mode-picker" data-branch-open={readingBranchOpen} ref={setPickerSlot} /><span className="workspace-reading-title" title={view?.source.title}>{view?.source.title || "阅读"}</span></div> : route === "/library" ? <LibraryToolbar {...{ selectedTopic, topic, filtered, topics, unfiledCount, setTopic, libraryView, setLibraryView, setMoreSource, query, setQuery }} /> : <h1>设置</h1>}
         <div className="workspace-header-actions">
+          {!readingFullscreen && readingResetAction}
           <section className="workspace-status" aria-label="当前工作">
             <span className="workspace-sr-only" role="status">{connectionLost ? "连接中断，正在恢复" : !view ? "正在连接" : primaryWork ? `${primaryWork.label} · ${runningWork.length} 项进行中` : "当前无工作"}{attention.length > 0 ? ` · ${attention.length} 项需查看` : ""}</span>
             <button className="workspace-task-toggle" aria-label="任务详情" aria-controls="workspace-tasks" aria-expanded={taskDetails} onClick={() => setTaskDetails(!taskDetails)}>
@@ -751,6 +774,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       {!uploadOpen && error && <div className="workspace-error" role="alert">{error}<button onClick={() => { setError(""); if (retryAction) retryAction(); else void refresh(); }}>{retryAction ? "重试此操作" : "刷新状态"}</button></div>}
       {!error && (notice || readyNotice) && <div className="workspace-notice" role="status">{readyNotice || notice}<button onClick={() => { setNotice(""); setReadyNotice(""); }}>关闭</button></div>}
     </header>
+    {readingFullscreen && readingResetAction}
     {route === "/reading" && readingFullscreen && <button type="button" className="reading-fullscreen-exit"
       aria-label="关闭全屏模式" title="退出全屏" onClick={() => setReadingFullscreen(false)}>×</button>}
     <div className="workspace-reading" hidden={route !== "/reading"}>
@@ -804,7 +828,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           view: !unifiedReading || view?.source.sourceId === selection.current.sourceId ? view : null,
           generation, isCurrent: isCurrentSelection, accept: acceptView,
         }} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
-    {route === "/library" && <LibraryPage {...{ scoped, statusFilter, setStatusFilter, sourcesFailed, refresh, taskInbox, taskBatches, statusText, itemStatusText, continueInbox, controlBatch, sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, setConfirm, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} onTasks={() => setTaskDetails(true)} />}
+    {route === "/library" && <LibraryPage {...{ scoped, statusFilter, setStatusFilter, sourcesFailed, refresh, taskInbox, taskBatches, statusText, itemStatusText, continueInbox, controlBatch, sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, requestReadingReset, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} onTasks={() => setTaskDetails(true)} />}
     {route === "/settings" && <main className="settings-page">
       <div className="settings-shell">
         <nav className="settings-toc" aria-label="设置分组">
@@ -883,19 +907,16 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <div><a href={host.blogUrl(blogViewer)} target="_blank" rel="noreferrer">新窗口打开</a><button onClick={closeBlogViewer}>关闭</button></div></div>
       <iframe title="博客" src={host.blogUrl(blogViewer)} />
     </dialog>}
-    <dialog className="workspace-confirm" ref={confirmation} onCancel={() => setConfirm(null)}><h2>{confirm?.action === "clear" ? "重新阅读本篇？" : confirm?.action === "delete" ? "删除材料？" : confirm?.action === "replan" ? "重新规划？" : "从头阅读？"}</h2><p>{confirm?.source.title}</p><p>{confirm?.action === "clear" ? "将清除本篇讨论、笔记和阅读记录，并从第一段重新开始。原文、译文和博客保留。" : confirm?.action === "delete" ? "原件、正文、图片、博客、计划、笔记和阅读进度将永久删除。历史聊天保留并标记来源已删除。" : confirm?.action === "replan" ? "重新分段并准备译文；保留旧计划、译文和笔记，不重复解析。" : "回到第一段，保留现有分段、译文和笔记。"}</p>{confirm?.action === "delete" && deletionImpact && <div aria-label="删除影响"><p>受影响专题：{deletionImpact.topics.map(t => t.title).join("、") || "无"}</p><ul>
+    {resetConfirmation && <ReaderConfirmation input={resetConfirmation} onClose={() => setResetConfirmation(null)} />}
+    <dialog className="workspace-confirm" ref={confirmation} onCancel={() => setDeleteConfirmation(null)}><h2>删除材料？</h2><p>{deleteConfirmation?.title}</p><p>原件、正文、图片、博客、计划、笔记和阅读进度将永久删除。历史聊天保留并标记来源已删除。</p>{deleteConfirmation && deletionImpact && <div aria-label="删除影响"><p>受影响专题：{deletionImpact.topics.map(t => t.title).join("、") || "无"}</p><ul>
       <li>原件与解析正文（Bundle）：{deletionImpact.assets.bundle ? "将删除" : "未建立"}</li>
       <li>博客（Blog）：{deletionImpact.assets.blog ? "将删除" : "未生成"}</li>
       <li>笔记（Notes）：{deletionImpact.assets.notes ? "将删除" : "未建立"}</li>
       <li>阅读计划（Plan）：{deletionImpact.assets.plans} 份</li>
       <li>阅读进度：{deletionImpact.assets.progress ? "将清理" : "未建立"}</li>
-    </ul></div>}<div><button disabled={!!busy} onClick={() => setConfirm(null)}>取消</button><button className="workspace-primary" disabled={!!busy || (confirm?.action === "clear" ? !!view?.clearBusySources?.includes(confirm.source.sourceId) : active) || (confirm?.action === "delete" && (managementBusy || !deletionImpact))} onClick={() => {
-      if (!confirm) return;
-      const { source, action } = confirm;
-      const receipt = rereadReceipt(source.sourceId);
-      if (action === "reread" && (!receipt || !host.rereadReading)) { setError("阅读位置已变化，请先打开这篇材料。"); return; }
-      void operate(action === "clear" ? "重新阅读" : action === "delete" ? "删除" : action === "replan" ? "重新规划" : "从头阅读", () => action === "clear" ? host.clearSource!(source.sourceId, confirm.requestId!) : action === "delete" ? host.deleteSource!(source.sourceId) : action === "replan" ? identified(`replan:${source.sourceId}`, id => host.replanSource!(source.sourceId, id)) : host.rereadReading!({ receipt: receipt!, requestId: createReaderId(), sessionId: view?.sessionId }), action === "reread");
-    }}>{busy || (confirm?.action === "clear" ? "确认重新阅读" : confirm?.action === "delete" ? "永久删除" : confirm?.action === "replan" ? "确认重新规划" : "确认从头阅读")}</button></div>{error && <p role="alert">{error}</p>}</dialog>
+    </ul></div>}<div><button disabled={!!busy} onClick={() => setDeleteConfirmation(null)}>取消</button><button className="workspace-primary" disabled={!!busy || active || managementBusy || !deletionImpact} onClick={() => {
+      if (deleteConfirmation && host.deleteSource) void operate("删除", () => host.deleteSource!(deleteConfirmation.sourceId));
+    }}>{busy || "永久删除"}</button></div>{error && <p role="alert">{error}</p>}</dialog>
     {view?.configuration?.startupError && route !== "/settings" && <aside role="alert" className="configuration-notice">
       <p>{view.configuration.startupError}</p>
       <button onClick={() => navigate("/settings")}>模型与后端设置</button>

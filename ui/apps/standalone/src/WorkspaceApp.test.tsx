@@ -29,7 +29,7 @@ function setup(initialInbox: readonly IngestionItem[] = [], initialWindow: Readi
     controlBatch: vi.fn(async () => readerSuccess({ batchId: "batch-1", topicId: "topic", status: "paused" as const, error: null, items: [] })),
     createTopic: vi.fn(async () => readerSuccess({})), manageTopic: vi.fn(async () => readerSuccess({})),
     deletionImpact: vi.fn(async id => readerSuccess({ sourceId: id, title: "A Paper", topics: [{ topicId: "topic", title: "编译", sourceIds: [id] }], assets: { bundle: true, blog: true, notes: true, plans: 1, progress: true } })),
-    clearSource: vi.fn(async () => readerSuccess(empty)),
+    resetSourceReading: vi.fn(async () => readerSuccess(empty)),
     saveSourceDetails: vi.fn(async () => readerSuccess(empty)),
     renameSource: vi.fn(async () => readerSuccess({})),
     startIngestion: vi.fn(async () => readerSuccess(confirmed)),
@@ -439,18 +439,22 @@ it("offers querying the original task first when a remote reference exists", asy
   expect(host.resubmitIngestion).not.toHaveBeenCalled();
 });
 
-it("clears source discussion only after irreversible confirmation and supports cancellation", async () => {
+it("confirms a fresh reading and discussion before changing the source", async () => {
   const { host } = setup();
   fireEvent.click(await screen.findByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "更多" }));
   fireEvent.click(within(screen.getByRole("group", { name: "更多操作" })).getByRole("button", { name: "重新阅读" }));
-  expect(screen.getByText(/将清除本篇讨论、笔记和阅读记录/)).toBeVisible();
+  expect(screen.getByRole("dialog", { name: "重新阅读本篇？" })).toHaveAccessibleDescription(
+    /清除精读进度、旧计划、小段笔记、句子备注和重点。整篇笔记会保留，旧对话归档，并开启新对话。/,
+  );
+  expect(screen.getByRole("button", { name: "取消" })).toHaveFocus();
   fireEvent.click(screen.getByRole("button", { name: "取消" }));
-  expect(host.clearSource).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "更多" })).toHaveFocus();
+  expect(host.resetSourceReading).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "更多" }));
   fireEvent.click(within(screen.getByRole("group", { name: "更多操作" })).getByRole("button", { name: "重新阅读" }));
   fireEvent.click(screen.getByRole("button", { name: "确认重新阅读" }));
-  await waitFor(() => expect(host.clearSource).toHaveBeenCalledWith("a-paper", expect.any(String)));
+  await waitFor(() => expect(host.resetSourceReading).toHaveBeenCalledWith("a-paper", expect.any(String)));
   expect(host.deleteSource).not.toHaveBeenCalled();
 });
 

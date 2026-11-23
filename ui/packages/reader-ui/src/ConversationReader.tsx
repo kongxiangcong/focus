@@ -11,7 +11,7 @@ import type { RenderMark } from "./rehype-annotations";
 import { readingFontSizes } from "./typography";
 import { AgentControls } from "./AgentControls";
 import { AssetInstanceContext } from "./asset-context";
-import { ArrowUp, Close, Collapse, Expand, ListOutline, Pin, Plus, StopSquare } from "./ReaderIcons";
+import { ArrowUp, Close, Collapse, Expand, ListOutline, Pin, StopSquare } from "./ReaderIcons";
 import "./conversation-reader.css";
 
 const safeRead = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
@@ -684,7 +684,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     safeWrite(`focus.activeAnswer:${draftKey}`, ""); setSending(true); showOperationError("send", ""); if (run) setDismissedRun(run.runId); setActiveMessage(null); setActiveEvidence(undefined);
     followChat.current = true; turn.current = { seen: new Set(messages.map(m => m.messageId)), cancelled: false, located: false };
     if (sendRequest.current?.content !== content) sendRequest.current = { content, id: createReaderId() };
-    const ok = await apply("send", host.sendMessage({ sourceId, sessionId: view.sessionId, receipt: null, content, requestId: sendRequest.current.id }));
+    const ok = await apply("send", host.sendMessage({ sourceId, sessionId: view.sessionId,
+      discussionId: view.discussionId, receipt: null, content, requestId: sendRequest.current.id }));
     if (ok) { sendRequest.current = null; } else turn.current = null;
     sendBusy.current = false; setSending(false);
     return ok;
@@ -901,11 +902,6 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
               <button ref={notesButton} type="button" className="source-icon-btn" aria-label="笔记" title="笔记" aria-pressed={notesOpen} onClick={e => notesOpen ? closeNotes() : openNotes(e.currentTarget)}>
                 <Pin />
               </button>
-              {host.newSession && view.sessionId && (
-                <button type="button" className="source-icon-btn" aria-label="新会话" title="新会话" disabled={running} onClick={() => void apply("session", host.newSession!(view.sessionId!))}>
-                  <Plus />
-                </button>
-              )}
               {onFullscreenChange && (
                 <button type="button" className="source-icon-btn" aria-label={fullscreen ? "退出全屏" : "对话全屏"} title={fullscreen ? "退出全屏" : "对话全屏"} aria-pressed={!!fullscreen} onClick={() => onFullscreenChange(!fullscreen)}>
                   {fullscreen ? <Collapse /> : <Expand />}

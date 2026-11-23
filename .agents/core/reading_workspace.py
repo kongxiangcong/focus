@@ -386,6 +386,14 @@ def _source_bundle_at_version(source_root: Path, bundle_version: str | None) -> 
     return historical
 
 
+def _last_plan_number(plans: Path, state: dict, source_id: str) -> int:
+    numbers = [state.get("reading_plan_numbers", {}).get(source_id, 0)]
+    for root in plans.glob("plan-*"):
+        if root.is_dir() and (match := re.fullmatch(r"plan-(\d+)", root.name)):
+            numbers.append(int(match[1]))
+    return max(numbers)
+
+
 def _read_chunk_records(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
         raise WorkspaceError("reading_plan_missing", f"Reading Plan does not exist: {path.parent.name}")
@@ -873,12 +881,7 @@ class WorkspaceCore:
         records, glossary = _reading_plan_records(bundle, draft)
 
         plans_root = source_root / "reading" / "plans"
-        used_numbers = []
-        for path in plans_root.glob("plan-*"):
-            match = re.fullmatch(r"plan-(\d+)", path.name)
-            if path.is_dir() and match:
-                used_numbers.append(int(match.group(1)))
-        plan_id = f"plan-{(max(used_numbers, default=0) + 1):03d}"
+        plan_id = f"plan-{_last_plan_number(plans_root, state, source_id) + 1:03d}"
         plan_root = plans_root / plan_id
         staging = plans_root / f".{plan_id}.{uuid.uuid4().hex}.staging"
         state_snapshot = state_path.read_bytes()
