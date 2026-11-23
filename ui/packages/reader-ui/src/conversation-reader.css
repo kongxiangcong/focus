@@ -33,7 +33,9 @@
 .source-original[data-evidence-pending=true] { overflow-anchor:none; }
 .source-original article { max-width:850px; margin:auto; }
 .source-original .focus-markdown { font-family:var(--reader-body-font,var(--reader-serif)); font-size:var(--source-font-size); line-height:var(--reader-prose-leading); overflow-wrap:anywhere; }
-.source-original .focus-markdown > * { content-visibility:auto; contain-intrinsic-size:auto 120px; transition:opacity var(--reader-duration-move) var(--reader-ease-out); }
+.source-original .focus-markdown > * { transition:opacity var(--reader-duration-move) var(--reader-ease-out); }
+/* Translation positions use measured chunk heights during the view switch. */
+.source-original article > .focus-markdown > * { content-visibility:auto; contain-intrinsic-size:auto 120px; }
 .source-original[data-evidence-focus=true] .focus-markdown > *:not(:has(.is-active)):not(.is-active) { opacity:.68; }
 .source-original img { max-width:100%; height:auto; }
 .source-original pre, .source-original .katex-display { max-width:100%; overflow:auto; }
