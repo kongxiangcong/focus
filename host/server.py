@@ -441,7 +441,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             elif method == 'POST' and len(parts) == 2 and parts[1] == 'discuss':
                 payload = self._body()
-                result = service.select_discussion_source(source_id, discussion_id=payload.get('discussionId'))
+                result = service.select_discussion_source(source_id, discussion_id=payload.get('discussionId'),
+                                                          selection=payload.get('selection'))
             elif method == 'POST' and len(parts) == 2 and parts[1] == 'manage':
                 result = service.save_source_details(source_id, self._body())
             elif method == 'POST' and len(parts) == 2 and parts[1] == 'clear':

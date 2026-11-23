@@ -22,6 +22,7 @@ import { createReaderId, readerFailure, type CreateSourceNoteInput, type CreateH
   type ArticleOverview,
   type SendReaderMessageInput,
   type SourceNoteRequestResult,
+  type WorkbenchSourceSelection,
 } from "@focus/reader-contracts";
 
 type Fetch = typeof fetch;
@@ -374,9 +375,6 @@ export class HttpReaderHost implements ReaderHost {
   rereadSource(sourceId: string): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/reread`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   }
-  completeSource(sourceId: string, bundleVersion: string, generation: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
-    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/completion`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ bundleVersion, generation, requestId }) });
-  }
   getSourceDocument(sourceId: string): Promise<ReaderHostResult<ReadingDocument>> {
     return this.sourceAsset<ReadingDocument>(sourceId, "document", false);
   }
@@ -443,8 +441,8 @@ export class HttpReaderHost implements ReaderHost {
       { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ requestId }) });
   }
 
-  selectDiscussionSource(sourceId: string, discussionId?: string): Promise<ReaderHostResult<ReadingWindow>> {
-    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/discuss`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ discussionId }) });
+  selectDiscussionSource(sourceId: string, discussionId?: string, selection?: WorkbenchSourceSelection): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/discuss`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ discussionId, selection }) });
   }
 
   createSourceNote({ sourceId, ...input }: CreateSourceNoteInput): Promise<ReaderHostResult<ReadingWindow>> {

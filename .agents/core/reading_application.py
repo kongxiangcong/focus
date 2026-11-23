@@ -285,6 +285,69 @@ class ReadingCore:
             _write_document(path, state)
             return True
 
+    def restart_after_clear(self, source_id: str, request_id: str) -> str | None:
+        """Invalidate the old Plan and leave a durable receipt for fresh preparation."""
+        from .workspace_lifecycle import current_workspace_lease
+
+        lease = current_workspace_lease(self.workspace)
+        if lease:
+            lease.require_current()
+        with _LOCK:
+            path = self.workspace / "state.json"
+            state = _read_document(path)
+            reading = self._root(source_id) / "reading"
+            resets = state.setdefault("source_resets", {})
+            if request_id not in resets:
+                selected = state["sources"][source_id]
+                selected.update(current_plan_id=None, current_chunk_id=None, reading_started=False,
+                                reading_pass=int(selected.get("reading_pass", 1)) + 1)
+                state.setdefault("reading_plan_numbers", {})[source_id] = _last_plan_number(reading / "plans", state, source_id)
+                state.setdefault("pending_reading_resets", {})[source_id] = request_id
+                self._clear_progress(state, source_id)
+                state["reading_requests"] = {
+                    key: value for key, value in state.get("reading_requests", {}).items()
+                    if value.get("input", {}).get("source_id") != source_id}
+                resets[request_id] = source_id
+                _write_document(path, state)
+            # A crash after the state update can replay the asset deletions.
+            for file in ("preparation.json", "overview.json"):
+                (reading / file).unlink(missing_ok=True)
+            for directory in ("plans", "conflicts"):
+                target = reading / directory
+                if target.exists():
+                    shutil.rmtree(target)
+            return state.get("current_source_id")
+
+    def rewind_after_clear(self, source_id: str, request_id: str) -> None:
+        """Reset the legacy cursor while retaining the currently selected Plan."""
+        from .workspace_lifecycle import current_workspace_lease
+
+        lease = current_workspace_lease(self.workspace)
+        if lease:
+            lease.require_current()
+        with _LOCK:
+            path = self.workspace / "state.json"
+            state = _read_document(path)
+            if request_id in state.get("source_resets", {}):
+                return
+            selected = state["sources"][source_id]
+            plan_id = selected.get("current_plan_id")
+            chunks = _read_chunk_records(self._root(source_id) / "reading" / "plans" / plan_id / "chunks.jsonl") if plan_id else []
+            selected.update(current_chunk_id=chunks[0]["chunk_id"] if chunks else None,
+                            reading_started=False, reading_pass=int(selected.get("reading_pass", 1)) + 1)
+            # Old receipts may replay a stale result but can never mutate this new pass.
+            self._clear_progress(state, source_id)
+            state.setdefault("source_resets", {})[request_id] = source_id
+            _write_document(path, state)
+
+    @staticmethod
+    def _clear_progress(state, source_id):
+        removed = {key for key, value in state.get("reading_progress", {}).items() if value["source_id"] == source_id}
+        state["progress_requests"] = {key: value for key, value in state.get("progress_requests", {}).items()
+                                      if value.get("input", {}).get("progress_id") not in removed}
+        state["reading_progress"] = {key: value for key, value in state.get("reading_progress", {}).items() if key not in removed}
+        state["reading_revision"] = int(state.get("reading_revision", 0)) + 1
+
     def activate_candidate(self, source_id: str, *, plan_id: str, reading_revision: int,
                            request_id: str) -> dict:
         source_id = validate_source_id(source_id)

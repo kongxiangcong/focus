@@ -11,6 +11,10 @@ export function preparationStepText(step: string) {
   return steps[step] ?? "正在准备";
 }
 
+export function preparationFailed(preparation: ReadingPreparation | undefined) {
+  return !!preparation && Object.hasOwn(failures, preparation.status);
+}
+
 export function preparationText(preparation: ReadingPreparation, subject = preparation.candidate ? "新计划" : "阅读") {
   if (preparation.timed_out) return "准备超时";
   if (preparation.status === "running") {

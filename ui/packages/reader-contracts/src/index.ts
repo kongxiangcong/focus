@@ -198,7 +198,6 @@ export interface ActiveStatusItem {
 export interface ReadingWindow {
   sourceBundleVersion?: string | null;
   sourceGeneration?: number;
-  sourceCompletion?: { sourceId: string; bundleVersion: string; generation: number; completedAt: number } | null;
   articleOverview?: ArticleOverview;
   structure?: readonly ReadingStructureNode[];
   structureIntro?: boolean;
@@ -488,8 +487,9 @@ export interface CreateSourceNoteInput {
   sentence?: SentenceInput;
 }
 
+export type WorkbenchSourceSelection = { workbenchId: string; generation: number };
+
 export interface ReaderHost {
-  completeSource?(sourceId: string, bundleVersion: string, generation: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   getSourceDocument?(sourceId: string): Promise<ReaderHostResult<ReadingDocument>>;
   getSourceOpening?(sourceId: string, prepare?: boolean): Promise<ReaderHostResult<ReadingOpening>>;
   createHighlight?(input: CreateHighlightInput): Promise<ReaderHostResult<ReadingWindow>>;
@@ -538,7 +538,7 @@ export interface ReaderHost {
   dismissPreparation?(sourceId: string, attempt: string): Promise<ReaderHostResult<ReadingWindow>>;
   resumePreparation?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   cancelPreparation?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
-  selectDiscussionSource?(sourceId: string, discussionId?: string): Promise<ReaderHostResult<ReadingWindow>>;
+  selectDiscussionSource?(sourceId: string, discussionId?: string, selection?: WorkbenchSourceSelection): Promise<ReaderHostResult<ReadingWindow>>;
   changeSourceNote?(sourceId: string, noteId: string, operation: "edit" | "delete" | "undo",
     expectedRevision: number, requestId: string, content?: string): Promise<ReaderHostResult<ReadingWindow>>;
   sourceNoteRequestResult?(sourceId: string, requestId: string): Promise<ReaderHostResult<SourceNoteRequestResult | null>>;

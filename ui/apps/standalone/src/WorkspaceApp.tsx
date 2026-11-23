@@ -3,7 +3,7 @@ import { Fragment } from "react";
 import { NavigationResize } from "./NavigationResize";
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingWindow } from "@focus/reader-contracts";
-import { FocusReader, AgentControls, readingFontSizes, preparationStepText, preparationText, useEvidenceNavigation, BookOpen, ChatBubble, DocText, ReaderConfirmation, type ReaderConfirmationInput, type ReadingMode } from "@focus/reader-ui";
+import { FocusReader, AgentControls, readingFontSizes, preparationFailed as hasPreparationFailure, preparationStepText, preparationText, useEvidenceNavigation, BookOpen, ChatBubble, DocText, ReaderConfirmation, type ReaderConfirmationInput, type ReadingMode } from "@focus/reader-ui";
 import { BackendSetupPanel } from "./BackendSetupPanel";
 import { WorkspaceSelection } from './WorkspaceSelection';
 import { UploadTopicPicker } from "./UploadTopicPicker";
@@ -35,6 +35,7 @@ const blogRetryLabel: Record<BlogArtifactName, string> = {
 };
 
 export function WorkspaceApp({ host }: { host: ReaderHost }) {
+  const [workbenchId] = useState(createReaderId);
   const [route, setRoute] = useState<Route>(routeFromLocation);
   const [fontSize, setFontSize] = useState<FontSize>(readFont);
   const [readingFont, setReadingFont] = useState<ReadingFont>(readReadingFont);
@@ -60,6 +61,11 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [generateOnUpload, setGenerateOnUpload] = useState(true);
   const [connectionError, setConnectionError] = useState("");
   const connectionLost = !!connectionError;
+  const connectionHealth = useRef(0);
+  const markConnectionHealthy = useCallback(() => {
+    connectionHealth.current++;
+    setConnectionError("");
+  }, []);
   const streamVersion = useRef(0);
   const [taskDetails, setTaskDetails] = useState(false);
   const [taskVisited, setTaskVisited] = useState(false);
@@ -117,6 +123,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [sourcesFailed, setSourcesFailed] = useState(false);
+  const [libraryError, setLibraryError] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
@@ -137,6 +144,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const locked = useRef(false);
   const requestVersion = useRef(0);
   const workPollKey = `${connectionLost}:${view?.configuration?.busy}:${(view?.workItems ?? []).map(item => `${item.kind}:${item.targetId}:${item.status}`).join("|")}`;
+  const libraryReadingRevision = route === "/library" ? view?.readingRevision : undefined;
   const active = !!view?.agent?.run && ["running", "approval", "stopping"].includes(view.agent.run.status);
   const approval = view?.agent?.run?.status === "approval" && view.agent.run.approvals.some(item => item.status !== "expired") ? view.agent : null;
 
@@ -189,19 +197,43 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       return;
     }
     const version = ++requestVersion.current;
+    const healthAtStart = connectionHealth.current;
     const request = (async () => {
       try {
-        const sourceRequest = Promise.resolve().then(() => host.listSources!()).then(result => { if (version === requestVersion.current) setSourcesFailed(!result.ok); return result; }, error => { if (version === requestVersion.current) setSourcesFailed(true); throw error; });
-        const [sourceResult, topicResult, inboxResult, batchResult] = await Promise.all([sourceRequest, host.listTopics!(), host.listInbox?.(), host.listBatches?.()]);
+        const [sourceResult, topicResult, inboxResult, batchResult] = await Promise.allSettled([
+          Promise.resolve().then(() => host.listSources!()),
+          Promise.resolve().then(() => host.listTopics!()),
+          Promise.resolve().then(() => host.listInbox?.()),
+          Promise.resolve().then(() => host.listBatches?.()),
+        ]);
         if (version !== requestVersion.current) return;
-        if (sourceResult.ok) {
-          setSources(sourceResult.value);
-
-        } else setError(sourceResult.error.message);
-        if (topicResult.ok) { setTopics(topicResult.value); setTopic(current => (current === UNFILED || topicResult.value.some(t => t.topicId === current)) ? current : ""); } else setError(topicResult.error.message);
-        if (batchResult) { if (batchResult.ok) setBatches(batchResult.value); else setError(batchResult.error.message); }
-        if (inboxResult) { if (inboxResult.ok) setInbox(inboxResult.value); else setError(inboxResult.error.message); }
-      } catch (e) { if (version === requestVersion.current) setError(String(e)); }
+        let listError = "";
+        let offline = "";
+        function value<T>(result: PromiseSettledResult<ReaderHostResult<T> | undefined>): T | undefined {
+          if (result.status === "rejected") {
+            offline ||= String(result.reason);
+          } else if (result.value?.ok) {
+            return result.value.value;
+          } else if (result.value?.error.code === "unavailable" && result.value.error.retryable) {
+            offline ||= result.value.error.message;
+          } else if (result.value) {
+            listError ||= result.value.error.message;
+          }
+        }
+        const nextSources = value(sourceResult);
+        const nextTopics = value(topicResult);
+        const nextInbox = value(inboxResult);
+        const nextBatches = value(batchResult);
+        setSourcesFailed(nextSources === undefined);
+        if (nextSources) setSources(nextSources);
+        if (nextTopics) { setTopics(nextTopics); setTopic(current => current === UNFILED || nextTopics.some(t => t.topicId === current) ? current : ""); }
+        if (nextInbox) setInbox(nextInbox);
+        if (nextBatches) setBatches(nextBatches);
+        setLibraryError(listError);
+        if (offline && healthAtStart === connectionHealth.current) setConnectionError(current => current || offline);
+      } catch (e) {
+        if (version === requestVersion.current) setLibraryError(String(e));
+      }
       finally { if (version === requestVersion.current) setLoading(false); }
     })();
     refreshing.current = request;
@@ -219,7 +251,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     const accept = (result: ReaderHostResult<ReadingWindow>, started: number) => {
       if (!alive) return;
       if (result.ok) {
-        setConnectionError("");
+        markConnectionHealthy();
         acceptView(result.value, started);
       } else setConnectionError(result.error.message);
     };
@@ -233,8 +265,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       accept(result, selection.current.generation);
     });
     return () => { alive = false; unsubscribe?.(); window.removeEventListener("popstate", pop); requestVersion.current++; };
-  }, [host, acceptView, isCurrentSelection, cancelEvidenceNavigation]);
-  useEffect(() => { if (route !== "/settings") void refresh(route === "/library"); }, [route, view?.agent?.run?.status, host]);
+  }, [host, acceptView, isCurrentSelection, cancelEvidenceNavigation, markConnectionHealthy]);
+  useEffect(() => {
+    if (route !== "/settings" && !connectionLost) void refresh(route === "/library");
+  }, [route, view?.agent?.run?.status, libraryReadingRevision, connectionLost, host]);
   useEffect(() => {
     if (!inbox.some(item => item.status === "processing") && !batches.some(b => b.executing || ["confirmed", "running"].includes(b.status))) return;
     const timer = window.setInterval(() => void refresh(), 1200);
@@ -250,7 +284,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       try { const result = await host.getReadingWindow();
         if (!cancelled && streamAtStart === streamVersion.current) {
           if (result.ok) {
-            setConnectionError("");
+            markConnectionHealthy();
             acceptView(result.value, started);
           } else setConnectionError(result.error.message);
         }
@@ -259,7 +293,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     }
     timer = window.setTimeout(() => void poll(), 1500);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [host, workPollKey, acceptView, isCurrentSelection]);
+  }, [host, workPollKey, acceptView, isCurrentSelection, markConnectionHealthy]);
   useEffect(() => { if (blogViewer) blogDialog.current?.showModal(); else blogDialog.current?.close(); }, [blogViewer]);
   useEffect(() => { if (management) managementDialog.current?.showModal(); else managementDialog.current?.close(); }, [management]);
   useEffect(() => { if (deleteConfirmation) confirmation.current?.showModal(); else confirmation.current?.close(); }, [deleteConfirmation]);
@@ -300,7 +334,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       setRetryAction(() => () => void discuss(sourceId));
     }
     try {
-      const result = await host.selectDiscussionSource(sourceId);
+      const result = await host.selectDiscussionSource(sourceId, undefined, { workbenchId, generation: started });
       if (!isCurrentSelection(started, sourceId)) return;
       if (!result.ok) { failed(result.error.message); return; }
       acceptView(result.value, started);
@@ -312,7 +346,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     return !!prepared?.dismissed || !!(prepared?.attempt && closingPreparations[sourceId] === prepared.attempt);
   }
   function preparationFailed(sourceId: string) {
-    return ["failed", "cancelled", "interrupted", "bundle_changed", "commit_conflict"].includes(view?.preparations?.[sourceId]?.status ?? "");
+    return hasPreparationFailure(view?.preparations?.[sourceId]);
   }
   async function dismissPreparation(sourceId: string) {
     const attempt = view?.preparations?.[sourceId]?.attempt;
@@ -771,6 +805,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         const result = await host.approve?.(input); if (result?.ok) { acceptView(result.value); return true; } return false;
       }} /></div>}
       {connectionError && <div className="workspace-error" role="alert">{connectionError}</div>}
+      {route === "/library" && libraryError && <div className="workspace-error" role="alert">{libraryError}<button onClick={() => void refresh()}>刷新列表</button></div>}
       {!uploadOpen && error && <div className="workspace-error" role="alert">{error}<button onClick={() => { setError(""); if (retryAction) retryAction(); else void refresh(); }}>{retryAction ? "重试此操作" : "刷新状态"}</button></div>}
       {!error && notice && <div className="workspace-notice" role="status">{notice}<button onClick={() => setNotice("")}>关闭</button></div>}
     </header>

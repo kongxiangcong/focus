@@ -1,4 +1,5 @@
 import type { BlogStatus, LibrarySource, ReadingPreparation } from "@focus/reader-contracts";
+import { preparationFailed } from "@focus/reader-ui";
 
 export type Phase = "unstarted" | "reading" | "completed";
 export type Tone = "danger" | "accent" | "warning" | "success" | "muted";
@@ -15,10 +16,6 @@ function readingPhase(source: LibrarySource): Phase {
   // Older adapters may still report an independent source completion.
   if (chunkId === null && completed === total) return "completed";
   return completed > 0 || source.readingStatus === "reading" ? "reading" : "unstarted";
-}
-
-export function preparationFailed(preparation: ReadingPreparation | undefined) {
-  return ["failed", "cancelled", "interrupted", "bundle_changed", "commit_conflict"].includes(preparation?.status ?? "");
 }
 
 const phases: Record<Phase, { label: string; tone: Tone }> = {

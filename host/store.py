@@ -47,6 +47,17 @@ class Store:
             key = 'execution:' + run['runId']
             if self.get(key) is None:
                 self.put(key, {'run': run})
+            if run['status'] in ('failed', 'interrupted'):
+                self._remember_chat_failure(run)
+                self.save()
+
+    def archive_execution(self, run):
+        self.put('execution:' + run['runId'], {'run': run})
+        if run['status'] in ('failed', 'interrupted'):
+            self._remember_chat_failure(run)
+
+    def _remember_chat_failure(self, run):
+        self.state.setdefault('failedChatRuns', {})[run.get('sourceId') or ''] = run['runId']
 
     def get(self, key):
         if key.startswith('runtimeCleanup:'):

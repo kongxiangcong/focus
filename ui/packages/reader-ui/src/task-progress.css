@@ -1,15 +1,15 @@
 /* Task progress: real state only, no decorative activity. */
 .task-progress { min-width:0; width:100%; font:12px/1.6 var(--reader-ui); color:var(--reader-ink); }
-.task-progress__line { display:flex; align-items:center; gap:12px; min-width:0; }
-.task-progress__elapsed, .task-progress small { color:var(--reader-muted); font-size:11px; font-variant-numeric:tabular-nums; }
+.task-progress__line { display:flex; align-items:center; gap:var(--reader-gap); min-width:0; }
+.task-progress__stage, .task-progress__elapsed, .task-progress small { color:var(--reader-muted); font-size:11px; font-variant-numeric:tabular-nums; }
 .task-progress__elapsed { margin-left:auto; white-space:nowrap; }
-.task-progress progress { display:block; width:100%; height:2px; margin:6px 0 4px; accent-color:var(--reader-accent); }
+.task-progress progress { display:block; width:100%; height:var(--reader-gap-3xs); margin:var(--reader-gap-xs) 0 var(--reader-gap-2xs); accent-color:var(--reader-accent); }
 .task-progress[data-status=failed] { color:var(--reader-danger); }
-.focus-agent__status { display:flex; align-items:flex-start; gap:12px; margin-bottom:6px; }
+.focus-agent__status { display:flex; align-items:flex-start; gap:var(--reader-gap); margin-bottom:var(--reader-gap-xs); }
 .focus-agent__status > button { flex-shrink:0; min-height:var(--reader-control-h-sm) !important; padding:0 10px !important; font-size:12px !important; }
 .library-run { gap:16px; } .library-run > button { flex-shrink:0; white-space:nowrap; }
 .library-run .task-progress { padding-block:10px; }
 @media(prefers-reduced-motion:reduce) {
   .task-progress progress { visibility:hidden; }
-  .task-progress__line { border-bottom:2px solid var(--reader-line); }
+  .task-progress__line { border-bottom:var(--reader-gap-3xs) solid var(--reader-line); }
 }
