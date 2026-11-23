@@ -68,6 +68,7 @@ function isReadingWindow(value: unknown): value is ReadingWindow {
   const candidate = value as Partial<ReadingWindow>;
   return (
     (["empty", "reading", "completed"].includes(String(candidate.status))) &&
+    (candidate.clearableStatusTokens === undefined || isStringArray(candidate.clearableStatusTokens)) &&
     typeof candidate.source === "object" &&
     candidate.source !== null &&
     typeof candidate.source.sourceId === "string" &&
@@ -198,8 +199,8 @@ export class HttpReaderHost implements ReaderHost {
     return this.libraryList<LibraryTopic>("/library/topics", item => typeof item.topicId === "string" && typeof item.title === "string" && isStringArray(item.sourceIds));
   }
 
-  clearFinishedStatuses(requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
-    return this.request('/reader/status/clear', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ requestId }) });
+  clearFinishedStatuses(requestId: string, clearableStatusTokens: readonly string[]): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request('/reader/status/clear', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ requestId, clearableStatusTokens }) });
   }
 
   listBatches(): Promise<ReaderHostResult<readonly ProcessingBatch[]>> {

@@ -213,7 +213,9 @@ class Handler(BaseHTTPRequestHandler):
     def _business_api(self, method, path):
         service = self.active_service
         if method == 'POST' and path == '/reader/status/clear':
-            self._send(200, {'ok': True, 'value': service.clear_finished_statuses(self._body().get('requestId'))})
+            payload = self._body()
+            value = service.clear_finished_statuses(payload.get('requestId'), payload.get('clearableStatusTokens'))
+            self._send(200, {'ok': True, 'value': value})
             return
         if method == 'GET' and path == '/reader/events':
             self.send_response(200)

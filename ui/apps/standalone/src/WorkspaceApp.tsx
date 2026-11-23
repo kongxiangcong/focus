@@ -292,7 +292,6 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       if (!isCurrentSelection(started)) return;
       if (!result.ok) { setError(result.error.message); setRetryAction(() => () => void operate(label, operation, read)); return; }
       setRetryAction(null); acceptView(result.value, started, read || label === "删除"); setConfirm(null);
-      if (label === '全部清空') { setNotice(''); setReadyNotice(''); }
       if (read) navigate("/reading");
       if (label === "上传") { setUploadOpen(false); setSelectedFiles([]); }
       await refresh();
@@ -609,8 +608,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }, [pendingTaskFocus, taskDetails, uploadOpen, busy, view?.taskInbox, view?.taskBatches, inbox, batches]);
 
   async function clearStatuses() {
-    if (!host.clearFinishedStatuses || locked.current) return;
-    await operate('全部清空', () => identified('clear-statuses', id => host.clearFinishedStatuses!(id)));
+    const tokens = view?.clearableStatusTokens;
+    if (!host.clearFinishedStatuses || locked.current || !tokens?.length) return;
+    const requestId = createReaderId();
+    await operate('全部清空', () => host.clearFinishedStatuses!(requestId, tokens));
   }
   const runningWork = work.filter(w => w.phase === "running" || w.phase === "approval");
   const attention = work.filter(w => w.phase === "needs_action" || w.phase === "error");
@@ -693,7 +694,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         </div>
       </div>
       {(taskDetails || taskVisited) && <div ref={taskFrame} className="workspace-task-frame" id="workspace-tasks" role="region" aria-label="任务框" data-open={taskDetails} aria-hidden={!taskDetails} inert={!taskDetails} onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setTaskDetails(false); document.querySelector<HTMLButtonElement>(".workspace-task-toggle")?.focus(); } }}>
-        <div className="workspace-task-actions"><span>任务状态</span><button disabled={!!busy || !host.clearFinishedStatuses} onClick={() => void clearStatuses()}>全部清空</button></div>
+        <div className="workspace-task-actions"><span>任务状态</span><button disabled={!!busy || !host.clearFinishedStatuses || !view?.clearableStatusTokens?.length} onClick={() => void clearStatuses()}>全部清空</button></div>
         <small>清空已结束的失败提示，保留仍需操作的任务。</small>
         {taskWork.length === 0 && taskBatches.length === 0 && taskInbox.length === 0 && <p>没有进行中或待处理的任务。</p>}
         {taskWork.map(item => <div key={item.id}><span>{workLabel(item)}{item.kind === "preparation" && preparationFailed(item.targetId) ? "" : ` · ${{ running: "进行中", approval: "待确认", needs_action: "待处理", error: "待查看" }[item.phase]}`}</span>

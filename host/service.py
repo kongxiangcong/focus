@@ -214,7 +214,7 @@ class HostService:
             'eventId': uuid.uuid4().hex, 'sessionId': self.state['sessionId'],
             'discussionId': discussions.select(self.state, source_id)})
 
-    def snapshot(self):
+    def snapshot(self, *, status_notifications=None):
         # Existing mutation commands may already own the lock for their response.
         # Read-only HTTP refreshes, like SSE, project a captured state off lock.
         if not self.lock._is_owned():
@@ -229,7 +229,7 @@ class HostService:
             self.recover_source_edits()
             self.store.expire_logs()
             self._reconcile_deleted_sources()
-            return self._project_snapshot()
+            return self._project_snapshot(status_notifications=status_notifications)
 
     def _path_stamp(self, path):
         try:
@@ -246,7 +246,7 @@ class HostService:
         self._disk_memo[key] = (stamp, copy.deepcopy(value))
         return value
 
-    def _project_snapshot(self):
+    def _project_snapshot(self, *, status_notifications=None):
         window = self.core.window()
         discussion_source = self.state.get('discussionSourceId')
         if discussion_source and discussion_source != window['source']['sourceId']:
@@ -384,8 +384,10 @@ class HostService:
         window['agent'] = {'run': self._active_run(), 'catalog': self.core.catalog(),
                            'backend': self.backend_name,
                            'backends': window['configuration']['backends']}
-        window['taskInbox'], window['taskBatches'] = self._upload_tasks(sources_overview)
-        window['workItems'] = self.work_items(window, overview=sources_overview, state=selected_state)
+        notices = status_notifications or StatusNotifications(self.store)
+        window['taskInbox'], window['taskBatches'] = self._upload_tasks(sources_overview, notices)
+        window['workItems'] = self.work_items(window, notices, overview=sources_overview, state=selected_state)
+        window['clearableStatusTokens'] = list(notices.available)
         for item in window['workItems']:
             if item['kind'] == 'preparation' and item['dismissed']:
                 window['preparations'][item['targetId']]['dismissed'] = True
@@ -447,22 +449,27 @@ class HostService:
                      if run['status'] == 'approval' and not approval.get('status')]
         return {**run, 'approvals': approvals}
 
-    def work_items(self, window, *, overview=None, state=None):
+    def work_items(self, window, notices, *, overview=None, state=None):
         """Project durable business attempts; never infer work from the last log line."""
         items = []
         sources_overview = overview if overview is not None else SourceLibrary(self.workspace).overview()
         titles = {s['sourceId']: s.get('shortName') or s['title'] for s in sources_overview}
-        notices = StatusNotifications(self.store)
 
         def add(kind, target, attempt, status, phase, label, *, source=None, stage=None,
-                percent=None, error=None, executing=False, retryable=False, cancellable=False):
+                percent=None, error=None, executing=False, retryable=False, cancellable=False, dismissed=None):
             key = kind + ':' + target
             item = {'id': f'{key}:{attempt}', 'kind': kind, 'targetId': target, 'attemptId': attempt,
                     'sourceId': source, 'sourceTitle': titles.get(source), 'status': status, 'phase': phase,
                     'label': label, 'stage': stage, 'percent': percent, 'error': error,
                     'executing': executing, 'retryable': retryable, 'cancellable': cancellable,
                     'notificationId': fingerprint({'attemptId': attempt})}
-            items.append(notices.project('work', key, item))
+            if dismissed is None:
+                item = notices.project('work', key, item, eligible=phase == 'error' and not executing,
+                                       attempt=attempt, offer=True,
+                                       legacy=('work:' + key, fingerprint({'status': status, 'notificationId': item['notificationId']})))
+            else:
+                item['dismissed'] = dismissed
+            items.append(item)
 
         run = window['agent']['run']
         if run and run.get('runId') and run['status'] in ('running', 'approval', 'stopping', 'failed', 'interrupted'):
@@ -512,11 +519,11 @@ class HostService:
             add('ingestion', item['item_id'], item['attemptId'], status, item['phase'], item['file_name'],
                 source=item.get('source_id'), stage=progress.get('status'), percent=progress.get('percent'),
                 error=(item.get('topic_error') or item.get('error') or {}).get('message'),
-                cancellable=status == 'processing', retryable=item['phase'] == 'error')
+                cancellable=status == 'processing', retryable=item['phase'] == 'error', dismissed=item['dismissed'])
         for batch in window['taskBatches']:
             add('batch', batch['batchId'], batch['attemptId'], batch['status'], batch['phase'],
                 '上传任务', error=(batch.get('error') or {}).get('message'), executing=batch['executing'],
-                cancellable=batch['phase'] == 'running', retryable=batch['phase'] == 'error')
+                cancellable=batch['phase'] == 'running', retryable=batch['phase'] == 'error', dismissed=False)
         if state is None:
             state_path = self.workspace / 'state.json'
             state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
@@ -532,17 +539,16 @@ class HostService:
                     retryable=not running, cancellable=entry['status'] == 'generating')
         return items
 
-    def _upload_tasks(self, sources):
+    def _upload_tasks(self, sources, notices):
         records = {item['item_id']: item for item in self.ingestion.list_inbox()}
         sources = {item['sourceId']: item.get('shortName') or item['title'] for item in sources}
-        notices = StatusNotifications(self.store)
 
         def metadata(item):
             status = item['status']
-            if status in ('processing', 'confirmed'):
-                phase = 'running'
-            elif status in ('awaiting_confirmation', 'status_check_required', 'retry_waiting', 'topic_attachment_pending') or item.get('resubmit_risk'):
+            if self._inbox_needs_action(item):
                 phase = 'needs_action'
+            elif status in ('processing', 'confirmed'):
+                phase = 'running'
             else:
                 phase = 'error'
             return {'attemptId': item.get('request_id') or item['item_id'], 'phase': phase,
@@ -554,34 +560,35 @@ class HostService:
         owned = set()
         task_batches = []
         for attempt, batch in batches:
-            batch = self._batch_notifications(batch, records)
+            batch = self._batch_execution(batch)
             children = []
             for child in batch['items']:
                 item_id = child['itemId']
                 if item_id in owned:
                     continue
                 owned.add(item_id)
-                if child['status'] in ('completed', 'deleted') or child['dismissed']:
+                if child['status'] in ('completed', 'deleted'):
                     continue
                 item = records[item_id]
                 details = metadata(item)
-                if child['status'] in ('queued', 'processing'):
-                    details['phase'] = 'needs_action' if batch['status'] == 'paused' else 'running'
-                elif details['phase'] != 'needs_action':
-                    details['phase'] = 'error'
-                if child['blog'] and child['blog'].get('attemptId'):
-                    details['attemptId'] = child['blog']['attemptId']
+                details['phase'] = self._batch_item_phase(batch, child, item)
+                child = self._batch_item_notification(notices, batch, child, item, offer=True)
+                if child['dismissed']:
+                    continue
+                if details['phase'] == 'error':
+                    self._inbox_notification(notices, item, offer=True)
+                details['attemptId'] = (child['blog'] or {}).get('attemptId') or child['attemptId']
                 children.append({**child, **details})
-            if not children or batch['dismissed']:
+            if not children:
                 continue
-            phase = 'running' if batch['status'] in ('confirmed', 'running') else 'needs_action' if batch['status'] == 'paused' or any(child['phase'] == 'needs_action' for child in children) else 'error'
-            task_batches.append({**batch, 'items': children, 'attemptId': attempt, 'phase': phase})
+            phase = 'running' if batch['status'] in ('confirmed', 'running') else 'needs_action' if any(child['phase'] == 'needs_action' for child in children) else 'error'
+            task_batches.append({**batch, 'items': children, 'attemptId': attempt, 'phase': phase, 'dismissed': False})
 
         task_inbox = []
         for item_id, item in records.items():
             if item_id in owned or item.get('deleted') or item['status'] == 'completed':
                 continue
-            item = notices.project('inbox', item_id, item)
+            item = self._inbox_notification(notices, item, offer=True)
             fields = ('item_id', 'file_name', 'status', 'topic_title', 'topic_id', 'source_id',
                       'document_status', 'topic_status', 'services', 'confirmation', 'dismissed',
                       'remote_reference', 'parser_backend', 'selection_reason', 'parser_progress',
@@ -589,21 +596,14 @@ class HostService:
             task_inbox.append({**{key: item[key] for key in fields if key in item}, **metadata(item)})
         return task_inbox, task_batches
 
-    def clear_finished_statuses(self, request_id):
-        # Batch -> Host is the existing lock order. Capture batch views before
-        # taking the Host lock; changed attempts cannot match old receipts.
-        batches = self.batch_list()
+    def clear_finished_statuses(self, request_id, tokens):
         with self.lock:
             notices = StatusNotifications(self.store)
-            entries = [('work', item['kind'] + ':' + item['targetId'], item)
-                       for item in self.snapshot()['workItems']]
-            entries.extend(('inbox', item['item_id'], item) for item in self.ingestion.list_inbox())
-            for batch in batches:
-                entries.append(('batch', batch['batchId'], batch))
-                entries.extend(('batch-item', item['itemId'], item) for item in batch['items'])
-            notices.clear(entries, request_id)
-            self.changed()
-            return self.snapshot()
+            window = self.snapshot(status_notifications=notices)
+            if notices.clear(request_id, tokens):
+                self._publish_snapshot_locked()
+                return self.snapshot()
+            return window
 
     def _run_reading_preparation(self, source_id, run_id, attempt):
         def progress_changed():
@@ -1025,23 +1025,10 @@ class HostService:
 
     def inbox_stage_file(self, path, *, topic_title=None, topic_id=None):
         item = self.ingestion.stage_file(path, topic_title=topic_title, topic_id=topic_id)
-        if item.get('duplicate'):
-            app = self._batch_app()
-            # Match the Batch -> Host lock order used by batch controls. Restoring
-            # the parent must not restore its other dismissed children.
-            with app.lock:
-                batch_ids = [batch['batchId'] for batch in app.list()
-                             if any(child['itemId'] == item['item_id'] for child in batch['items'])]
-                with self.lock:
-                    StatusNotifications(self.store).restore([
-                        ('work', 'ingestion:' + item['item_id']),
-                        ('inbox', item['item_id']), ('batch-item', item['item_id']),
-                        *(('batch', batch_id) for batch_id in batch_ids),
-                    ])
-                    self.changed()
-        else:
-            with self.lock:
-                self._publish_snapshot_locked()
+        with self.lock:
+            if item.get('duplicate'):
+                StatusNotifications(self.store).restore_original(item['item_id'])
+            self._publish_snapshot_locked()
         return item
 
     def inbox_confirm(self, item_id, *, generate_blog=False):
@@ -1098,21 +1085,62 @@ class HostService:
                 self.batches = BatchApplication(self._processing_app())
             return self.batches
 
+    @staticmethod
+    def _inbox_needs_action(item):
+        return bool(item.get('resubmit_risk')) or item['status'] in (
+            'awaiting_confirmation', 'status_check_required', 'retry_waiting', 'topic_attachment_pending',
+        )
+
+    @staticmethod
+    def _ingestion_attempt(item):
+        parse = (item.get('run') or {}).get('steps', {}).get('parse', {})
+        attempts = parse.get('attempts', [])
+        return [item.get('request_id'), attempts[-1]['attempt_id'] if attempts else None]
+
+    def _inbox_notification(self, notices, item, *, offer=False):
+        item_id = item['item_id']
+        eligible = not item.get('deleted') and not self._inbox_needs_action(item) and item['status'] in (
+            'failed', 'interrupted', 'cancelled', 'commit_conflict')
+        return notices.project('inbox', item_id, item, eligible=eligible, attempt=self._ingestion_attempt(item),
+                               original=item_id, legacy=('inbox:' + item_id, fingerprint(item)), offer=offer)
+
+    def _batch_item_phase(self, batch, child, item):
+        if batch['status'] == 'paused' or self._inbox_needs_action(item):
+            return 'needs_action'
+        if (child['scheduled'] or child['status'] in ('queued', 'processing') or item['status'] in ('processing', 'confirmed')
+                or (child.get('blog') or {}).get('runStatus') == 'running'):
+            return 'running'
+        return 'error'
+
+    def _batch_item_notification(self, notices, batch, child, item, *, offer=False):
+        item_id = child['itemId']
+        eligible = child['status'] in ('failed', 'partial', 'cancelled') and self._batch_item_phase(batch, child, item) == 'error'
+        attempt = [child['attemptId'], self._ingestion_attempt(item), (child.get('blog') or {}).get('attemptId')]
+        legacy = None
+        if eligible:
+            legacy_child = {key: value for key, value in child.items() if key not in ('attemptId', 'scheduled')}
+            legacy = ('batch-item:' + item_id, fingerprint({**legacy_child, 'notificationId': fingerprint(item)}))
+        return notices.project('batch-item', batch['batchId'] + ':' + item_id, child,
+                               eligible=eligible, attempt=attempt, original=item_id, legacy=legacy, offer=offer)
+
+    def _batch_execution(self, batch):
+        worker = self.batch_workers.get(batch['batchId'])
+        return {**batch, 'executing': bool(worker and worker.is_alive())}
+
     def batch_list(self):
         batches = self._batch_app().list()
         records = {item['item_id']: item for item in self.ingestion.list_inbox()}
         with self.lock:
-            return [self._batch_notifications(batch, records) for batch in batches]
-
-    def _batch_notifications(self, batch, records):
-        notices = StatusNotifications(self.store)
-        worker = self.batch_workers.get(batch['batchId'])
-        items = [notices.project('batch-item', item['itemId'], {
-            **item, 'notificationId': fingerprint(records.get(item['itemId'], item)),
-        }) for item in batch['items']]
-        return notices.project('batch', batch['batchId'], {
-            **batch, 'executing': bool(worker and worker.is_alive()), 'items': items,
-        })
+            notices = StatusNotifications(self.store)
+            result = []
+            for batch in batches:
+                batch = self._batch_execution(batch)
+                items = [self._batch_item_notification(notices, batch, child, records[child['itemId']])
+                         for child in batch['items'] if child['itemId'] in records]
+                unfinished = [child for child in items if child['status'] not in ('completed', 'deleted')]
+                dismissed = batch['status'] == 'partial' and bool(unfinished) and all(child['dismissed'] for child in unfinished)
+                result.append({**batch, 'items': items, 'dismissed': dismissed})
+            return result
 
     def batch_start(self, item_ids, *, request_id, generate_blog=True, prepare_reading=False):
         if type(prepare_reading) is not bool or (prepare_reading and not generate_blog):
@@ -1265,7 +1293,8 @@ class HostService:
 
     def inbox_items(self):
         with self.lock:
-            return [StatusNotifications(self.store).project('inbox', item['item_id'], item) for item in self.ingestion.list_inbox()]
+            notices = StatusNotifications(self.store)
+            return [self._inbox_notification(notices, item) for item in self.ingestion.list_inbox()]
 
     def inbox_continue(self, item_id, *, request_id):
         with self.lock:
