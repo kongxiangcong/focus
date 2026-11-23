@@ -9,12 +9,12 @@ vi.mock("pdfjs-dist", () => ({
   getDocument: () => ({
     promise: Promise.resolve({
       numPages: 12,
-      getPage: (number: number) => number === 1 ? Promise.resolve({
-        pageNumber: 1,
+      getPage: (pageNumber: number) => Promise.resolve({
+        pageNumber,
         getViewport: () => ({ width: 600, height: 800, scale: 1, rotation: 0 }),
         render: () => ({ promise: Promise.resolve(), cancel() {} }),
         streamTextContent: () => null,
-      }) : new Promise(() => {}),
+      }),
     }),
     destroy: () => Promise.resolve(),
   }),
@@ -44,7 +44,7 @@ async function renderPaper(document: ReadingDocument, evidence: ValidatedAnswerE
   await act(async () => { render(<ConversationReader host={host} />); });
 }
 
-it("shows both columns of a far PDF block before the destination page renders", async () => {
+it("locates both columns of a far PDF block when the destination page is ready", async () => {
   vi.stubGlobal("IntersectionObserver", class {
     constructor(private readonly callback: IntersectionObserverCallback) {}
     observe(node: HTMLElement) {
