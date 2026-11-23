@@ -839,6 +839,15 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
 
   const [regionNumber, setRegionNumber] = useState(0);
   useEffect(() => { setRegionNumber(0); }, [activeEvidence, translated]);
+  const wasFullscreen = useRef(fullscreen);
+  useLayoutEffect(() => {
+    const exiting = wasFullscreen.current && !fullscreen;
+    wasFullscreen.current = fullscreen;
+    const pane = original.current;
+    if (!exiting || !visible || mobile !== "original" || !activeEvidence || intent || manual.current || !pane?.clientHeight) return;
+    const region = pane.querySelectorAll<HTMLElement>(`[data-evidence-block~="${activeEvidence}"]`)[regionNumber];
+    if (region) moveTo(activeEvidence, false, true, undefined, region);
+  }, [fullscreen, visible, mobile, activeEvidence, intent, regionNumber, moveTo]);
   function nextRegion() {
     if (!activeEvidence || !original.current) return;
     const regions = original.current.querySelectorAll<HTMLElement>(`[data-evidence-block~="${activeEvidence}"]`);
