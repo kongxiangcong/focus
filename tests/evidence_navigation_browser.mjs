@@ -243,25 +243,33 @@ async function mobileCancels() {
 
 async function sourceRoundTrip(asset, fail = false) {
   const stale = `第一轮 A 的迟到${asset}`;
-  let received, resume;
+  let received, resume, finished, routeError;
   const arrived = new Promise(resolve => { received = resolve; });
   const hold = new Promise(resolve => { resume = resolve; });
+  const delivered = new Promise(resolve => { finished = resolve; });
   const { page, errors, snapshot } = await open({
     async configure(page) {
       await page.route(url => decodeURIComponent(url.pathname) === `/library/sources/${sourceA}/${asset}`, async route => {
-        const response = await route.fetch();
-        received();
-        await hold;
-        if (fail) await route.abort('failed');
-        else if (asset === 'original') await route.fulfill({ response });
-        else {
-          const body = await response.json();
-          if (asset === 'opening') Object.assign(body.value, { status: 'ready', guide: stale });
+        try {
+          const response = await route.fetch();
+          received();
+          await hold;
+          if (fail) await route.abort('failed');
+          else if (asset === 'original') await route.fulfill({ response });
           else {
-            delete body.value.pdf;
-            Object.assign(body.value, { markdown: stale, lineCount: 1 });
+            const body = await response.json();
+            if (asset === 'opening') Object.assign(body.value, { status: 'ready', guide: stale });
+            else {
+              delete body.value.pdf;
+              Object.assign(body.value, { markdown: stale, lineCount: 1 });
+            }
+            await route.fulfill({ status: response.status(), json: body });
           }
-          await route.fulfill({ response, json: body });
+        } catch (error) {
+          routeError = error;
+          received();
+        } finally {
+          finished();
         }
       }, { times: 1 });
     },
@@ -280,7 +288,8 @@ async function sourceRoundTrip(asset, fail = false) {
   await browse(page, 'wheel');
   const position = await top(page);
   resume();
-  await page.unrouteAll({ behavior: 'wait' });
+  await delivered;
+  assert.ifError(routeError);
   await frames(page);
   assert.equal(await top(page), position);
   assert.equal(await page.getByText(stale, { exact: true }).count(), 0);
