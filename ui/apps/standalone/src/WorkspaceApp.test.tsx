@@ -592,14 +592,14 @@ it.each(["existing", "new", "unclassified"] as const)("uploads with a %s topic f
 
 it('clears terminal statuses while an active chat continues, and keeps source management available later', async () => {
   const failed: IngestionItem = { itemId: 'failed', fileName: 'failed.pdf', status: 'failed', topicId: null, topicTitle: null, sourceId: null, documentStatus: 'failed', topicStatus: 'not_started' };
-  const initial: ReadingWindow = { ...empty, workItems: [
+  const initial: ReadingWindow = { ...empty, clearableStatusTokens: ['old-failure-token'], workItems: [
     workItem({ kind: 'chat', targetId: 'chat-active', status: 'running', label: '正在回答问题' }),
     workItem({ kind: 'blog', targetId: 'a-paper', status: 'failed', label: '旧博客失败', error: 'old failure' }),
   ], agent: { ...empty.agent!, run: { runId: 'chat-active', status: 'running', approvals: [], activity: [], error: null } } };
   const { host } = setup([failed], initial);
   vi.mocked(host.clearFinishedStatuses!).mockImplementation(async () => {
     vi.mocked(host.listInbox!).mockResolvedValue(readerSuccess([{ ...failed, dismissed: true }]));
-    const cleared = { ...initial, workItems: initial.workItems!.map(item => ({ ...item, dismissed: item.status === 'failed' })) };
+    const cleared = { ...initial, clearableStatusTokens: [], workItems: initial.workItems!.map(item => ({ ...item, dismissed: item.status === 'failed' })) };
     vi.mocked(host.getReadingWindow).mockResolvedValue(readerSuccess(cleared));
     return readerSuccess(cleared);
   });
@@ -611,7 +611,25 @@ it('clears terminal statuses while an active chat continues, and keeps source ma
   await waitFor(() => expect(screen.queryByText('failed.pdf')).not.toBeInTheDocument());
   expect(screen.queryByText('old failure')).not.toBeInTheDocument();
   expect(screen.getByText('正在回答问题 · 进行中')).toBeVisible();
-  expect(host.clearFinishedStatuses).toHaveBeenCalledWith(expect.any(String));
+  expect(host.clearFinishedStatuses).toHaveBeenCalledWith(expect.any(String), ['old-failure-token']);
+});
+
+it("retries a lost clear response with the same snapshot after a new failure appears", async () => {
+  const initial = { ...empty, revision: 1, clearableStatusTokens: ["first-failure"] };
+  let publish!: Parameters<NonNullable<ReaderHost["subscribe"]>>[0];
+  const clearFinishedStatuses = vi.fn<NonNullable<ReaderHost["clearFinishedStatuses"]>>()
+    .mockResolvedValueOnce({ ok: false, error: { code: "unavailable", message: "响应丢失", retryable: true } })
+    .mockResolvedValueOnce(readerSuccess({ ...initial, revision: 3, clearableStatusTokens: ["second-failure"] }));
+  setup([], initial, { clearFinishedStatuses, subscribe: listener => { publish = listener; return () => {}; } });
+  await screen.findByRole("heading", { name: "A Paper" });
+  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
+  fireEvent.click(screen.getByRole("button", { name: "全部清空" }));
+  const retry = await screen.findByRole("button", { name: "重试此操作" });
+  act(() => publish(readerSuccess({ ...initial, revision: 2, clearableStatusTokens: ["second-failure"] })));
+  fireEvent.click(retry);
+  await waitFor(() => expect(clearFinishedStatuses).toHaveBeenCalledTimes(2));
+  expect(clearFinishedStatuses.mock.calls[0][1]).toEqual(["first-failure"]);
+  expect(clearFinishedStatuses.mock.calls[1]).toEqual(clearFinishedStatuses.mock.calls[0]);
 });
 
 it("T2 appearance changes auto-save immediately and show feedback", async () => {
@@ -1029,7 +1047,7 @@ it.each([false, true])("restores a cleared duplicate and focuses retry (batch=%s
     dismissed: dismissed.has(failed.itemId) && dismissed.has(other.itemId), items: items().map(item => ({
       itemId: item.itemId, fileName: item.fileName, sourceId: null, status: "failed", ingestionStatus: "failed", blog: null, error: null, dismissed: item.dismissed,
     })) }] : [];
-  const { host, unmount } = setup([], empty, {
+  const { host, unmount } = setup([], { ...empty, clearableStatusTokens: ["first", "second"] }, {
     listInbox: vi.fn(async () => readerSuccess(items())), listBatches: vi.fn(async () => readerSuccess(batches())),
     clearFinishedStatuses: vi.fn(async () => { dismissed = new Set([failed.itemId, other.itemId]); return readerSuccess(empty); }),
     stageIngestion: vi.fn(async () => { dismissed.delete(failed.itemId); return readerSuccess({ ...failed, duplicate: true }); }),

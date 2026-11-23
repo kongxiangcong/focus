@@ -20,11 +20,11 @@ it('clears status notifications through the bound Host and decodes inbox dismiss
       topic_id: null, source_id: null, document_status: 'failed', topic_status: 'not_started', dismissed: true,
     }] })));
   const host = new HttpReaderHost({ baseUrl: 'http://127.0.0.1:4317', fetch, instanceId: 'instance' });
-  expect(await host.clearFinishedStatuses('clear-1')).toEqual({ ok: true, value: boundWindow });
+  expect(await host.clearFinishedStatuses('clear-1', ['failure-token'])).toEqual({ ok: true, value: boundWindow });
   const [, request] = fetch.mock.calls[0];
   expect(request?.method).toBe('POST');
   expect(new Headers(request?.headers).get('X-FOCUS-Instance')).toBe('instance');
-  expect(JSON.parse(request?.body as string)).toEqual({ requestId: 'clear-1' });
+  expect(JSON.parse(request?.body as string)).toEqual({ requestId: 'clear-1', clearableStatusTokens: ['failure-token'] });
   expect(await host.listInbox()).toMatchObject({ ok: true, value: [{ itemId: 'item', dismissed: true }] });
 });
 

@@ -206,6 +206,7 @@ export interface ReadingWindow {
   workItems?: readonly ActiveStatusItem[];
   taskInbox?: readonly IngestionItem[];
   taskBatches?: readonly ProcessingBatch[];
+  clearableStatusTokens?: readonly string[];
   configuration?: BackendConfigurationState;
   clearBusySources?: readonly string[];
   reviewChunk?: ReaderChunk | null;
@@ -495,7 +496,7 @@ export interface ReaderHost {
     requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   highlightRequestResult?(sourceId: string, requestId: string): Promise<ReaderHostResult<HighlightOperation | { status: "cancelled" } | null>>;
   createSourceNote?(input: CreateSourceNoteInput): Promise<ReaderHostResult<ReadingWindow>>;
-  clearFinishedStatuses?(requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  clearFinishedStatuses?(requestId: string, clearableStatusTokens: readonly string[]): Promise<ReaderHostResult<ReadingWindow>>;
   listTopics?(): Promise<ReaderHostResult<readonly LibraryTopic[]>>;
   listSources?(): Promise<ReaderHostResult<readonly LibrarySource[]>>;
   listInbox?(): Promise<ReaderHostResult<readonly IngestionItem[]>>;

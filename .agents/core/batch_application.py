@@ -28,6 +28,7 @@ class BatchApplication:
                 batch.setdefault('excluded', [])
                 batch.setdefault('requests', {})
                 batch.setdefault('executionId', batch['requestId'])
+                batch.setdefault('itemAttempts', {item_id: batch['executionId'] for item_id in batch['workIds']})
                 batch.setdefault('resuming', False)
                 batch.setdefault('resubmission', None)
                 if batch['status'] == 'running':
@@ -76,7 +77,8 @@ class BatchApplication:
             batch = {'batchId': batch_id, 'requestId': request_id, 'itemIds': item_ids,
                      'prepareReading': prepare_reading, 'topicId': confirmed[0]['topic_id'], 'generateBlog': generate_blog, 'status': 'confirmed',
                      'cursor': 0, 'activeItemId': None, 'error': None, 'itemErrors': {},
-                     'workIds': item_ids, 'excluded': [], 'requests': {}, 'executionId': request_id, 'resuming': False, 'resubmission': None}
+                     'workIds': item_ids, 'excluded': [], 'requests': {}, 'executionId': request_id, 'resuming': False,
+                     'itemAttempts': dict.fromkeys(item_ids, request_id), 'resubmission': None}
             batches[batch_id] = batch
             _write_document(self.path, batches)
             return self._view(batch)
@@ -107,6 +109,7 @@ class BatchApplication:
 
     def _view(self, batch, *, inbox=None):
         items = []
+        scheduled = set(batch['workIds'][batch['cursor']:]) if batch['status'] in ('confirmed', 'running') else set()
         for item_id in batch['itemIds']:
             item = inbox.get(item_id) if inbox is not None else self.processing.ingestion.get(item_id)
             if item is None:
@@ -129,7 +132,9 @@ class BatchApplication:
             else:
                 status = 'partial' if item.get('source_id') else 'failed'
             items.append({'itemId': item_id, 'fileName': item['file_name'], 'sourceId': item.get('source_id'),
-                          'status': status, 'ingestionStatus': item['status'], 'blog': blog, 'error': error, 'remoteReference': item.get('remote_reference', False),
+                          'status': status, 'attemptId': batch['itemAttempts'].get(item_id, batch['requestId']),
+                          'scheduled': item_id in scheduled and item_id not in batch['excluded'],
+                          'ingestionStatus': item['status'], 'blog': blog, 'error': error, 'remoteReference': item.get('remote_reference', False),
                           'resubmitRisk': item.get('resubmit_risk'), 'parserBackend': item.get('parser_backend'),
                           'selectionReason': item.get('selection_reason'), 'parserProgress': item.get('parser_progress')})
         return {k: batch[k] for k in ('batchId', 'topicId', 'status', 'error')} | {
@@ -174,6 +179,7 @@ class BatchApplication:
                 if action == 'resubmit-item':
                     self.processing.ingestion.validate_resubmit(item_id, request_id=request_id + ':0', risk_choice_id=risk_choice_id)
                 batch['resubmission'] = {'itemId': item_id, 'riskChoiceId': risk_choice_id} if action == 'resubmit-item' else None
+                batch['itemAttempts'].update(dict.fromkeys(work, uuid.uuid4().hex))
                 batch.update(workIds=work, cursor=0, activeItemId=None, status='confirmed',
                              error=None, executionId=request_id, resuming=True)
             else:

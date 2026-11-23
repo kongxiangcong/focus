@@ -25,6 +25,9 @@ class DuplicateIngestionRecoveryTests(unittest.TestCase):
             time.sleep(.01)
         self.fail('Ingestion did not finish')
 
+    def clear_payload(self, request_id):
+        return {'requestId': request_id, 'clearableStatusTokens': self.request('GET', '/reader/window')['clearableStatusTokens']}
+
     def assert_visible(self, expected):
         inbox = {item['item_id']: item for item in self.request('GET', '/library/inbox')}
         window = self.request('GET', '/reader/window')
@@ -40,6 +43,25 @@ class DuplicateIngestionRecoveryTests(unittest.TestCase):
             else:
                 self.assertEqual(not visible, work[item_id]['dismissed'])
 
+    def test_delayed_clear_targets_only_the_failures_seen_before_a_retry(self):
+        old = self.upload('old.pdf', b'%PDF old failure')
+        unchanged = self.upload('unchanged.pdf', b'%PDF unchanged failure')
+        with patch.object(self.host.ingestion.parser, 'parse', side_effect=RuntimeError('parser offline')):
+            for item in (old, unchanged):
+                self.request('POST', '/library/inbox/' + item['item_id'] + '/confirm', {})
+                self.request('POST', '/library/inbox/' + item['item_id'] + '/process', {'requestId': item['item_id']})
+                self.wait_finished()
+            tokens = self.request('GET', '/reader/window')['clearableStatusTokens']
+            self.request('POST', '/library/inbox/' + old['item_id'] + '/continue', {'requestId': 'retry-old'})
+            self.wait_finished()
+        payload = {'requestId': 'delayed-clear', 'clearableStatusTokens': tokens}
+        self.request('POST', '/reader/status/clear', payload)
+        self.assert_visible({old['item_id']: True, unchanged['item_id']: False})
+        self.stop_host()
+        self.start_host()
+        self.request('POST', '/reader/status/clear', payload)
+        self.assert_visible({old['item_id']: True, unchanged['item_id']: False})
+
     def test_single_failure_clear_reupload_restart_and_explicit_retry(self):
         first = self.upload('failed.pdf', b'%PDF first')
         other = self.upload('other.pdf', b'%PDF other')
@@ -52,7 +74,7 @@ class DuplicateIngestionRecoveryTests(unittest.TestCase):
             before = self.host.ingestion.get(first['item_id'])
             self.assertEqual('failed', before['status'])
             self.assertIsNone(before['source_id'])
-            self.request('POST', '/reader/status/clear', {'requestId': 'clear-single'})
+            self.request('POST', '/reader/status/clear', self.clear_payload('clear-single'))
             self.assert_visible({first['item_id']: False, other['item_id']: False})
             repeated = self.upload('renamed.pdf', b'%PDF first')
             self.assertTrue(repeated['duplicate'])
@@ -66,7 +88,7 @@ class DuplicateIngestionRecoveryTests(unittest.TestCase):
         self.stop_host(); self.start_host()
         self.assert_visible({first['item_id']: True, other['item_id']: False})
         # The attachment-based entry must share the HTTP upload's recovery.
-        self.request('POST', '/reader/status/clear', {'requestId': 'clear-again'})
+        self.request('POST', '/reader/status/clear', self.clear_payload('clear-again'))
         attachment = self.host.workspace / 'uploads' / 'attachment.pdf'
         attachment.parent.mkdir(exist_ok=True)
         attachment.write_bytes(b'%PDF first')
@@ -94,7 +116,9 @@ class DuplicateIngestionRecoveryTests(unittest.TestCase):
             self.assertEqual(3, parse.call_count)
             before = [self.host.ingestion.get(item['item_id']) for item in [first, sibling, other]]
             batch_bytes = (self.host.workspace / 'ingestion/batches.json').read_bytes()
-            self.request('POST', '/reader/status/clear', {'requestId': 'clear-batches'})
+            clear = self.clear_payload('clear-batches')
+            delayed = self.clear_payload('clear-delayed')
+            self.request('POST', '/reader/status/clear', clear)
             self.assertTrue(all(batch['dismissed'] for batch in self.request('GET', '/library/batches')))
             self.assert_visible({first['item_id']: False, sibling['item_id']: False, other['item_id']: False})
             repeated = self.upload('renamed.pdf', b'%PDF batch-first')
@@ -103,9 +127,11 @@ class DuplicateIngestionRecoveryTests(unittest.TestCase):
             self.assertEqual(3, parse.call_count)
             self.assertEqual(before, [self.host.ingestion.get(item['item_id']) for item in [first, sibling, other]])
             self.assertEqual(batch_bytes, (self.host.workspace / 'ingestion/batches.json').read_bytes())
+        self.request('POST', '/reader/status/clear', delayed)
         for restart in [False, True]:
             if restart:
                 self.stop_host(); self.start_host()
+                self.request('POST', '/reader/status/clear', clear)
             self.assert_visible({first['item_id']: True, sibling['item_id']: False, other['item_id']: False})
             batches = {batch['batchId']: batch for batch in self.request('GET', '/library/batches')}
             self.assertEqual(2, len(batches))
