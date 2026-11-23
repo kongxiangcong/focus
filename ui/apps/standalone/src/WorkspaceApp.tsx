@@ -71,7 +71,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [readingFullscreen, setReadingFullscreen] = useState(false);
   const [managementTopics, setManagementTopics] = useState<readonly string[]>([]);
   const [generateOnUpload, setGenerateOnUpload] = useState(true);
-  const [connectionLost, setConnectionLost] = useState(false);
+  const [connectionError, setConnectionError] = useState("");
+  const connectionLost = !!connectionError;
+  const streamVersion = useRef(0);
   const [taskDetails, setTaskDetails] = useState(false);
   const [taskVisited, setTaskVisited] = useState(false);
   useEffect(() => { if (taskDetails) setTaskVisited(true); }, [taskDetails]);
@@ -226,14 +228,22 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     };
     window.addEventListener("popstate", pop);
     let alive = true;
-    const accept = (result: ReaderHostResult<ReadingWindow>, started = selection.current.generation) => {
-      if (!alive || !isCurrentSelection(started)) return;
-      if (result.ok) { if (acceptView(result.value, started)) setConnectionLost(false); }
-      else { setConnectionLost(true); setError(result.error.message); }
+    const accept = (result: ReaderHostResult<ReadingWindow>, started: number) => {
+      if (!alive) return;
+      if (result.ok) {
+        setConnectionError("");
+        acceptView(result.value, started);
+      } else setConnectionError(result.error.message);
     };
     const started = selection.current.generation;
-    void (host.refreshBackendConfiguration ? host.refreshBackendConfiguration() : host.getReadingWindow()).then(result => accept(result, started));
-    const unsubscribe = host.subscribe?.(result => accept(result));
+    const initialStreamVersion = streamVersion.current;
+    void (host.refreshBackendConfiguration ? host.refreshBackendConfiguration() : host.getReadingWindow())
+      .then(result => { if (streamVersion.current === initialStreamVersion) accept(result, started); })
+      .catch(failure => { if (alive && streamVersion.current === initialStreamVersion) setConnectionError(String(failure)); });
+    const unsubscribe = host.subscribe?.(result => {
+      streamVersion.current++;
+      accept(result, selection.current.generation);
+    });
     return () => { alive = false; unsubscribe?.(); window.removeEventListener("popstate", pop); requestVersion.current++; };
   }, [host, acceptView, isCurrentSelection, cancelEvidenceNavigation]);
   useEffect(() => { if (route !== "/settings") void refresh(); }, [route, view?.agent?.run?.status, host]);
@@ -248,12 +258,15 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     let timer: number;
     async function poll() {
       const started = selection.current.generation;
+      const streamAtStart = streamVersion.current;
       try { const result = await host.getReadingWindow();
-        if (!cancelled && isCurrentSelection(started)) {
-          if (result.ok) { if (acceptView(result.value, started)) setConnectionLost(false); }
-          else setConnectionLost(true);
+        if (!cancelled && streamAtStart === streamVersion.current) {
+          if (result.ok) {
+            setConnectionError("");
+            acceptView(result.value, started);
+          } else setConnectionError(result.error.message);
         }
-      } catch { if (!cancelled && isCurrentSelection(started)) setConnectionLost(true); }
+      } catch (failure) { if (!cancelled && streamAtStart === streamVersion.current) setConnectionError(String(failure)); }
       if (!cancelled) timer = window.setTimeout(() => void poll(), 1500);
     }
     timer = window.setTimeout(() => void poll(), 1500);
@@ -731,6 +744,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <AgentControls agent={view.agent} onStop={() => host.stop && void host.stop().then(result => { if (result.ok) acceptView(result.value); })} onAnswer={async input => {
         const result = await host.approve?.(input); if (result?.ok) { acceptView(result.value); return true; } return false;
       }} />}
+      {connectionError && <div className="workspace-error" role="alert">{connectionError}</div>}
       {!uploadOpen && error && <div className="workspace-error" role="alert">{error}<button onClick={() => { setError(""); if (retryAction) retryAction(); else void refresh(); }}>{retryAction ? "重试此操作" : "刷新状态"}</button></div>}
       {!error && (notice || readyNotice) && <div className="workspace-notice" role="status">{readyNotice || notice}<button onClick={() => { setNotice(""); setReadyNotice(""); }}>关闭</button></div>}
     </header>
@@ -783,10 +797,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         } : undefined}
         host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"}
         evidenceNavigation={unifiedReading ? evidenceNavigation : undefined}
-        readingSession={unifiedReading ? {
-          view: view?.source.sourceId === selection.current.sourceId ? view : null,
+        readingSession={{
+          view: !unifiedReading || view?.source.sourceId === selection.current.sourceId ? view : null,
           generation, isCurrent: isCurrentSelection, accept: acceptView,
-        } : undefined} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
+        }} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
     {route === "/library" && <LibraryPage {...{ scoped, statusFilter, setStatusFilter, sourcesFailed, refresh, taskInbox, taskBatches, statusText, itemStatusText, continueInbox, controlBatch, sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, setConfirm, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} onTasks={() => setTaskDetails(true)} />}
     {route === "/settings" && <main className="settings-page">
       <div className="settings-shell">

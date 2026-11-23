@@ -534,6 +534,7 @@ class HostService:
             if result['status'] == 'missing':
                 legacy = ArticleOverview(self.workspace, self.reading_app).status(source_id)
                 if legacy.get('status') == 'ready':
+                    self.opening_errors.pop(source_id, None)
                     return {**result, 'status': 'ready', 'structure': legacy['structure'], 'guide': legacy['guide']}
                 worker = self.reading_workers.get(source_id)
                 if worker and worker.is_alive() and hasattr(self.reading_app.runtime, 'overview_structure'):
@@ -541,6 +542,7 @@ class HostService:
             workers = self.opening_workers
             errors = self.opening_errors
             if result['status'] == 'ready':
+                errors.pop(source_id, None)
                 return result
             if source_id in workers and workers[source_id].is_alive():
                 return {**result, 'status': 'running'}
@@ -554,7 +556,9 @@ class HostService:
                 try:
                     app.generate(source_id, self.reading_app.runtime, stopped=lambda: self.shutting_down or self.resetting)
                 except Exception as exc:
-                    errors[source_id] = str(exc)
+                    with self.lock:
+                        if source_id not in SourceLibrary(self.workspace).deleted_sources():
+                            errors[source_id] = str(exc)
                 finally:
                     with self.lock:
                         if not self.shutting_down:
@@ -1475,6 +1479,9 @@ class HostService:
         deleted = SourceLibrary(self.workspace).deleted_sources()
         if not deleted:
             return
+        for source_id in deleted:
+            self.opening_errors.pop(source_id, None)
+            self.blog_errors.pop(source_id, None)
         before = self.store.state
         state = json.loads(json.dumps(before))
         def references(value):

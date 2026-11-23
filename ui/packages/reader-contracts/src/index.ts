@@ -259,6 +259,7 @@ export interface ReaderAgentState {
   backends?: readonly BackendDescriptor[];
   run: null | {
     runId: string;
+    sourceId?: string | null;
     status: "running" | "approval" | "stopping" | "completed" | "failed" | "interrupted";
     error: string | null;
     backendVerification?: "checking" | "passed" | "failed";

@@ -30,7 +30,7 @@ export function ConversationReader({ host, visible = true, fontSize = "standard"
   useEffect(() => {
     if (managed) return;
     let live = true;
-    const receive = (r: ReaderHostResult<ReadingWindow>) => { if (live) { if (r.ok) acceptView(r.value); else setError(r.error.message); } };
+    const receive = (r: ReaderHostResult<ReadingWindow>) => { if (live) { if (r.ok) { acceptView(r.value); setError(""); } else setError(r.error.message); } };
     void host.getReadingWindow().then(receive).catch(e => { if (live) setError(String(e)); });
     const off = host.subscribe?.(receive);
     return () => { live = false; off?.(); };
@@ -103,7 +103,7 @@ const ConversationComposer = memo(forwardRef<ComposerHandle, ComposerProps>(func
   }
 
   return <form className="source-composer focus-composer" onSubmit={e => { e.preventDefault(); void submit(); }}>
-    {agent && (running || !!agent.run?.error || agent.run?.approvals.some(approval => approval.status === "expired")) &&
+    {agent && running &&
       <AgentControls agent={agent} onStop={onStop} onAnswer={onApprove} />}
     <textarea
       ref={textareaRef}
@@ -183,7 +183,21 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     selectionGeneration === undefined || !!isCurrentSelection?.(selectionGeneration, sourceId)
   ), [selectionGeneration, isCurrentSelection, sourceId]);
   const [document, setDocument] = useState<ReadingDocument | null>(null), [opening, setOpening] = useState<ReadingOpening | null>(null);
-  const [error, setError] = useState(""), [reload, setReload] = useState(0), [sending, setSending] = useState(false);
+  const [documentError, setDocumentError] = useState("");
+  const [openingError, setOpeningError] = useState("");
+  const [reloadDocument, setReloadDocument] = useState(0), [reloadOpening, setReloadOpening] = useState(0);
+  const [sending, setSending] = useState(false);
+  const [operationErrors, setOperationErrors] = useState<Readonly<Record<string, string>>>({});
+  const attempts = useRef(new Map<string, symbol>());
+  const [dismissedRun, setDismissedRun] = useState("");
+  const showOperationError = useCallback((operation: string, message: string) => {
+    setOperationErrors(errors => {
+      const next = { ...errors };
+      if (message) next[operation] = message;
+      else delete next[operation];
+      return next;
+    });
+  }, []);
   const [translated, setTranslated] = useState(false);
   const [pdfRevision, setPdfRevision] = useState(0);
   const [settledPdf, setSettledPdf] = useState<{ url: string; available: boolean }>();
@@ -233,31 +247,34 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
 
   useEffect(() => {
     let live = true, timer: ReturnType<typeof setTimeout>;
-    setError("");
     async function loadOpening(prepare: boolean) {
       try {
         const result = await host.getSourceOpening?.(sourceId, prepare);
         if (!live || !isCurrentSource() || !result) return;
-        if (!result.ok) { setOpening(null); setError(result.error.message); return; }
+        if (!result.ok) { setOpening(null); setOpeningError(result.error.message); return; }
         if (result.value.sourceId !== sourceId) return;
         setOpening(result.value);
+        setOpeningError(result.value.status === "failed" ? result.value.error ?? "导读准备失败" : "");
         if (result.value.status === "running") timer = setTimeout(() => void loadOpening(false), 1500);
-      } catch (e) { if (live && isCurrentSource()) setError(String(e)); }
+      } catch (e) { if (live && isCurrentSource()) setOpeningError(String(e)); }
     }
     void loadOpening(true);
     return () => { live = false; clearTimeout(timer); };
-  }, [host, sourceId, reload, isCurrentSource]);
+  }, [host, sourceId, reloadOpening, isCurrentSource]);
 
   const prep = view.preparations?.[sourceId];
   useEffect(() => {
     let live = true;
     void host.getSourceDocument!(sourceId).then(result => {
       if (!live || !isCurrentSource()) return;
-      if (!result.ok) setError(result.error.message);
-      else if (result.value.sourceId === sourceId && (!view.sourceBundleVersion || result.value.bundleVersion === view.sourceBundleVersion)) setDocument(result.value);
-    }).catch(e => { if (live && isCurrentSource()) setError(String(e)); });
+      if (!result.ok) setDocumentError(result.error.message);
+      else if (result.value.sourceId === sourceId && (!view.sourceBundleVersion || result.value.bundleVersion === view.sourceBundleVersion)) {
+        setDocument(result.value);
+        setDocumentError("");
+      }
+    }).catch(e => { if (live && isCurrentSource()) setDocumentError(String(e)); });
     return () => { live = false; };
-  }, [host, sourceId, reload, isCurrentSource, view.sourceBundleVersion, prep?.status, prep?.selected_plan_id, prep?.plan_id, prep?.ready]);
+  }, [host, sourceId, reloadDocument, isCurrentSource, view.sourceBundleVersion, prep?.status, prep?.selected_plan_id, prep?.plan_id, prep?.ready]);
   const originalUrl = document?.pdf && host.sourceOriginalUrl?.(sourceId);
   const pdfUrl = originalUrl && originalUrl + (originalUrl.includes("?") ? "&" : "?") + "pdfHash=" + document!.pdf!.pdfHash +
     (view.workspace?.instanceId ? "&instance=" + encodeURIComponent(view.workspace.instanceId) : "");
@@ -367,7 +384,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
 
   const active = projections.find(p => p.evidence.evidenceId === activeEvidence);
   const highlightedEvidenceId = hoverEvidence ?? activeEvidence;
-  const running = !!view.agent?.run && ["running", "approval", "stopping"].includes(view.agent.run.status);
+  const run = view.agent?.run?.sourceId === sourceId ? view.agent.run : null;
+  const agent = run ? view.agent : undefined;
+  const running = !!run && ["running", "approval", "stopping"].includes(run.status);
 
   // Imperatively toggle active evidence class on the original DOM — < 0.2ms, zero Markdown reparse!
   useLayoutEffect(() => {
@@ -619,36 +638,41 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   useLayoutEffect(() => { if (followChat.current && chat.current) chat.current.scrollTop = chat.current.scrollHeight; }, [messages.at(-1)?.content]);
 
   const acceptSession = readingSession?.accept;
-  const apply = useCallback(async (operation: Promise<ReaderHostResult<ReadingWindow>>, success?: (value: ReadingWindow) => void) => {
+  const apply = useCallback(async (key: string, operation: Promise<ReaderHostResult<ReadingWindow>>, success?: (value: ReadingWindow) => void) => {
+    const attempt = Symbol(key);
+    attempts.current.set(key, attempt);
+    const current = () => isCurrentSource() && attempts.current.get(key) === attempt;
     try {
       const result = await operation;
-      if (!isCurrentSource()) return false;
-      if (!result.ok) setError(result.error.message);
+      if (!current()) return false;
+      if (!result.ok) showOperationError(key, result.error.message);
       else if (result.value.source.sourceId === sourceId) {
         if (selectionGeneration !== undefined) acceptSession?.(result.value, selectionGeneration);
         else setView(result.value);
+        showOperationError(key, "");
         success?.(result.value);
         return true;
       }
-    } catch (failure) { if (isCurrentSource()) setError(String(failure)); }
+    } catch (failure) { if (current()) showOperationError(key, String(failure)); }
+    finally { if (attempts.current.get(key) === attempt) attempts.current.delete(key); }
     return false;
-  }, [setView, acceptSession, isCurrentSource, selectionGeneration, sourceId]);
+  }, [setView, acceptSession, isCurrentSource, selectionGeneration, sourceId, showOperationError]);
 
   const sendMessage = useCallback(async (content: string) => {
     if (!content || sendBusy.current || sending || running) return false;
     sendBusy.current = true;
     stopNavigation();
-    safeWrite(`focus.activeAnswer:${draftKey}`, ""); setSending(true); setError(""); setActiveMessage(null); setActiveEvidence(undefined);
+    safeWrite(`focus.activeAnswer:${draftKey}`, ""); setSending(true); showOperationError("send", ""); if (run) setDismissedRun(run.runId); setActiveMessage(null); setActiveEvidence(undefined);
     followChat.current = true; turn.current = { seen: new Set(messages.map(m => m.messageId)), cancelled: false, located: false };
     if (sendRequest.current?.content !== content) sendRequest.current = { content, id: createReaderId() };
-    const ok = await apply(host.sendMessage({ sourceId, sessionId: view.sessionId, receipt: null, content, requestId: sendRequest.current.id }));
+    const ok = await apply("send", host.sendMessage({ sourceId, sessionId: view.sessionId, receipt: null, content, requestId: sendRequest.current.id }));
     if (ok) { sendRequest.current = null; } else turn.current = null;
     sendBusy.current = false; setSending(false);
     return ok;
-  }, [apply, draftKey, host, messages, running, sending, sourceId, stopNavigation, view.sessionId]);
+  }, [apply, draftKey, host, messages, run, running, sending, showOperationError, sourceId, stopNavigation, view.sessionId]);
 
-  const handleStop = useCallback(() => { if (host.stop) void apply(host.stop()); }, [apply, host]);
-  const handleApprove = useCallback((input: Parameters<NonNullable<ReaderHost["approve"]>>[0]) => host.approve ? apply(host.approve(input)) : Promise.resolve(false), [apply, host]);
+  const handleStop = useCallback(() => { if (host.stop) void apply("stop", host.stop()); }, [apply, host]);
+  const handleApprove = useCallback((input: Parameters<NonNullable<ReaderHost["approve"]>>[0]) => host.approve ? apply("approval", host.approve(input)) : Promise.resolve(false), [apply, host]);
 
   function backToAnswer(evidenceId: string) {
     const item = evidence.find(entry => entry.evidenceId === evidenceId);
@@ -755,12 +779,14 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       else stopNavigation();
       setActiveEvidence(undefined);
     }}>
-    {error && <div role="alert" className="source-reader-error">{error}<button onClick={() => setReload(v => v + 1)}>重试</button></div>}
+    {documentError && <div role="alert" className="source-reader-error">{documentError}<button onClick={() => setReloadDocument(v => v + 1)}>重试</button><button onClick={() => setDocumentError("")}>关闭</button></div>}
+    {Object.entries(operationErrors).map(([key, message]) => <div key={key} role="alert" className="source-reader-error">{message}<button onClick={() => showOperationError(key, "")}>关闭</button></div>)}
+    {!running && run?.error && dismissedRun !== run.runId && <div role="alert" className="source-reader-error">{run.error}<button onClick={() => setDismissedRun(run.runId)}>关闭</button></div>}
     <div className="source-reader-columns">
       <div className="source-original-pane" data-paper={!!pdfUrl}>
         {pdfUrl && <div className="paper-view-controls"><button aria-pressed={!showingTranslation} onClick={() => switchPaper(false)}>原版 PDF</button>
           <button aria-pressed={!!showingTranslation} disabled={!translationReady} onClick={() => switchPaper(true)}>中文译文{translationReady ? "" : translationState === "running" ? " · 准备中" : translationInterrupted ? " · 未完成" : " · 未就绪"}</button>
-          {translationInterrupted && host.resumePreparation && <button onClick={() => void apply(host.resumePreparation!(sourceId, createReaderId()))}>重试译文</button>}</div>}
+          {translationInterrupted && host.resumePreparation && <button onClick={() => void apply("translation", host.resumePreparation!(sourceId, createReaderId()))}>重试译文</button>}</div>}
         {pdfUrl && positionNotice && <span role="status">{positionNotice}</span>}
         <div ref={original} className="source-original" data-evidence-focus={activeEvidence ? "true" : undefined} aria-label="文章原文" tabIndex={0} onPointerMove={e => { pointerX.current = e.clientX; }} onWheel={manualBrowse} onTouchStart={manualBrowse}
           onPointerDown={e => { if (e.target === e.currentTarget) manualBrowse(); }}
@@ -813,7 +839,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
             </section>
           )}
           {opening?.status === "running" && <div className="source-opening-skeleton" aria-label="正在准备导读" role="status"><i /><i /><i /></div>}
-          {opening?.status === "failed" && <p role="alert" className="source-opening-error">{opening.error}<button onClick={() => setReload(v => v + 1)}>重试导读</button></p>}
+          {openingError && <p role="alert" className="source-opening-error">{openingError}<button onClick={() => setReloadOpening(v => v + 1)}>重试导读</button><button onClick={() => setOpeningError("")}>关闭</button></p>}
           {turns.map((group, idx) => {
             const dist = Math.abs(idx - activeFocusIndex);
             const focusBand = turns.length <= 1 || dist === 0 ? "0" : dist === 1 ? "1" : "far";
@@ -840,7 +866,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
             <button type="button" className="source-mobile-toggle" onClick={() => setMobile(mobile === "chat" ? "original" : "chat")}>{mobile === "chat" ? "查看原文" : "返回对话"}</button>
             <div className="source-composer-icons">
               {(view.discussions?.length ?? 0) > 1 && host.selectDiscussionSource && (
-                <select className="source-discussion-select" aria-label="对话记录" value={view.discussionId ?? ""} disabled={running} onChange={e => void apply(host.selectDiscussionSource!(sourceId, e.target.value))}>
+                <select className="source-discussion-select" aria-label="对话记录" value={view.discussionId ?? ""} disabled={running} onChange={e => void apply("discussion", host.selectDiscussionSource!(sourceId, e.target.value))}>
                   {view.discussions!.map((d, i) => <option key={d.discussionId} value={d.discussionId}>对话 {i + 1}</option>)}
                 </select>
               )}
@@ -853,7 +879,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
                 <Pin />
               </button>
               {host.newSession && view.sessionId && (
-                <button type="button" className="source-icon-btn" aria-label="新会话" title="新会话" disabled={running} onClick={() => void apply(host.newSession!(view.sessionId!))}>
+                <button type="button" className="source-icon-btn" aria-label="新会话" title="新会话" disabled={running} onClick={() => void apply("session", host.newSession!(view.sessionId!))}>
                   <Plus />
                 </button>
               )}
@@ -869,7 +895,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
             draftKey={draftKey}
             running={running}
             sending={sending}
-            agent={view.agent}
+            agent={agent}
             onSend={sendMessage}
             onStop={handleStop}
             onApprove={handleApprove}
@@ -884,16 +910,16 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       </div>
       <textarea aria-label="笔记内容" placeholder="记录想法或结论…" value={noteDraft} onChange={e => setNoteDraft(e.target.value)} />
       {host.createSourceNote && <button className="source-notes-save" disabled={!noteDraft.trim()} onClick={async () => { const request = noteEdit && host.changeSourceNote ? host.changeSourceNote(sourceId, noteEdit.id, "edit", noteEdit.revision, createReaderId(), noteDraft.trim()) : host.createSourceNote!({ sourceId, requestId: createReaderId(), content: noteDraft.trim(), kind: "thought", origin: "user" });
-        await apply(request, result => {
+        await apply("note-save", request, result => {
           if (result.noteOperation?.status === "conflict") {
-            setError("笔记已更新，请核对当前内容后再保存。");
+            showOperationError("note-save", "笔记已更新，请核对当前内容后再保存。");
             if (result.noteOperation.current) setNoteEdit({ id: result.noteOperation.current.noteId, revision: result.noteOperation.current.revision });
             return;
           }
           setNoteDraft(""); setNoteEdit(null);
         }); }}>保存笔记</button>}
-      {(view.sourceNotes ?? []).filter(n => !n.deleted || n.canUndo).map(n => <article key={n.noteId}>{n.sentence && <blockquote>{n.sentence.quote.exact}</blockquote>}<MarkdownContent text={n.content} />{host.changeSourceNote && <div className="source-note-actions">{!n.deleted && <button onClick={() => { setNoteEdit({ id: n.noteId, revision: n.revision }); setNoteDraft(n.content); }}>编辑</button>}<button onClick={() => void apply(host.changeSourceNote!(sourceId, n.noteId, n.deleted ? "undo" : "delete", n.revision, createReaderId()))}>{n.deleted ? "撤销删除" : "删除"}</button></div>}</article>)}
-      {(view.sourceHighlights ?? []).filter(h => !h.deleted || h.canUndo).map(h => <article key={h.highlightId}><blockquote>{h.quote.exact}</blockquote>{host.changeHighlight && <div className="source-note-actions"><button onClick={() => void apply(host.changeHighlight!(sourceId, h.highlightId, h.deleted ? "undo" : "delete", h.revision, createReaderId()))}>{h.deleted ? "撤销删除重点" : "取消重点"}</button></div>}</article>)}
+      {(view.sourceNotes ?? []).filter(n => !n.deleted || n.canUndo).map(n => <article key={n.noteId}>{n.sentence && <blockquote>{n.sentence.quote.exact}</blockquote>}<MarkdownContent text={n.content} />{host.changeSourceNote && <div className="source-note-actions">{!n.deleted && <button onClick={() => { setNoteEdit({ id: n.noteId, revision: n.revision }); setNoteDraft(n.content); }}>编辑</button>}<button onClick={() => void apply(`note:${n.noteId}`, host.changeSourceNote!(sourceId, n.noteId, n.deleted ? "undo" : "delete", n.revision, createReaderId()))}>{n.deleted ? "撤销删除" : "删除"}</button></div>}</article>)}
+      {(view.sourceHighlights ?? []).filter(h => !h.deleted || h.canUndo).map(h => <article key={h.highlightId}><blockquote>{h.quote.exact}</blockquote>{host.changeHighlight && <div className="source-note-actions"><button onClick={() => void apply(`highlight:${h.highlightId}`, host.changeHighlight!(sourceId, h.highlightId, h.deleted ? "undo" : "delete", h.revision, createReaderId()))}>{h.deleted ? "撤销删除重点" : "取消重点"}</button></div>}</article>)}
     </aside>}
   </section>;
 }

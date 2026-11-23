@@ -291,7 +291,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
   const current = view?.current ?? null;
   const frontier = view?.navigationCurrent ?? current;
   useEffect(() => { setReviewChunk(null); }, [view?.source.sourceId, view?.readingRevision]);
-  const agent = view?.agent;
+  const agent = !view?.agent?.run?.sourceId || view.agent.run.sourceId === view.source.sourceId ? view?.agent : undefined;
   const active = !!agent?.run && ["running", "approval", "stopping"].includes(agent.run.status);
   const uploading = uploads.some(u => u.state === "uploading");
   const blocked = active || !!operation;

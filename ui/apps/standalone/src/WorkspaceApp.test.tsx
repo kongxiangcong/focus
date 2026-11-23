@@ -61,6 +61,21 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
 });
 
+it("clears only the connection alert when the workspace stream recovers", async () => {
+  let receive: (result: ReaderHostResult<ReadingWindow>) => void = () => {};
+  const subscribe = vi.fn<NonNullable<ReaderHost["subscribe"]>>(listener => {
+    receive = listener;
+    return () => {};
+  });
+  setup([], empty, { subscribe });
+  await screen.findByRole("heading", { name: "A Paper" });
+  act(() => receive({ ok: false, error: { code: "unavailable", message: "网络连接已中断", retryable: true } }));
+  expect(screen.getByRole("alert")).toHaveTextContent("网络连接已中断");
+  act(() => receive(readerSuccess(empty)));
+  expect(screen.queryByText("网络连接已中断")).not.toBeInTheDocument();
+  expect(subscribe).toHaveBeenCalledTimes(1);
+});
+
 it("accepts saved HTML and defaults to parsing with blog generation", async () => {
   const { host } = setup();
   const staged: IngestionItem = { itemId: "html-1", fileName: "article.html", status: "awaiting_confirmation", topicTitle: "编译", topicId: null, sourceId: null, documentStatus: "not_started", topicStatus: "not_started", services: ["local-html"] };
