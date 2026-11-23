@@ -11,7 +11,7 @@ try {
   await tasks.getByText('failed.pdf',{exact:true}).waitFor({state:'attached'});
   assert.equal(await page.getByText('completed.pdf',{exact:true}).count(),0);
   await page.getByRole('button',{name:'全部清空',exact:true}).click();
-  await page.getByText('failed.pdf',{exact:true}).waitFor({state:'detached'});
+  await page.getByText('failed.pdf',{exact:true}).first().waitFor({state:'detached'});
   assert.equal(await page.getByText('completed.pdf',{exact:true}).count(),0);
   assert.equal(await tasks.getByText('waiting.pdf',{exact:true}).count(),1);
   await page.reload();
