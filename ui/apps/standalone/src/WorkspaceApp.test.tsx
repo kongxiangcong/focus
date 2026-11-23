@@ -820,11 +820,11 @@ it("keeps one approval and stop control in prepared close reading and in fullscr
   });
   await screen.findByText("Prepared passage.");
   expect(screen.getAllByRole("button", { name: "允许本次" })).toHaveLength(1);
-  expect(screen.getAllByRole("button", { name: "停止", exact: true })).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button", { name: "全屏", exact: true }));
+  expect(screen.getAllByRole("button", { name: "停止" })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "全屏" }));
   expect(screen.getByRole("button", { name: "关闭全屏模式" })).toBeVisible();
   expect(screen.getAllByRole("button", { name: "允许本次" })).toHaveLength(1);
-  fireEvent.click(screen.getByRole("button", { name: "停止", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "停止" }));
   await waitFor(() => expect(host.stop).toHaveBeenCalledTimes(1));
 });
 

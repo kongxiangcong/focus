@@ -287,11 +287,6 @@ class ReadingCore:
 
     def restart_after_clear(self, source_id: str, request_id: str) -> str | None:
         """Invalidate the old Plan and leave a durable receipt for fresh preparation."""
-        from .workspace_lifecycle import current_workspace_lease
-
-        lease = current_workspace_lease(self.workspace)
-        if lease:
-            lease.require_current()
         with _LOCK:
             path = self.workspace / "state.json"
             state = _read_document(path)
@@ -320,11 +315,6 @@ class ReadingCore:
 
     def rewind_after_clear(self, source_id: str, request_id: str) -> None:
         """Reset the legacy cursor while retaining the currently selected Plan."""
-        from .workspace_lifecycle import current_workspace_lease
-
-        lease = current_workspace_lease(self.workspace)
-        if lease:
-            lease.require_current()
         with _LOCK:
             path = self.workspace / "state.json"
             state = _read_document(path)

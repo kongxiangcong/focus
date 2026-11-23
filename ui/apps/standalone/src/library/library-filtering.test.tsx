@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readerSuccess, type BlogStatus, type IngestionItem, type LibrarySource, type ProcessingBatch, type ReaderHost, type ReadingWindow } from "@focus/reader-contracts";
+import { readerSuccess, type BlogStatus, type IngestionItem, type LibrarySource, type ProcessingBatch, type ReaderHost, type ReaderHostResult, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
 import { WorkspaceApp } from "../WorkspaceApp";
 import { UNFILED } from "./topic-view";
 
@@ -105,6 +105,30 @@ it("uses plan coverage for battery colors, including the 20% and 60% boundaries"
   for (const { title, level } of cases) {
     expect(screen.getByRole("progressbar", { name: `${title} 精读进度` })).toHaveAttribute("data-level", level);
   }
+});
+
+it("reloads the battery when another source's reset selects a ready Plan", async () => {
+  let receive!: (result: ReaderHostResult<ReadingWindow>) => void;
+  const view: ReadingWindow = { ...reading, readingRevision: 8, revision: 1 };
+  const preparing: ReadingPreparation = { source_id: "B", status: "running", step: "translate",
+    plan_id: "plan-after-reset", selected_plan_id: null, selected_ready: false,
+    total: 2, completed: 0, ready: false, error: null };
+  const host = setup({ view, overrides: { subscribe: listener => { receive = listener; return () => {}; } } });
+  await loaded();
+  const previousCalls = vi.mocked(host.listSources!).mock.calls.length;
+  await act(async () => receive(readerSuccess({ ...view, revision: 2, preparations: { B: preparing } })));
+  await act(async () => receive(readerSuccess({ ...view, revision: 3, preparations: { B: { ...preparing, completed: 1 } } })));
+  expect(host.listSources).toHaveBeenCalledTimes(previousCalls);
+
+  vi.mocked(host.listSources!).mockResolvedValue(readerSuccess(sources.map(source => source.sourceId === "B" ? {
+    ...source, readingStatus: "reading", progress: { planId: "plan-after-reset", chunkId: "chunk-1", completed: 0, total: 2 },
+  } : source)));
+  await act(async () => receive(readerSuccess({ ...view, revision: 4, preparations: { B: {
+    ...preparing, status: "ready", step: "ready", completed: 2, ready: true,
+    selected_ready: true, selected_plan_id: "plan-after-reset",
+  } } })));
+  expect(screen.getByRole("progressbar", { name: "Beta 精读进度" })).toHaveAttribute("aria-valuetext", "0/2 段 (0%)");
+  expect(host.listSources).toHaveBeenCalledTimes(previousCalls + 1);
 });
 
 it("keeps a failed preparation actionable without counting its prepared chunks as reading", async () => {

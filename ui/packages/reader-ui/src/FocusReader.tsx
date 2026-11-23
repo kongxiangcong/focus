@@ -39,7 +39,7 @@ type Upload = { id: string; file: File; state: "uploading" | "ready" | "failed";
 type Failure = { message: string; label: string; retry: () => void };
 type ReadingMode = "chunks" | "chat" | "blog";
 export type { ReadingMode };
-export interface FocusReaderProps { readingSession?: ReadingSession; evidenceNavigation?: EvidenceNavigation; renderModeNavigation?: (mode: ReadingMode, select: (next: ReadingMode) => void, disabled: boolean) => ReactNode; renderBlog?: (sourceId: string) => ReactNode; host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
+export interface FocusReaderProps { readingSession?: ReadingSession; evidenceNavigation?: EvidenceNavigation; approvalManaged?: boolean; renderModeNavigation?: (mode: ReadingMode, select: (next: ReadingMode) => void, disabled: boolean) => ReactNode; renderBlog?: (sourceId: string) => ReactNode; host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
 
 // Capture entry eligibility only on mount, never on streaming updates.
 function TimelineEvent({ identity, fresh, current, streaming, children }: { identity: string; fresh: boolean; current: boolean; streaming?: boolean; children: ReactNode }) {

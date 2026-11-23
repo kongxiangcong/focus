@@ -144,7 +144,13 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const locked = useRef(false);
   const requestVersion = useRef(0);
   const workPollKey = `${connectionLost}:${view?.configuration?.busy}:${(view?.workItems ?? []).map(item => `${item.kind}:${item.targetId}:${item.status}`).join("|")}`;
-  const libraryReadingRevision = route === "/library" ? view?.readingRevision : undefined;
+  const libraryProgressKey = route === "/library" ? JSON.stringify([
+    view?.readingRevision,
+    Object.entries(view?.preparations ?? {})
+      .filter(([, preparation]) => preparation.selected_ready && preparation.selected_plan_id)
+      .map(([sourceId, preparation]) => [sourceId, preparation.selected_plan_id] as const)
+      .sort(([left], [right]) => left.localeCompare(right)),
+  ]) : "";
   const active = !!view?.agent?.run && ["running", "approval", "stopping"].includes(view.agent.run.status);
   const approval = view?.agent?.run?.status === "approval" && view.agent.run.approvals.some(item => item.status !== "expired") ? view.agent : null;
 
@@ -268,7 +274,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }, [host, acceptView, isCurrentSelection, cancelEvidenceNavigation, markConnectionHealthy]);
   useEffect(() => {
     if (route !== "/settings" && !connectionLost) void refresh(route === "/library");
-  }, [route, view?.agent?.run?.status, libraryReadingRevision, connectionLost, host]);
+  }, [route, view?.agent?.run?.status, libraryProgressKey, connectionLost, host]);
   useEffect(() => {
     if (!inbox.some(item => item.status === "processing") && !batches.some(b => b.executing || ["confirmed", "running"].includes(b.status))) return;
     const timer = window.setInterval(() => void refresh(), 1200);
