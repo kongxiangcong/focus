@@ -29,16 +29,16 @@ function PaperSurface({ page, element }: { page: PDFPageProxy; element: RefObjec
   const canvas = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
-    const node = element.current!, surface = canvas.current!;
+    const node = element.current, surface = canvas.current, container = text.current;
+    if (!node || !surface || !container) return;
     let layer: TextLayer | undefined;
     let task: RenderTask | undefined;
     let live = true, shown = false, drawing = false, lastWidth = -1;
-    async function draw() {
-      if (!live || drawing) return;
+    const draw = async () => {
+      if (!live || drawing || text.current !== container) return;
       const width = shown ? node.clientWidth : 0;
       if (width === lastWidth) return;
       lastWidth = width;
-      const container = text.current!;
       container.replaceChildren();
       if (!width) { surface.width = surface.height = 0; return; }
       const base = page.getViewport({ scale: 1 });
@@ -62,7 +62,7 @@ function PaperSurface({ page, element }: { page: PDFPageProxy; element: RefObjec
         drawing = false;
         if (live) void draw();
       }
-    }
+    };
     const resize = new ResizeObserver(() => void draw());
     resize.observe(node);
     const observer = new IntersectionObserver(entries => {

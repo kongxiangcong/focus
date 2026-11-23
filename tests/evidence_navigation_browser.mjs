@@ -83,25 +83,20 @@ async function prepareAnswer() {
     const panel = document.querySelector('[aria-label="精读"].reading-mode-panel');
     return panel && !panel.querySelector('.reading-preparation');
   });
-  const view = await snapshot();
-  assert.ok(view.navigationCurrent, 'the fixture has a ready close-reading plan');
-  if (!view.readingStarted) {
+  async function continueReading(view, beginBody) {
+    assert.ok(view.navigationCurrent, 'the fixture has a ready close-reading plan');
     const { sourceId, planId, chunkId } = view.navigationCurrent;
     const response = await page.request.post(`${base}/reader/continue`, {
       headers: { 'X-FOCUS-Instance': instance() },
-      data: { requestId: randomUUID(), beginBody: true, receipt: { sourceId, planId, chunkId, readingRevision: view.readingRevision } },
+      data: { requestId: randomUUID(), beginBody, receipt: { sourceId, planId, chunkId, readingRevision: view.readingRevision } },
     });
     const result = await response.json();
     assert.ok(result.ok, JSON.stringify(result));
+    return result.value;
   }
-  const reading = page.locator('.focus-stream .focus-reading').first();
-  await reading.waitFor();
-  if (!(await snapshot()).readingProgress.length) {
-    await Promise.all([
-      page.waitForResponse(response => response.url() === `${base}/reader/continue` && response.ok()),
-      page.getByRole('button', { name: '继续', exact: true }).click(),
-    ]);
-  }
+  let view = await snapshot();
+  if (!view.readingStarted) view = await continueReading(view, true);
+  if (!view.readingProgress.length) await continueReading(view, false);
   await switches(page).getByRole('button', { name: '对话', exact: true }).click();
   if (!(await citations(page).count())) {
     await page.getByRole('textbox', { name: '输入消息' }).fill(answerLabel);
@@ -415,8 +410,9 @@ async function chatScrollbarCancels() {
 }
 
 async function retryFailedPage() {
-  const { page, errors } = await open({ blocked: [8] });
+  const { page, errors, snapshot } = await open({ blocked: [8] });
   await firstPage(page);
+  const before = progress(await snapshot());
   await citations(page).nth(2).click();
   await waitForHeldPage(page, 8);
   await browse(page, 'wheel');
@@ -425,13 +421,19 @@ async function retryFailedPage() {
   await pageAt(page, 8).scrollIntoViewIfNeeded();
   const alert = pageAt(page, 8).getByRole('alert').filter({ hasText: '此页渲染失败' });
   await alert.waitFor();
-  const before = await top(page);
   await alert.getByRole('button', { name: '重试', exact: true }).click();
   await waitForHeldPage(page, 8);
   await release(page, 8);
   await pageAt(page, 8).locator('.paper-text span').first().waitFor({ state: 'attached' });
   assert.equal(await alert.count(), 0);
-  assert.ok(Math.abs(await top(page) - before) <= 1, 'retry keeps the PDF at the page the reader chose');
+  assert.ok(await pageAt(page, 8).evaluate(node => {
+    const rect = node.getBoundingClientRect();
+    const viewport = node.closest('.source-original').getBoundingClientRect();
+    const line = viewport.top + viewport.height * .32;
+    return rect.top <= line && rect.bottom >= line;
+  }), 'retry keeps the recovered page at the reading line');
+  assert.equal(await card(page).count(), 0, 'retry does not resume the cancelled evidence jump');
+  assert.deepEqual(progress(await snapshot()), before);
   assert.deepEqual(errors, []);
   await page.close();
 }
@@ -511,9 +513,10 @@ async function resetNavigation({ confirm, fail = false, releaseDuringReset = fal
         assert.equal(await top(page), waitingPosition);
         assert.equal(await page.getByRole('button', { name: '原版 PDF', exact: true }).getAttribute('aria-pressed'), 'true');
       }
-      const resetResponse = page.waitForResponse(response => isReset(response.url()) && response.ok());
+      const resetResponse = page.waitForResponse(response => isReset(response.url()));
       resumeReset();
-      await resetResponse;
+      const result = await (await resetResponse).json();
+      assert.ok(result.ok, JSON.stringify(result));
       await tab('精读').waitFor();
       await page.waitForFunction(() => document.querySelector('.reading-mode-panel')?.getAttribute('aria-label') === '精读');
       await page.locator('.focus-stream').waitFor();
