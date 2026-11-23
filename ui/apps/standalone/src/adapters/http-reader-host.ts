@@ -600,6 +600,11 @@ export class HttpReaderHost implements ReaderHost {
       method: "POST", body: JSON.stringify({ requestId, confirmed: true, resetReading: true }),
     });
   }
+  resetSourceReading(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/reset-reading`, {
+      method: "POST", body: JSON.stringify({ requestId, confirmed: true }),
+    });
+  }
 
   saveBackendConfiguration(input: BackendSetupInput): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request('/reader/configuration', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) });

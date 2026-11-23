@@ -446,6 +446,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = service.save_source_details(source_id, self._body())
             elif method == 'POST' and len(parts) == 2 and parts[1] == 'clear':
                 result = service.clear_source(source_id, self._body())
+            elif method == 'POST' and len(parts) == 2 and parts[1] == 'reset-reading':
+                result = service.reset_source_reading(source_id, self._body())
             elif method == 'DELETE' and len(parts) == 1:
                 result = service.library_delete(source_id)
             elif method == 'GET' and len(parts) == 2 and parts[1] == 'deletion-impact':

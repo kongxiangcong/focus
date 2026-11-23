@@ -497,6 +497,8 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
 .workspace-app .reading-fullscreen-exit { position:fixed; z-index:7; top:12px; right:16px; width:34px; height:34px;
   padding:0; border:1px solid var(--reader-line); border-radius:999px; background:var(--reader-popover);
   color:var(--reader-ink); font-size:18px; box-shadow:var(--reader-shadow-popover); }
+.workspace-app .reading-reset-fullscreen { position:fixed; z-index:7; top:12px; right:58px; height:34px;
+  border:1px solid var(--reader-line); border-radius:var(--reader-pill); background:var(--reader-popover); }
 .workspace-app[data-reading-fullscreen=true] { grid-template-columns:minmax(0,1fr); grid-template-rows:minmax(0,1fr); }
 .workspace-app[data-reading-fullscreen=true] > .workspace-nav,
 .workspace-app[data-reading-fullscreen=true] > .workspace-header { display:none; }

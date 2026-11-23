@@ -525,7 +525,8 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     const attachmentIds = (includeAttachments ? uploads : []).flatMap(u => u.attachment ? [u.attachment.attachmentId] : []);
     const sentUploads = (includeAttachments ? uploads : []).filter(u => u.state === "ready").map(u => u.id);
     const input: SendReaderMessageInput = {
-      sessionId: view.sessionId, receipt: selected ? { sourceId: selected.sourceId, planId: selected.planId, chunkId: selected.chunkId } : selected === null ? null : visibleChunks.some(c => current && chunkKey(c) === chunkKey(current)) ? cursorReceipt(view) : null,
+      sessionId: view.sessionId, discussionId: view.discussionId,
+      receipt: selected ? { sourceId: selected.sourceId, planId: selected.planId, chunkId: selected.chunkId } : selected === null ? null : visibleChunks.some(c => current && chunkKey(c) === chunkKey(current)) ? cursorReceipt(view) : null,
       content: clear && reference?.excerpt ? `> ${reference.excerpt.replace(/\n/g, "\n> ")}\n\n${content.trim()}` : content.trim(), attachmentIds,
       sourceId: selected?.sourceId ?? (view.source.sourceId || undefined),
     };
@@ -588,15 +589,6 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     const requestId = mutationId(JSON.stringify(["finish", eventScope, sourceGeneration, receipt]));
     const input = { receipt, sessionId: view.sessionId, requestId };
     void perform("完成本篇", () => host.finishReading!(input), () => setReference(undefined));
-  }
-  function reread() {
-    if (!view || blocked || !host.rereadReading || view.readingRevision === undefined) return;
-    const chunk = current ?? view.history.at(-1);
-    if (!chunk) return;
-    const input = { receipt: { sourceId: chunk.sourceId, planId: chunk.planId,
-      chunkId: current?.chunkId ?? null, readingRevision: view.readingRevision },
-      sessionId: view.sessionId, requestId: createReaderId() };
-    void perform("从头重读", () => host.rereadReading!(input), () => { setReviewChunk(null); setReference(undefined); });
   }
   async function changeNote(note: SourceNote, action: "edit" | "delete" | "undo", expectedRevision = note.revision) {
     if (!host.changeSourceNote || !view) return;
@@ -920,13 +912,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
           </div>)}
           </div>;
         })}
-        {view?.status === "completed" && !reviewChunk && <div className="focus-finished">已完成本篇 <button disabled={!host.clearSource || blocked} onClick={event => setConfirmation({
-          title: "重新阅读", description: "将清除本篇讨论、笔记和阅读记录，并从第一段重新开始。原文、译文和博客保留。",
-          label: "确认重新阅读", opener: event.currentTarget, confirm: () => {
-            const requestId = createReaderId();
-            void perform("重新阅读", () => host.clearSource!(view.source.sourceId, requestId));
-          },
-        })}>重新阅读</button><button onClick={() => setPanel("contents")}>查看已读段落</button></div>}
+        {view?.status === "completed" && !reviewChunk && <div className="focus-finished">已完成本篇 <button onClick={() => setPanel("contents")}>查看已读段落</button></div>}
         </div>
       </div>
       <div ref={scrolling.end} aria-hidden="true" />
@@ -1072,6 +1058,7 @@ function UnifiedReader(props: FocusReaderProps) {
   const readyToOpen = !!(preparation?.selected_ready || (preparation?.ready && !preparation.candidate));
   const acceptSession = props.readingSession?.accept;
   const isCurrentSelection = props.readingSession?.isCurrent;
+  const seenReset = useRef<{ sourceId: string; version: number } | null>(null);
 
   useLayoutEffect(() => {
     const preferred = readSavedMode(hasBlog);
@@ -1082,6 +1069,22 @@ function UnifiedReader(props: FocusReaderProps) {
     setBusy(false);
     return () => { request.current = null; };
   }, [sourceId, generation, hasBlog]);
+
+  const resetVersion = view?.resetVersion;
+  useLayoutEffect(() => {
+    if (!sourceId || resetVersion === undefined) return;
+    const previous = seenReset.current;
+    seenReset.current = { sourceId, version: resetVersion };
+    if (previous?.sourceId !== sourceId || previous.version === resetVersion) return;
+    evidenceNavigation.cancel();
+    request.current = null;
+    autoOpened.current = false;
+    setBusy(false);
+    setFailure(null);
+    setMode("chunks");
+    setMounted(current => ({ ...current, chunks: true }));
+    try { localStorage.setItem("focus.readingMode", "chunks"); } catch { /* In-memory preference remains active. */ }
+  }, [sourceId, resetVersion, evidenceNavigation.cancel]);
 
   useEffect(() => {
     if (managed) return;

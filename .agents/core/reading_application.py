@@ -19,7 +19,7 @@ from .reading_workspace import (
     WorkspaceCore, WorkspaceError, _identifier, _needs_translation,
     _read_chunk_records, _read_document, _read_glossary, _read_reading_record,
     _reading_plan_records, _source_heading_paths, _protected_source_ranges, _validate_parser_bundle, _write_document,
-    has_started_reading, validate_source_id,
+    _last_plan_number, has_started_reading, validate_source_id,
 )
 from .source_library import SourceLibrary
 from .source_blocks import source_lines
@@ -92,6 +92,10 @@ class ReadingCore:
     def _guard(self, source_id: str, run_id: str, attempt: str, bundle: str) -> dict:
         run = self._read(source_id)
         if not run or run["run_id"] != run_id or run["attempt"] != attempt:
+            raise WorkspaceError("reading_attempt_changed", "Preparation attempt is stale")
+        state = _read_document(self.workspace / "state.json")
+        reset_id = state.get("pending_reading_resets", {}).get(source_id)
+        if reset_id and run.get("reset_request_id") != reset_id:
             raise WorkspaceError("reading_attempt_changed", "Preparation attempt is stale")
         if run["status"] != "running":
             raise WorkspaceError("reading_attempt_closed", "Preparation cannot commit")
@@ -166,6 +170,8 @@ class ReadingCore:
                     "result": {"operation": request_payload["operation"], "run_id": None,
                                "status": "started", "source_id": source_id}}},
             }
+            if reset_id := state.get("pending_reading_resets", {}).get(source_id):
+                run["reset_request_id"] = reset_id
             run["requests"][request_id]["result"]["run_id"] = run["run_id"]
             self._write(source_id, run)
             return run
@@ -175,7 +181,11 @@ class ReadingCore:
             run = self._read(source_id)
             if run is None:
                 return None
-            selected = _read_document(self.workspace / "state.json")["sources"][source_id]
+            state = _read_document(self.workspace / "state.json")
+            reset_id = state.get("pending_reading_resets", {}).get(source_id)
+            if reset_id and run.get("reset_request_id") != reset_id:
+                return None
+            selected = state["sources"][source_id]
             selected_id = selected.get("current_plan_id")
             selected_ready = bool(selected_id and self._plan_ready(source_id, selected_id))
             if run["bundle"] != self._bundle_version(source_id):
@@ -238,7 +248,7 @@ class ReadingCore:
                 chunks = _read_chunk_records(self._root(source_id) / "reading" / "plans" / plan_id / "chunks.jsonl")
                 selected.update(current_plan_id=plan_id, current_chunk_id=chunks[0]["chunk_id"])
                 changed = True
-                selected['reading_pass'] = 1
+                selected.setdefault('reading_pass', 1)
             elif selected.get('reading_pass') is None:
                 selected['reading_pass'] = 1
             selected["reading_started"] = has_started_reading(selected)
@@ -252,6 +262,28 @@ class ReadingCore:
                 "input": {"operation": "open", "source_id": source_id}, "result": result}
             _write_document(state_path, state)
             return result
+
+    def enter_reset_reading(self, source_id: str, *, run_id: str, select_source: bool) -> bool:
+        """Activate the ready Plan exactly once for the confirmed reset."""
+        with _LOCK:
+            path = self.workspace / "state.json"
+            state = _read_document(path)
+            selected = state["sources"][source_id]
+            reset_id = state.get("pending_reading_resets", {}).get(source_id)
+            if not reset_id:
+                return False
+            run = self.status(source_id)
+            if not run or not run["ready"] or run["run_id"] != run_id or run.get("reset_request_id") != reset_id:
+                return False
+            plan_id = run["plan_id"]
+            chunks = _read_chunk_records(self._root(source_id) / "reading" / "plans" / plan_id / "chunks.jsonl")
+            selected.update(current_plan_id=plan_id, current_chunk_id=chunks[0]["chunk_id"], reading_started=True)
+            del state["pending_reading_resets"][source_id]
+            if select_source:
+                state["current_source_id"] = source_id
+                state["reading_revision"] = int(state.get("reading_revision", 0)) + 1
+            _write_document(path, state)
+            return True
 
     def activate_candidate(self, source_id: str, *, plan_id: str, reading_revision: int,
                            request_id: str) -> dict:
@@ -650,9 +682,8 @@ class ReadingCore:
                 raise WorkspaceError("reading_plan_invalid", "Reading Plan omits source lines")
             structure = validate_structure(draft.get('structure'), records)
             plans = source_root / "reading" / "plans"
-            numbers = [int(m.group(1)) for p in plans.glob("plan-*") if p.is_dir()
-                       if (m := re.fullmatch(r"plan-(\d+)", p.name))]
-            plan_id = f"plan-{max(numbers, default=0) + 1:03d}"
+            state = _read_document(self.workspace / "state.json")
+            plan_id = f"plan-{_last_plan_number(plans, state, source_id) + 1:03d}"
             root = plans / plan_id
             archive = source_root / "reading" / "bundles" / bundle
             if not archive.is_dir():

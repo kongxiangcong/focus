@@ -1,10 +1,13 @@
-import { createReaderId, type LibrarySource } from "@focus/reader-contracts";
+import type { LibrarySource } from "@focus/reader-contracts";
 import type { LibraryPageProps } from "./LibraryPage";
 
-export type SourceActions = Pick<LibraryPageProps, "busy" | "active" | "host" | "view" | "managementBusy" | "openManagement" | "setConfirm" | "confirmDelete">;
-export function SourceResetActions({ source: s, actions: { busy, active, host, view, managementBusy, setConfirm, confirmDelete }, menu = false }: { source: LibrarySource; actions: SourceActions; menu?: boolean }) {
-  return <><button disabled={!!busy || active || !host.replanSource || s.parseStatus !== "ready"} onClick={() => setConfirm({ source: s, action: "replan" })}>重新规划</button>
-    <button disabled={!!busy || !host.clearSource || view?.clearBusySources?.includes(s.sourceId)} onClick={() => setConfirm({ source: s, action: "clear", requestId: createReaderId() })}>重新阅读</button>
+export type SourceActions = Pick<LibraryPageProps, "busy" | "active" | "host" | "view" | "managementBusy" | "openManagement" | "requestReadingReset" | "confirmDelete">;
+export function SourceResetActions({ source: s, actions: { busy, active, host, view, managementBusy, requestReadingReset, confirmDelete }, menu = false }: { source: LibrarySource; actions: SourceActions; menu?: boolean }) {
+  return <><button disabled={!!busy || active || !host.resetSourceReading || s.parseStatus !== "ready" || view?.clearBusySources?.includes(s.sourceId)}
+    onClick={event => {
+      const trigger = menu ? document.getElementById(`source-more-trigger-${s.sourceId}`) : null;
+      requestReadingReset(s.sourceId, trigger ?? event.currentTarget);
+    }}>重新阅读</button>
     {menu && <hr />}<button className="library-more-danger" disabled={managementBusy || !host.deleteSource || !host.deletionImpact} onClick={() => void confirmDelete(s)}>{menu ? "删除…" : "删除来源…"}</button></>;
 }
 export function SourceMenu({ source: s, page }: { source: LibrarySource; page: LibraryPageProps }) {

@@ -133,17 +133,22 @@ class SourceNotes:
             code = "highlight_overlap" if entity == "highlight" else "note_sentence_overlap"
             raise WorkspaceError(code, "The sentence range is already occupied; select it again")
 
-    def clear(self, source_id: str, *, request_id: str) -> None:
-        """Erase notes and recovery payloads, retaining only revoked request IDs."""
+    def clear(self, source_id: str, *, request_id: str, local_only: bool = False) -> None:
+        """Erase annotations and their recovery payloads, optionally keeping whole-source notes."""
         self._check_request(request_id)
         with _LOCK, closing(self._connect(source_id)) as db, db:
             db.execute("PRAGMA secure_delete=ON")
             db.execute("BEGIN IMMEDIATE")
             if db.execute("SELECT 1 FROM clears WHERE id=?", (request_id,)).fetchone():
                 return
-            db.execute("DELETE FROM notes")
+            if local_only:
+                db.execute("DELETE FROM notes WHERE anchor IS NOT NULL OR placement IS NOT NULL OR sentence IS NOT NULL")
+                db.execute("UPDATE requests SET digest=NULL, result=NULL, cancelled=1 WHERE "
+                           "NOT EXISTS (SELECT 1 FROM notes WHERE id=json_extract(requests.result, '$.note.noteId'))")
+            else:
+                db.execute("DELETE FROM notes")
+                db.execute("UPDATE requests SET digest=NULL, result=NULL, cancelled=1")
             db.execute("DELETE FROM highlights")
-            db.execute("UPDATE requests SET digest=NULL, result=NULL, cancelled=1")
             db.execute("INSERT INTO clears VALUES (?)", (request_id,))
         with closing(self._connect(source_id)) as db:
             db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
