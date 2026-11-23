@@ -729,7 +729,7 @@ it("removes successful upload rows on the first new snapshot with cached lists",
     subscribe: listener => { emit = listener; return () => undefined; },
   });
   await screen.findByRole("heading", { name: "A Paper" });
-  fireEvent.click(screen.getByRole("button", { name: "任务详情", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "任务详情" }));
   expect(within(screen.getByRole("region", { name: "任务框" })).getByText("stale.pdf")).toBeVisible();
   await act(async () => emit(readerSuccess({ ...empty, revision: 2, taskInbox: [], taskBatches: [], workItems: [] })));
   expect(screen.queryByText("stale.pdf")).not.toBeInTheDocument();
@@ -742,11 +742,12 @@ it("provides one approval on each route and removes it when the request expires"
   }] };
   const awaiting: ReadingWindow = { ...empty, revision: 1, agent: { ...empty.agent!, run } };
   let emit!: (result: ReaderHostResult<ReadingWindow>) => void;
-  const { host } = setup([], awaiting, {
+  const { host } = setup([], empty, {
     approve: vi.fn(async () => readerSuccess(awaiting)),
     subscribe: listener => { emit = listener; return () => undefined; },
   });
-  await screen.findByRole("button", { name: "允许本次" });
+  await act(async () => emit(readerSuccess(awaiting)));
+  expect(screen.getAllByRole("button", { name: "允许本次" })).toHaveLength(1);
   fireEvent.click(screen.getByRole("link", { name: "阅读" }));
   expect(screen.getAllByRole("button", { name: "允许本次" })).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "拒绝" }));
@@ -780,7 +781,7 @@ function failedPreparationWindow(dismissed = false, attempt = "attempt-1"): Read
     source_id: "a-paper", status: "failed", step: "translate", completed: 1, total: 4,
     ready: false, selected_ready: false, plan_id: "plan-001", error: "Runtime timed out",
     attempt, timed_out: true, dismissed,
-  } }, workItems: dismissed ? [] : [{ kind: "preparation", targetId: "a-paper", status: "failed", label: "准备阅读 · A Paper", error: "Runtime timed out" }] };
+  } }, workItems: dismissed ? [] : [{ id: `preparation:a-paper:${attempt}`, kind: "preparation", targetId: "a-paper", attemptId: attempt, phase: "error", status: "failed", label: "准备阅读", sourceTitle: "A Paper", error: "Runtime timed out" }] };
 }
 
 it("removes a timed-out preparation immediately, without confirmation, retry or cancellation", async () => {
@@ -862,7 +863,7 @@ it("closes the conversation notes drawer before exiting fullscreen and restores 
   });
   fireEvent.click(await screen.findByRole("button", { name: "对话全屏" }));
   expect(screen.getByRole("tab", { name: "对话" })).toHaveAttribute("aria-selected", "true");
-  const opener = screen.getByRole("button", { name: "笔记", exact: true });
+  const opener = screen.getByRole("button", { name: "笔记" });
   fireEvent.click(opener);
   const input = screen.getByRole("textbox", { name: "笔记内容" });
   expect(input).toHaveFocus();
@@ -1172,14 +1173,14 @@ it.each(["success", "failure"] as const)("restores the selected Plan after switc
   const selected = savedWindow("a-paper", "A Paper", 2);
   const body = (sourceId: string, text: string): ReaderChunk => ({
     sourceId, planId: "saved-plan", chunkId: "saved-position", index: 2, total: 3, sectionPath: [],
-    sourceLines: [3, 5], sourceMarkdown: text, translation: null, images: [], relevantGlossary: [],
+    sourceLines: [3, 5], sourceMarkdown: text, translation: null, images: [], relevantGlossary: [], presentationStatus: "source-ready",
   });
   let resolvePrevious!: (result: ReaderHostResult<ReadingWindow>) => void;
   const { host } = setup([], previous, {
     getSourceDocument: async sourceId => readerSuccess({ sourceId, bundleVersion: "v1", title: "Original", markdown: "Read the original source.", lineCount: 1 }),
     selectDiscussionSource: async () => readerSuccess(selected),
     activateReadingCandidate: vi.fn(),
-    openSource: vi.fn(sourceId => sourceId === "previous" ? new Promise(resolve => { resolvePrevious = resolve; }) : Promise.resolve(readerSuccess({
+    openSource: vi.fn<NonNullable<ReaderHost["openSource"]>>(sourceId => sourceId === "previous" ? new Promise(resolve => { resolvePrevious = resolve; }) : Promise.resolve(readerSuccess({
       ...selected, revision: 3, readingRevision: 2, status: "reading", current: body(sourceId, "Saved second passage in A."),
     }))),
   });
@@ -1212,7 +1213,7 @@ it("prepares and retries the current source inside close reading while conversat
   const snapshot = (preparation: ReadingPreparation, revision: number): ReadingWindow => ({ ...selected, revision, preparations: { "a-paper": preparation } });
   const prepared = snapshot({ ...running, status: "ready", step: "ready", completed: 3, ready: true }, 4);
   const current: ReaderChunk = { sourceId: "a-paper", chunkId: "first", planId: "new-plan", index: 1, total: 3, sectionPath: [], sourceLines: [1, 2],
-    sourceMarkdown: "Newly prepared first passage.", images: [], translation: null, relevantGlossary: [] };
+    sourceMarkdown: "Newly prepared first passage.", images: [], translation: null, relevantGlossary: [], presentationStatus: "source-ready" };
   let publish!: (result: ReaderHostResult<ReadingWindow>) => void;
   const { host } = setup([], selected, {
     getSourceDocument: async sourceId => readerSuccess({ sourceId, bundleVersion: "v1", title: "Original", markdown: "Read this while preparing.", lineCount: 1 }),
@@ -1226,7 +1227,7 @@ it("prepares and retries the current source inside close reading while conversat
   await screen.findByText("Read this while preparing.");
   fireEvent.click(screen.getByRole("button", { name: "精读" }));
   expect(host.openSource).not.toHaveBeenCalled();
-  const pane = screen.getByRole("region", { name: "精读", exact: true });
+  const pane = screen.getByRole("region", { name: "精读" });
   fireEvent.click(within(pane).getByRole("button", { name: "准备精读" }));
   expect(await within(pane).findByText(/正在翻译 · 1\/3 段/)).toBeVisible();
   expect(within(pane).queryByRole("alert")).not.toBeInTheDocument();

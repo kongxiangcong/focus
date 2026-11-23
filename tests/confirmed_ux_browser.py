@@ -78,7 +78,7 @@ if figure_translations:
 # Model generation is outside this layout suite.
 blog_fixture={'sourceId':'fixture-paper','generated':True,'runStatus':'completed','methodVersion':'ui-fixture',
  'artifacts':{name:{'status':'completed','updatedAt':None} for name in ('reading_blog','html')},'warnings':[],'error':None}
-host._blog_summary=lambda: {'fixture-paper':blog_fixture}
+host._blog_summary=lambda **_: {'fixture-paper':blog_fixture}
 if os.environ.get('FOCUS_BROWSER_FAILED_PREPARATION') == '1':
  run=host.reading_app.begin('fixture-paper',request_id=uuid.uuid4().hex,rebuild=True)
  host.reading_app.core.fail('fixture-paper',run['run_id'],run['attempt'],run['bundle'],'Runtime timed out',timed_out=True)

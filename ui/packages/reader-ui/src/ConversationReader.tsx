@@ -268,22 +268,30 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     turn.current = null;
   }, [draftKey, view.discussionId]);
 
+  const openingWork = view.workItems?.find(item => item.kind === "opening" && item.sourceId === sourceId);
+  const lastOpeningRetry = useRef(0);
   useEffect(() => {
     let live = true, timer: ReturnType<typeof setTimeout>;
-    async function loadOpening(prepare: boolean) {
+    async function loadOpening(prepare: boolean, prepareIfMissing = false) {
       try {
         const result = await host.getSourceOpening?.(sourceId, prepare);
         if (!live || !isCurrentSource() || !result) return;
         if (!result.ok) { setOpening(null); setOpeningError(result.error.message); return; }
         if (result.value.sourceId !== sourceId) return;
+        if (result.value.status === "missing" && prepareIfMissing) {
+          await loadOpening(true);
+          return;
+        }
         setOpening(result.value);
         setOpeningError(result.value.status === "failed" ? result.value.error ?? "导读准备失败" : "");
         if (result.value.status === "running") timer = setTimeout(() => void loadOpening(false), 1500);
       } catch (e) { if (live && isCurrentSource()) setOpeningError(String(e)); }
     }
-    void loadOpening(true);
+    const retry = lastOpeningRetry.current !== reloadOpening;
+    lastOpeningRetry.current = reloadOpening;
+    void loadOpening(retry, !openingWork);
     return () => { live = false; clearTimeout(timer); };
-  }, [host, sourceId, reloadOpening, isCurrentSource]);
+  }, [host, sourceId, reloadOpening, isCurrentSource, openingWork?.id, openingWork?.phase]);
 
   const prep = view.preparations?.[sourceId];
   useEffect(() => {

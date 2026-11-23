@@ -48,9 +48,12 @@ export class ReadingScroll {
   }
 
   cancel = () => { if (this.animation !== null) cancelAnimationFrame(this.animation); this.animation = null; };
+  private streamingOutput = () => this.streaming
+    ? Array.from(this.pane.querySelectorAll<HTMLElement>('[data-streaming="true"]')).find(el => !el.closest('[hidden]'))
+    : undefined;
   latestBottom = () => {
-    const live = this.streaming ? Array.from(this.pane.querySelectorAll<HTMLElement>('[data-streaming="true"]')).find(el => !el.closest('[hidden]')) : null;
-    return live ? layoutTop(this.pane, live) + live.offsetHeight : layoutTop(this.pane, this.end);
+    const output = this.streamingOutput();
+    return output ? layoutTop(this.pane, output) + output.offsetHeight : layoutTop(this.pane, this.end);
   };
   atLatest = () => this.latestBottom() - this.pane.scrollTop - this.pane.clientHeight <= 48;
   contentChanged = () => {
@@ -153,9 +156,9 @@ export class ReadingScroll {
     this.sizeSpacer();
     if (this.animation === null && (geometry !== this.geometry || holding)) this.restore();
     this.geometry = geometry;
-    if (!holding && this.animation === null && this.follow.current && this.streaming &&
-        this.pane.querySelector('[data-streaming="true"]:not([hidden] *)')) {
-      const top = this.latestBottom() - this.pane.clientHeight + 24;
+    const output = !holding && this.animation === null && this.follow.current ? this.streamingOutput() : undefined;
+    if (output) {
+      const top = layoutTop(this.pane, output) + output.offsetHeight - this.pane.clientHeight + 24;
       if (top > this.pane.scrollTop) this.pane.scrollTop = top;
     }
     if (holding) this.schedule();

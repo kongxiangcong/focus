@@ -167,10 +167,14 @@ class ConfirmedUXTests(unittest.TestCase):
         self.assertEqual('chunk-002', again['timeline'][-1]['chunk']['chunkId'])
 
     def test_T17_progress_preparation_and_chat_visible_in_global_work(self):
-        self.host.state['run'] = {'runId': 'fake-run', 'status': 'approval', 'sourceId': 'fixture-paper', 'approvals': [], 'error': None}
+        with self.host.lock:
+            self.host.state['run'] = {'runId': 'fake-run', 'status': 'approval', 'sourceId': 'fixture-paper', 'approvals': [], 'error': None}
+            self.host.changed()
         work = self.host.snapshot()['workItems']
         self.assertEqual('approval', next(w for w in work if w['kind'] == 'chat')['status'])
-        self.host.state['run']['status'] = 'completed'
+        with self.host.lock:
+            self.host.state['run']['status'] = 'completed'
+            self.host.changed()
         self.assertFalse(any(w['kind'] == 'chat' for w in self.host.snapshot()['workItems']))
         self.host.state['run'] = None
 

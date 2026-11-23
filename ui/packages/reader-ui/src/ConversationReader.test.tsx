@@ -51,6 +51,21 @@ async function send() {
   await waitFor(() => expect(screen.getByRole("textbox", { name: "输入消息" })).toHaveValue(""));
 }
 
+it("scopes failed replies to their source and dismisses only the failed attempt", async () => {
+  const run = { runId: "old-attempt", sourceId: "other-paper", status: "failed" as const, error: "问答未完成", approvals: [], activity: [] };
+  const agent = { run, catalog: { sources: [], topics: [] } };
+  const app = setup({ ...initial, agent });
+  await screen.findByText("First evidence.");
+  expect(screen.queryByText(run.error)).not.toBeInTheDocument();
+  app.emit({ ...initial, revision: 2, agent: { ...agent, run: { ...run, sourceId: "paper" } } });
+  expect(screen.getByRole("alert")).toHaveTextContent(run.error);
+  fireEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "关闭" }));
+  app.emit({ ...initial, revision: 3, agent: { ...agent, run: { ...run, sourceId: "paper" } } });
+  expect(screen.queryByText(run.error)).not.toBeInTheDocument();
+  app.emit({ ...initial, revision: 4, agent: { ...agent, run: { ...run, runId: "new-attempt", sourceId: "paper" } } });
+  expect(screen.getByRole("alert")).toHaveTextContent(run.error);
+});
+
 it("automatically locates at most one evidence per turn", async () => {
   const app = setup(); await send();
   app.emit(answer([first]));

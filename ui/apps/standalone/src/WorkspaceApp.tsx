@@ -3,7 +3,7 @@ import { Fragment } from "react";
 import { NavigationResize } from "./NavigationResize";
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingWindow } from "@focus/reader-contracts";
-import { FocusReader, AgentControls, readingFontSizes, preparationText, useEvidenceNavigation, BookOpen, ChatBubble, DocText, type ReadingMode } from "@focus/reader-ui";
+import { FocusReader, AgentControls, readingFontSizes, preparationStepText, preparationText, useEvidenceNavigation, BookOpen, ChatBubble, DocText, type ReadingMode } from "@focus/reader-ui";
 import { BackendSetupPanel } from "./BackendSetupPanel";
 import { WorkspaceSelection } from './WorkspaceSelection';
 import { UploadTopicPicker } from "./UploadTopicPicker";
@@ -690,7 +690,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <small>清空已结束的失败提示，保留仍需操作的任务。</small>
         {taskWork.length === 0 && taskBatches.length === 0 && taskInbox.length === 0 && <p>没有进行中或待处理的任务。</p>}
         {taskWork.map(item => <div key={item.id}><span>{workLabel(item)}{item.kind === "preparation" && preparationFailed(item.targetId) ? "" : ` · ${{ running: "进行中", approval: "待确认", needs_action: "待处理", error: "待查看" }[item.phase]}`}</span>
-          {item.stage && <small>{item.kind === "preparation" ? preparationSteps[item.stage] : item.kind === "blog" ? (item.stage === "html" ? "生成 HTML" : "生成带读博客") : item.stage}</small>}
+          {item.stage && <small>{item.kind === "preparation" ? preparationStepText(item.stage) : item.kind === "blog" ? (item.stage === "html" ? "生成 HTML" : "生成带读博客") : item.stage}</small>}
           {typeof item.percent === "number" && <progress aria-label={workLabel(item)} max={100} value={item.percent} />}
           {item.error && (item.kind !== "preparation" || !view?.preparations?.[item.targetId]) && <p role="alert">{item.error}</p>}
           {item.cancellable && item.phase !== "approval" && <button disabled={!!busy} onClick={() => void stopWork(item)}>{item.kind === "preparation" ? "取消准备" : "停止此任务"}</button>}

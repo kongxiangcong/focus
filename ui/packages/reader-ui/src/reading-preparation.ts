@@ -7,10 +7,14 @@ const failures: Record<string, string> = {
   failed: "准备失败", interrupted: "准备已中断", cancelled: "准备已取消", bundle_changed: "原件已变化", commit_conflict: "提交冲突",
 };
 
+export function preparationStepText(step: string) {
+  return steps[step] ?? "正在准备";
+}
+
 export function preparationText(preparation: ReadingPreparation, subject = preparation.candidate ? "新计划" : "阅读") {
   if (preparation.timed_out) return "准备超时";
   if (preparation.status === "running") {
-    const step = steps[preparation.step] ?? "正在准备";
+    const step = preparationStepText(preparation.step);
     const progress = preparation.total > 0 ? ` · ${preparation.completed}/${preparation.total} 段` : "";
     return `${subject}准备中 · ${step}${progress}`;
   }

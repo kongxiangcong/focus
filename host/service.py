@@ -486,7 +486,7 @@ class HostService:
             if source_id not in titles:
                 continue
             try:
-                opening = self.source_opening(source_id)
+                opening = self._opening_status(source_id, SourceReading(self.workspace), attempt)
             except (OSError, WorkspaceError):
                 continue  # A concurrent source removal invalidates the snapshot.
             if opening['status'] in ('running', 'failed', 'interrupted'):
@@ -645,30 +645,33 @@ class HostService:
             self.changed()
             return self.snapshot()
 
+    def _opening_status(self, source_id, app, attempt):
+        result = app.opening(source_id)
+        if result['status'] == 'missing':
+            legacy = ArticleOverview(self.workspace, self.reading_app).status(source_id)
+            if legacy.get('status') == 'ready':
+                return {**result, 'status': 'ready', 'structure': legacy['structure'], 'guide': legacy['guide']}
+            worker = self.reading_workers.get(source_id)
+            if worker and worker.is_alive() and hasattr(self.reading_app.runtime, 'overview_structure'):
+                return {**result, 'status': 'running'}
+        worker = self.opening_workers.get(source_id)
+        if result['status'] == 'ready':
+            return result
+        if worker and worker.is_alive():
+            return {**result, 'status': 'running'}
+        if not attempt or attempt['bundleVersion'] != result['bundleVersion']:
+            return result
+        error = '导读生成已中断，请重试。' if attempt['status'] == 'running' else attempt['error']
+        return {**result, 'status': 'failed', 'error': error}
+
     def source_opening(self, source_id, *, prepare=False):
         with self.lock:
             self.source_clear.recover()
             app = SourceReading(self.workspace)
-            result = app.opening(source_id)
-            if result['status'] == 'missing':
-                legacy = ArticleOverview(self.workspace, self.reading_app).status(source_id)
-                if legacy.get('status') == 'ready':
-                    return {**result, 'status': 'ready', 'structure': legacy['structure'], 'guide': legacy['guide']}
-                worker = self.reading_workers.get(source_id)
-                if worker and worker.is_alive() and hasattr(self.reading_app.runtime, 'overview_structure'):
-                    return {**result, 'status': 'running'}
-            if result['status'] == 'ready':
-                return result
-            if source_id in self.opening_workers and self.opening_workers[source_id].is_alive():
-                return {**result, 'status': 'running'}
             attempts = self.store.get('openingAttempts') or {}
-            if not prepare:
-                attempt = attempts.get(source_id)
-                if not attempt or attempt['bundleVersion'] != result['bundleVersion']:
-                    return result
-                if attempt['status'] == 'running':
-                    return {**result, 'status': 'failed', 'error': '导读生成已中断，请重试。'}
-                return {**result, 'status': 'failed', 'error': attempt['error']}
+            result = self._opening_status(source_id, app, attempts.get(source_id))
+            if not prepare or result['status'] in ('ready', 'running'):
+                return result
             self._require_backend_admission()
             if self.shutting_down or self.resetting:
                 raise ValueError('工作区正在关闭或重置')
@@ -695,7 +698,7 @@ class HostService:
             self.opening_workers[source_id] = threading.Thread(target=generate, daemon=True)
             self.opening_workers[source_id].start()
             self._publish_snapshot_locked()
-            return {**result, 'status': 'running'}
+            return {**result, 'status': 'running', 'error': None}
 
     def article_overview(self, source_id):
         overview = ArticleOverview(self.workspace, self.reading_app).status(source_id)
