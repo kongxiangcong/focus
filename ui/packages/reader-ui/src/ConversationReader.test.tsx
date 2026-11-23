@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readerSuccess, type ReaderHost, type ReadingDocument, type ReadingWindow, type ValidatedAnswerEvidence } from "@focus/reader-contracts";
+import { readerSuccess, type ReaderHost, type ReadingDocument, type ReadingWindow, type SourceNote, type ValidatedAnswerEvidence } from "@focus/reader-contracts";
 import { ConversationReader } from "./ConversationReader";
 
 const initial: ReadingWindow = { status: "empty", source: { sourceId: "paper", title: "Paper", topicId: null },
@@ -64,6 +64,34 @@ it("scopes failed replies to their source and dismisses only the failed attempt"
   expect(screen.queryByText(run.error)).not.toBeInTheDocument();
   app.emit({ ...initial, revision: 4, agent: { ...agent, run: { ...run, runId: "new-attempt", sourceId: "paper" } } });
   expect(screen.getByRole("alert")).toHaveTextContent(run.error);
+});
+
+it("keeps a note conflict through a healthy snapshot and clears it after saving the edit", async () => {
+  const note: SourceNote = { noteId: "note", sourceId: "paper", revision: 1, content: "Old note",
+    kind: "thought", origin: "user", evidenceRole: "explanation", bundle: "v1", anchor: null,
+    referenceStatus: "current", sourceUpdated: false, deleted: false, canUndo: false };
+  const current = { ...note, revision: 2, content: "Changed elsewhere" };
+  const saved = { ...current, revision: 3, content: "Local edit" };
+  const conflicted = { ...initial, revision: 2, sourceNotes: [current] };
+  const changeSourceNote = vi.fn<NonNullable<ReaderHost["changeSourceNote"]>>()
+    .mockResolvedValueOnce(readerSuccess({ ...conflicted, noteOperation: { sourceId: "paper", status: "conflict", current } }))
+    .mockResolvedValueOnce(readerSuccess({ ...initial, revision: 4, sourceNotes: [saved] }));
+  const app = setup({ ...initial, sourceNotes: [note] }, {
+    createSourceNote: vi.fn(), changeSourceNote,
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "笔记" }, { timeout: 10_000 }));
+  fireEvent.click(screen.getByRole("button", { name: "编辑" }));
+  const input = screen.getByRole("textbox", { name: "笔记内容" });
+  fireEvent.change(input, { target: { value: saved.content } });
+  fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+  const conflict = await screen.findByRole("alert");
+  expect(conflict).toHaveTextContent("笔记已更新");
+  app.emit({ ...conflicted, revision: 3 });
+  expect(conflict).toBeVisible();
+  expect(input).toHaveValue(saved.content);
+  fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+  await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  expect(changeSourceNote.mock.calls[1]?.[3]).toBe(current.revision);
 });
 
 it("automatically locates at most one evidence per turn", async () => {
