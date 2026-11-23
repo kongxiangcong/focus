@@ -81,10 +81,10 @@ try {
     await lastBody.locator('..').getByRole('button', { name: '查看译文' }).click();
     await page.getByRole('button', { name: '全屏', exact: true }).click();
     await page.keyboard.press('Escape');
-    const modePicker = page.getByRole('combobox', { name: '阅读方式' });
-    await modePicker.selectOption('chat');
+    const modes = page.getByRole('group', { name: '阅读方式' });
+    await modes.getByRole('button', { name: '对话', exact: true }).click();
     assert.equal(await finish.count(), 0);
-    await modePicker.selectOption('chunks');
+    await modes.getByRole('button', { name: '精读', exact: true }).click();
     await page.getByRole('link', { name: '知识库', exact: true }).click();
     await page.getByRole('link', { name: '阅读', exact: true }).click();
     await page.waitForTimeout(750);

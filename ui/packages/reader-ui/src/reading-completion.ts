@@ -53,11 +53,21 @@ export function useReadingCompletion(
     observer?.observe(text);
     const content = stream.querySelector(".focus-content");
     if (content) observer?.observe(content);
+    // A passive gesture can move the compositor before its DOM handler. Read
+    // the starting position synchronously only while the final body is active.
+    stream.addEventListener("wheel", onWheel, { passive: false });
+    stream.addEventListener("touchstart", onTouchStart, { passive: false });
+    stream.addEventListener("touchmove", onTouchMove, { passive: false });
+    stream.addEventListener("touchcancel", cancelIntent);
     window.addEventListener("pointerdown", cancelIntent, true);
     window.addEventListener("blur", cancelIntent);
     document.addEventListener("visibilitychange", cancelIntent);
     return () => {
       observer?.disconnect();
+      stream.removeEventListener("wheel", onWheel);
+      stream.removeEventListener("touchstart", onTouchStart);
+      stream.removeEventListener("touchmove", onTouchMove);
+      stream.removeEventListener("touchcancel", cancelIntent);
       window.removeEventListener("pointerdown", cancelIntent, true);
       window.removeEventListener("blur", cancelIntent);
       document.removeEventListener("visibilitychange", cancelIntent);
@@ -90,16 +100,32 @@ export function useReadingCompletion(
     }
   }
 
+  function onWheel(event: WheelEvent) {
+    if (!event.isTrusted || event.defaultPrevented || event.ctrlKey || event.shiftKey || !readingTarget(event)) return;
+    scrollIntent(event.deltaY > 0 && event.deltaY >= Math.abs(event.deltaX));
+  }
+
   function onTouchStart(event: TouchEvent) {
-    touchY.current = event.isTrusted && event.touches.length === 1 ? event.touches[0].clientY : null;
+    touchY.current = event.isTrusted && event.touches.length === 1 && readingTarget(event) ? event.touches[0].clientY : null;
     cancelIntent();
   }
 
   function onTouchMove(event: TouchEvent) {
     const previous = touchY.current;
-    touchY.current = event.isTrusted && event.touches.length === 1 ? event.touches[0].clientY : null;
-    if (previous !== null && touchY.current !== null && previous !== touchY.current) scrollIntent(touchY.current < previous);
+    if (previous === null) return;
+    if (event.defaultPrevented || !event.isTrusted || event.touches.length !== 1) {
+      touchY.current = null;
+      cancelIntent();
+      return;
+    }
+    const next = event.touches[0].clientY;
+    touchY.current = next;
+    if (previous !== next) scrollIntent(next < previous);
   }
 
-  return { body, inline: !!scope && inlineScope === scope, scrollIntent, onScroll, onTouchStart, onTouchMove, cancelIntent };
+  return { body, inline: !!scope && inlineScope === scope, scrollIntent, onScroll, cancelIntent };
+}
+
+function readingTarget(event: Event) {
+  return event.target instanceof Element && !event.target.closest(".reader-anno-rail, .reader-chunk-notes-fold");
 }
