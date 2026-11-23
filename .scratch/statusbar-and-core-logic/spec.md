@@ -1,6 +1,6 @@
 # 工作台状态、精读完成与重新阅读
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
