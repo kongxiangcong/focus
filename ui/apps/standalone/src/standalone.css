@@ -501,6 +501,10 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
 .workspace-app[data-reading-fullscreen=true] > .workspace-nav,
 .workspace-app[data-reading-fullscreen=true] > .workspace-header { display:none; }
 .workspace-app[data-reading-fullscreen=true] > .workspace-reading { grid-column:1; grid-row:1; }
+.workspace-app[data-reading-fullscreen=true]:has(.workspace-approval) { grid-template-rows:auto minmax(0,1fr); }
+.workspace-app[data-reading-fullscreen=true] > .workspace-header:has(.workspace-approval) { display:block; grid-column:1; grid-row:1; padding-right:4rem; }
+.workspace-app[data-reading-fullscreen=true] > .workspace-header > :not(.workspace-approval) { display:none; }
+.workspace-app[data-reading-fullscreen=true]:has(.workspace-approval) > .workspace-reading { grid-row:2; }
 /* Brightness creates a stacking context: lift the drawer owner above the floating exit. */
 .workspace-app[data-reading-fullscreen=true] > .workspace-reading:has(.reader-left-drawer[data-open=true]) { z-index:8; }
 

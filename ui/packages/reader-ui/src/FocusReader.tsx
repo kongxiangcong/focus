@@ -38,7 +38,7 @@ type Upload = { id: string; file: File; state: "uploading" | "ready" | "failed";
 type Failure = { message: string; label: string; retry: () => void };
 type ReadingMode = "chunks" | "chat" | "blog";
 export type { ReadingMode };
-export interface FocusReaderProps { readingSession?: ReadingSession; evidenceNavigation?: EvidenceNavigation; renderModeNavigation?: (mode: ReadingMode, select: (next: ReadingMode) => void, disabled: boolean) => ReactNode; renderBlog?: (sourceId: string) => ReactNode; host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
+export interface FocusReaderProps { readingSession?: ReadingSession; evidenceNavigation?: EvidenceNavigation; renderModeNavigation?: (mode: ReadingMode, select: (next: ReadingMode) => void, disabled: boolean) => ReactNode; renderBlog?: (sourceId: string) => ReactNode; host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void; approvalManaged?: boolean }
 
 // Capture entry eligibility only on mount, never on streaming updates.
 function TimelineEvent({ identity, fresh, current, streaming, children }: { identity: string; fresh: boolean; current: boolean; streaming?: boolean; children: ReactNode }) {
@@ -65,7 +65,7 @@ export function groupReadingDiscussion<C extends { chunkId: string }>(
   return groups;
 }
 
-function LegacyFocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange, readingSession, evidenceNavigation }: FocusReaderProps) {
+function LegacyFocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange, readingSession, evidenceNavigation, approvalManaged }: FocusReaderProps) {
   const mist = appearance === "mist";
   const [confirmation, setConfirmation] = useState<ReaderConfirmationInput | null>(null);
   const [attachNotes, setAttachNotes] = useState(() => {
@@ -296,6 +296,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
   useEffect(() => { setReviewChunk(null); }, [view?.source.sourceId, view?.readingRevision]);
   const agent = !view?.agent?.run?.sourceId || view.agent.run.sourceId === view.source.sourceId ? view?.agent : undefined;
   const active = !!agent?.run && ["running", "approval", "stopping"].includes(agent.run.status);
+  const sharedApproval = approvalManaged && agent?.run?.status === "approval" && agent.run.approvals.some(approval => approval.status !== "expired");
   const uploading = uploads.some(u => u.state === "uploading");
   const blocked = active || !!operation;
   const chunks = useMemo(() => view ? [...view.history, ...(current ? [current] : view.readingStarted && frontier ? [frontier] : [])] : [], [view?.history, current, view?.readingStarted, frontier]);
@@ -898,8 +899,8 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
         {connection && <div className="focus-error" role="alert">{connection}<button onClick={() => void reconnect()}>重新连接</button></div>}
         {failure && <div className="focus-error" role="alert">{failure.message}<button disabled={!!operation} onClick={failure.retry}>{failure.label}</button><button aria-label="关闭错误" onClick={() => setFailure(null)}>×</button></div>}
         {operation && !active && <p className="focus-operation" role="status">{operation === "下一段" ? "正在打开下一段…" : `${operation}中…`}</p>}
-        {agent && (active || agent.run?.approvals.some(approval => approval.status === "expired")) &&
-          <AgentControls agent={agent} showStop={false} onStop={() => void perform("停止", () => host.stop!())} onAnswer={async input => {
+        {agent && active && !sharedApproval &&
+          <AgentControls agent={agent} showStop={false} showApproval={!approvalManaged} onStop={() => void perform("停止", () => host.stop!())} onAnswer={async input => {
           const result = await host.approve?.(input);
           if (result?.ok) { accept(result.value); return true; } return false;
         }} />}
@@ -924,7 +925,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
             }} /><button type="button" onClick={() => fileInput.current?.click()} aria-label="添加附件">＋ 附件</button></>}
               {uploads.some(u => u.state === "ready") && <button type="button" disabled={blocked || uploading} onClick={() => send("请阅读附件", false)}>阅读附件</button>}
             </div>}
-            {active && host.stop && !collapsed
+            {active && host.stop && !collapsed && !sharedApproval
               ? <button type="button" className="focus-primary focus-composer__send" aria-label="停止" title="停止" onClick={() => void perform("停止", () => host.stop!())} disabled={agent?.run?.status === "stopping"}><StopSquare /></button>
               : <button type="submit" className="focus-primary focus-composer__send" aria-label={operation === "发送" ? "发送中" : "发送"} title={operation === "发送" ? "发送中" : "发送"} disabled={!view || blocked || uploading || !draft.trim()}><ArrowUp /></button>}
           </div>
@@ -963,7 +964,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
       })}><Pin /><span className="mist-action-label">笔记</span></button>
       <button className="reader-fullscreen-toggle" aria-label={fullscreen ? "退出全屏" : "全屏"} aria-pressed={fullscreen} onClick={() => onFullscreenChange?.(!fullscreen)}>{fullscreen ? <Collapse /> : <Expand />}<span className="mist-action-label">{fullscreen ? "退出全屏" : "全屏"}</span></button>
       <button type="button" className="mist-composer-toggle" aria-expanded={!collapsed} aria-controls="focus-composer-form" onClick={() => toggleComposer(!collapsed)}><ChevronDown />{collapsed ? "提问" : "收起"}{collapsed && draft && <span aria-hidden="true" className="mist-composer-toggle__draft" />}</button>
-      {collapsed && active && host.stop && <button className="focus-reader__stop" onClick={() => void perform("停止", () => host.stop!())}><StopSquare />停止</button>}
+      {collapsed && active && host.stop && !sharedApproval && <button className="focus-reader__stop" onClick={() => void perform("停止", () => host.stop!())}><StopSquare />停止</button>}
       {view?.status !== "completed" && continueLabel !== "完成本篇" && <button className="focus-reader__continue" aria-label={continueLabel} disabled={showStructure || blocked || (!frontier && !reviewChunk)}
         onClick={() => { follow.current = true; view?.sessionFresh ? freshContinue() : next(); }}>
         {continueLabel === "继续" ? <>继续<span className="reader-continue-detail"> · 第 {view?.sessionFresh ? view.readingStarted ? (frontier?.index ?? 0) + 1 : frontier?.index ?? 1 : (displayed?.index ?? 0) + 1} 段</span></> : continueLabel}<ArrowRight /></button>}

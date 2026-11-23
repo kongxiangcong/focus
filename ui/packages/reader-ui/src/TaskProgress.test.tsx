@@ -20,8 +20,8 @@ it("shows observed progress, elapsed time and quiet periods without inventing a 
   expect(screen.queryByText(/暂未收到新进展/)).not.toBeInTheDocument();
   app.rerender(<TaskProgress run={{ ...value, status: "completed", progress: { ...value.progress!, finishedAt: 116000 } }} />);
   act(() => { vi.advanceTimersByTime(5000); });
-  expect(screen.getByLabelText("已用时间")).toHaveTextContent("16 秒");
-  expect(screen.getByRole("status")).toHaveTextContent("已完成");
+  expect(screen.queryByLabelText("已用时间")).not.toBeInTheDocument();
+  expect(screen.queryByRole("status")).not.toBeInTheDocument();
   expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
 });
 it("prioritizes approval and failure over stale stages and hides raw tool details", () => {

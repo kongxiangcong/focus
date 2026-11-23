@@ -63,7 +63,7 @@ describe("Agent Reader", () => {
     expect(screen.getByText("正在解析")).toBeInTheDocument();
     expect(screen.getByRole("textbox")).toHaveValue("下一条草稿");
   });
-  it("disables expired confirmation buttons when the runtime ends", async () => {
+  it("removes expired confirmation buttons when the runtime ends", async () => {
     const { host, update } = setup(); await screen.findByText("打开一份材料");
     update(running);
     expect(screen.getByRole("button", { name: "允许本次" })).toBeEnabled();
@@ -71,11 +71,8 @@ describe("Agent Reader", () => {
     update({ ...running, revision: 4, agent: { ...running.agent!, run: {
       ...run, status: "interrupted", approvals: [{ ...run.approvals[0], status: "expired" }],
     } } });
-    expect(screen.getByText("本次请求已过期，请重试")).toBeInTheDocument();
-    const allow = screen.getByRole("button", { name: "允许本次" });
-    expect(allow).toBeDisabled();
-    expect(screen.getByRole("button", { name: "拒绝" })).toBeDisabled();
-    fireEvent.click(allow);
+    expect(screen.queryByRole("button", { name: "允许本次" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "拒绝" })).not.toBeInTheDocument();
     expect(host.approve).not.toHaveBeenCalled();
   });
   it("sends explicit explanations unchanged and displays the requested answer", async () => {

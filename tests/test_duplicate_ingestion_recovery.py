@@ -27,11 +27,18 @@ class DuplicateIngestionRecoveryTests(unittest.TestCase):
 
     def assert_visible(self, expected):
         inbox = {item['item_id']: item for item in self.request('GET', '/library/inbox')}
-        work = {item['targetId']: item for item in self.request('GET', '/reader/window')['workItems']
+        window = self.request('GET', '/reader/window')
+        work = {item['targetId']: item for item in window['workItems']
                 if item['kind'] == 'ingestion'}
+        batched = {item['itemId'] for batch in self.request('GET', '/library/batches') for item in batch['items']}
+        visible_children = {item['itemId'] for batch in window['taskBatches'] for item in batch['items']}
         for item_id, visible in expected.items():
             self.assertEqual(not visible, inbox[item_id]['dismissed'])
-            self.assertEqual(not visible, work[item_id]['dismissed'])
+            if item_id in batched:
+                self.assertNotIn(item_id, work)
+                self.assertEqual(visible, item_id in visible_children)
+            else:
+                self.assertEqual(not visible, work[item_id]['dismissed'])
 
     def test_single_failure_clear_reupload_restart_and_explicit_retry(self):
         first = self.upload('failed.pdf', b'%PDF first')

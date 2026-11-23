@@ -175,6 +175,26 @@ export interface ArticleOverview {
   error?: string | null; guide?: string; structure?: readonly ReadingStructureNode[]; chunkNodes?: readonly string[];
 }
 
+export type TaskPhase = "running" | "approval" | "needs_action" | "error";
+
+export interface ActiveStatusItem {
+  id: string;
+  kind: "chat" | "preparation" | "blog" | "ingestion" | "batch" | "progress" | "opening";
+  targetId: string;
+  attemptId: string;
+  sourceId?: string | null;
+  sourceTitle?: string | null;
+  status: string;
+  phase: TaskPhase;
+  label: string;
+  stage?: string | null;
+  percent?: number | null;
+  error?: string | null;
+  retryable?: boolean;
+  cancellable?: boolean;
+  dismissed?: boolean;
+}
+
 export interface ReadingWindow {
   sourceBundleVersion?: string | null;
   sourceGeneration?: number;
@@ -183,7 +203,9 @@ export interface ReadingWindow {
   structure?: readonly ReadingStructureNode[];
   structureIntro?: boolean;
   workspace?: { workspaceId: string; instanceId: string; path: string };
-  workItems?: readonly { kind: "chat" | "preparation" | "blog" | "ingestion" | "progress"; targetId: string; status: string; label: string; error?: string | null; dismissed?: boolean }[];
+  workItems?: readonly ActiveStatusItem[];
+  taskInbox?: readonly IngestionItem[];
+  taskBatches?: readonly ProcessingBatch[];
   configuration?: BackendConfigurationState;
   clearBusySources?: readonly string[];
   reviewChunk?: ReaderChunk | null;
@@ -380,6 +402,8 @@ export interface SourceDeletionImpact {
 
 export interface ProcessingBatch {
   dismissed?: boolean;
+  phase?: TaskPhase;
+  attemptId?: string;
   batchId: string;
   topicId: string | null;
   status: "confirmed" | "running" | "paused" | "completed" | "partial";
@@ -387,6 +411,9 @@ export interface ProcessingBatch {
   executing?: boolean;
   items: readonly {
     dismissed?: boolean;
+    phase?: TaskPhase;
+    attemptId?: string;
+    sourceTitle?: string | null;
     itemId: string; fileName: string; sourceId: string | null;
     status: "queued" | "processing" | "completed" | "failed" | "cancelled" | "partial" | "deleted";
     ingestionStatus: string; blog: BlogStatus | null;
@@ -401,6 +428,9 @@ export interface ProcessingBatch {
 
 export interface IngestionItem {
   dismissed?: boolean;
+  phase?: TaskPhase;
+  attemptId?: string;
+  sourceTitle?: string | null;
   itemId: string;
   fileName: string;
   status: IngestionStatus;

@@ -85,6 +85,11 @@ class BatchApplication:
         with self.lock:
             return [self._view(b) for b in self._read().values()]
 
+    def task_snapshot(self, inbox):
+        """Project the atomic schedule without acquiring the batch writer lock."""
+        return [(batch['executionId'], self._view(batch, inbox=inbox))
+                for batch in self._read().values()]
+
     def owns(self, item_id):
         with self.lock:
             return any(item_id in b['itemIds'] and b['status'] in ('confirmed', 'running', 'paused')
@@ -100,11 +105,14 @@ class BatchApplication:
                 item_ids = [item_id] if item_id in item_ids else []
             return any(self.processing.wants_blog(i) for i in item_ids)
 
-    def _view(self, batch):
+    def _view(self, batch, *, inbox=None):
         items = []
-        for index, item_id in enumerate(batch['itemIds']):
-            item = self.processing.ingestion.get(item_id)
-            blog = self.processing.blog.status(item['source_id']) if item.get('source_id') else None
+        for item_id in batch['itemIds']:
+            item = inbox.get(item_id) if inbox is not None else self.processing.ingestion.get(item_id)
+            if item is None:
+                continue  # The Inbox snapshot predates this batch's admission.
+            source_id = item.get('source_id')
+            blog = self.processing.blog.status(source_id) if source_id else None
             error = item.get('topic_error') or item.get('error') or (blog or {}).get('error') or batch['itemErrors'].get(item_id)
             if item.get('deleted'):
                 status = 'deleted'
@@ -192,7 +200,11 @@ class BatchApplication:
         if wait:
             wait()
 
-    def run(self, batch_id, *, submit_blog, should_stop=lambda: False):
+    def run(self, batch_id, *, submit_blog, should_stop=lambda: False, on_progress=lambda: None):
+        def publish(batches):
+            _write_document(self.path, batches)
+            on_progress()
+
         with self.lock:
             batches = self._read()
             batch = batches[batch_id]
@@ -200,7 +212,7 @@ class BatchApplication:
                 return
             self.running.add(batch_id)
             batch['status'] = 'running'
-            _write_document(self.path, batches)
+            publish(batches)
         try:
             while True:
                 with self.lock:
@@ -211,17 +223,17 @@ class BatchApplication:
                     if should_stop():
                         batch['status'] = 'paused'
                         batch['error'] = {'error_id': 'batch_interrupted', 'message': '处理已中断，请明确继续。'}
-                        _write_document(self.path, batches)
+                        publish(batches)
                         return
                     if batch['cursor'] == len(batch['workIds']):
                         batch['activeItemId'] = None
                         batch['status'] = 'completed' if all(i['status'] == 'completed' for i in self._view(batch)['items']) else 'partial'
-                        _write_document(self.path, batches)
+                        publish(batches)
                         return
                     item_id = batch['workIds'][batch['cursor']]
                     if item_id in batch['excluded']:
                         batch['cursor'] += 1
-                        _write_document(self.path, batches)
+                        publish(batches)
                         continue
                     batch['activeItemId'] = item_id
                     batch['itemErrors'].pop(item_id, None)
@@ -236,7 +248,7 @@ class BatchApplication:
                             self.processing.prepare_resume(item_id, request_id=batch['executionId'] + ':' + str(batch['cursor']))
                         except WorkspaceError as exc:
                             preparation_error = exc
-                    _write_document(self.path, batches)
+                    publish(batches)
                 failure = None
                 try:
                     if preparation_error:
@@ -260,7 +272,7 @@ class BatchApplication:
                     if error and error['error_id'] in SERVICE_ERRORS:
                         batch['status'] = 'paused'
                         batch['error'] = error
-                    _write_document(self.path, batches)
+                    publish(batches)
                     if batch['status'] == 'paused':
                         return
         finally:

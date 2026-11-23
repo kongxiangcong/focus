@@ -248,7 +248,7 @@ class SourceReadingTests(unittest.TestCase):
         self.host.worker.join(8)
         self.assertFalse(self.host.worker.is_alive())
         window = self.host.snapshot()
-        self.assertEqual('completed', window['agent']['run']['status'])
+        self.assertIsNone(window['agent']['run'])
         evidence = window['conversation'][-1]['evidence']
         self.assertEqual(1, len(evidence))
         self.assertEqual(window['discussionId'], evidence[0]['discussionId'])

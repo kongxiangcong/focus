@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ReaderAgentState } from "@focus/reader-contracts";
 import "./task-progress.css";
 
-const terminal = { completed: "已完成", failed: "处理失败", interrupted: "已停止" };
+const terminal = { failed: "处理失败", interrupted: "已停止" };
 const activityNames: Record<string, string> = { commandExecution: "执行操作", fileChange: "保存文件", dynamicToolCall: "调用工具", mcpToolCall: "调用工具", reasoning: "思考中", webSearch: "联网搜索", webFetch: "读取网页" };
 function duration(ms: number) {
   const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -18,7 +18,7 @@ export function TaskProgress({ run }: { run: ReaderAgentState["run"] }) {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [active, run?.runId]);
-  if (!run) return null;
+  if (!run || run.status === "completed") return null;
   const latest = [...run.activity].reverse().find(a => ["inProgress", "running"].includes(a.status));
   const label = run.status === "approval" ? "等待你的操作" : run.status === "stopping" ? "正在停止" :
     run.status in terminal ? terminal[run.status as keyof typeof terminal] :

@@ -108,7 +108,13 @@ function decodeResult(value: unknown): ReaderHostResult<ReadingWindow> {
   }
   const candidate = value as Record<string, unknown>;
   if (candidate.ok === true && isReadingWindow(candidate.value)) {
-    return { ok: true, value: candidate.value };
+    const value = candidate.value;
+    if (Array.isArray(value.taskInbox)) {
+      const taskInbox = value.taskInbox.map(decodeIngestionItem);
+      if (taskInbox.every(item => item !== null)) return { ok: true, value: { ...value, taskInbox } };
+    } else {
+      return { ok: true, value };
+    }
   }
   if (candidate.ok === false && typeof candidate.error === "object" && candidate.error !== null) {
     const error = candidate.error as Record<string, unknown>;
@@ -142,6 +148,9 @@ function decodeIngestionItem(value: unknown): IngestionItem | null {
   return {
     itemId: item.item_id, fileName: item.file_name, status: item.status as IngestionItem["status"],
     ...(typeof item.dismissed === 'boolean' ? { dismissed: item.dismissed } : {}),
+    ...(typeof item.attemptId === "string" ? { attemptId: item.attemptId } : {}),
+    ...(["running", "approval", "needs_action", "error"].includes(String(item.phase)) ? { phase: item.phase as IngestionItem["phase"] } : {}),
+    ...(typeof item.sourceTitle === "string" ? { sourceTitle: item.sourceTitle } : {}),
     topicTitle: item.topic_title as string | null, topicId: item.topic_id as string | null,
     sourceId: item.source_id as string | null, documentStatus: item.document_status,
     topicStatus: item.topic_status,

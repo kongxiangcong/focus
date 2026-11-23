@@ -158,11 +158,19 @@ class WebHostTests(unittest.TestCase):
                        'caption': 'Figure 1: Architecture overview.'}, figures)
 
     def test_question_stream_persistence_and_resume_never_advance(self):
-        self.start(); self.finish()
-        self.assertEqual('chunk-001', self.host.snapshot()['current']['chunkId'])
-        self.assertEqual('真实 Core，协议替身。', self.host.snapshot()['conversation'][-1]['content'])
+        started = self.start()
+        run_id = started['agent']['run']['runId']
+        self.finish()
+        snapshot = self.host.snapshot()
+        self.assertIsNone(snapshot['agent']['run'])
+        self.assertFalse(any(item['kind'] == 'chat' for item in snapshot['workItems']))
+        self.assertEqual('completed', self.host.execution_log(run_id)['status'])
+        self.assertEqual('chunk-001', snapshot['current']['chunkId'])
+        self.assertEqual('真实 Core，协议替身。', snapshot['conversation'][-1]['content'])
         self.host.close()
         self.host = HostService(self.workspace, self.data)
+        self.assertIsNone(self.host.snapshot()['agent']['run'])
+        self.assertEqual('completed', self.host.execution_log(run_id)['status'])
         self.start(requestId='request-5678'); self.finish()
         self.assertEqual('thread/start', first_thread_call(ProtocolDouble.instances[-1])['method'])
         self.assertEqual(4, len(self.host.snapshot()['conversation']))
@@ -232,7 +240,7 @@ class WebHostTests(unittest.TestCase):
         window = self.host.snapshot()
         self.assertEqual('chunk-001', window['current']['chunkId'])
         self.assertEqual('保存给阅读卡片的译文。', window['current']['translation'])
-        self.assertEqual('completed', window['agent']['run']['status'])
+        self.assertIsNone(window['agent']['run'])
         self.assertFalse(any(m['role'] == 'assistant' for m in window['conversation']))
 
     def test_continue_does_not_resume_previous_explanation(self):
@@ -283,7 +291,7 @@ class WebHostTests(unittest.TestCase):
         response = next(c for c in ProtocolDouble.instances[-1].calls if 'result' in c)
         self.assertFalse(response['result']['success'])
         self.assertIn('source_scope_invalid', response['result']['contentItems'][0]['text'])
-        self.assertEqual([], self.host.snapshot()['agent']['run']['approvals'])
+        self.assertIsNone(self.host.snapshot()['agent']['run'])
 
     def test_approval_recovery_decline_and_serialization(self):
         ProtocolDouble.mode = 'approval'
@@ -292,8 +300,10 @@ class WebHostTests(unittest.TestCase):
         approval = self.host.snapshot()['agent']['run']['approvals'][0]
         with self.assertRaises(ValueError):
             self.start(requestId='different-1234')
-        self.host.approve({'approvalId': approval['id'], 'decision': 'decline'})
+        accepted = self.host.approve({'approvalId': approval['id'], 'decision': 'decline'})
+        self.assertEqual([], accepted['agent']['run']['approvals'])
         self.finish()
+        self.assertIsNone(self.host.snapshot()['agent']['run'])
         self.assertIn({'id': 700, 'result': {'decision': 'decline'}}, ProtocolDouble.instances[-1].calls)
         with self.assertRaises(ValueError):
             self.host.approve({'approvalId': approval['id'], 'decision': 'accept'})

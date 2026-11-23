@@ -6,8 +6,7 @@ function Approval({ approval, onAnswer }: { approval: ReaderApproval; onAnswer: 
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(false);
-  const expired = approval.status === "expired";
-  const disabled = sent || expired;
+  const disabled = sent;
   async function respond(value: ReaderApprovalResponse) {
     if (disabled) return;
     setSent(true); setError(false);
@@ -22,23 +21,22 @@ function Approval({ approval, onAnswer }: { approval: ReaderApproval; onAnswer: 
         onClick={() => setAnswers({ ...answers, [q.id]: o.label })}>{o.label} — {o.description}</button>)}
       <input aria-label={q.question} disabled={disabled} value={answers[q.id] ?? ""} onChange={e => setAnswers({ ...answers, [q.id]: e.target.value })} />
     </fieldset>)}
-    {approval.kind === "input" ? <button disabled={disabled} onClick={() => void respond({ approvalId: approval.id,
+    {approval.kind === "input" ? <button type="button" disabled={disabled} onClick={() => void respond({ approvalId: approval.id,
       answers: Object.fromEntries(approval.questions.map(q => [q.id, { answers: [answers[q.id] ?? ""] }])) })}>提交回答</button> :
-      approval.choices.map(choice => <button disabled={disabled} key={choice} onClick={() => void respond({ approvalId: approval.id, decision: choice })}>
+      approval.choices.map(choice => <button type="button" disabled={disabled} key={choice} onClick={() => void respond({ approvalId: approval.id, decision: choice })}>
         {choice === "accept" ? "允许本次" : choice === "decline" ? "拒绝" : "取消"}</button>)}
-    {expired && <span role="status">本次请求已过期，请重试</span>}
-    {sent && !expired && <span role="status">已提交，等待处理</span>}
-    {error && !expired && <p role="alert">提交失败，请重试。</p>}
+    {sent && <span role="status">已提交，等待处理</span>}
+    {error && <p role="alert">提交失败，请重试。</p>}
   </section>;
 }
-export function AgentControls({ agent, onStop, onAnswer, showStop = true }: { agent: ReaderAgentState; onStop: () => void; onAnswer: (input: ReaderApprovalResponse) => Promise<boolean>; showStop?: boolean }) {
+export function AgentControls({ agent, onStop, onAnswer, showStop = true, showApproval = true }: { agent: ReaderAgentState; onStop: () => void; onAnswer: (input: ReaderApprovalResponse) => Promise<boolean>; showStop?: boolean; showApproval?: boolean }) {
   const run = agent.run;
-  if (!run) return null;
+  if (!run || run.status === "completed") return null;
   const active = ["running", "approval", "stopping"].includes(run.status);
   return <div className="focus-agent" aria-label="后台任务">
     <div className="focus-agent__status"><TaskProgress run={run} />
-      {active && showStop && <button onClick={onStop} disabled={run.status === "stopping"}>停止</button>}</div>
+      {active && showStop && <button type="button" onClick={onStop} disabled={run.status === "stopping"}>停止</button>}</div>
     {run.error && <p role="alert">{run.error}</p>}
-    {run.approvals.map(a => <Approval key={a.id} approval={a} onAnswer={onAnswer} />)}
+    {showApproval && run.status === "approval" && run.approvals.filter(a => a.status !== "expired").map(a => <Approval key={a.id} approval={a} onAnswer={onAnswer} />)}
   </div>;
 }
