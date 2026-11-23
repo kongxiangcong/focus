@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PDFDocumentProxy, PDFPageProxy, RenderTask, TextLayer } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type { PdfBox, ReadingDocument } from "@focus/reader-contracts";
@@ -8,6 +8,7 @@ import { SourceEvidenceMarkers } from "./SourceEvidenceMarkers";
 import type { PaperEvidence, PaperPdf as PDF } from "./paper-evidence";
 type PageSize = NonNullable<PDF["pages"]>[number];
 type Block = PDF["blocks"][number];
+export type PdfPageState = "ready" | "unavailable";
 
 export function TranslatedPaper({ document, evidence }: { document: ReadingDocument; evidence: readonly PaperEvidence[] }) {
   return <article>{document.translation?.chunks.map(chunk => {
@@ -71,30 +72,43 @@ function PaperSurface({ page, element }: { page: PDFPageProxy; element: RefObjec
   </>;
 }
 
-function Page({ document, pageNumber, size, blocks, evidence, active }: {
+function Page({ document, pageNumber, size, blocks, evidence, active, requested, onPageSettled }: {
   document: PDFDocumentProxy; pageNumber: number; size?: PageSize; blocks: readonly Block[];
-  evidence: readonly PaperEvidence[]; active?: string;
+  evidence: readonly PaperEvidence[]; active?: string; requested: boolean;
+  onPageSettled: (page: number, state: PdfPageState) => void;
 }) {
   const element = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState<PDFPageProxy>();
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<"browse" | "navigation">();
+  const [nearby, setNearby] = useState(false);
+  const navigationLoad = useRef(false);
 
   useEffect(() => {
     const node = element.current;
     if (!node) return;
-    let live = true;
     const observer = new IntersectionObserver(([entry]) => {
       if (!entry.isIntersecting) return;
       observer.disconnect();
-      void document.getPage(pageNumber).then(loaded => {
-        if (live) setPage(loaded);
-      }, () => {
-        if (live) setError(true);
-      });
+      setNearby(true);
     }, { rootMargin: "700px" });
     observer.observe(node);
-    return () => { live = false; observer.disconnect(); };
-  }, [document, pageNumber]);
+    return () => observer.disconnect();
+  }, []);
+
+  const loadPage = nearby || requested;
+  useEffect(() => {
+    if (!loadPage) return;
+    let live = true;
+    if (!nearby) navigationLoad.current = true;
+    void document.getPage(pageNumber).then(loaded => {
+      if (live) setPage(loaded);
+    }, () => {
+      if (live) setError(navigationLoad.current ? "navigation" : "browse");
+    });
+    // A speculative destination can later become nearby. Its failure still
+    // belongs to the navigation that requested it, not to passive browsing.
+    return () => { live = false; };
+  }, [document, pageNumber, loadPage]);
 
   const viewport = page?.getViewport({ scale: 1 });
   const width = viewport?.width ?? size?.width;
@@ -103,6 +117,10 @@ function Page({ document, pageNumber, size, blocks, evidence, active }: {
     Math.abs(viewport.width - size.width) < 0.1 && Math.abs(viewport.height - size.height) < 0.1 &&
     (size.rotation == null || viewport.rotation === size.rotation)
   ));
+  useLayoutEffect(() => {
+    if (page || error) onPageSettled(pageNumber, canDrawBoxes ? "ready" : "unavailable");
+  }, [page, error, onPageSettled, pageNumber, canDrawBoxes]);
+
   const pageBlocks = blocks.filter(block => !canDrawBoxes || !boxesForBlock(block).length);
   const hasBlock = (item: PaperEvidence, block: Block) => item.pdfBlocks.some(candidate =>
     candidate.page === pageNumber && candidate.blockId === block.blockId);
@@ -112,8 +130,8 @@ function Page({ document, pageNumber, size, blocks, evidence, active }: {
   const pageEvidence = [...unplaced, ...pageGroups.flatMap(group => group.items)];
   return <div className="paper-pdf-page" data-pdf-page={pageNumber} ref={element}
     style={{ aspectRatio: width && height ? `${width}/${height}` : undefined }} aria-label={`第 ${pageNumber} 页`}>
-    {page && <PaperSurface page={page} element={element} />}
-    {error && <span role="alert">此页渲染失败</span>}
+    {page && nearby && <PaperSurface page={page} element={element} />}
+    {error === "browse" && <span role="alert">此页渲染失败</span>}
     {canDrawBoxes && blocks.flatMap(block => {
       const items = itemsForBlock(block);
       return boxesForBlock(block).map((box, index) => (
@@ -139,8 +157,10 @@ function Page({ document, pageNumber, size, blocks, evidence, active }: {
   </div>;
 }
 
-export function OriginalPaper({ url, pdf, evidence, active, onReady, onUnavailable }: {
-  url: string; pdf: PDF; evidence: readonly PaperEvidence[]; active?: string; onReady: () => void; onUnavailable?: () => void;
+export function OriginalPaper({ url, pdf, evidence, active, requestedPages, onReady, onUnavailable, onPageSettled }: {
+  url: string; pdf: PDF; evidence: readonly PaperEvidence[]; active?: string; requestedPages?: readonly number[];
+  onReady: (count: number) => void; onUnavailable?: () => void;
+  onPageSettled: (page: number, state: PdfPageState) => void;
 }) {
   const [loaded, setLoaded] = useState<{ url: string; document?: PDFDocumentProxy }>();
   const document = loaded?.url === url ? loaded.document : undefined;
@@ -173,7 +193,7 @@ export function OriginalPaper({ url, pdf, evidence, active, onReady, onUnavailab
     return () => { live = false; dispose?.(); };
   }, [url]);
   useEffect(() => {
-    if (document) onReady();
+    if (document) onReady(document.numPages);
     else if (error) onUnavailable?.();
   }, [document, error, onReady, onUnavailable]);
   const evidenceByPage = useMemo(() => {
@@ -206,6 +226,7 @@ export function OriginalPaper({ url, pdf, evidence, active, onReady, onUnavailab
     !document ? <span role="status">加载原版 PDF…</span> : Array.from({ length: document.numPages }, (_, index) => {
       const pageNumber = index + 1;
       return <Page key={`${url}:${pageNumber}`} document={document} pageNumber={pageNumber} size={sizes.get(pageNumber)}
-        blocks={[...(grouped.get(pageNumber)?.values() ?? [])]} evidence={evidenceByPage.get(pageNumber) ?? []} active={active} />;
+        blocks={[...(grouped.get(pageNumber)?.values() ?? [])]} evidence={evidenceByPage.get(pageNumber) ?? []} active={active}
+        requested={requestedPages?.includes(pageNumber) ?? false} onPageSettled={onPageSettled} />;
     })}</div>;
 }
