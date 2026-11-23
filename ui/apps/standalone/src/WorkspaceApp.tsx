@@ -8,7 +8,7 @@ import { BackendSetupPanel } from "./BackendSetupPanel";
 import { WorkspaceSelection } from './WorkspaceSelection';
 import { UploadTopicPicker } from "./UploadTopicPicker";
 import { readingFonts, readReadingFont, readingFontFamily, type ReadingFont } from "./reading-fonts";
-import { applyAppearance, readAccent, readPreference, readTheme, type Density } from "./appearance";
+import { applyAppearance, readAccent, readPreference, readTheme, systemColorScheme, type Density } from "./appearance";
 import { AppearanceThemePicker } from "./AppearanceThemePicker";
 
 import { LibraryToolbar } from "./library/LibraryToolbar";
@@ -35,6 +35,12 @@ const blogRetryLabel: Record<BlogArtifactName, string> = {
   reading_blog: "重新生成带读博客", html: "重新生成 HTML",
 };
 
+type Status = "danger" | "success" | "warning";
+const statusGlyph: Record<Status, string> = { danger: "!", success: "✓", warning: "⚠︎" };
+function StatusIcon({ status }: { status: Status }) {
+  return <span className="workspace-status-icon" aria-hidden="true">{statusGlyph[status]}</span>;
+}
+
 export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [workbenchId] = useState(createReaderId);
   const [route, setRoute] = useState<Route>(routeFromLocation);
@@ -45,13 +51,13 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [reducedMotion, setReducedMotion] = useState(() => readPreference("focus.reducedMotion", ["true", "false"], "false") === "true");
   const [density, setDensity] = useState<Density>(() => readPreference("focus.density", ["compact", "comfortable"], "compact"));
   const [navCollapsed, setNavCollapsed] = useState(() => readPreference("focus.navigation", ["expanded", "collapsed"], globalThis.matchMedia?.("(max-width: 1180px)").matches ? "collapsed" : "expanded") === "collapsed");
-  const [appearanceFeedback, setAppearanceFeedback] = useState("");
+  const [appearanceFeedback, setAppearanceFeedback] = useState<"danger" | "success" | null>(null);
   const [moreSource, setMoreSource] = useState<string | null>(null);
   useEffect(() => {
     const update = () => applyAppearance(theme, accent, density, reducedMotion);
     update();
     if (theme !== "system") return;
-    const media = globalThis.matchMedia?.("(prefers-color-scheme: dark)");
+    const media = systemColorScheme();
     media?.addEventListener?.("change", update);
     return () => media?.removeEventListener?.("change", update);
   }, [theme, accent, density, reducedMotion]);
@@ -187,9 +193,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   useEffect(() => {
     if (!appearanceMounted.current) { appearanceMounted.current = true; return; }
     const ok = saveAppearance();
-    setAppearanceFeedback(ok ? "已自动保存" : "外观保存失败，请重试");
+    setAppearanceFeedback(ok ? "success" : "danger");
     if (!ok) return;
-    const timer = setTimeout(() => setAppearanceFeedback(""), 1800);
+    const timer = setTimeout(() => setAppearanceFeedback(null), 1800);
     return () => clearTimeout(timer);
   }, [fontSize, readingFont, theme, accent, density, reducedMotion]);
   function navigate(next: Route) {
@@ -316,15 +322,13 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
 
   useEffect(() => { if (uploadOpen) uploadDialog.current?.showModal(); else uploadDialog.current?.close(); }, [uploadOpen]);
 
+  const canOperate = (label: string) => !locked.current && (!active || label.startsWith("停止") || label === "全部清空");
   async function operate(label: string, operation: () => Promise<ReaderHostResult<ReadingWindow>>, read = false,
-    begin?: () => (() => void) | undefined) {
-    if (locked.current || (active && !label.startsWith("停止") && label !== '全部清空')) return;
+    retry = () => void operate(label, operation, read)) {
+    if (!canOperate(label)) return;
     locked.current = true; setBusy(label); setError(""); setRetryAction(null);
     const started = selection.current.generation;
-    const retry = () => void operate(label, operation, read, begin);
-    let finish: (() => void) | undefined;
     try {
-      finish = begin?.();
       const result = await operation();
       if (!isCurrentSelection(started)) return;
       if (!result.ok) { setError(result.error.message); setRetryAction(() => retry); return; }
@@ -333,7 +337,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       if (label === "上传") { setUploadOpen(false); setSelectedFiles([]); }
       await refresh();
     } catch (e) { if (isCurrentSelection(started)) { setError(String(e)); setRetryAction(() => retry); } }
-    finally { finish?.(); locked.current = false; setBusy(""); }
+    finally { locked.current = false; setBusy(""); }
   }
   async function discuss(sourceId: string) {
     if (!host.selectDiscussionSource || locked.current || active) return;
@@ -383,9 +387,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   function preparationNotice(sourceId: string) {
     const prepared = view?.preparations?.[sourceId];
     if (!prepared || prepared.ready || preparationHidden(sourceId)) return null;
-    return <section className="preparation-notice" aria-label="准备阅读状态">
+    return <section className="preparation-notice" data-workspace-status="warning" aria-label="准备阅读状态">
       <div className="preparation-notice-heading">
-        <p role="status">{preparationText(prepared)}</p>
+        <p role="status"><StatusIcon status="warning" />{preparationText(prepared)}</p>
         {preparationFailed(sourceId) && prepared.attempt && host.dismissPreparation && <button className="preparation-dismiss" aria-label="关闭准备阅读提示" title="关闭这次状态提示" onClick={() => void dismissPreparation(sourceId)}>×</button>}
       </div>
       {preparationFailed(sourceId) && (host.resumePreparation || host.replanSource) && <button disabled={!!busy || active} onClick={() => void retryPreparation(sourceId)}>重试</button>}
@@ -536,26 +540,33 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     const reset = host.resetSourceReading?.bind(host);
     if (!reset) return;
     const storageKey = `focus.resetReading:${view?.workspace?.workspaceId ?? "local"}:${sourceId}`;
+    const label = "重新阅读";
+    const resetReading = async () => {
+      if (!canOperate(label)) return;
+      const current = viewRef.current;
+      const finish = current?.source.sourceId === sourceId
+        ? evidenceNavigation.beginDiscussionReset(sourceId, current.discussionId) : undefined;
+      try {
+        await operate(label, () => identified(storageKey, async fallbackId => {
+          let requestId = fallbackId;
+          try {
+            requestId = sessionStorage.getItem(storageKey) ?? fallbackId;
+            sessionStorage.setItem(storageKey, requestId);
+          } catch { /* The in-memory identity still covers retries. */ }
+          const result = await reset(sourceId, requestId);
+          if (result.ok) {
+            try { sessionStorage.removeItem(storageKey); } catch { /* Storage is optional. */ }
+          }
+          return result;
+        }), false, () => void resetReading());
+      } finally { finish?.(); }
+    };
     setResetConfirmation({
       title: "重新阅读本篇？",
       description: "将清除精读进度、旧计划、小段笔记、句子备注和重点。整篇笔记会保留，旧对话归档，并开启新对话。",
       label: "确认重新阅读",
       opener,
-      confirm: () => void operate("重新阅读", () => identified(storageKey, async fallbackId => {
-        let requestId = fallbackId;
-        try {
-          requestId = sessionStorage.getItem(storageKey) ?? fallbackId;
-          sessionStorage.setItem(storageKey, requestId);
-        } catch { /* The in-memory identity still covers retries. */ }
-        const result = await reset(sourceId, requestId);
-        if (result.ok) {
-          try { sessionStorage.removeItem(storageKey); } catch { /* Storage is optional. */ }
-        }
-        return result;
-      }), false, () => {
-        const current = viewRef.current;
-        if (current?.source.sourceId === sourceId) return evidenceNavigation.beginDiscussionReset(sourceId, current.discussionId);
-      }),
+      confirm: () => void resetReading(),
     });
   }
   async function confirmDelete(source: LibrarySource) {
@@ -760,7 +771,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         </div>
       </div>
       {(taskDetails || taskVisited) && <div ref={taskFrame} className="workspace-task-frame" id="workspace-tasks" role="region" aria-label="任务框" data-open={taskDetails} aria-hidden={!taskDetails} inert={!taskDetails} onKeyDown={event => { if (event.key === "Escape") { event.stopPropagation(); setTaskDetails(false); document.querySelector<HTMLButtonElement>(".workspace-task-toggle")?.focus(); } }}>
-        <div className="workspace-task-actions"><span>任务状态</span><button disabled={!!busy || !host.clearFinishedStatuses || !view?.clearableStatusTokens?.length} onClick={() => void clearStatuses()}>全部清空</button></div>
+        <div className="workspace-task-actions"><span>任务状态</span><button className="workspace-danger-action" disabled={!!busy || !host.clearFinishedStatuses || !view?.clearableStatusTokens?.length} onClick={() => void clearStatuses()}>全部清空</button></div>
         <small>清空已结束的失败提示，保留仍需操作的任务。</small>
         {taskWork.length === 0 && taskBatches.length === 0 && taskInbox.length === 0 && <p>没有进行中或待处理的任务。</p>}
         {taskWork.map(item => <div key={item.id}><span>{workLabel(item)}{item.kind === "preparation" && preparationFailed(item.targetId) ? "" : ` · ${{ running: "进行中", approval: "待确认", needs_action: "待处理", error: "待查看" }[item.phase]}`}</span>
@@ -819,10 +830,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <AgentControls agent={approval} showStop={!!host.stop} onStop={() => host.stop && void host.stop().then(result => { if (result.ok) acceptView(result.value); })} onAnswer={async input => {
         const result = await host.approve?.(input); if (result?.ok) { acceptView(result.value); return true; } return false;
       }} /></div>}
-      {connectionError && <div className="workspace-error" role="alert">{connectionError}</div>}
-      {route === "/library" && libraryError && <div className="workspace-error" role="alert">{libraryError}<button onClick={() => void refresh()}>刷新列表</button></div>}
-      {!uploadOpen && error && <div className="workspace-error" role="alert">{error}<button onClick={() => { setError(""); if (retryAction) retryAction(); else void refresh(); }}>{retryAction ? "重试此操作" : "刷新状态"}</button></div>}
-      {!error && notice && <div className="workspace-notice" role="status">{notice}<button onClick={() => setNotice("")}>关闭</button></div>}
+      {connectionError && <div className="workspace-error" data-workspace-status="danger" role="alert"><StatusIcon status="danger" />{connectionError}</div>}
+      {route === "/library" && libraryError && <div className="workspace-error" data-workspace-status="danger" role="alert"><StatusIcon status="danger" />{libraryError}<button onClick={() => void refresh()}>刷新列表</button></div>}
+      {!uploadOpen && error && <div className="workspace-error" data-workspace-status="danger" role="alert"><StatusIcon status="danger" />{error}<button onClick={() => { setError(""); if (retryAction) retryAction(); else void refresh(); }}>{retryAction ? "重试此操作" : "刷新状态"}</button></div>}
+      {!error && notice && <div className="workspace-notice" data-workspace-status="warning" role="status"><StatusIcon status="warning" />{notice}<button onClick={() => setNotice("")}>关闭</button></div>}
     </header>
     {readingFullscreen && readingResetAction}
     {route === "/reading" && readingFullscreen && <button type="button" className="reading-fullscreen-exit"
@@ -893,7 +904,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
                 <h2>外观与阅读</h2>
                 <p className="appearance-hint">所有外观调整实时生效并自动保存至本机浏览器。</p>
               </div>
-              {appearanceFeedback && <span className="settings-saved-pill" role="status">{appearanceFeedback}</span>}
+              {appearanceFeedback && <span className="settings-saved-pill" data-workspace-status={appearanceFeedback} role={appearanceFeedback === "danger" ? "alert" : "status"}>
+                <StatusIcon status={appearanceFeedback} />{appearanceFeedback === "danger" ? "外观保存失败，请重试" : "已自动保存"}
+              </span>}
             </div>
             <div className="settings-appearance-grid">
               <div className="settings-appearance-controls">
@@ -908,8 +921,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
               <div className="settings-font-preview" aria-label="阅读字体预览" style={{ fontSize: `${readingFontSizes[fontSize]}px` }}>
                 <div className="settings-theme-preview" aria-label="界面配色预览">
                   <span data-preview="action">主按钮</span><span data-preview="active">当前标签</span>
-                  <span data-preview="error"><b aria-hidden="true">!</b> 错误</span>
-                  <span data-preview="success">✓ 成功</span>
+                  <span data-workspace-status="danger"><StatusIcon status="danger" />错误</span>
+                  <span data-workspace-status="success"><StatusIcon status="success" />成功</span>
                 </div>
                 <p>阅读让我们看见问题的来处，也理解方法成立的原因。保留疑问，沿着证据继续探索。</p>
                 <p lang="en">Reading brings ideas into focus. Follow the evidence, ask clear questions, and keep exploring.</p>
@@ -943,7 +956,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         {management?.kind === 'source' && <button type="button" disabled={managementBusy || !managementTopics.length} onClick={() => setManagementTopics([])}>不关联专题</button>}
         {error && <p role="alert">{error}</p>}
         <button type="button" disabled={!!busy} onClick={() => setManagement(null)}>取消</button>
-        <button type="submit" disabled={managementBusy || (management?.kind !== "delete" && (!managementTitle.trim() || (management?.kind === "source" && !managementDisplayTitle.trim())))}>{management?.kind === "delete" ? "确认删除专题" : "保存"}</button>
+        <button type="submit" className={management?.kind === "delete" ? "workspace-danger-action" : undefined} disabled={managementBusy || (management?.kind !== "delete" && (!managementTitle.trim() || (management?.kind === "source" && !managementDisplayTitle.trim())))}>{management?.kind === "delete" ? "确认删除专题" : "保存"}</button>
       </form>
     </dialog>
     <dialog className="workspace-confirm workspace-upload" ref={uploadDialog} onCancel={() => setUploadOpen(false)}>
@@ -968,15 +981,16 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <li>笔记（Notes）：{deletionImpact.assets.notes ? "将删除" : "未建立"}</li>
       <li>阅读计划（Plan）：{deletionImpact.assets.plans} 份</li>
       <li>阅读进度：{deletionImpact.assets.progress ? "将清理" : "未建立"}</li>
-    </ul></div>}<div><button disabled={!!busy} onClick={() => setDeleteConfirmation(null)}>取消</button><button className="workspace-primary" disabled={!!busy || active || managementBusy || !deletionImpact} onClick={() => {
+    </ul></div>}<div><button disabled={!!busy} onClick={() => setDeleteConfirmation(null)}>取消</button><button className="workspace-danger-action" disabled={!!busy || active || managementBusy || !deletionImpact} onClick={() => {
       if (deleteConfirmation && host.deleteSource) void operate("删除", () => host.deleteSource!(deleteConfirmation.sourceId));
     }}>{busy || "永久删除"}</button></div>{error && <p role="alert">{error}</p>}</dialog>
-    {view?.configuration?.startupError && route !== "/settings" && <aside role="alert" className="configuration-notice">
+    {view?.configuration?.startupError && route !== "/settings" && <aside role="alert" className="configuration-notice" data-workspace-status="danger">
+      <StatusIcon status="danger" />
       <p>{view.configuration.startupError}</p>
       <button onClick={() => navigate("/settings")}>模型与后端设置</button>
     </aside>}
-    {view?.configuration?.pending && <aside role="status" className="configuration-notice"
-      >
+    {view?.configuration?.pending && <aside role="status" className="configuration-notice" data-workspace-status="warning">
+      <StatusIcon status="warning" />
       <p>{view.configuration.refreshBlocked ? "任务运行中，完成后请刷新以应用配置" : "配置更改，需要刷新页面"}</p>
       <button onClick={() => window.location.reload()}>Reload</button>
     </aside>}

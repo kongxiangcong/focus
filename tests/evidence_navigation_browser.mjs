@@ -83,25 +83,20 @@ async function prepareAnswer() {
     const panel = document.querySelector('[aria-label="精读"].reading-mode-panel');
     return panel && !panel.querySelector('.reading-preparation');
   });
-  const view = await snapshot();
-  assert.ok(view.navigationCurrent, 'the fixture has a ready close-reading plan');
-  if (!view.readingStarted) {
+  async function continueReading(view, beginBody) {
+    assert.ok(view.navigationCurrent, 'the fixture has a ready close-reading plan');
     const { sourceId, planId, chunkId } = view.navigationCurrent;
     const response = await page.request.post(`${base}/reader/continue`, {
       headers: { 'X-FOCUS-Instance': instance() },
-      data: { requestId: randomUUID(), beginBody: true, receipt: { sourceId, planId, chunkId, readingRevision: view.readingRevision } },
+      data: { requestId: randomUUID(), beginBody, receipt: { sourceId, planId, chunkId, readingRevision: view.readingRevision } },
     });
     const result = await response.json();
     assert.ok(result.ok, JSON.stringify(result));
+    return result.value;
   }
-  const reading = page.locator('.focus-stream .focus-reading').first();
-  await reading.waitFor();
-  if (!(await snapshot()).readingProgress.length) {
-    await Promise.all([
-      page.waitForResponse(response => response.url() === `${base}/reader/continue` && response.ok()),
-      page.getByRole('button', { name: '继续', exact: true }).click(),
-    ]);
-  }
+  let view = await snapshot();
+  if (!view.readingStarted) view = await continueReading(view, true);
+  if (!view.readingProgress.length) await continueReading(view, false);
   await switches(page).getByRole('button', { name: '对话', exact: true }).click();
   if (!(await citations(page).count())) {
     await page.getByRole('textbox', { name: '输入消息' }).fill(answerLabel);
@@ -345,6 +340,104 @@ async function exitFullscreen(interrupt) {
   await page.close();
 }
 
+async function exitDuringPlacement() {
+  const { page, errors, snapshot } = await open({ blocked: [8] });
+  await firstPage(page);
+  const before = progress(await snapshot());
+  await page.getByRole('button', { name: '对话全屏', exact: true }).click();
+  await pane(page).evaluate(node => {
+    node.style.setProperty('--reader-duration-move', '1600ms');
+    const destination = node.querySelector('[data-pdf-page="8"]');
+    node.scrollTop += destination.getBoundingClientRect().top - node.getBoundingClientRect().top - node.clientHeight * .7;
+  });
+  await frames(page);
+  const from = await top(page);
+  await citations(page).nth(2).click();
+  await waitForHeldPage(page, 8);
+  await release(page, 8);
+  await page.waitForFunction(from => document.querySelector('[aria-label="文章原文"]').scrollTop !== from, from);
+  assert.equal(await card(page).count(), 0, 'the smooth placement is in flight when Escape is pressed');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '关闭全屏模式', exact: true }).waitFor({ state: 'hidden' });
+  await card(page).getByText(thirdQuote, { exact: true }).waitFor();
+  const visible = await pageAt(page, 8).locator('[data-active="true"]').first().evaluate(block => {
+    const region = block.getBoundingClientRect();
+    const view = block.closest('.source-original').getBoundingClientRect();
+    return region.top >= view.top && region.bottom <= view.bottom;
+  });
+  assert.ok(visible, 'the existing jump retargets to the cited region in the window layout');
+  await card(page).getByRole('button', { name: /^证据 3/ }).click();
+  assert.ok(await citations(page).nth(2).evaluate(node => node === document.activeElement), 'the completed jump keeps its citation return');
+  assert.deepEqual(progress(await snapshot()), before);
+  assert.deepEqual(errors, []);
+  await page.close();
+}
+
+async function chatScrollbarCancels() {
+  const { page, errors, snapshot } = await open({ blocked: [8] });
+  await firstPage(page);
+  const chat = page.getByLabel('文章对话', { exact: true });
+  for (let index = 0; index < 6; index++) {
+    const question = `对话滚动测试 ${index}`;
+    await page.getByRole('textbox', { name: '输入消息' }).fill(question);
+    await page.getByRole('button', { name: '发送', exact: true }).click();
+    await chat.locator('[data-role="assistant"]').getByText(`${question}。`, { exact: true }).waitFor();
+  }
+  const before = progress(await snapshot());
+  await citations(page).nth(2).click();
+  await waitForHeldPage(page, 8);
+  const position = await top(page);
+  const thumb = await chat.evaluate(node => {
+    const box = node.getBoundingClientRect();
+    const gap = box.width - node.clientWidth - node.clientLeft;
+    const height = node.clientHeight ** 2 / node.scrollHeight;
+    const travel = node.clientHeight - height;
+    const offset = travel * node.scrollTop / (node.scrollHeight - node.clientHeight);
+    return { x: box.right - gap / 2, y: box.top + offset + height / 2, gap, top: node.scrollTop, delta: offset < travel / 2 ? 70 : -70 };
+  });
+  assert.ok(thumb.gap > 3, 'the chat has a native scrollbar hit target');
+  await page.mouse.move(thumb.x, thumb.y);
+  await page.mouse.down();
+  await page.mouse.move(thumb.x, thumb.y + thumb.delta, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForFunction(top => document.querySelector('[aria-label="文章对话"]').scrollTop !== top, thumb.top);
+  await release(page, 8);
+  assert.equal(await top(page), position);
+  assert.equal(await card(page).count(), 0);
+  assert.deepEqual(progress(await snapshot()), before);
+  assert.deepEqual(errors, []);
+  await page.close();
+}
+
+async function retryFailedPage() {
+  const { page, errors, snapshot } = await open({ blocked: [8] });
+  await firstPage(page);
+  const before = progress(await snapshot());
+  await citations(page).nth(2).click();
+  await waitForHeldPage(page, 8);
+  await browse(page, 'wheel');
+  await release(page, 8, true);
+  assert.equal(await page.getByRole('alert').filter({ hasText: '此页渲染失败' }).count(), 0);
+  await pageAt(page, 8).scrollIntoViewIfNeeded();
+  const alert = pageAt(page, 8).getByRole('alert').filter({ hasText: '此页渲染失败' });
+  await alert.waitFor();
+  await alert.getByRole('button', { name: '重试', exact: true }).click();
+  await waitForHeldPage(page, 8);
+  await release(page, 8);
+  await pageAt(page, 8).locator('.paper-text span').first().waitFor({ state: 'attached' });
+  assert.equal(await alert.count(), 0);
+  assert.ok(await pageAt(page, 8).evaluate(node => {
+    const rect = node.getBoundingClientRect();
+    const viewport = node.closest('.source-original').getBoundingClientRect();
+    const line = viewport.top + viewport.height * .32;
+    return rect.top <= line && rect.bottom >= line;
+  }), 'retry keeps the recovered page at the reading line');
+  assert.equal(await card(page).count(), 0, 'retry does not resume the cancelled evidence jump');
+  assert.deepEqual(progress(await snapshot()), before);
+  assert.deepEqual(errors, []);
+  await page.close();
+}
+
 async function resetNavigation({ confirm, fail = false, releaseDuringReset = false }) {
   let resumeReset;
   const holdReset = new Promise(resolve => { resumeReset = resolve; });
@@ -420,9 +513,10 @@ async function resetNavigation({ confirm, fail = false, releaseDuringReset = fal
         assert.equal(await top(page), waitingPosition);
         assert.equal(await page.getByRole('button', { name: '原版 PDF', exact: true }).getAttribute('aria-pressed'), 'true');
       }
-      const resetResponse = page.waitForResponse(response => isReset(response.url()) && response.ok());
+      const resetResponse = page.waitForResponse(response => isReset(response.url()));
       resumeReset();
-      await resetResponse;
+      const result = await (await resetResponse).json();
+      assert.ok(result.ok, JSON.stringify(result));
       await tab('精读').waitFor();
       await page.waitForFunction(() => document.querySelector('.reading-mode-panel')?.getAttribute('aria-label') === '精读');
       await page.locator('.focus-stream').waitFor();
@@ -471,6 +565,9 @@ try {
       await mobileCancels();
     },
     fullscreen: async () => { await exitFullscreen(false); await exitFullscreen(true); },
+    'fullscreen-placement': exitDuringPlacement,
+    'chat-scrollbar': chatScrollbarCancels,
+    'pdf-retry': retryFailedPage,
     sources: async () => {
       for (const asset of ['document', 'original', 'opening']) await sourceRoundTrip(asset);
       await sourceRoundTrip('original', true);

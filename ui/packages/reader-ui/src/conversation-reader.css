@@ -30,7 +30,7 @@
 
 /* Left pane: original document with content-visibility optimization & evidence spotlight */
 .source-original { height:100%; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:38px clamp(24px,4vw,76px) 120px; }
-.source-original[data-evidence-pending=true] { overflow-anchor:none; }
+:is(.source-original, .source-chat)[data-evidence-pending=true] { overflow-anchor:none; }
 .source-original article { max-width:850px; margin:auto; }
 .source-original .focus-markdown { font-family:var(--reader-body-font,var(--reader-serif)); font-size:var(--source-font-size); line-height:var(--reader-prose-leading); overflow-wrap:anywhere; }
 .source-original .focus-markdown > * { transition:opacity var(--reader-duration-move) var(--reader-ease-out); }

@@ -79,6 +79,13 @@ try {
   const tablePage = pane.locator('[data-pdf-page="2"]');
   await placeAtReadingLine(page, pane, tablePage, .38);
   await pane.getByLabel('原版 PDF 第 2 页').waitFor();
+  const continuation = tablePage.locator('[data-source-line="4"]');
+  await continuation.waitFor();
+  assert.ok(await continuation.evaluate(node => {
+    const bounds = node.getBoundingClientRect();
+    const view = node.closest('[aria-label="文章原文"]').getBoundingClientRect();
+    return bounds.top < view.bottom && bounds.bottom > view.top;
+  }), 'a different mapped paragraph is visible on the same page as the unmapped table');
   await translation.press('Enter');
   await pane.getByText('实验方法，第 1 段。', { exact: true }).waitFor();
   assert.equal(await pane.evaluate(el => el.scrollTop), 0,
@@ -108,11 +115,23 @@ try {
   await pdf.press('Enter');
   await tablePage.waitFor();
   await waitAtPosition(page, tableScroll);
-  const methodPosition = await placeAtReadingLine(page, pane, methodBox);
+  await placeAtReadingLine(page, pane, methodBox);
   await translation.press('Enter');
   await methodText.waitFor();
   await waitAtReadingLine(page, '实验方法');
   assert.deepEqual(await readingProgress(page), before);
+
+  await pdf.press('Enter');
+  const continuedPosition = await placeAtReadingLine(page, pane, continuation);
+  assert.equal(await continuation.getAttribute('data-block-id'), await methodBox.getAttribute('data-block-id'));
+  await translation.press('Enter');
+  await waitAtReadingLine(page, '实验方法');
+  await pdf.press('Enter');
+  await continuation.waitFor();
+  await waitAtPosition(page, continuedPosition);
+  await translation.press('Enter');
+  await methodText.waitFor();
+  console.log('PASS a block placed on two PDF pages returns to the specific page it was read from');
 
   await placeAtReadingLine(page, pane, unmappedText);
   const loading = await delayNextPdf(page);
@@ -127,7 +146,7 @@ try {
   await unmappedText.waitFor();
   await pdf.press('Enter');
   await methodBox.waitFor();
-  await waitAtPosition(page, methodPosition);
+  await waitAtPosition(page, continuedPosition);
   assert.deepEqual(await readingProgress(page), before);
   await page.close();
   console.log('PASS mapped content takes priority and unmapped content restores both views’ previous positions');

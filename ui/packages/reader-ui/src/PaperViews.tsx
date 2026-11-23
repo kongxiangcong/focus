@@ -29,16 +29,16 @@ function PaperSurface({ page, element }: { page: PDFPageProxy; element: RefObjec
   const canvas = useRef<HTMLCanvasElement>(null);
   const [error, setError] = useState(false);
   useEffect(() => {
-    const node = element.current!, surface = canvas.current!;
+    const node = element.current, surface = canvas.current, container = text.current;
+    if (!node || !surface || !container) return;
     let layer: TextLayer | undefined;
     let task: RenderTask | undefined;
     let live = true, shown = false, drawing = false, lastWidth = -1;
-    async function draw() {
-      if (!live || drawing) return;
+    const draw = async () => {
+      if (!live || drawing || text.current !== container) return;
       const width = shown ? node.clientWidth : 0;
       if (width === lastWidth) return;
       lastWidth = width;
-      const container = text.current!;
       container.replaceChildren();
       if (!width) { surface.width = surface.height = 0; return; }
       const base = page.getViewport({ scale: 1 });
@@ -62,7 +62,7 @@ function PaperSurface({ page, element }: { page: PDFPageProxy; element: RefObjec
         drawing = false;
         if (live) void draw();
       }
-    }
+    };
     const resize = new ResizeObserver(() => void draw());
     resize.observe(node);
     const observer = new IntersectionObserver(entries => {
@@ -79,16 +79,16 @@ function PaperSurface({ page, element }: { page: PDFPageProxy; element: RefObjec
   </>;
 }
 
-function Page({ document, pageNumber, size, blocks, evidence, active, requested, onPageSettled }: {
+function Page({ document, pageNumber, size, blocks, evidence, active, requested, onPageSettled, retry, retrying }: {
   document: PDFDocumentProxy; pageNumber: number; size?: PageSize; blocks: readonly Block[];
   evidence: readonly PaperEvidence[]; active?: string; requested: boolean;
   onPageSettled: (page: number, state: PdfPageState) => void;
+  retry: () => void; retrying: boolean;
 }) {
   const element = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState<PDFPageProxy>();
   const [error, setError] = useState<"browse" | "navigation">();
   const [nearby, setNearby] = useState(false);
-  const navigationLoad = useRef(false);
 
   useEffect(() => {
     const node = element.current;
@@ -106,11 +106,11 @@ function Page({ document, pageNumber, size, blocks, evidence, active, requested,
   useEffect(() => {
     if (!loadPage) return;
     let live = true;
-    if (!nearby) navigationLoad.current = true;
+    const navigationLoad = !nearby;
     void document.getPage(pageNumber).then(loaded => {
-      if (live) setPage(loaded);
+      if (live) { setPage(loaded); setError(undefined); }
     }, () => {
-      if (live) setError(navigationLoad.current ? "navigation" : "browse");
+      if (live) setError(navigationLoad ? "navigation" : "browse");
     });
     // A speculative destination can later become nearby. Its failure still
     // belongs to the navigation that requested it, not to passive browsing.
@@ -138,7 +138,7 @@ function Page({ document, pageNumber, size, blocks, evidence, active, requested,
   return <div className="paper-pdf-page" data-pdf-page={pageNumber} ref={element}
     style={{ aspectRatio: width && height ? `${width}/${height}` : undefined }} aria-label={`第 ${pageNumber} 页`}>
     {page && nearby && <PaperSurface page={page} element={element} />}
-    {error === "browse" && <span role="alert">此页渲染失败</span>}
+    {error === "browse" && <span role="alert">此页渲染失败 <button type="button" disabled={retrying} onClick={retry}>重试</button></span>}
     {canDrawBoxes && blocks.flatMap(block => {
       const items = itemsForBlock(block);
       return boxesForBlock(block).map((box, index) => (
@@ -169,13 +169,16 @@ export function OriginalPaper({ url, pdf, evidence, active, requestedPages, onRe
   onReady: (count: number) => void; onUnavailable?: () => void;
   onPageSettled: (page: number, state: PdfPageState) => void;
 }) {
-  const [loaded, setLoaded] = useState<{ url: string; document?: PDFDocumentProxy }>();
+  const [revision, setRevision] = useState(0);
+  const [loaded, setLoaded] = useState<{ url: string; revision: number; document?: PDFDocumentProxy }>();
   const document = loaded?.url === url ? loaded.document : undefined;
   const error = loaded?.url === url && !document;
+  const retrying = loaded?.revision !== revision;
+  // PDF.js caches rejected getPage promises, so retrying requires a fresh document proxy.
+  const retry = () => setRevision(value => value + 1);
   useEffect(() => {
     let live = true;
     let dispose: (() => void) | undefined;
-    setLoaded(undefined);
     async function load() {
       const lib = await import("pdfjs-dist");
       if (!live) return;
@@ -194,11 +197,11 @@ export function OriginalPaper({ url, pdf, evidence, active, requestedPages, onRe
         }).catch(() => {});
       };
       const document = await task.promise;
-      if (live) setLoaded({ url, document });
+      if (live) setLoaded({ url, revision, document });
     }
-    void load().catch(() => { if (live) setLoaded({ url }); });
+    void load().catch(() => { if (live) setLoaded({ url, revision }); });
     return () => { live = false; dispose?.(); };
-  }, [url]);
+  }, [url, revision]);
   useEffect(() => {
     if (document) onReady(document.numPages);
     else if (error) onUnavailable?.();
@@ -229,11 +232,11 @@ export function OriginalPaper({ url, pdf, evidence, active, requestedPages, onRe
     return grouped;
   }, [pdf]);
   return <div className="paper-pages">{error ?
-    <p role="alert">PDF 加载失败 · <a href={url} target="_blank" rel="noreferrer">打开原件</a></p> :
+    <p role="alert">PDF 加载失败 · <a href={url} target="_blank" rel="noreferrer">打开原件</a> <button type="button" disabled={retrying} onClick={retry}>重试</button></p> :
     !document ? <span role="status">加载原版 PDF…</span> : Array.from({ length: document.numPages }, (_, index) => {
       const pageNumber = index + 1;
-      return <Page key={`${url}:${pageNumber}`} document={document} pageNumber={pageNumber} size={sizes.get(pageNumber)}
+      return <Page key={`${url}:${loaded?.revision}:${pageNumber}`} document={document} pageNumber={pageNumber} size={sizes.get(pageNumber)}
         blocks={[...(grouped.get(pageNumber)?.values() ?? [])]} evidence={evidenceByPage.get(pageNumber) ?? []} active={active}
-        requested={requestedPages?.includes(pageNumber) ?? false} onPageSettled={onPageSettled} />;
+        requested={requestedPages?.includes(pageNumber) ?? false} onPageSettled={onPageSettled} retry={retry} retrying={retrying} />;
     })}</div>;
 }

@@ -1,5 +1,403 @@
 {
   "chromium": "156.0.8078.4",
+  "midBattery": [
+    {
+      "theme": "blue",
+      "resting": {
+        "boundary": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 11.932497663004893
+        },
+        "interior": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            217,
+            119,
+            6
+          ],
+          "ratio": 3.745498969203504
+        }
+      },
+      "hover": {
+        "boundary": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            241.98823529411766,
+            241.98823529411766,
+            242.9764705882353
+          ],
+          "ratio": 10.664478290771672
+        },
+        "interior": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            217,
+            119,
+            6
+          ],
+          "ratio": 3.745498969203504
+        }
+      },
+      "selected": {
+        "boundary": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            234.9764705882353,
+            239.03529411764706,
+            251.0313725490196
+          ],
+          "ratio": 10.384551421687647
+        },
+        "interior": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            217,
+            119,
+            6
+          ],
+          "ratio": 3.745498969203504
+        }
+      }
+    },
+    {
+      "theme": "green",
+      "resting": {
+        "boundary": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 11.932497663004893
+        },
+        "interior": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            217,
+            119,
+            6
+          ],
+          "ratio": 3.745498969203504
+        }
+      },
+      "hover": {
+        "boundary": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            241.98823529411766,
+            241.98823529411766,
+            242.9764705882353
+          ],
+          "ratio": 10.664478290771672
+        },
+        "interior": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            217,
+            119,
+            6
+          ],
+          "ratio": 3.745498969203504
+        }
+      },
+      "selected": {
+        "boundary": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            232.9921568627451,
+            243.00392156862745,
+            242.01176470588234
+          ],
+          "ratio": 10.550300939392747
+        },
+        "interior": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            217,
+            119,
+            6
+          ],
+          "ratio": 3.745498969203504
+        }
+      }
+    },
+    {
+      "theme": "red",
+      "resting": {
+        "boundary": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 11.932497663004893
+        },
+        "interior": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            217,
+            119,
+            6
+          ],
+          "ratio": 3.745498969203504
+        }
+      },
+      "hover": {
+        "boundary": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            241.98823529411766,
+            241.98823529411766,
+            242.9764705882353
+          ],
+          "ratio": 10.664478290771672
+        },
+        "interior": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            217,
+            119,
+            6
+          ],
+          "ratio": 3.745498969203504
+        }
+      },
+      "selected": {
+        "boundary": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            247.00000000000003,
+            236.0196078431373,
+            239.00000000000003
+          ],
+          "ratio": 10.342446795262646
+        },
+        "interior": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            217,
+            119,
+            6
+          ],
+          "ratio": 3.745498969203504
+        }
+      }
+    },
+    {
+      "theme": "neutral",
+      "resting": {
+        "boundary": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "ratio": 11.932497663004893
+        },
+        "interior": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            217,
+            119,
+            6
+          ],
+          "ratio": 3.745498969203504
+        }
+      },
+      "hover": {
+        "boundary": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            241.98823529411766,
+            241.98823529411766,
+            242.9764705882353
+          ],
+          "ratio": 10.664478290771672
+        },
+        "interior": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            217,
+            119,
+            6
+          ],
+          "ratio": 3.745498969203504
+        }
+      },
+      "selected": {
+        "boundary": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            238.9764705882353,
+            238.9764705882353,
+            238.9764705882353
+          ],
+          "ratio": 10.375188358605861
+        },
+        "interior": {
+          "foreground": [
+            89,
+            42,
+            9
+          ],
+          "background": [
+            217,
+            119,
+            6
+          ],
+          "ratio": 3.745498969203504
+        }
+      }
+    },
+    {
+      "theme": "dark",
+      "resting": {
+        "boundary": {
+          "foreground": [
+            251,
+            191,
+            36
+          ],
+          "background": [
+            22,
+            23,
+            25
+          ],
+          "ratio": 10.74530495616322
+        }
+      },
+      "hover": {
+        "boundary": {
+          "foreground": [
+            251,
+            191,
+            36
+          ],
+          "background": [
+            35.705882352941174,
+            36.64705882352941,
+            38.529411764705884
+          ],
+          "ratio": 9.230113185280135
+        }
+      },
+      "selected": {
+        "boundary": {
+          "foreground": [
+            251,
+            191,
+            36
+          ],
+          "background": [
+            47.28627450980392,
+            48.16470588235294,
+            51.015686274509804
+          ],
+          "ratio": 7.884232728467386
+        }
+      }
+    }
+  ],
   "rows": [
     {
       "theme": "blue",
@@ -237,6 +635,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -329,23 +766,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             }
           ],
@@ -593,6 +1030,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -683,23 +1159,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             }
           ],
@@ -947,6 +1423,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -1037,23 +1552,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             }
           ],
@@ -1275,6 +1790,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -1367,23 +1921,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             }
           ],
@@ -1631,6 +2185,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -1721,23 +2314,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=0127e9e18542415f91b49b67f6ae95cc",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             }
           ],
@@ -1985,6 +2578,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -2078,23 +2710,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             }
           ],
@@ -2342,6 +2974,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -2432,23 +3103,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             }
           ],
@@ -2696,6 +3367,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -2786,23 +3496,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             }
           ],
@@ -3024,6 +3734,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -3114,23 +3863,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             }
           ],
@@ -3378,6 +4127,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -3470,23 +4258,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=3ef635fcdab1449cbe0d61cd433642ea",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             }
           ],
@@ -3733,6 +4521,45 @@
             244
           ],
           "ratio": 4.7914469872179986
+        },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
         },
         "error": {
           "foreground": [
@@ -3828,23 +4655,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=1bb955eb5b7a4babb985d40da188e7b8",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=1bb955eb5b7a4babb985d40da188e7b8",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=1bb955eb5b7a4babb985d40da188e7b8",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=1bb955eb5b7a4babb985d40da188e7b8",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=1bb955eb5b7a4babb985d40da188e7b8",
               "caption": ""
             }
           ],
@@ -4092,6 +4919,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -4182,23 +5048,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             }
           ],
@@ -4446,6 +5312,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -4536,23 +5441,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             }
           ],
@@ -4774,6 +5679,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -4864,23 +5808,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             }
           ],
@@ -5128,6 +6072,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -5218,23 +6201,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=c99bcc2aafd840b985a6511746de1cd3",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=e299f74f65f44cfcacc5198cd1b25afb",
               "caption": ""
             }
           ],
@@ -5481,6 +6464,45 @@
             244
           ],
           "ratio": 4.7914469872179986
+        },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
         },
         "error": {
           "foreground": [
@@ -5574,23 +6596,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             }
           ],
@@ -5838,6 +6860,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -5928,23 +6989,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             }
           ],
@@ -6192,6 +7253,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -6282,23 +7382,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             }
           ],
@@ -6520,6 +7620,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -6610,23 +7749,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             }
           ],
@@ -6874,6 +8013,45 @@
           ],
           "ratio": 4.7914469872179986
         },
+        "previewSuccess": {
+          "foreground": [
+            21,
+            128,
+            61
+          ],
+          "background": [
+            240,
+            253,
+            244
+          ],
+          "ratio": 4.7914469872179986
+        },
+        "previewError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
+        "storageError": {
+          "foreground": [
+            220,
+            38,
+            38
+          ],
+          "background": [
+            255,
+            247,
+            247
+          ],
+          "ratio": 4.576294465215724
+        },
         "error": {
           "foreground": [
             220,
@@ -6964,23 +8142,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=77ccfc8b414e47679f10d01f37925d3a",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=5e244678276c46d99d969e75449c512c",
               "caption": ""
             }
           ],
@@ -7215,6 +8393,45 @@
           ],
           "ratio": 8.747955829325724
         },
+        "previewSuccess": {
+          "foreground": [
+            74,
+            222,
+            128
+          ],
+          "background": [
+            19,
+            42,
+            30
+          ],
+          "ratio": 8.747955829325724
+        },
+        "previewError": {
+          "foreground": [
+            248,
+            113,
+            113
+          ],
+          "background": [
+            44,
+            22,
+            24
+          ],
+          "ratio": 6.146963012570752
+        },
+        "storageError": {
+          "foreground": [
+            248,
+            113,
+            113
+          ],
+          "background": [
+            44,
+            22,
+            24
+          ],
+          "ratio": 6.146963012570752
+        },
         "error": {
           "foreground": [
             248,
@@ -7307,23 +8524,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             }
           ],
@@ -7558,6 +8775,45 @@
           ],
           "ratio": 8.747955829325724
         },
+        "previewSuccess": {
+          "foreground": [
+            74,
+            222,
+            128
+          ],
+          "background": [
+            19,
+            42,
+            30
+          ],
+          "ratio": 8.747955829325724
+        },
+        "previewError": {
+          "foreground": [
+            248,
+            113,
+            113
+          ],
+          "background": [
+            44,
+            22,
+            24
+          ],
+          "ratio": 6.146963012570752
+        },
+        "storageError": {
+          "foreground": [
+            248,
+            113,
+            113
+          ],
+          "background": [
+            44,
+            22,
+            24
+          ],
+          "ratio": 6.146963012570752
+        },
         "error": {
           "foreground": [
             248,
@@ -7648,23 +8904,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             }
           ],
@@ -7899,6 +9155,45 @@
           ],
           "ratio": 8.747955829325724
         },
+        "previewSuccess": {
+          "foreground": [
+            74,
+            222,
+            128
+          ],
+          "background": [
+            19,
+            42,
+            30
+          ],
+          "ratio": 8.747955829325724
+        },
+        "previewError": {
+          "foreground": [
+            248,
+            113,
+            113
+          ],
+          "background": [
+            44,
+            22,
+            24
+          ],
+          "ratio": 6.146963012570752
+        },
+        "storageError": {
+          "foreground": [
+            248,
+            113,
+            113
+          ],
+          "background": [
+            44,
+            22,
+            24
+          ],
+          "ratio": 6.146963012570752
+        },
         "error": {
           "foreground": [
             248,
@@ -7989,23 +9284,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             }
           ],
@@ -8213,6 +9508,45 @@
             30
           ],
           "ratio": 8.747955829325724
+        },
+        "previewSuccess": {
+          "foreground": [
+            74,
+            222,
+            128
+          ],
+          "background": [
+            19,
+            42,
+            30
+          ],
+          "ratio": 8.747955829325724
+        },
+        "previewError": {
+          "foreground": [
+            248,
+            113,
+            113
+          ],
+          "background": [
+            44,
+            22,
+            24
+          ],
+          "ratio": 6.146963012570752
+        },
+        "storageError": {
+          "foreground": [
+            248,
+            113,
+            113
+          ],
+          "background": [
+            44,
+            22,
+            24
+          ],
+          "ratio": 6.146963012570752
         },
         "error": {
           "foreground": [
@@ -8309,23 +9643,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             }
           ],
@@ -8560,6 +9894,45 @@
           ],
           "ratio": 8.747955829325724
         },
+        "previewSuccess": {
+          "foreground": [
+            74,
+            222,
+            128
+          ],
+          "background": [
+            19,
+            42,
+            30
+          ],
+          "ratio": 8.747955829325724
+        },
+        "previewError": {
+          "foreground": [
+            248,
+            113,
+            113
+          ],
+          "background": [
+            44,
+            22,
+            24
+          ],
+          "ratio": 6.146963012570752
+        },
+        "storageError": {
+          "foreground": [
+            248,
+            113,
+            113
+          ],
+          "background": [
+            44,
+            22,
+            24
+          ],
+          "ratio": 6.146963012570752
+        },
         "error": {
           "foreground": [
             248,
@@ -8650,23 +10023,23 @@
           "translation": "中文验收段落 chunk-004，第 1 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 2 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 3 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 4 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 5 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 6 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 7 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 8 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 9 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 10 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 11 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 12 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 13 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 14 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 15 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 16 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 17 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 18 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 19 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 20 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 21 段。用于检查译文阅读位置。\n\n中文验收段落 chunk-004，第 22 段。用于检查译文阅读位置。",
           "images": [
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-011.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-012.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-013.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-014.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             },
             {
-              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=071328bda1f14e00a9befc63c2896549",
+              "src": "/reader/assets/Evaluating%20Emerging%20CXL-enabled%20Memory%20Pooling%20for%20HPC%20Systems-paper/images/image-015.jpg?instance=bd6539193ead4236aa49e75ab01ca5d6",
               "caption": ""
             }
           ],

@@ -1,14 +1,15 @@
 (() => {
-  const root = document.documentElement;
-  let theme = "light";
+  const systemColorScheme = window.matchMedia?.("(prefers-color-scheme: dark)");
+  const resolve = theme => theme === "system" ? (systemColorScheme?.matches ? "dark" : "light") : theme;
+  let preference = "light";
   let accent = "blue";
   try {
-    const preference = localStorage.getItem("focus.theme");
+    const savedTheme = localStorage.getItem("focus.theme");
     const savedAccent = localStorage.getItem("focus.accent");
-    theme = preference === "light" || preference === "dark" ? preference
-      : matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    preference = savedTheme === "light" || savedTheme === "dark" ? savedTheme : "system";
     if (["blue", "green", "red", "neutral"].includes(savedAccent)) accent = savedAccent;
   } catch { /* Use the light defaults when browser storage is unavailable. */ }
-  root.dataset.theme = theme;
-  root.dataset.accent = accent;
+  window.focusTheme = { preference, accent, systemColorScheme, resolve };
+  document.documentElement.dataset.theme = resolve(preference);
+  document.documentElement.dataset.accent = accent;
 })();

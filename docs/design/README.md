@@ -9,6 +9,7 @@
 | 范围 | 当前入口 | 适用及替代关系 |
 |---|---|---|
 | 工作台总体布局、设置、共用视觉基础 | [CDS 设计规范](FOCUS_UI_CDS2_DESIGN_SPEC.md) §4–§12 + [ADR 0025](../adr/0025-cds-focus-presentation.md) | 作为基础；以下专项决策在各自范围内覆盖它，旧颜色、动效和 Composer 规则不能直接套回 |
+| 浅色强调色、炭灰深色、语义状态与外观启动 | [设计文档 03 §2](20261122-refactor/03_focus_theme_and_ui_consistency_refactor_design.md#2-简洁主题-token-架构浅色-4-套--深色-1-套) | 主题配色、状态提示和外观设置遵循本节；知识库电量等级沿用设计文档 02 |
 | 阅读镜头、按需图片、讨论吸附、阅读主题与动效 | [阅读重设计](FOCUS_READING_REDESIGN_SPEC.md) + [ADR 0026](../adr/0026-reading-lens-on-demand-figures.md) | 覆盖 ADR 0025 对应的阅读视觉、图片自动展开和相关动效条款；领域 Reading Cursor 不由镜头控制 |
 | 阅读功能行、输入框、发送与收起 | [ADR 0028](../adr/0028-reading-dock-ghost-controls-and-inline-send.md) | 覆盖旧边框控件、Chin 下沿和分离的收起按钮；按此处的 ghost 控件与行内发送执行 |
 | 知识库列表、卡片、来源详情面板 | [知识库重设计](FOCUS_LIBRARY_REDESIGN_SPEC.md) 方向 A + [ADR 0027](../adr/0027-library-list-and-details-panel.md) | 覆盖 CDS §5.2 的行内／卡片内详情展开 |

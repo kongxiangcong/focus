@@ -46,6 +46,7 @@
   --reader-battery-mid:#D97706;
   --reader-battery-high:#4ADE80;
   --reader-battery-full:#15803D;
+  --reader-battery-mid-line:#592A09;
   --reader-battery-high-line:#166534;
   /* Quoted content emphasis */
   --reader-mark:rgba(232,178,62,.34);
@@ -84,7 +85,9 @@
   --reader-danger:#dc2626;
   --reader-danger-line:#fecaca;
   --reader-warning:#8a5a17;
+  --reader-warning-line:#fde68a;
   --reader-success:#15803d;
+  --reader-success-line:#bbf7d0;
   --reader-error-bg:#fff7f7;
   --reader-success-bg:#f0fdf4;
   --reader-warning-bg:#fbf5ea;
@@ -210,6 +213,7 @@
   --reader-battery-mid:#FBBF24;
   --reader-battery-high:#86EFAC;
   --reader-battery-full:#16A34A;
+  --reader-battery-mid-line:var(--reader-battery-mid);
   --reader-battery-high-line:var(--reader-battery-high);
   --reader-mark:rgba(217,164,65,.30);
   --reader-mark-soft:rgba(217,164,65,.12);
@@ -238,7 +242,9 @@
   --reader-danger:#f87171;
   --reader-danger-line:rgba(248,113,113,.45);
   --reader-warning:#fbbf24;
+  --reader-warning-line:rgba(251,191,36,.45);
   --reader-success:#4ade80;
+  --reader-success-line:rgba(74,222,128,.45);
   --reader-error-bg:#2c1618;
   --reader-success-bg:#132a1e;
   --reader-warning-bg:#2b2212;
