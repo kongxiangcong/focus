@@ -479,13 +479,14 @@ async function run(theme, { width, kind, hasTouch, reducedMotion, appReducedMoti
     if (theme === 'green' && width === 1440 || theme === 'dark' && hasTouch) await save('library');
 
     await take(page.getByRole('link', { name: '设置', exact: true }));
+    await page.evaluate(() => document.fonts.ready);
     await page.getByLabel('界面密度', { exact: true }).selectOption('comfortable');
     const saved = page.getByRole('status').filter({ hasText: '已自动保存' });
     result.contrast.success = await checkStatus(saved, '✓', 'success');
+    if (theme === 'red' && width === 1440 || theme === 'dark' && hasTouch) await save('settings');
     const preview = page.getByLabel('界面配色预览');
     result.contrast.previewSuccess = await checkStatus(preview.locator('[data-workspace-status="success"]'), '✓', 'success');
     result.contrast.previewError = await checkStatus(preview.locator('[data-workspace-status="danger"]'), '!', 'danger');
-    if (theme === 'red' && width === 1440 || theme === 'dark' && hasTouch) await save('settings');
     const revertStorage = await page.evaluateHandle(() => {
       const save = Storage.prototype.setItem;
       Storage.prototype.setItem = function (key, value) {
