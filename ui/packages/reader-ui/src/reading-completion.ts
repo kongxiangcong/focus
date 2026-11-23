@@ -30,16 +30,18 @@ export function useReadingCompletion(
   const body = useRef<HTMLDivElement>(null);
   const intent = useRef<{ before: Position; expires: number } | null>(null);
   const touchY = useRef<number | null>(null);
+  const scrollbarPointer = useRef<number | null>(null);
   const [inlineScope, setInlineScope] = useState<string>();
 
   const position = () => scope && pane.current && body.current && controller.current
     ? measure(pane.current, body.current, controller.current)
     : null;
   const refreshInline = (current = position()) => {
-    const fullyVisible = current && current.top >= -edgeTolerance && current.bottom <= current.height + edgeTolerance;
+    const fullyVisible = current && !current.requiresScroll &&
+      current.top >= -edgeTolerance && current.bottom <= current.height + edgeTolerance;
     setInlineScope(fullyVisible ? scope : undefined);
   };
-  const cancelIntent = () => { intent.current = null; };
+  const cancelIntent = () => { intent.current = null; scrollbarPointer.current = null; };
 
   useLayoutEffect(() => {
     cancelIntent();
@@ -59,7 +61,10 @@ export function useReadingCompletion(
     stream.addEventListener("touchstart", onTouchStart, { passive: false });
     stream.addEventListener("touchmove", onTouchMove, { passive: false });
     stream.addEventListener("touchcancel", cancelIntent);
+    stream.addEventListener("pointerdown", onScrollbarPointer);
     window.addEventListener("pointerdown", cancelIntent, true);
+    window.addEventListener("pointerup", releaseScrollbar);
+    window.addEventListener("pointercancel", releaseScrollbar);
     window.addEventListener("blur", cancelIntent);
     document.addEventListener("visibilitychange", cancelIntent);
     return () => {
@@ -68,7 +73,10 @@ export function useReadingCompletion(
       stream.removeEventListener("touchstart", onTouchStart);
       stream.removeEventListener("touchmove", onTouchMove);
       stream.removeEventListener("touchcancel", cancelIntent);
+      stream.removeEventListener("pointerdown", onScrollbarPointer);
       window.removeEventListener("pointerdown", cancelIntent, true);
+      window.removeEventListener("pointerup", releaseScrollbar);
+      window.removeEventListener("pointercancel", releaseScrollbar);
       window.removeEventListener("blur", cancelIntent);
       document.removeEventListener("visibilitychange", cancelIntent);
     };
@@ -76,7 +84,13 @@ export function useReadingCompletion(
 
   function scrollIntent(down: boolean) {
     const before = down && !paused && document.visibilityState === "visible" ? position() : null;
-    intent.current = before ? { before, expires: performance.now() + scrollInputTimeout } : null;
+    if (!before) { intent.current = null; return; }
+    const now = performance.now();
+    const pending = intent.current;
+    // Several input events can arrive before the corresponding scroll event.
+    // Retain the earlier position until that movement is observed.
+    const start = pending && pending.expires >= now && pending.before.version === before.version ? pending.before : before;
+    intent.current = { before: start, expires: scrollbarPointer.current === null ? now + scrollInputTimeout : Infinity };
   }
 
   function onScroll() {
@@ -84,7 +98,8 @@ export function useReadingCompletion(
     const after = position();
     refreshInline(after);
     const armed = intent.current;
-    cancelIntent();
+    const draggingScrollbar = scrollbarPointer.current !== null;
+    intent.current = draggingScrollbar && after ? { before: after, expires: Infinity } : null;
     if (!armed || !after || paused || document.visibilityState !== "visible" || performance.now() > armed.expires) return;
     const { before } = armed;
     const moved = after.scrollTop - before.scrollTop;
@@ -94,7 +109,7 @@ export function useReadingCompletion(
     const reachedEnd = before.requiresScroll && before.bottom > before.height + edgeTolerance &&
       after.bottom <= after.height + edgeTolerance && after.bottom >= 0;
     if (reachedEnd) finish();
-    else if (after.bottom > after.height + edgeTolerance) {
+    else if (!draggingScrollbar && after.bottom > after.height + edgeTolerance) {
       // Native key scrolling and touch momentum can dispatch several scroll events.
       intent.current = { before: after, expires: performance.now() + scrollInputTimeout };
     }
@@ -103,6 +118,23 @@ export function useReadingCompletion(
   function onWheel(event: WheelEvent) {
     if (!event.isTrusted || event.defaultPrevented || event.ctrlKey || event.shiftKey || !readingTarget(event)) return;
     scrollIntent(event.deltaY > 0 && event.deltaY >= Math.abs(event.deltaX));
+  }
+
+  function onScrollbarPointer(event: PointerEvent) {
+    const stream = pane.current;
+    if (!stream || !event.isTrusted || event.target !== stream || event.button !== 0 || event.pointerType === "touch") return;
+    const bounds = stream.getBoundingClientRect();
+    const contentLeft = bounds.left + stream.clientLeft;
+    if (event.clientX >= contentLeft && event.clientX < contentLeft + stream.clientWidth) return;
+    controller.current?.userIntent(false);
+    scrollbarPointer.current = event.pointerId;
+    scrollIntent(true);
+  }
+
+  function releaseScrollbar(event: PointerEvent) {
+    if (scrollbarPointer.current !== event.pointerId) return;
+    scrollbarPointer.current = null;
+    if (intent.current) intent.current.expires = performance.now() + scrollInputTimeout;
   }
 
   function onTouchStart(event: TouchEvent) {

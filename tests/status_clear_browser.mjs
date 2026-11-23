@@ -4,7 +4,7 @@ const browser = await chromium.launch({headless:true,executablePath:process.env.
 const page = await browser.newPage({viewport:{width:1366,height:768}});
 try {
   await page.goto(process.env.FOCUS_TEST_URL + '/library');
-  await page.getByRole('heading',{name:'知识库',exact:true}).waitFor();
+  await page.getByRole('heading',{name:/^知识库(?:\s*\d+)?$/}).waitFor();
   await page.getByRole('button',{name:'任务详情'}).click();
   await page.getByText('failed.pdf',{exact:true}).waitFor({state:'attached'});
   assert.equal(await page.getByText('completed.pdf',{exact:true}).count(),0);

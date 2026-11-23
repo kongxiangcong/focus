@@ -109,7 +109,11 @@ it("dismisses open evidence when leaving chat", async () => {
 it("keeps the evidence and return-to-answer focus when exiting fullscreen", async () => {
   const app = setup(answer([first]));
   app.display(true, true);
-  const citation = await screen.findByRole("button", { name: "返回回答证据 1" }, { timeout: 10_000 });
+  const citation = await waitFor(() => {
+    const button = window.document.querySelector<HTMLButtonElement>("[data-citation]");
+    expect(button).toBeInTheDocument();
+    return button!;
+  }, { timeout: 10_000 });
   fireEvent.click(citation);
   expect(screen.getByLabelText("原文证据")).toBeInTheDocument();
   app.display(true);

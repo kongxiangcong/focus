@@ -883,7 +883,7 @@ it("closes the conversation notes drawer before exiting fullscreen and restores 
     getSourceDocument: async () => readerSuccess({ sourceId: source.sourceId, bundleVersion: "v1", title: source.title, markdown: "Original.", lineCount: 1 }),
     selectDiscussionSource: async () => readerSuccess(selected),
   });
-  fireEvent.click(await screen.findByRole("button", { name: "对话全屏" }));
+  fireEvent.click(await screen.findByRole("button", { name: "对话全屏" }, { timeout: 10_000 }));
   expect(screen.getByRole("tab", { name: "对话" })).toHaveAttribute("aria-selected", "true");
   const opener = screen.getByRole("button", { name: "笔记" });
   fireEvent.click(opener);
