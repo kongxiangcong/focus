@@ -3,7 +3,7 @@ import { withAssetInstance } from "./figures";
 import type { AnnotationLayer, ReaderChunk, ReaderImage, ReaderMessage, ValidatedAnswerEvidence } from "@focus/reader-contracts";
 import { useCallback, useContext, useEffect, useId, useMemo, useState, type ReactNode, type Ref } from "react";
 import { MarkdownContent } from "./MarkdownContent";
-import { citedMarkdown, messageEvidence } from "./source-evidence";
+import { answerEvidenceKey, citedMarkdown, messageEvidence } from "./source-evidence";
 import type { Located, PendingAnnotation, ResolvedMark } from "./annotation-projection";
 import { chunkFigures, imageIdentity, type Figure } from "./figures";
 
@@ -52,7 +52,7 @@ export function ReadingChunk({ chunk, onReference, onFigure, onZoom, onLanguage,
         <button type="button" aria-expanded={showEvidence} aria-controls={evidenceListId} onClick={() => setShowEvidence(open => !open)}>
           对话证据 · {evidence.length} 条
         </button>
-        <ul id={evidenceListId} hidden={!showEvidence}>{evidence.map(item => <li key={item.evidenceId}>
+        <ul id={evidenceListId} hidden={!showEvidence}>{evidence.map(item => <li key={answerEvidenceKey(item)}>
           <button type="button" onClick={() => onEvidence(item)}>
             <span>证据 {item.displayNumber}</span><span>{item.quote.exact}</span>
           </button>

@@ -8,6 +8,11 @@ export function messageEvidence(message: ReaderMessage, scope: { sourceId: strin
     e.messageId === message.messageId && e.discussionId === discussionId && e.answerRevision === message.answerRevision &&
     message.content.includes(`[[e:${e.evidenceId}]]`));
 }
+
+export function answerEvidenceKey({ messageId, displayNumber }: ValidatedAnswerEvidence) {
+  return JSON.stringify([messageId, displayNumber]);
+}
+
 export function citedMarkdown(message: ReaderMessage, evidence: readonly ValidatedAnswerEvidence[], hideEvidence = false) {
   return message.content.replace(/\[\[e:([0-9a-f]{24})\]\]/g, (_, id: string) => {
     if (hideEvidence) return "";
