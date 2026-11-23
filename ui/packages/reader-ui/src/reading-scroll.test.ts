@@ -12,6 +12,31 @@ function fixture() {
 }
 afterEach(() => { document.body.innerHTML = ''; delete document.documentElement.dataset.reducedMotion; vi.restoreAllMocks(); });
 describe('reading scroll', () => {
+  it('samples on startup and while holding a position, then leaves no idle frame queued', () => {
+    let pending: FrameRequestCallback[] = [];
+    vi.spyOn(globalThis, 'requestAnimationFrame').mockImplementation(frame => pending.push(frame));
+    const now = vi.spyOn(performance, 'now').mockReturnValue(0);
+    const { control } = fixture();
+    const nextFrame = () => {
+      const ready = pending;
+      pending = [];
+      for (const frame of ready) frame(now());
+    };
+    try {
+      control.start();
+      nextFrame();
+      expect(pending).toHaveLength(0);
+      control.hold();
+      expect(pending).toHaveLength(1);
+      nextFrame();
+      expect(pending).toHaveLength(1);
+      now.mockReturnValue(701);
+      nextFrame();
+      expect(pending).toHaveLength(0);
+    } finally {
+      control.dispose();
+    }
+  });
   it('uses offsets instead of transformed client rectangles, even with a shared offset ancestor', () => {
     const { pane } = fixture(); const el = document.createElement('div'); pane.append(el);
     Object.defineProperty(pane, 'offsetTop', { value: 50 }); Object.defineProperty(el, 'offsetTop', { value: 350 });

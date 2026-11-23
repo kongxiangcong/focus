@@ -17,9 +17,11 @@ export function layoutTop(pane: HTMLElement, element: HTMLElement) {
 }
 
 export class ReadingScroll {
-  streaming = false;
+  private isStreaming = false;
   private animation: number | null = null;
-  private tick = 0;
+  private tick: number | null = null;
+  private resizeObserver?: ResizeObserver;
+  private mutationObserver?: MutationObserver;
   private anchor: { el: HTMLElement; offset: number } | null = null;
   private geometry = "";
   private reserved = { px: 0, until: 0 };
@@ -38,13 +40,23 @@ export class ReadingScroll {
   constructor(readonly pane: HTMLElement, readonly end: HTMLElement, readonly spacer: HTMLElement,
     readonly follow: { current: boolean }, private notify: (latest: boolean, back: boolean) => void) {}
 
+  get streaming() { return this.isStreaming; }
+  set streaming(value: boolean) {
+    if (this.isStreaming === value) return;
+    this.isStreaming = value;
+    this.schedule();
+  }
+
   cancel = () => { if (this.animation !== null) cancelAnimationFrame(this.animation); this.animation = null; };
   latestBottom = () => {
     const live = this.streaming ? Array.from(this.pane.querySelectorAll<HTMLElement>('[data-streaming="true"]')).find(el => !el.closest('[hidden]')) : null;
     return live ? layoutTop(this.pane, live) + live.offsetHeight : layoutTop(this.pane, this.end);
   };
   atLatest = () => this.latestBottom() - this.pane.scrollTop - this.pane.clientHeight <= 48;
-  contentChanged = () => { if (!this.follow.current) this.emit(true, this.returnTo !== null); };
+  contentChanged = () => {
+    if (!this.follow.current) this.emit(true, this.returnTo !== null);
+    this.schedule();
+  };
   sizeSpacer = () => {
     const last = this.pane.querySelectorAll<HTMLElement>('[data-reading-group]');
     const bottom = layoutTop(this.pane, this.end);
@@ -66,6 +78,7 @@ export class ReadingScroll {
     this.cancel(); this.capture(); this.heldUntil = performance.now() + 700;
     this.reserved = { px: this.spacer.offsetHeight + extra, until: this.heldUntil };
     this.sizeSpacer();
+    this.schedule();
   };
   holdDisclosure = (button: HTMLElement) => {
     this.hold();
@@ -130,24 +143,51 @@ export class ReadingScroll {
     }
     this.lastScroll = this.pane.scrollTop;
     this.capture();
+    this.schedule();
+  };
+  private sample = () => {
+    this.tick = null;
+    const holding = performance.now() < this.heldUntil;
+    const anchorTop = this.anchor?.el.isConnected ? layoutTop(this.pane, this.anchor.el) : "";
+    const geometry = `${this.pane.clientWidth}:${this.pane.clientHeight}:${layoutTop(this.pane, this.end)}:${anchorTop}`;
+    this.sizeSpacer();
+    if (this.animation === null && (geometry !== this.geometry || holding)) this.restore();
+    this.geometry = geometry;
+    if (!holding && this.animation === null && this.follow.current && this.streaming &&
+        this.pane.querySelector('[data-streaming="true"]:not([hidden] *)')) {
+      const top = this.latestBottom() - this.pane.clientHeight + 24;
+      if (top > this.pane.scrollTop) this.pane.scrollTop = top;
+    }
+    if (holding) this.schedule();
+    else this.capture();
+  };
+  private schedule = () => {
+    if (this.tick === null) this.tick = requestAnimationFrame(this.sample);
   };
   start = () => {
     this.capture();
-    const frame = () => {
-      const geometry = `${this.pane.clientWidth}:${this.pane.clientHeight}:${this.end.offsetTop}:${this.pane.querySelector('.focus-content')?.getBoundingClientRect().height}`;
-      this.sizeSpacer();
-      if (this.animation === null && (geometry !== this.geometry || performance.now() < this.heldUntil)) this.restore();
-      this.geometry = geometry;
-      if (this.streaming && this.pane.querySelector('[data-streaming="true"]') && this.follow.current && this.animation === null && performance.now() >= this.heldUntil) {
-        const top = this.latestBottom() - this.pane.clientHeight + 24;
-        if (top > this.pane.scrollTop) this.pane.scrollTop = top;
-      }
-      if (performance.now() >= this.heldUntil) this.capture();
-      this.tick = requestAnimationFrame(frame);
-    };
-    this.tick = requestAnimationFrame(frame);
+    const content = this.pane.querySelector(".focus-content") ?? this.pane;
+    if (typeof ResizeObserver !== "undefined") {
+      this.resizeObserver = new ResizeObserver(this.schedule);
+      this.resizeObserver.observe(this.pane);
+      if (content !== this.pane) this.resizeObserver.observe(content);
+    }
+    this.mutationObserver = new MutationObserver(records => {
+      if (records.some(record => record.target !== this.spacer)) this.schedule();
+    });
+    this.mutationObserver.observe(content, {
+      subtree: true, childList: true, characterData: true, attributes: true,
+      attributeFilter: ["class", "style", "hidden", "open", "data-streaming"],
+    });
+    this.schedule();
   };
-  dispose = () => { this.cancel(); cancelAnimationFrame(this.tick); };
+  dispose = () => {
+    this.cancel();
+    if (this.tick !== null) cancelAnimationFrame(this.tick);
+    this.tick = null;
+    this.resizeObserver?.disconnect();
+    this.mutationObserver?.disconnect();
+  };
 }
 
 export function useReadingScroll(pane: RefObject<HTMLElement | null>, follow: RefObject<boolean>, scope: string, streaming: boolean, enabled: boolean) {
