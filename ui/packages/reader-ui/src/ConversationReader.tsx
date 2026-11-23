@@ -339,17 +339,23 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   function switchPaper(next: boolean) {
     const pane = original.current;
     if (!pane || !document?.pdf || translated === next) return;
-    const rect = pane.getBoundingClientRect(), y = rect.top + rect.height * .32;
+    const rect = pane.getBoundingClientRect(), y = rect.top + pane.clientHeight * .32;
     const x = pointerX.current ?? rect.left + rect.width / 2;
     const pages = [...pane.querySelectorAll<HTMLElement>("[data-pdf-page]")];
-    const page = pages.find(el => el.getBoundingClientRect().bottom >= y) ?? pages.at(-1);
+    const page = pages.find(el => {
+      const bounds = el.getBoundingClientRect();
+      return bounds.top <= y && bounds.bottom >= y;
+    });
     const bounds = (el: HTMLElement) => (el.closest("[data-page-only]") ?? el).getBoundingClientRect();
     const dist = (el: HTMLElement) => {
       const r = bounds(el);
       return Math.max(r.top - y, y - r.bottom, 0) + Math.max(r.left - x, x - r.right, 0);
     };
-    const anchors = [...(page ?? pane).querySelectorAll<HTMLElement>(next ? "[data-block-id]" : "[data-translation-chunk]")]
-      .filter(el => (el.closest("[data-page-only]") ?? el).getClientRects().length);
+    const anchors = [...((next ? page : pane)?.querySelectorAll<HTMLElement>(next ? "[data-block-id]" : "[data-translation-chunk]") ?? [])]
+      .filter(el => {
+        const r = bounds(el);
+        return r.bottom > rect.top && r.top < rect.bottom;
+      });
     const cited = !manual.current && activeEvidence ?
       pane.querySelectorAll<HTMLElement>(`[data-evidence-block~="${activeEvidence}"]`)[regionNumber] : null;
     const citedBlock = cited?.matches("[data-block-id], [data-translation-chunk]") ? cited :
@@ -367,8 +373,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const r = current && bounds(current);
     const fraction = r ? Math.max(0, Math.min(1, (y - r.top) / Math.max(1, r.height))) : 0;
     position.current = chunk ? { chunk: chunk.id, block: (block ?? linkedBlock ?? linkedBlocks[0])?.blockId, fraction } : null;
-    if (next) lastPdfScroll.current = pane.scrollTop;
-    else lastTranslationScroll.current = pane.scrollTop;
+    if (!next) lastTranslationScroll.current = pane.scrollTop;
+    else if (settledPdf?.available && settledPdf.url === activePdfUrl) lastPdfScroll.current = pane.scrollTop;
     setPositionNotice(next && !chunk && page ? `第 ${page.dataset.pdfPage} 页暂无对应译块` : "");
     stopNavigation(); restorePaperPosition.current = true; movedSinceSwitch.current = false;
     manual.current = false; setSelection(""); setTranslated(next);
@@ -384,7 +390,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       [...pane.querySelectorAll<HTMLElement>("[data-block-id]")].find(el => el.dataset.blockId === anchor?.block);
     if (node && anchor) {
       const r = (node.closest("[data-page-only]") ?? node).getBoundingClientRect();
-      pane.scrollTop += r.top - pane.getBoundingClientRect().top + anchor.fraction * r.height - pane.clientHeight * .32;
+      const offset = translated ? 0 : anchor.fraction * r.height;
+      pane.scrollTop += r.top - pane.getBoundingClientRect().top + offset - pane.clientHeight * .32;
     } else {
       pane.scrollTop = translated ? lastTranslationScroll.current : lastPdfScroll.current;
       if (!translated && settledPdf?.available && anchor?.chunk) {
