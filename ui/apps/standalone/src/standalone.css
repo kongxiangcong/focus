@@ -495,7 +495,7 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
 .workspace-reading-title { min-width:0; max-width:min(560px,60vw); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   font:500 15px/1.4 var(--reader-ui); color:var(--reader-secondary); }
 .workspace-app .reading-fullscreen-exit, .workspace-app .reading-reset-fullscreen {
-  position:fixed; z-index:7; inset-block-start:var(--reader-gap); block-size:var(--reader-action-h);
+  position:fixed; z-index:9; inset-block-start:var(--reader-gap); block-size:var(--reader-action-h);
   border:var(--reader-border-width) solid var(--reader-line); border-radius:var(--reader-pill); background:var(--reader-popover);
 }
 .workspace-app .reading-fullscreen-exit { inset-inline-end:var(--reader-gap); inline-size:var(--reader-action-h);
@@ -509,9 +509,6 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
 .workspace-app[data-reading-fullscreen=true] > .workspace-header:has(.workspace-approval) { display:block; grid-column:1; grid-row:1; padding-right:4rem; }
 .workspace-app[data-reading-fullscreen=true] > .workspace-header > :not(.workspace-approval) { display:none; }
 .workspace-app[data-reading-fullscreen=true]:has(.workspace-approval) > .workspace-reading { grid-row:2; }
-/* Brightness creates a stacking context: lift the drawer owner above the floating exit. */
-.workspace-app[data-reading-fullscreen=true] > .workspace-reading:has(.reader-left-drawer[data-open=true]) { z-index:8; }
-
 /* ---------- motion / responsiveness ---------- */
 
 @media(max-width:1180px) {
@@ -598,7 +595,12 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
   margin:2px 0 6px 16px; padding-left:10px;
   border-left:1px solid var(--reader-line);
 }
-.reading-mode-tabs--fullscreen { padding-right:60px; }
+.workspace-app .reading-mode-tabs--fullscreen {
+  flex-wrap:wrap; padding-inline-end:calc(var(--reader-action-h) + 2 * var(--reader-gap));
+}
+.workspace-app:has(.reading-reset-fullscreen) .reading-mode-tabs--fullscreen {
+  padding-inline-end:calc(var(--reader-action-h) + 2 * var(--reader-gap) + 6em);
+}
 .workspace-app #reading-children button.reading-branch-item {
   position:relative; display:flex; align-items:center; justify-content:flex-start; gap:8px;
   width:100%; min-height:30px; padding:0 10px;

@@ -12,6 +12,7 @@ import { readingFontSizes } from "./typography";
 import { AgentControls } from "./AgentControls";
 import { AssetInstanceContext } from "./asset-context";
 import { ArrowUp, Close, Collapse, Expand, ListOutline, Pin, StopSquare } from "./ReaderIcons";
+import { canDismissReaderLayer } from "./reader-keyboard";
 import "./conversation-reader.css";
 
 const safeRead = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
@@ -231,6 +232,16 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setNotesOpen(true);
   }
   function closeNotes() { setNotesOpen(false); }
+  useEffect(() => {
+    if (!visible || !notesOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (!canDismissReaderLayer(event)) return;
+      event.preventDefault();
+      setNotesOpen(false);
+    };
+    globalThis.document.addEventListener("keydown", closeOnEscape);
+    return () => globalThis.document.removeEventListener("keydown", closeOnEscape);
+  }, [notesOpen, visible]);
   useLayoutEffect(() => {
     if (notesOpen && visible) noteInput.current?.focus({ preventScroll: true });
     else if (notesOpener.current) {
@@ -802,7 +813,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
 
   return <section ref={shell} className="conversation-reader" data-fullscreen={!!fullscreen} data-mobile={mobile} data-font-size={fontSize} hidden={!visible} style={{ "--source-share": `${share}%`, "--source-font-size": `${readingFontSizes[fontSize as keyof typeof readingFontSizes] ?? 18}px` } as CSSProperties}
     onKeyDown={e => {
-      if (e.key !== "Escape" || e.defaultPrevented || e.nativeEvent.isComposing || e.keyCode === 229 || globalThis.document.querySelector("dialog[open]")) return;
+      if (!canDismissReaderLayer(e.nativeEvent)) return;
       if (notesOpen) { e.stopPropagation(); closeNotes(); return; }
       if (choiceItems.length) { e.stopPropagation(); closeAnswerChooser(); return; }
       if (!activeEvidence || fullscreen) return;

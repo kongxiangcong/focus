@@ -31,6 +31,7 @@ import { useReadingLens } from "./reading-lens";
 import { ArticleOverviewPanel } from "./ArticleOverviewPanel";
 import { ArticleStructure } from "./ArticleStructure";
 import { ReaderConfirmation, type ReaderConfirmationInput } from "./ReaderConfirmation";
+import { canDismissReaderLayer } from "./reader-keyboard";
 import "./article-structure.css";
 import { chunkFigures, figureChunk, extractFigures, figureNumber, imageIdentity, mergeFigures, type Figure } from "./figures";
 
@@ -720,16 +721,33 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     }}><Close /></button></span>}
   </div>;
   const continueLabel = view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total) ? "已读完" : (view?.sessionFresh && view.readingStarted && frontier?.index === frontier?.total) || (!view?.sessionFresh && displayed?.index === displayed?.total && !reviewChunk) ? "完成本篇" : operation === "下一段" ? "打开中…" : "继续";
-  return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-measure={measure} data-notes-layout={notesLayout} data-anno-rail={Object.values(stackedRails).some(Boolean) ? "stacked" : undefined} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => {
-    if (event.key !== "Escape" || event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 || document.querySelector("dialog[open]")) return;
-    if (annotations.escape()) { event.stopPropagation(); return; }
+  function dismissReadingLayer() {
+    if (annotations.escape()) return true;
+    if (widthOpen) {
+      setWidthOpen(false);
+      widthControl.current?.querySelector("button")?.focus({ preventScroll: true });
+      return true;
+    }
     if (structureOpen) {
-      event.stopPropagation();
       setStructureOpen(false); layout.current?.querySelector<HTMLButtonElement>(".reader-location-badge")?.focus({ preventScroll: true });
-    } else if (sideMode) {
-    event.stopPropagation();
-    preserveReading(() => setSideMode(null)); event.currentTarget.querySelector<HTMLButtonElement>(mist ? ".reader-side-toggle" : ".reader-figures-toggle")?.focus({ preventScroll: true });
-  } }} data-materials-open={mist && materialsOpen && !showStructure} data-side-open={!!sideMode && !showStructure} className={`focus-reader reader-split${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}
+      return true;
+    }
+    if (!sideMode || showStructure) return false;
+    preserveReading(() => setSideMode(null));
+    layout.current?.querySelector<HTMLButtonElement>(mist ? ".reader-side-toggle" : ".reader-figures-toggle")?.focus({ preventScroll: true });
+    return true;
+  }
+  useEffect(() => {
+    if (!visible || (!annotations.overlay && !structureOpen && !sideMode && !widthOpen)) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (canDismissReaderLayer(event) && dismissReadingLayer()) event.preventDefault();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  });
+  return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-measure={measure} data-notes-layout={notesLayout} data-anno-rail={Object.values(stackedRails).some(Boolean) ? "stacked" : undefined} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => {
+    if (canDismissReaderLayer(event.nativeEvent) && dismissReadingLayer()) event.stopPropagation();
+  }} data-materials-open={mist && materialsOpen && !showStructure} data-side-open={!!sideMode && !showStructure} className={`focus-reader reader-split${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}
     style={{ "--reader-column": `calc(${readingMeasures.find(m => m.id === measure)!.characters} * var(--reader-reading-size))`, "--reader-notes-width": `${readingLayout.noteWidth}px`, "--reader-notes-gap": `${readingLayout.noteGap}px`, "--reader-notes-max-height": readingHeight ? `${Math.max(80, readingHeight - 28)}px` : "60dvh", "--reader-available-width": availableWidth ? `${availableWidth}px` : "100%", "--reader-shift": `${readerShift}px`, "--reader-reading-size": `${readingFontSizes[fontSize]}px`, "--reader-text-share": `${textShare}fr`, "--reader-side-share": `${100 - textShare}fr` } as CSSProperties}>
     {!mist && <header className="focus-header">
       <span className="focus-brand">FOCUS<span>.</span></span>

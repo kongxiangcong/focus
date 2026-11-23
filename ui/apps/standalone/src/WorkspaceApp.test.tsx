@@ -934,7 +934,9 @@ it("closes the conversation notes drawer before exiting fullscreen and restores 
   fireEvent.click(opener);
   const input = screen.getByRole("textbox", { name: "笔记内容" });
   expect(input).toHaveFocus();
-  fireEvent.keyDown(input, { key: "Escape" });
+  const fullscreenExit = screen.getByRole("button", { name: "关闭全屏模式" });
+  fullscreenExit.focus();
+  fireEvent.keyDown(fullscreenExit, { key: "Escape" });
   expect(opener).toHaveFocus();
   expect(screen.getByRole("button", { name: "关闭全屏模式" })).toBeInTheDocument();
   fireEvent.keyDown(opener, { key: "Escape" });
