@@ -34,6 +34,10 @@
   --reader-accent-ink:#24506c;
   --reader-accent-soft:rgba(45,95,127,.10);
   --reader-accent-line:rgba(45,95,127,.38);
+  --reader-battery-low:#DC2626;
+  --reader-battery-mid:#D97706;
+  --reader-battery-high:#4ADE80;
+  --reader-battery-full:#15803D;
   /* Quoted content emphasis */
   --reader-mark:rgba(232,178,62,.34);
   --reader-mark-soft:rgba(232,178,62,.14);
@@ -160,6 +164,10 @@
   --reader-accent-ink:#a9cbe3;
   --reader-accent-soft:rgba(141,184,214,.14);
   --reader-accent-line:rgba(141,184,214,.45);
+  --reader-battery-low:#F87171;
+  --reader-battery-mid:#FBBF24;
+  --reader-battery-high:#86EFAC;
+  --reader-battery-full:#16A34A;
   --reader-mark:rgba(217,164,65,.30);
   --reader-mark-soft:rgba(217,164,65,.12);
   --reader-mark-strong:#d9a441;

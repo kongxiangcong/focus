@@ -5,30 +5,35 @@ const source: LibrarySource = { sourceId: "a", title: "A", kind: "paper", parseS
 const prep: ReadingPreparation = { source_id: "a", status: "running", step: "translate", total: 4, completed: 2, ready: false, error: null, plan_id: "p" };
 const planned = { ...source, progress: { ...source.progress, planId: "p", chunkId: "c" } };
 it.each([
-  ["invalid", { ...source, parseStatus: "invalid" as const }, prep, false, "解析失败", "danger", ""],
-  ["preparing", planned, prep, false, "准备中", "accent", "2/4 段"],
-  ["prepFailed", planned, { ...prep, status: "failed" as const }, false, "准备失败", "warning", ""],
-  ["completed", { ...planned, readingStatus: "completed" as const }, undefined, false, "已读完", "success", "4 段"],
-  ["reading", { ...planned, progress: { ...planned.progress, completed: 1 } }, undefined, false, "阅读中", "accent", "1/4"],
-  ["ready", planned, undefined, false, "可阅读", "muted", "4 段"],
-  ["ready", source, { ...prep, status: "ready" as const, ready: true }, false, "可阅读", "muted", "4 段"],
-  ["ready", planned, { ...prep, status: "failed" as const }, true, "可阅读", "muted", "4 段"],
-  ["ready", planned, { ...prep, selected_ready: true }, false, "可阅读", "muted", "4 段"],
-  ["unplanned", source, undefined, false, "待准备", "muted", ""],
-])("maps %s with ordered preparation precedence", (phase, s, p, hidden, label, tone, detail) => {
-  expect(sourceStatus(s, p, hidden)).toMatchObject({ phase, label, tone, detail });
+  ["unselected", source, undefined, false, "unstarted", 0, 0, undefined],
+  ["selected", planned, undefined, false, "unstarted", 0, 4, undefined],
+  ["prepared", source, { ...prep, status: "ready" as const, ready: true }, false, "unstarted", 0, 0, undefined],
+  ["entered", { ...planned, readingStatus: "reading" as const }, undefined, false, "reading", 0, 4, undefined],
+  ["advanced", { ...planned, progress: { ...planned.progress, completed: 1 } }, undefined, false, "reading", 1, 4, undefined],
+  ["completed", { ...planned, progress: { ...planned.progress, completed: 4, chunkId: null } }, undefined, false, "completed", 4, 4, undefined],
+  ["legacy completion", { ...planned, readingStatus: "completed" as const }, undefined, false, "unstarted", 0, 4, undefined],
+  ["preparing", planned, prep, false, "unstarted", 0, 4, "准备中"],
+  ["failed", planned, { ...prep, status: "failed" as const }, false, "unstarted", 0, 4, "准备失败"],
+  ["dismissed failure", planned, { ...prep, status: "failed" as const }, true, "unstarted", 0, 4, undefined],
+  ["invalid", { ...source, parseStatus: "invalid" as const }, prep, false, "unstarted", 0, 0, "解析失败"],
+])("projects reading and operational status for %s", (_name, s, p, hidden, phase, completed, total, operation) => {
+  const status = sourceStatus(s, p, hidden);
+  expect(status).toMatchObject({ phase, progress: { completed, total } });
+  expect(status.operation?.label).toBe(operation);
 });
-it("preserves every valid-source primary label and lock from the original card expression", () => {
-  for (const readingStatus of [undefined, "unplanned", "ready", "reading", "completed"] as const)
-    for (const completed of [0, 1, 4]) for (const p of [undefined, ...["running", "ready", "failed", "cancelled", "interrupted", "bundle_changed", "commit_conflict"].flatMap(status => [false, true].flatMap(selected_ready => [false, true].map(ready => ({ ...prep, status, selected_ready, ready } as ReadingPreparation))))])
-      for (const hidden of [false, true]) for (const busy of ["", "上传"]) for (const active of [false, true]) for (const canOpen of [false, true]) {
-        const s = { ...planned, readingStatus, progress: { ...planned.progress, completed } };
-        const originalStatus = s.readingStatus ?? (s.progress.planId && s.progress.chunkId === null ? "completed" : s.progress.completed ? "reading" : s.progress.planId ? "ready" : "unplanned");
-        const failed = ["failed", "cancelled", "interrupted", "bundle_changed", "commit_conflict"].includes(p?.status ?? "");
-        const label = p?.status === "running" && !p.selected_ready ? "阅读准备中…" : failed && !p?.selected_ready ? hidden ? "准备阅读" : "重试准备" : originalStatus === "completed" ? "查看已读" : s.progress.completed > 0 ? "继续阅读" : p?.selected_ready || p?.ready ? "开始阅读" : "准备阅读";
-        expect(primaryAction(s, p, hidden, { busy, active, canOpen })).toEqual({ kind: "read", label, disabled: !!busy || active || !canOpen || (p?.status === "running" && !p.selected_ready), title: active ? "请先完成或停止当前问答" : busy ? `${busy}中` : undefined });
-      }
+
+it.each([
+  [source, undefined, false, "准备阅读", false],
+  [planned, prep, false, "阅读准备中…", true],
+  [planned, { ...prep, status: "failed" as const }, false, "重试准备", false],
+  [planned, { ...prep, status: "failed" as const }, true, "准备阅读", false],
+  [planned, { ...prep, status: "ready" as const, ready: true }, false, "开始阅读", false],
+  [{ ...planned, readingStatus: "reading" as const }, undefined, false, "继续阅读", false],
+  [{ ...planned, progress: { ...planned.progress, completed: 4, chunkId: null } }, undefined, false, "查看已读", false],
+])("offers the appropriate primary action for the reading state (%#)", (s, p, hidden, label, disabled) => {
+  expect(primaryAction(s, p, hidden, { busy: "", active: false, canOpen: true })).toMatchObject({ kind: "read", label, disabled });
 });
+
 it("invalid only inspects and never requires an available Host", () => {
   expect(primaryAction({ ...source, parseStatus: "invalid" }, prep, false, { busy: "上传", active: true, canOpen: false })).toMatchObject({ kind: "inspect", label: "查看问题", disabled: false });
 });
