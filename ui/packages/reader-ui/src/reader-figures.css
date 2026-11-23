@@ -42,7 +42,7 @@
   padding:12px; border:1px solid var(--reader-line); border-radius:var(--reader-dialog-radius);
   color:var(--reader-ink); background:var(--reader-canvas); box-shadow:var(--reader-shadow-popover); }
 .reader-image-dialog[open] { display:flex; flex-direction:column; }
-.reader-image-dialog::backdrop { background:rgba(10,10,10,.6); }
+.reader-image-dialog::backdrop { background:var(--reader-backdrop); }
 .reader-image-dialog header { display:flex; gap:8px; align-items:center; flex-shrink:0; }
 .reader-image-dialog header strong { margin-right:auto; font-size:14px; font-weight:600; }
 .reader-image-dialog header button { min-height:var(--reader-control-h); border:1px solid var(--reader-line); border-radius:var(--reader-radius); padding:0 12px; font-size:13px; background:transparent; }
