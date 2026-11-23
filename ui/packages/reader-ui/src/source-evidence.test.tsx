@@ -15,7 +15,7 @@ describe("source evidence rendering boundary", () => {
     expect(container.querySelectorAll("mark.source-evidence")).toHaveLength(1);
     expect(container.querySelectorAll("p")[0].querySelector("mark")).toBeNull();
     expect(container.querySelectorAll("p")[1].querySelector("mark")?.textContent).toBe("alias keeps order");
-    expect(screen.getByRole("button", { name: "返回回答证据 1" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "返回相关回答" })).toBeTruthy();
   });
   it("does not silently resolve ambiguous, outdated or fabricated quotes", () => {
     expect(projectEvidence(document, [{ ...evidence, sourceLines: [1, 9] }])[0].kind).toBe("unavailable");

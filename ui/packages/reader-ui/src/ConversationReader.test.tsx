@@ -99,7 +99,7 @@ it("automatically locates at most one evidence per turn", async () => {
   app.emit(answer([first]));
   await waitFor(() => expect(scrolling).toHaveBeenCalledTimes(1));
   app.emit(answer([first, second], 4));
-  await screen.findByRole("button", { name: "返回回答证据 2" });
+  await waitFor(() => expect(screen.getAllByRole("button", { name: "返回相关回答" })).toHaveLength(2));
   expect(scrolling).toHaveBeenCalledTimes(1);
   expect(app.host.continueReading).not.toHaveBeenCalled();
 });
@@ -109,14 +109,14 @@ it("manual reading cancels pending automatic source navigation", async () => {
   fireEvent.wheel(screen.getByLabelText("文章原文"));
   scrolling.mockClear();
   app.emit(answer([first]));
-  await screen.findByRole("button", { name: "返回回答证据 1" });
+  await screen.findByRole("button", { name: "返回相关回答" });
   expect(scrolling).not.toHaveBeenCalled();
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
 });
 
 it("restores saved answers without replaying an automatic jump", async () => {
   setup(answer([first]));
-  await screen.findByRole("button", { name: "返回回答证据 1" }, { timeout: 5000 });
+  await screen.findByRole("button", { name: "返回相关回答" }, { timeout: 5000 });
   expect(scrolling).not.toHaveBeenCalled();
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
 });
@@ -125,12 +125,13 @@ it("dismisses open evidence when leaving chat", async () => {
   const app = setup();
   await send();
   app.emit(answer([first]));
-  fireEvent.click(await screen.findByRole("button", { name: "返回回答证据 1" }));
+  const citation = await screen.findByRole("button", { name: "1" });
+  fireEvent.click(citation);
   expect(screen.getByLabelText("原文证据")).toBeInTheDocument();
   app.display(false);
   app.display(true);
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "返回回答证据 1" }));
+  fireEvent.click(citation);
   expect(screen.getByLabelText("原文证据")).toBeInTheDocument();
 });
 
@@ -153,7 +154,7 @@ it("does not replay evidence when a reply arrives after leaving chat", async () 
   app.display(false);
   app.emit(answer([first]));
   app.display(true);
-  await screen.findByRole("button", { name: "返回回答证据 1" });
+  await screen.findByRole("button", { name: "返回相关回答" });
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
   expect(scrolling).not.toHaveBeenCalled();
 });
@@ -275,8 +276,8 @@ it("returns from a block to its only linked answer even when a newer answer is s
     ...start.conversation[0], messageId: "uncited-answer", answerRevision: "r2", content: "There's nothing to verify here.", evidence: [],
   }] });
   const source = await screen.findByLabelText("文章原文");
-  fireEvent.click(await within(source).findByRole("button", { name: "返回回答证据 1" }));
-  await waitFor(() => expect(within(screen.getByLabelText("文章对话")).getByRole("button", { name: "1" })).toHaveFocus());
+  fireEvent.click(await within(source).findByRole("button", { name: "返回相关回答" }));
+  await waitFor(() => expect(screen.getByText("Claim", { exact: false }).closest(".source-message")).toHaveFocus());
   expect(screen.queryByLabelText("选择回答")).not.toBeInTheDocument();
 });
 
@@ -296,7 +297,7 @@ it("offers answer excerpts for a shared block and returns an active number to it
   const chooser = within(screen.getByRole("dialog", { name: "选择回答" }));
   expect(chooser.getByRole("button", { name: /The replication differed/ })).toBeVisible();
   fireEvent.click(chooser.getByRole("button", { name: /The original result held/ }));
-  expect(firstNumber).toHaveFocus();
+  expect(firstNumber.closest(".source-message")).toHaveFocus();
 
   fireEvent.click(secondNumber);
   fireEvent.click(await source.findByRole("button", { name: "返回回答证据 1" }));

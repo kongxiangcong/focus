@@ -9,23 +9,21 @@ export function SourceEvidenceMarkers({ items }: { items: readonly ValidatedAnsw
   const activeId = useContext(ActiveSourceCitation);
   if (!items.length) return null;
   const answerCount = new Set(items.map(item => item.messageId)).size;
-  const direct = answerCount === 1 ? items[0] : undefined;
   const active = items.find(item => item.evidenceId === activeId);
-  const number = (item: ValidatedAnswerEvidence) => <button type="button" className="source-evidence-number"
-    data-evidence={item.evidenceId} data-origin={item === active || undefined}
-    aria-label={`返回回答证据 ${item.displayNumber}`}>{item.displayNumber}</button>;
   return <span className="source-evidence-markers" data-anno-ui="">
-    {direct ? number(direct) : <button type="button" className="source-evidence-number"
+    {answerCount === 1 ? <button type="button" className="source-evidence-number"
+      data-evidence-answer={items[0].messageId} aria-label="返回相关回答">1 条回答</button> : <button type="button" className="source-evidence-number"
       data-evidence-choices={items.map(item => item.evidenceId).join(" ")} aria-haspopup="dialog"
       aria-label={`查看 ${answerCount} 条相关回答`}>{answerCount} 条回答</button>}
-    {active && active !== direct && number(active)}
+    {active && <button type="button" className="source-evidence-number" data-evidence={active.evidenceId} data-origin="true"
+      aria-label={`返回回答证据 ${active.displayNumber}`}>{active.displayNumber}</button>}
   </span>;
 }
 
 export function SourceAnswerChooser({ items, answers, onChoose, onClose }: {
   items: readonly ValidatedAnswerEvidence[];
   answers: readonly ReaderMessage[];
-  onChoose: (evidenceId: string) => void;
+  onChoose: (messageId: string) => void;
   onClose: () => void;
 }) {
   const first = useRef<HTMLButtonElement>(null);
@@ -37,8 +35,8 @@ export function SourceAnswerChooser({ items, answers, onChoose, onClose }: {
   return <aside className="source-evidence-card source-answer-chooser" role="dialog" aria-label="选择回答">
     <button type="button" aria-label="关闭回答选择" onClick={onClose}>×</button>
     <ul>{linked.map(({ answer, ordinal, citation }, index) => <li key={answer.messageId}>
-      <button type="button" ref={index === 0 ? first : undefined} onClick={() => onChoose(citation.evidenceId)}>
-        <span>回答 {ordinal} · 证据 {citation.displayNumber}</span>
+      <button type="button" ref={index === 0 ? first : undefined} onClick={() => onChoose(answer.messageId)}>
+        <span>回答 {ordinal}</span>
         <span>{answerExcerpt(answer, citation.evidenceId)}</span>
       </button>
     </li>)}</ul>
