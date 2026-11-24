@@ -81,12 +81,7 @@ async function selectAnswer(message) {
 }
 
 async function browseToStart() {
-  const point = await source.evaluate(pane => {
-    const bounds = pane.getBoundingClientRect();
-    return { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2, distance: pane.scrollHeight };
-  });
-  await page.mouse.move(point.x, point.y);
-  await page.mouse.wheel(0, -point.distance);
+  await source.press('Home');
   await page.waitForFunction(() => document.querySelector('[aria-label="文章原文"]').scrollTop < 20);
 }
 
@@ -192,6 +187,9 @@ try {
   await b4.click();
   await assertLocated(b4, 'a scalable high-bandwidth');
   assert.ok((await originalLink.getAttribute('href')).endsWith('#page=8'));
+  const beforePageUp = await scrollTop();
+  await source.press('PageUp');
+  await page.waitForFunction(top => document.querySelector('[aria-label="文章原文"]').scrollTop < top, beforePageUp);
   await browseToStart();
   await b4.click();
   await assertLocated(b4, 'a scalable high-bandwidth');

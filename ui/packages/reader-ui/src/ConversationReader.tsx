@@ -28,6 +28,23 @@ function isScrollKey(event: ReactKeyboardEvent) {
     !target.closest("input, textarea, select, [contenteditable=true]") && (event.key !== " " || !target.closest("button, a"));
 }
 
+function pageByKeyboard(event: ReactKeyboardEvent<HTMLDivElement>) {
+  const pane = event.currentTarget;
+  if (event.target !== pane) return;
+  switch (event.key) {
+    case "Home":
+    case "End":
+      event.preventDefault();
+      pane.scrollTop = event.key === "Home" ? 0 : pane.scrollHeight;
+      break;
+    case "PageUp":
+    case "PageDown":
+      event.preventDefault();
+      pane.scrollTop += pane.clientHeight * (event.key === "PageUp" ? -.9 : .9);
+      break;
+  }
+}
+
 function sourcePdfPage(pdf: ReadingDocument["pdf"], sourceLines: SourceLines, quoteOffsets?: SourceLines) {
   if (!pdf) return;
   const pages = new Set(pdf.blocks.filter(block => overlapsSourceLines(block.sourceLines, sourceLines) &&
@@ -891,7 +908,10 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
             const mark = e.target as HTMLElement;
             if ((e.key === "Enter" || e.key === " ") && mark.matches("[data-shared-note-ids][role=button]")) {
               e.preventDefault(); openNotes(mark, mark.dataset.sharedNoteIds?.split(" ")[0]);
-            } else if (isScrollKey(e)) manualBrowse();
+            } else if (isScrollKey(e)) {
+              manualBrowse();
+              pageByKeyboard(e);
+            }
           }}
           onScroll={event => {
             const pane = event.currentTarget;
