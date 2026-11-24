@@ -32,7 +32,10 @@ class BilingualRuntime(ReadingRuntimeDouble):
         self.calls.append('document')
         return [{'id': segment['id'], 'text': segment['source_text']
                  .replace('Bilingual Position', '双语位置')
-                 .replace('Section', '小节')
+                 .replace('Introduction', '引言')
+                 .replace('Methods', '方法')
+                 .replace('Data sources', '数据来源')
+                 .replace('Appendix', '附录')
                  .replace('Reading passage', '阅读段落')
                  .replace('with context to read.', '用来核对阅读位置。')}
                 for segment in segments]
@@ -44,9 +47,11 @@ def configure_source(source, source_id, title, *, chinese=False):
     chunks = []
     for number in range(1, 4):
         start = len(passages) * 2 + 1 if number > 1 else 1
-        section = f'原文小节 {number}' if chinese else f'Section {number}'
+        section = f'原文小节 {number}' if chinese else ['1. Introduction', 'Methods', 'Appendix'][number - 1]
         passages.append('## ' + section)
         for index in range(number * 12 - 11, number * 12 + 1):
+            if not chinese and index == 14:
+                passages.append('### Data sources')
             passages.append(f'中文原文第 {index} 段。' if chinese else f'Reading passage {index} with context to read.')
         chunks.append({'chunk_id': f'chunk-00{number}', 'index': number,
                        'section_path': [title, section],
@@ -91,7 +96,7 @@ def main():
         runtime = BilingualRuntime()
         with closing(Workbench(workspace=configure(fixture), settings_path=fixture.root / 'settings.json',
                                reading_runtime=runtime, backend_factory=partial(CitationRuntime, requests={
-                                   '核对双语证据': [{'lines': [39, 39], 'quote': 'Reading passage 17'}],
+                                   '核对双语证据': [{'lines': [41, 41], 'quote': 'Reading passage 17'}],
                                }))) as workbench:
             host = workbench.host
             assert host is not None, workbench.status()

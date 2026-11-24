@@ -78,6 +78,13 @@ try {
   const before = await readingProgress();
   assert.equal(before.chunk, 'chunk-002');
   assert.equal(before.read, 1);
+  const directoryToggle = page.getByRole('button', { name: '目录', exact: true });
+  await directoryToggle.waitFor();
+  assert.equal(await directoryToggle.getAttribute('aria-expanded'), 'true');
+  const directory = page.getByRole('navigation', { name: '目录', exact: true });
+  await directory.getByRole('button', { name: '1. 引言', exact: true }).waitFor();
+  await directory.getByRole('button', { name: '2 方法', exact: true }).waitFor();
+  await directory.getByRole('button', { name: '2.1 数据来源', exact: true }).waitFor();
   await readAt('阅读段落 17 用来核对阅读位置。');
   await original.press('Enter');
   await atReadingLine('Reading passage 17 with context to read.');

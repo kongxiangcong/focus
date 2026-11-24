@@ -30,6 +30,8 @@
 
 /* Source text */
 .source-original-pane { display:flex; flex-direction:column; }
+.source-reading-area { position:relative; display:grid; grid-template-columns:auto minmax(0,1fr); flex:1; min-height:0; }
+.source-reading-area > .source-original { grid-column:2; }
 .source-original { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:38px clamp(24px,4vw,76px) 120px; }
 .source-chat[data-evidence-pending=true] { overflow-anchor:none; }
 .source-original article { max-width:850px; margin:auto; }
@@ -42,6 +44,17 @@
 .source-original .focus-markdown table { border-collapse:collapse; }
 .source-original td, .source-original th { border-bottom:1px solid var(--reader-line); padding:8px; }
 .source-loading { color:var(--reader-muted); font-size:13px; }
+
+.conversation-reader .source-directory-toggle { display:inline-flex; align-items:center; gap:var(--reader-gap-xs); margin-inline-end:auto; font-size:13px; }
+.source-directory-toggle svg, .source-directory-branch svg { width:14px; height:14px; flex:none; }
+.source-directory { min-width:0; width:clamp(128px,14cqi,192px); overflow:auto; overscroll-behavior:contain; padding:var(--reader-gap-sm); border-inline-end:1px solid var(--reader-line); }
+.source-directory ul { margin:0; padding:0; list-style:none; }
+.source-directory li ul { margin-inline-start:var(--reader-gap-sm); padding-inline-start:var(--reader-gap-xs); border-inline-start:1px solid var(--reader-line); }
+.source-directory-row { display:grid; grid-template-columns:26px minmax(0,1fr); align-items:start; }
+.conversation-reader .source-directory-title { grid-column:2; padding:6px; color:var(--reader-ink-2); font-size:13px; line-height:1.4; text-align:start; overflow-wrap:anywhere; }
+.conversation-reader .source-directory-title[aria-current=location] { color:var(--reader-accent-ink); background:var(--reader-accent-soft); font-weight:600; }
+.conversation-reader .source-directory-branch { display:grid; place-items:center; width:26px; min-height:30px; padding:0; color:var(--reader-muted); }
+.source-directory-branch[aria-expanded=false] svg { transform:rotate(-90deg); }
 
 .source-splitter { cursor:col-resize; touch-action:none; background:linear-gradient(to right,transparent 3px,var(--reader-line) 3px,var(--reader-line) 4px,transparent 4px); transition:background var(--reader-duration-quick) var(--reader-ease-out); }
 .source-splitter:hover { background:var(--reader-accent-soft); }
@@ -59,10 +72,6 @@
 .source-guide-toggle__hint { margin-inline-start:auto; font-size:12px; font-weight:400; color:var(--reader-muted); }
 .source-opening__summary { margin:6px 0 0; color:var(--reader-ink-2); font-size:13px; line-height:1.72; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
 .source-opening[data-open=true] .source-opening__summary { -webkit-line-clamp:unset; }
-.source-opening__list { list-style:none; padding:8px 0 2px; margin:8px 0 0; border-top:1px solid var(--reader-line); max-height:260px; overflow:auto; display:grid; gap:2px; }
-.source-opening__list li[data-child=true] { padding-left:16px; }
-.source-opening__list li button { width:100%; text-align:left; padding:4px 8px; font-size:12.5px; color:var(--reader-ink-2); }
-.source-opening__list li button:hover { color:var(--reader-ink); background:var(--reader-hover); }
 .source-opening-skeleton { padding:12px 14px; border-radius:12px; background:var(--reader-surface-1); }
 .source-opening-skeleton i { display:block; height:10px; background:var(--reader-line); width:82%; margin:10px 0; border-radius:4px; }
 .source-opening-skeleton i:last-child { width:56%; }
@@ -196,6 +205,8 @@
   .source-splitter { display:none; }
   .conversation-reader[data-mobile=chat] .source-original-pane,
   .conversation-reader[data-mobile=original] .source-chat-pane { display:none; }
+  .source-directory { position:absolute; inset:0 auto auto 0; z-index:3; width:min(88%,320px); max-height:100%; box-sizing:border-box; background:var(--reader-popover); border:1px solid var(--reader-line); border-radius:var(--reader-radius); box-shadow:var(--reader-shadow-hover); }
+  .conversation-reader .source-directory-title, .conversation-reader .source-directory-branch { min-height:40px; }
   .source-original { padding:24px 22px 160px; }
 }
 

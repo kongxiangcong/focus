@@ -677,6 +677,8 @@ class HostService:
                  'sourceLines': source.line_span(*block['offsets']),
                  **({'pageNumber': block['page']} if 'page' in block else {})}
                 for block in source.blocks]
+            if source.sections is not None:
+                document['sections'] = source.sections
             document['language'] = self.reading_app.core.source_language(source_id)
             document['readingPlan'] = self.reading_app.core.note_plan(source_id, document['bundleVersion'], source)
             if (bundle / SOURCE_ORIGINALS['paper_pdf']).is_file():

@@ -34,6 +34,15 @@ export interface ReadingTranslationSegment {
   granularity: "block" | "group" | "source";
 }
 
+export interface ReadingSection {
+  id: string;
+  parentId: string | null;
+  level: number;
+  title: string;
+  sourceLines: readonly [number, number];
+  startBlockId?: string;
+}
+
 export interface ReadingDocument extends SourceScope { generation?: number; title: string; markdown: string; lineCount: number;
   readingVersion?: number;
   bookmark?: ReadingViewBookmark | null;
@@ -44,6 +53,7 @@ export interface ReadingDocument extends SourceScope { generation?: number; titl
   /** Half-open Unicode code-point offsets in canonical Markdown. */
   blocks?: readonly { blockId: string; offsets: readonly [number, number];
     sourceLines?: readonly [number, number]; pageNumber?: number }[];
+  sections?: readonly ReadingSection[];
   pdf?: { version: string; pdfHash: string;
     pages?: readonly { page: number; width?: number; height?: number; rotation?: number }[];
     blocks: readonly {
