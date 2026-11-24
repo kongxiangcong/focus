@@ -34,8 +34,6 @@
 .source-chat[data-evidence-pending=true] { overflow-anchor:none; }
 .source-original article { max-width:850px; margin:auto; }
 .source-original .focus-markdown { font-family:var(--reader-body-font,var(--reader-serif)); font-size:var(--source-font-size); line-height:var(--reader-prose-leading); overflow-wrap:anywhere; }
-/* Translation positions use measured chunk heights during the view switch. */
-.source-original article > .focus-markdown > * { content-visibility:auto; contain-intrinsic-size:auto 120px; }
 .source-original img { max-width:100%; height:auto; }
 .source-original :is(.focus-table, pre, .katex-display) { max-width:100%; overflow-x:auto; }
 .source-original pre { white-space:pre; }
