@@ -129,7 +129,7 @@ it("shows only the verified original block in place when an older Host has no va
   expect(within(originalBlock).getByText(first.quote.exact)).toHaveClass("is-active");
   expect(source.queryByText(/Second evidence/)).not.toBeInTheDocument();
 
-  fireEvent.click(screen.getByRole("button", { name: "原文", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "原文" }));
   expect(source.getByText(first.quote.exact)).toHaveClass("is-active");
   expect(source.queryByRole("region", { name: "原文证据" })).not.toBeInTheDocument();
   fireEvent.click(translated);
