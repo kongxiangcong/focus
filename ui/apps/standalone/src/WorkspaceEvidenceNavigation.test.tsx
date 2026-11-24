@@ -5,9 +5,6 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { readerSuccess, type ReaderChunk, type ReaderHost, type ReaderHostResult, type ReadingWindow, type ValidatedAnswerEvidence } from "@focus/reader-contracts";
 import { WorkspaceApp } from "./WorkspaceApp";
 
-const { getDocument } = vi.hoisted(() => ({ getDocument: vi.fn() }));
-vi.mock("../../../packages/reader-ui/node_modules/pdfjs-dist/build/pdf.mjs", () => ({ GlobalWorkerOptions: {}, getDocument }));
-
 const first: ValidatedAnswerEvidence = {
   evidenceId: "a".repeat(24), sourceId: "paper", discussionId: "discussion", messageId: "answer", answerRevision: "answer-v1",
   bundleVersion: "bundle", displayNumber: 1, relation: "supports", sourceLines: [1, 1], layoutVersion: "layout", blockIds: ["first"],
@@ -29,7 +26,7 @@ const snapshot: ReadingWindow = {
 beforeEach(() => {
   history.replaceState(null, "", "/reading");
   localStorage.clear();
-  getDocument.mockReset();
+  HTMLElement.prototype.scrollIntoView = vi.fn();
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
   HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
   vi.stubGlobal("IntersectionObserver", class { observe() {} disconnect() {} });
@@ -41,14 +38,11 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 async function setup(missingSecondTarget = false, reading = snapshot) {
-  let resolvePdf!: (document: { numPages: number; getPage: (page: number) => Promise<unknown> }) => void;
-  let rejectPdf!: (error: Error) => void;
-  getDocument.mockReturnValue({ promise: new Promise((resolve, reject) => { resolvePdf = resolve; rejectPdf = reject; }), destroy: async () => {} });
   const publish = new Set<(result: ReaderHostResult<ReadingWindow>) => void>();
   const host: ReaderHost = {
     getReadingWindow: async () => readerSuccess(reading),
     getSourceDocument: async () => readerSuccess({
-      sourceId: "paper", title: "Paper", bundleVersion: "bundle", markdown: "First paragraph.\n\nSecond paragraph.", lineCount: 3,
+      sourceId: "paper", title: "Paper", bundleVersion: "bundle", markdown: `First paragraph.\n\n${missingSecondTarget ? "A different paragraph." : "Second paragraph."}`, lineCount: 3,
       blocks: [{ blockId: "new-first", offsets: [0, 16] }, { blockId: "new-second", offsets: [18, 35] }],
       pdf: {
         pdfHash: "original", version: "layout",
@@ -73,101 +67,60 @@ async function setup(missingSecondTarget = false, reading = snapshot) {
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(400);
   vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(2000);
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-    const y = this.dataset.sourceLine === "3" ? 900 : this.dataset.sourceLine === "1" ? 700 : 0;
-    return { x: 0, y, top: y, bottom: y + 400, left: 0, right: 100, width: 100, height: 400, toJSON() {} };
+    const line = this.closest<HTMLElement>("[data-source-line]")?.dataset.sourceLine;
+    const anchor = this.closest<HTMLElement>(".source-original")?.scrollTop ?? 0;
+    const top = line === "3" ? 900 - anchor : line === "1" ? 100 - anchor : 0;
+    return new DOMRect(0, top, 100, line ? 20 : 400);
   });
   await act(async () => { render(<WorkspaceApp host={host} />); });
   return {
     host,
-    completePdf: () => resolvePdf({ numPages: 2, getPage: async pageNumber => ({ pageNumber, getViewport: () => ({ width: 100, height: 120 }) }) }),
-    failPdf: () => rejectPdf(new Error("PDF failed")),
     reconnect: () => publish.forEach(listener => listener(readerSuccess({ ...reading, revision: 2 }))),
   };
 }
 
-it.each([
-  ["wheel", (pane: HTMLElement) => fireEvent.wheel(pane, { deltaY: 120 })],
-  ["touch", (pane: HTMLElement) => fireEvent.touchStart(pane)],
-  ["scrollbar pointer", (pane: HTMLElement) => fireEvent.pointerDown(pane)],
-  ["scrollbar native scroll", (pane: HTMLElement) => { pane.scrollTop = 60; fireEvent.scroll(pane); }],
-  ["keyboard", (pane: HTMLElement) => fireEvent.keyDown(pane, { key: "PageDown" })],
-])("cancels a waiting citation when the reader uses %s", async (_method, manuallyBrowse) => {
-  const key = "focus.sourceBookmark:local:paper:0:bundle";
-  const before = JSON.stringify({ line: 1, offset: 28 });
-  localStorage.setItem(key, before);
-  const session = await setup();
-  const pane = await screen.findByLabelText("文章原文");
-  const answer = screen.getByLabelText("文章对话");
-  fireEvent.click(await within(answer).findByRole("button", { name: "1" }, { timeout: 5000 }));
-  await waitFor(() => expect(getDocument).toHaveBeenCalled());
-  manuallyBrowse(pane);
-  pane.scrollTop = 250;
-  await act(async () => session.completePdf());
-  await waitFor(() => expect(pane.querySelector('[data-pdf-page="2"]')).toBeInTheDocument());
-  expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
-  expect(pane.scrollTop).toBe(250);
-  expect(localStorage.getItem(key)).toBe(before);
-});
-
-
-it("lands on the latest citation once and preserves the manual bookmark through reconnect and display switches", async () => {
-  const key = "focus.sourceBookmark:local:paper:0:bundle";
-  const before = JSON.stringify({ line: 1, offset: 28 });
-  localStorage.setItem(key, before);
+it("keeps the latest citation after reconnect and resumes a bookmark set with a reading key", async () => {
   const session = await setup();
   const pane = await screen.findByLabelText("文章原文");
   const answer = within(screen.getByLabelText("文章对话"));
-  fireEvent.click(await answer.findByRole("button", { name: "1" }, { timeout: 5000 }));
-  fireEvent.click(answer.getByRole("button", { name: "2" }));
-  await act(async () => session.completePdf());
-  const card = await screen.findByLabelText("原文证据");
-  expect(within(card).getByText("Second paragraph.")).toBeVisible();
-  expect(pane.scrollTop).toBe(772);
+  const firstNumber = await answer.findByRole("button", { name: "1" });
+  const secondNumber = answer.getByRole("button", { name: "2" });
+
+  fireEvent.keyDown(pane, { key: "PageDown" });
+  pane.scrollTop = 90;
+  fireEvent.scroll(pane);
+  const bookmark = "focus.sourceBookmark:local:paper:0:bundle";
+  const before = JSON.stringify({ line: 1, offset: -10 });
+  expect(localStorage.getItem(bookmark)).toBe(before);
+
+  fireEvent.click(firstNumber);
+  fireEvent.click(secondNumber);
+  expect(within(pane).getByText("First paragraph.")).not.toHaveClass("is-active");
+  expect(within(pane).getByText("Second paragraph.")).toHaveClass("is-active");
+  expect(pane).toHaveProperty("scrollTop", 772);
+  expect(screen.getByRole("link", { name: "打开原件 ↗" })).toHaveAttribute("href", "/paper.pdf?pdfHash=original#page=2");
   fireEvent.scroll(pane);
   await act(async () => session.reconnect());
-  expect(pane.scrollTop).toBe(772);
-
-  fireEvent.click(screen.getByRole("button", { name: "中文译文" }));
-  fireEvent.scroll(pane);
-  fireEvent.click(screen.getByRole("button", { name: "对话全屏" }));
-  fireEvent.click(screen.getByRole("button", { name: "关闭全屏模式" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "阅读方式" }), { target: { value: "chunks" } });
-  fireEvent.change(screen.getByRole("combobox", { name: "阅读方式" }), { target: { value: "chat" } });
-  expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
-  expect(localStorage.getItem(key)).toBe(before);
+  expect(pane).toHaveProperty("scrollTop", 772);
+  expect(within(pane).getByText("Second paragraph.")).toHaveClass("is-active");
+  fireEvent.click(within(pane).getByRole("button", { name: "返回回答证据 2" }));
+  expect(secondNumber).toHaveFocus();
+  expect(localStorage.getItem(bookmark)).toBe(before);
   expect(session.host.continueReading).not.toHaveBeenCalled();
 });
 
-it.each(["success", "failure"] as const)("a pending PDF %s cannot replace the later citation in the translation", async result => {
-  const session = await setup();
-  const pane = await screen.findByLabelText("文章原文");
-  const answer = within(screen.getByLabelText("文章对话"));
-  fireEvent.click(await answer.findByRole("button", { name: "1" }, { timeout: 5000 }));
-  await waitFor(() => expect(getDocument).toHaveBeenCalled());
-  fireEvent.click(screen.getByRole("button", { name: "中文译文" }));
-  fireEvent.click(answer.getByRole("button", { name: "2" }));
-  const card = await screen.findByLabelText("原文证据");
-  expect(within(card).getByText("Second paragraph.")).toBeVisible();
-  const position = pane.scrollTop;
-  await act(async () => result === "success" ? session.completePdf() : session.failPdf());
-  expect(within(card).getByText("Second paragraph.")).toBeVisible();
-  expect(pane.scrollTop).toBe(position);
-  expect(screen.queryByText("PDF 加载失败", { exact: false })).not.toBeInTheDocument();
-});
-
-
-it("does not replay an unavailable citation after the reader closes its card and reconnects", async () => {
+it("keeps the prior verified location when a later citation is unavailable", async () => {
   const session = await setup(true);
   const pane = await screen.findByLabelText("文章原文");
   const answer = within(screen.getByLabelText("文章对话"));
-  fireEvent.click(await answer.findByRole("button", { name: "2" }, { timeout: 5000 }));
-  const card = await screen.findByLabelText("原文证据");
-  expect(within(card).getByText("Second paragraph.")).toBeVisible();
-  expect(pane.scrollTop).toBe(0);
-  fireEvent.click(within(card).getByRole("button", { name: "关闭证据" }));
+  fireEvent.click(await answer.findByRole("button", { name: "1" }));
+  const position = pane.scrollTop;
+  fireEvent.click(answer.getByRole("button", { name: "2" }));
   await act(async () => session.reconnect());
+  expect(within(pane).getByText("First paragraph.")).toHaveClass("is-active");
+  expect(pane).toHaveProperty("scrollTop", position);
+  expect(within(pane).queryByRole("button", { name: "返回回答证据 2" })).not.toBeInTheDocument();
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
-  expect(pane.scrollTop).toBe(0);
 });
 
 it("opens the answer before its source from a chunk bound to the current source blocks", async () => {
@@ -185,9 +138,7 @@ it("opens the answer before its source from a chunk bound to the current source 
   const bookmark = "focus.sourceBookmark:local:paper:0:bundle";
   const before = JSON.stringify({ line: 1, offset: 28 });
   localStorage.setItem(bookmark, before);
-  HTMLElement.prototype.scrollIntoView = vi.fn();
   const session = await setup(false, reading);
-  await act(async () => session.completePdf());
   await within(screen.getByLabelText("文章对话")).findByRole("button", { name: "1" }, { timeout: 10000 });
   const mode = screen.getByRole("combobox", { name: "阅读方式" });
   fireEvent.change(mode, { target: { value: "chunks" } });
@@ -206,7 +157,7 @@ it("opens the answer before its source from a chunk bound to the current source 
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
   expect(mode).toHaveValue("chat");
   fireEvent.click(number);
-  expect(await screen.findByLabelText("原文证据")).toBeVisible();
+  expect(within(screen.getByLabelText("文章原文")).getByText("First paragraph.")).toHaveClass("is-active");
   expect(localStorage.getItem(bookmark)).toBe(before);
   expect(session.host.continueReading).not.toHaveBeenCalled();
 });
