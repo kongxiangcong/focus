@@ -361,7 +361,8 @@ export class HttpReaderHost implements ReaderHost {
     return this.ingestionRequest(`/library/inbox/${encodeURIComponent(itemId)}/cancel`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   }
   sourceOriginalUrl(sourceId: string): string {
-    return `${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/original`;
+    const instance = this.instanceId ? `?instance=${encodeURIComponent(this.instanceId)}` : "";
+    return `${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/original${instance}`;
   }
   sourceContentUrl(sourceId: string): string {
     return `${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/content`;

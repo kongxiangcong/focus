@@ -15,6 +15,8 @@ export interface ValidatedAnswerEvidence extends SourceScope {
 export type PdfBox = readonly [number, number, number, number];
 
 export interface ReadingDocument extends SourceScope { generation?: number; title: string; markdown: string; lineCount: number;
+  /** A null value indicates that the Host has no original file to open. */
+  original?: { format: "pdf" | "html" | "markdown" } | null;
   /** Half-open Unicode code-point offsets in canonical Markdown. */
   blocks?: readonly { blockId: string; offsets: readonly [number, number] }[];
   pdf?: { version: string; pdfHash: string;
