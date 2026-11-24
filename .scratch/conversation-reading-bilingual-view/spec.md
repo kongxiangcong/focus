@@ -1,6 +1,6 @@
 # 双语对话阅读、跨段笔记与阅读版本
 
-Status: ready-for-agent
+Status: resolved
 
 ## Problem Statement
 
@@ -90,3 +90,7 @@ Status: ready-for-agent
 本规格对应下一版对话阅读与阅读版本需求。既有对话阅读规格及其验收记录描述此前交付的功能。设计基线为 `c564a3f70d2436f89456fadc098d0e1d1b3514f1`。[设计文档 04](../../docs/design/20261122-refactor/04-conversation-reading-bilingual-view.md) · [领域词表](../../CONTEXT.md)
 
 继续使用原文证据签发、来源归属、批注和重置恢复的既有契约。本规格细化了两种入口共同就绪、跨段共享小段笔记、每轮单份备份和可编辑版本切换的行为。[阅读批注](../../docs/adr/0033-reading-annotations-and-chunk-notes.md) · [来源绑定的回答证据](../../docs/adr/0034-source-bound-answer-evidence.md) · [重新阅读](../../docs/adr/0035-close-reading-completion-and-reset.md)
+
+## Comments
+
+11 项工单已在 `integration/conversation-reading-bilingual-view` 集成。完成正式工作台 Chromium 与公共 Host 验收，并修复最终审查发现的轮次隔离、原文精确范围、旧解析版本、备份结构和译文复用问题。[验收与工单记录](issues/)
