@@ -809,7 +809,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <div><strong>{item.fileName}</strong><span>{statusText[item.status]}</span>{item.sourceTitle && <small>{item.sourceTitle}</small>}<small>{item.topicTitle ?? topics.find(t => t.topicId === item.topicId)?.title ?? "不关联专题"}</small></div>
         {item.parserBackend && <p role="status">{item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"}{item.selectionReason ? ` · ${item.selectionReason}` : ""}{item.parserProgress?.status ? ` · ${item.parserProgress.status === "queued" ? "排队中" : item.parserProgress.status === "running" ? "解析中" : item.parserProgress.status}` : ""}{typeof item.parserProgress?.percent === "number" ? ` · ${Math.round(item.parserProgress.percent)}%` : ""}</p>}
         {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>PDF 由服务器自动选择本地 MinerU 或远端 MinerU API。HTML 和 Markdown 在本地解析。</p>
-          <button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>{ingestionFormat(item.fileName) === "Markdown" ? "仅解析入库" : "开始解析并生成博客"}</button></div>}
+          <button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>{view?.unifiedPreparation ? "上传并准备阅读" : ingestionFormat(item.fileName) === "Markdown" ? "仅解析入库" : "开始解析并生成博客"}</button></div>}
         {item.status === "processing" && <button disabled={!!busy || !host.cancelIngestion} onClick={() => host.cancelIngestion && void ingest("取消", () => host.cancelIngestion!(item.itemId))}>取消</button>}
         {(item.status === "status_check_required" || (item.status === "cancelled" && item.resubmitRisk)) && <div className="inbox-confirmation inbox-resubmission">
           <p>上次提交结果未知，重新提交可能重复解析。</p>
@@ -963,10 +963,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <form onSubmit={e => { e.preventDefault(); void uploadAndStart(); }}>
         <h2>上传材料</h2>
         <UploadTopicPicker topics={topics} value={uploadTopic} onChange={setUploadTopic} disabled={!!busy} />
-        {!includesPdf && !markdownOnly && <label className="upload-parse-only"><input type="checkbox" disabled={!!busy} checked={!generateOnUpload} onChange={e => setGenerateOnUpload(!e.target.checked)} />仅解析入库</label>}
+        {!includesPdf && !markdownOnly && <label className="upload-parse-only"><input type="checkbox" disabled={!!busy} checked={!generateOnUpload} onChange={e => setGenerateOnUpload(!e.target.checked)} />{view?.unifiedPreparation ? "不生成博客" : "仅解析入库"}</label>}
         <label className="upload-file">{selectedFiles.map(f => f.name).join("、") || "PDF / HTML / Markdown"}<input aria-label="上传材料" type="file" multiple disabled={!!busy} accept=".pdf,.html,.md,.markdown,application/pdf,text/html,text/markdown" onChange={e => selectUploadFiles(Array.from(e.target.files ?? []))} /></label>
         {error && <p role="alert">{error}</p>}
-        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length}>{busy ? "开始中…" : includesPdf ? "上传并准备阅读" : generateUploadBlog ? "开始解析并生成博客" : "仅解析入库"}</button></div>
+        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length}>{busy ? "开始中…" : (view?.unifiedPreparation || includesPdf) ? "上传并准备阅读" : generateUploadBlog ? "开始解析并生成博客" : "仅解析入库"}</button></div>
       </form>
     </dialog>
     {blogViewer && host.blogUrl && <dialog className="workspace-blog-viewer" ref={blogDialog} aria-labelledby="blog-viewer-title" onCancel={e => { e.preventDefault(); closeBlogViewer(); }}>

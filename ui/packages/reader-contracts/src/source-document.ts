@@ -14,9 +14,21 @@ export interface ValidatedAnswerEvidence extends SourceScope {
 }
 export type PdfBox = readonly [number, number, number, number];
 
+export interface ReadingTranslationSegment {
+  id: string;
+  text: string;
+  blockIds: readonly string[];
+  sourceLines: readonly [number, number];
+  /** Half-open Unicode code-point offsets in canonical Markdown. */
+  sourceOffsets: readonly [number, number];
+  /** Legacy text may only be verifiable as one contiguous group. */
+  granularity: "block" | "group" | "source";
+}
+
 export interface ReadingDocument extends SourceScope { generation?: number; title: string; markdown: string; lineCount: number;
   /** Half-open Unicode code-point offsets in canonical Markdown. */
-  blocks?: readonly { blockId: string; offsets: readonly [number, number] }[];
+  blocks?: readonly { blockId: string; offsets: readonly [number, number];
+    sourceLines?: readonly [number, number]; pageNumber?: number }[];
   pdf?: { version: string; pdfHash: string;
     pages?: readonly { page: number; width?: number; height?: number; rotation?: number }[];
     blocks: readonly {
@@ -24,7 +36,16 @@ export interface ReadingDocument extends SourceScope { generation?: number; titl
     /** Half-open Unicode code-point offsets in canonical Markdown. */
     offsets?: readonly [number, number]
   }[] };
-  translation?: { status: string; planId?: string; chunks: readonly { id: string; text: string; blockIds: readonly string[]; sourceLines: readonly [number, number] }[] };
+  language?: string;
+  translation?: {
+    status: string;
+    readingVersion?: number;
+    bundleVersion?: string;
+    segments?: readonly ReadingTranslationSegment[];
+    /** Compatibility with Hosts that expose a translation by Plan. */
+    planId?: string;
+    chunks: readonly { id: string; text: string; blockIds: readonly string[]; sourceLines: readonly [number, number] }[];
+  };
 }
 export interface ReadingOpening extends SourceScope {
   status: "missing" | "running" | "ready" | "failed"; error?: string;

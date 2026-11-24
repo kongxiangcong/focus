@@ -105,7 +105,7 @@ class BatchApplication:
             item_ids = batch['itemIds']
             if item_id is not None:
                 item_ids = [item_id] if item_id in item_ids else []
-            return any(self.processing.wants_blog(i) for i in item_ids)
+            return any(self.processing.wants_blog(i) or self.processing.wants_reading(i) for i in item_ids)
 
     def _view(self, batch, *, inbox=None):
         items = []
@@ -121,7 +121,9 @@ class BatchApplication:
                 status = 'deleted'
             elif item_id in batch['excluded']:
                 status = 'cancelled'
-            elif not error and item['status'] == 'completed' and ((blog or {}).get('runStatus') == 'completed' or not self.processing.wants_blog(item_id)):
+            elif (not error and item['status'] == 'completed'
+                  and ((blog or {}).get('runStatus') == 'completed' or not self.processing.wants_blog(item_id))
+                  and not (item_id == batch['activeItemId'] and self.processing.wants_reading(item_id))):
                 status = 'completed'
             elif item_id == batch['activeItemId'] and batch['status'] == 'running':
                 status = 'processing'

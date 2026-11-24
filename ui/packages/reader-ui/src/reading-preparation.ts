@@ -1,7 +1,7 @@
 import type { ReadingPreparation } from "@focus/reader-contracts";
 
 const steps: Record<string, string> = {
-  context: "正在分析全文", plan: "正在生成计划", translate: "正在翻译", check: "正在检查", repair: "正在修订译文",
+  context: "正在分析全文", plan: "正在生成计划", document: "正在翻译正文", translate: "正在翻译", check: "正在检查", repair: "正在修订译文",
 };
 const failures: Record<string, string> = {
   failed: "准备失败", interrupted: "准备已中断", cancelled: "准备已取消", bundle_changed: "原件已变化", commit_conflict: "提交冲突",
