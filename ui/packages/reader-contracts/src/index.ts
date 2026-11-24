@@ -246,6 +246,7 @@ export interface ReadingWindow {
   revision?: number;
   sessionId?: string;
   discussionId?: string;
+  discussionReadingVersion?: number;
   discussions?: readonly { discussionId: string; sourceId: string }[];
   sessionFresh?: boolean;
   readingStarted?: boolean;

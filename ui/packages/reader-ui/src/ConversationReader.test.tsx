@@ -51,6 +51,22 @@ async function send() {
   await waitFor(() => expect(screen.getByRole("textbox", { name: "输入消息" })).toHaveValue(""));
 }
 
+it("offers discussion history until a reading version owns the selected discussion", async () => {
+  const discussions = [{ discussionId: "discussion", sourceId: "paper" },
+    { discussionId: "archive", sourceId: "paper" }];
+  const legacy = { ...initial, discussions, readingVersion: 1 };
+  const selectDiscussionSource = vi.fn<NonNullable<ReaderHost["selectDiscussionSource"]>>()
+    .mockResolvedValue(readerSuccess({ ...legacy, revision: 2, discussionId: "archive" }));
+  const app = setup(legacy, { selectDiscussionSource });
+  const history = await screen.findByRole("combobox", { name: "对话记录" });
+  fireEvent.change(history, { target: { value: "archive" } });
+  await waitFor(() => expect(history).toHaveValue("archive"));
+  expect(selectDiscussionSource).toHaveBeenCalledWith("paper", "archive");
+
+  app.emit({ ...legacy, revision: 3, discussionId: "archive", discussionReadingVersion: 1 });
+  expect(screen.queryByRole("combobox", { name: "对话记录" })).toBeNull();
+});
+
 it("scopes failed replies to their source and dismisses only the failed attempt", async () => {
   const run = { runId: "old-attempt", sourceId: "other-paper", status: "failed" as const, error: "问答未完成", approvals: [], activity: [] };
   const agent = { run, catalog: { sources: [], topics: [] } };

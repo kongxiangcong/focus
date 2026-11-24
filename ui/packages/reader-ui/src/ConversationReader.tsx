@@ -1112,7 +1112,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
           <div className="source-composer-actions" role="toolbar" aria-label="对话操作">
             <button type="button" className="source-mobile-toggle" onClick={() => { stopNavigation(); setMobile("original"); }}>查看正文</button>
             <div className="source-composer-icons">
-              {(view.discussions?.length ?? 0) > 1 && host.selectDiscussionSource && (
+              {view.discussionReadingVersion === undefined && (view.discussions?.length ?? 0) > 1 && host.selectDiscussionSource && (
                 <select className="source-discussion-select" aria-label="对话记录" value={view.discussionId ?? ""} disabled={running} onChange={e => { stopNavigation(); void apply("discussion", host.selectDiscussionSource!(sourceId, e.target.value)); }}>
                   {view.discussions!.map((d, i) => <option key={d.discussionId} value={d.discussionId}>对话 {i + 1}</option>)}
                 </select>

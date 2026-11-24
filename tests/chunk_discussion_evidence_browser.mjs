@@ -20,6 +20,9 @@ const conversation = page.getByLabel('文章对话', { exact: true });
 const source = page.getByLabel('文章原文', { exact: true });
 const original = page.getByRole('button', { name: '原文', exact: true });
 const originalLink = page.getByRole('link', { name: '打开原件 ↗' });
+const history = page.getByRole('combobox', { name: '对话记录', exact: true });
+const manage = page.getByRole('button', { name: '管理来源', exact: true });
+const management = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: '管理来源', exact: true }) });
 const chunk = number => stream.locator(`[data-chunk-key$="/chunk-00${number}"]`).last();
 const capsule = (section, count) => section.getByRole('button', { name: `对话证据 · ${count} 条`, exact: true });
 const answer = name => conversation.locator('[data-role="assistant"]').filter({ hasText: name });
@@ -52,6 +55,21 @@ async function readingProgress() {
     completed: progress.completed,
   };
 }
+
+async function switchReadingVersion(version) {
+  await manage.click();
+  const rounds = management.getByRole('list', { name: '阅读版本' });
+  await rounds.getByRole('button', { name: `切换到第 ${version} 轮`, exact: true }).click();
+  await management.waitFor({ state: 'hidden' });
+  await chat.click();
+  assert.equal(await history.count(), 0);
+  const view = await snapshot();
+  assert.equal(view.readingVersion, version);
+  assert.equal(view.discussionReadingVersion, version);
+  return view;
+}
+
+const savedProgress = ({ cursor, plan, completed }) => ({ cursor, plan, completed });
 
 async function enterSecondChunk() {
   await closeReading.click();
@@ -163,16 +181,21 @@ try {
   await followEvidence(bothAnswers, otherAnswer, 1, quote3);
   assert.deepEqual(await readingProgress(), afterReset);
 
-  const discussionHistory = page.getByRole('combobox', { name: '对话记录', exact: true });
-  await discussionHistory.selectOption(original.discussionId);
+  assert.equal(await history.count(), 0);
+  const archive = await switchReadingVersion(original.readingVersion);
   await citation(b, 4).waitFor();
-  const archive = await snapshot();
+  assert.equal(archive.discussionId, original.discussionId);
   assert.deepEqual(archive.conversation.find(item => item.messageId === message.messageId), message);
-  await discussionHistory.selectOption(fresh.discussionId);
+  assert.deepEqual(savedProgress(await readingProgress()), savedProgress(before));
+  await followEvidence(await openCapsule(2), b, 4, quote4);
+  assert.deepEqual(savedProgress(await readingProgress()), savedProgress(before));
+
+  const restored = await switchReadingVersion(fresh.readingVersion);
   await answer(otherAnswer).waitFor({ state: 'visible' });
-  assert.deepEqual(await readingProgress(), afterReset);
+  assert.equal(restored.discussionId, fresh.discussionId);
+  assert.deepEqual(savedProgress(await readingProgress()), savedProgress(afterReset));
   assert.deepEqual(errors, []);
-  console.log('PASS chunk evidence counts and numbered navigation in the current discussion, old answers archived, and unchanged reading progress');
+  console.log('PASS chunk evidence navigation and focus across reading versions with unchanged progress');
 } catch (error) {
   console.error((await page.locator('body').innerText()).slice(-1500));
   throw error;

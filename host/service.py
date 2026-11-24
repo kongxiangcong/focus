@@ -332,6 +332,8 @@ class HostService:
         if note_source:
             discussion_id = discussions.select(self.state, note_source)
             window['discussionId'] = discussion_id
+            if version_metadata(selected_state, note_source).get('discussion_id') == discussion_id:
+                window['discussionReadingVersion'] = window['readingVersion']
             window['discussions'] = [{'discussionId': key, 'sourceId': value['sourceId']}
                                      for key, value in self.state['discussions'].items()
                                      if value['sourceId'] == note_source]
