@@ -1174,6 +1174,9 @@ function UnifiedReader(props: FocusReaderProps) {
   const prepFailed = preparationFailed(preparation) && !readyToOpen && !candidatePlan;
   const resume = prepFailed && preparation && ["failed", "cancelled", "interrupted"].includes(preparation.status) ? props.host.resumePreparation : undefined;
   const prepare = (prepFailed ? resume ?? props.host.replanSource : undefined) ?? openSource;
+  const activate = canActivate ? <div className="reading-plan-action"><button type="button" disabled={busy} onClick={
+    () => void run("重试打开新计划", requestId => props.host.activateReadingCandidate!(sourceId, candidatePlan, view.readingRevision!, requestId))
+  }>打开新计划</button></div> : null;
   const canChangeMode = !!sourceId;
 
   const modeTabs: readonly ReadingMode[] = hasBlog ? ["chunks", "chat", "blog"] : ["chunks", "chat"];
@@ -1198,17 +1201,16 @@ function UnifiedReader(props: FocusReaderProps) {
         </div>}
     <div id="reading-mode-panel" className="reading-mode-panel" role={props.renderModeNavigation ? "region" : "tabpanel"} aria-label={modeLabel(mode)} aria-busy={busy || (waiting && preparing)}>
       {waiting && mode !== "blog" && <section className="reading-preparation" aria-label="阅读准备">
-        <p role={prepFailed ? "alert" : "status"}>{preparation ? preparationText(preparation, "阅读") : "等待准备阅读"}</p>
+        <p role={prepFailed ? "alert" : "status"}>{canActivate ? "新计划已就绪" : preparation ? preparationText(preparation, "阅读") : "等待准备阅读"}</p>
         {failure && <p role="alert">{failure.message}</p>}
-        {!preparing && prepare && <button type="button" disabled={busy} onClick={
+        {activate}
+        {!preparing && !canActivate && prepare && <button type="button" disabled={busy} onClick={
           () => void run("重试准备", requestId => prepare.call(props.host, sourceId, requestId))
         }>{prepFailed || failure ? "重试准备" : "准备阅读"}</button>}
       </section>}
       {mounted.chunks && !waiting && <div className="reading-mode-layer" hidden={mode !== "chunks"}>
         {failure && <div className="source-reader-error" role="alert">{failure.message}<button type="button" onClick={failure.retry}>{failure.label}</button><button type="button" aria-label="关闭错误" onClick={() => setFailure(null)}>×</button></div>}
-        {canActivate && <div className="reading-plan-action"><button type="button" disabled={busy} onClick={
-          () => void run("重试打开新计划", requestId => props.host.activateReadingCandidate!(sourceId, candidatePlan, view.readingRevision!, requestId))
-        }>打开新计划</button></div>}
+        {activate}
         {hasPlan || !sourceId ? <LegacyFocusReader key={generation} {...props} evidenceNavigation={evidenceNavigation} visible={props.visible !== false && mode === "chunks"} /> :
           <section className="reading-preparation" aria-label="精读准备">
             {preparation && (preparing || prepFailed) && <p role={prepFailed ? "alert" : "status"}>{preparationText(preparation, "精读")}</p>}

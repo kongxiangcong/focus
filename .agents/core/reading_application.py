@@ -211,8 +211,11 @@ class ReadingCore:
                         "candidate": False}
             progress = self._plan_status(source_id, run["plan_id"]) if run["plan_id"] else {
                 "total": 0, "completed": 0, "pending": []}
+            ready = run["status"] == "ready" and self._check_valid(source_id, run)
+            if run["status"] == "ready" and not ready:
+                run = {**run, "status": "commit_conflict", "error": "已准备的阅读内容发生变化，请重试。"}
             return {**run, **progress,
-                    "ready": run["status"] == "ready" and self._check_valid(source_id, run),
+                    "ready": ready,
                     "selected_plan_id": selected_id, "selected_ready": selected_ready,
                     "candidate": bool(selected_id and run["plan_id"] != selected_id)}
 

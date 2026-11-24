@@ -124,7 +124,7 @@ def _current_source_state(
         raise WorkspaceError("source_missing", "No current Reading Source is selected")
     source_id = validate_source_id(source_id)
     source_state = source_states.get(source_id)
-    if not isinstance(source_state, dict) or (set(source_state) - {"reading_started", "reading_pass"}) != {
+    if not isinstance(source_state, dict) or (set(source_state) - {"reading_started", "reading_pass", "reading_version"}) != {
         "current_plan_id",
         "current_chunk_id",
     }:
@@ -133,6 +133,8 @@ def _current_source_state(
         raise WorkspaceError("workspace_state_invalid", "Reading start marker must be boolean")
     if "reading_pass" in source_state and (type(source_state["reading_pass"]) is not int or source_state["reading_pass"] < 1):
         raise WorkspaceError("workspace_state_invalid", "Reading pass must be positive")
+    if "reading_version" in source_state and (type(source_state["reading_version"]) is not int or source_state["reading_version"] < 1):
+        raise WorkspaceError("workspace_state_invalid", "Reading Version must be positive")
     return state_path, state, source_state, source_id, workspace / "sources" / source_id
 
 
@@ -856,7 +858,7 @@ class WorkspaceCore:
         if not isinstance(source_states, dict) or not isinstance(source_states.get(source_id), dict):
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         source_state = source_states[source_id]
-        if (set(source_state) - {"reading_started", "reading_pass"}) != {"current_plan_id", "current_chunk_id"}:
+        if (set(source_state) - {"reading_started", "reading_pass", "reading_version"}) != {"current_plan_id", "current_chunk_id"}:
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         current_plan_id = source_state.get("current_plan_id")
         current_chunk_id = source_state.get("current_chunk_id")
@@ -1441,7 +1443,7 @@ class WorkspaceCore:
         if not isinstance(source_states, dict) or not isinstance(source_states.get(source_id), dict):
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         source_state = source_states[source_id]
-        if (set(source_state) - {"reading_started", "reading_pass"}) != {"current_plan_id", "current_chunk_id"}:
+        if (set(source_state) - {"reading_started", "reading_pass", "reading_version"}) != {"current_plan_id", "current_chunk_id"}:
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         state["current_source_id"] = source_id
         try:
@@ -1501,7 +1503,7 @@ class WorkspaceCore:
                     found_after = True
                 continue
             source_state = source_states.get(source_id)
-            if not isinstance(source_state, dict) or (set(source_state) - {"reading_started", "reading_pass"}) != {"current_plan_id", "current_chunk_id"}:
+            if not isinstance(source_state, dict) or (set(source_state) - {"reading_started", "reading_pass", "reading_version"}) != {"current_plan_id", "current_chunk_id"}:
                 raise WorkspaceError("workspace_state_invalid", f"Workspace state is invalid for Source: {source_id}")
             if source_state["current_plan_id"] is None:
                 raise WorkspaceError("reading_plan_missing", f"Topic Source has no Reading Plan: {source_id}")
