@@ -20,7 +20,8 @@ export interface MarkdownAnnotationInput {
 
 const components: Components = {
   table: ({ node, children }) => <div className="focus-table" tabIndex={0}
-    data-source-line={node?.properties.dataSourceLine} data-evidence-block={node?.properties.dataEvidenceBlock}>
+    data-source-line={node?.properties.dataSourceLine} data-source-end={node?.properties.dataSourceEnd}
+    data-evidence-block={node?.properties.dataEvidenceBlock}>
     <table>{children}</table>
   </div>,
   td: ({ children, colSpan, rowSpan }) => <td colSpan={colSpan} rowSpan={rowSpan}>{children}</td>,
