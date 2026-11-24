@@ -37,11 +37,13 @@ async function checkContent(page, source) {
   await figure.scrollIntoViewIfNeeded();
   await page.waitForFunction(() => [...document.images].some(image => image.alt === 'Fixture figure' && image.naturalWidth === 1));
 
-  const paragraph = source.getByText(page8, { exact: true });
+  const paragraph = source.locator('p').filter({ hasText: page8 });
   await paragraph.scrollIntoViewIfNeeded();
   await paragraph.evaluate(node => {
+    const prose = [...node.childNodes].filter(child => !(child instanceof HTMLElement && child.matches('[data-anno-ui]')));
     const range = document.createRange();
-    range.selectNodeContents(node);
+    range.setStartBefore(prose[0]);
+    range.setEndAfter(prose.at(-1));
     document.getSelection().removeAllRanges();
     document.getSelection().addRange(range);
   });
