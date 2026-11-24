@@ -10,6 +10,7 @@ from .reading_workspace import WorkspaceError, _read_document, _write_document
 from .article_overview import validate_guide
 from .source_blocks import SourceBlocks, source_lines
 from .source_provenance import SOURCE_ORIGINALS
+from .reading_versions import selected_version, version_reading_directory
 
 
 
@@ -34,18 +35,25 @@ class SourceReading:
             return {'sourceId': source_id, 'bundleVersion': version, 'title': source['title'], 'original': original_resource,
                     'markdown': markdown, 'lineCount': len(source_lines(markdown)), 'generation': self.notes.generation(source_id)}
 
-    def opening(self, source_id):
+    def _opening_path(self, source_id, reading_version=None):
+        state = _read_document(self.workspace / 'state.json')
+        return version_reading_directory(self.notes._root(source_id), state, source_id, reading_version) / 'opening-v2.json'
+
+    def opening(self, source_id, *, reading_version=None):
         doc = {'bundleVersion': self.notes.bundle_version(source_id)}
-        path = self.notes._root(source_id) / 'reading' / 'opening-v2.json'
+        path = self._opening_path(source_id, reading_version)
         saved = _read_document(path) if path.exists() else {}
         if saved.get('bundleVersion') == doc['bundleVersion']:
             return saved
         return {'sourceId': source_id, 'bundleVersion': doc['bundleVersion'], 'status': 'missing'}
 
-    def generate(self, source_id, runtime, *, stopped=lambda: False):
-        doc = self.document(source_id)
-        generation = self.notes.generation(source_id)
-        existing = self.opening(source_id)
+    def generate(self, source_id, runtime, *, reading_version=None, stopped=lambda: False):
+        with _LOCK:
+            if reading_version is None:
+                reading_version = selected_version(_read_document(self.workspace / 'state.json'), source_id)
+            doc = self.document(source_id)
+            generation = self.notes.generation(source_id, reading_version)
+            existing = self.opening(source_id, reading_version=reading_version)
         if existing['status'] == 'ready':
             return existing
         value = runtime.opening(source_id=source_id,
@@ -76,11 +84,11 @@ class SourceReading:
             siblings[parent] = lines[1]
             seen[key] = lines
         with _LOCK:
-            if stopped() or generation != self.notes.generation(source_id) or self.notes.bundle_version(source_id) != doc['bundleVersion']:
+            if stopped() or generation != self.notes.generation(source_id, reading_version) or self.notes.bundle_version(source_id) != doc['bundleVersion']:
                 raise WorkspaceError('source_bundle_changed', '导读生成期间原文或会话已改变')
             result = {k: doc[k] for k in ('sourceId', 'bundleVersion')}
             result.update(status='ready', methodVersion='article-overview-v2', revision=hashlib.sha256(repr(value).encode()).hexdigest(), structure=nodes, guide=guide)
-            _write_document(self.notes._root(source_id) / 'reading' / 'opening-v2.json', result)
+            _write_document(self._opening_path(source_id, reading_version), result)
             return result
 
     def completion(self, source_id, payload=None):

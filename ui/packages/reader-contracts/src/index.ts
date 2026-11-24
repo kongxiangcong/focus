@@ -1,4 +1,4 @@
-import type { ReadingDocument, ReadingOpening, ValidatedAnswerEvidence } from "./source-document";
+import type { ReadingDocument, ReadingOpening, ReadingViewBookmark, ValidatedAnswerEvidence } from "./source-document";
 export * from "./source-document";
 export type ReaderStatus = "empty" | "reading" | "completed";
 
@@ -220,6 +220,7 @@ export interface ActiveStatusItem {
 }
 
 export interface ReadingWindow {
+  readingVersion?: number | null;
   sourceBundleVersion?: string | null;
   sourceGeneration?: number;
   articleOverview?: ArticleOverview;
@@ -518,6 +519,7 @@ export type WorkbenchSourceSelection = { workbenchId: string; generation: number
 
 export interface ReaderHost {
   getSourceDocument?(sourceId: string): Promise<ReaderHostResult<ReadingDocument>>;
+  saveReadingViewBookmark?(sourceId: string, bookmark: ReadingViewBookmark): void;
   getSourceOpening?(sourceId: string, prepare?: boolean): Promise<ReaderHostResult<ReadingOpening>>;
   createHighlight?(input: CreateHighlightInput): Promise<ReaderHostResult<ReadingWindow>>;
   changeHighlight?(sourceId: string, highlightId: string, operation: "delete" | "undo", expectedRevision: number,
@@ -554,7 +556,7 @@ export interface ReaderHost {
   deleteSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   saveSourceDetails?(sourceId: string, title: string, topicIds: readonly string[], requestId: string, displayTitle?: string): Promise<ReaderHostResult<ReadingWindow>>;
   clearSource?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
-  resetSourceReading?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  resetSourceReading?(sourceId: string, requestId: string, readingVersion?: number): Promise<ReaderHostResult<ReadingWindow>>;
   replanSource?(sourceId: string, requestId?: string): Promise<ReaderHostResult<ReadingWindow>>;
   rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   getArticleOverview?(sourceId: string): Promise<ReaderHostResult<ArticleOverview>>;

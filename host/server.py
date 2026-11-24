@@ -135,7 +135,13 @@ class Handler(BaseHTTPRequestHandler):
                                  'highlight_overlap': 409, 'note_sentence_overlap': 409,
                                  'highlight_request_conflict': 409, 'highlight_invalid': 400,
                                  'note_sentence_invalid': 400, 'note_selection_invalid': 400, 'highlight_not_found': 404}
-            code = error_id if error_id in annotation_errors else 'cursor-changed' if error_id == 'cursor_changed' else 'invalid-request' if isinstance(exc, (ValueError, WorkspaceError)) else 'unavailable'
+            if error_id == 'clear_incomplete':
+                self._send(503, {'ok': False, 'error': {'code': 'unavailable', 'message': str(exc), 'retryable': True}})
+                return
+            if error_id in ('reading_backup_missing', 'reading_version_missing'):
+                self._send(404, {'ok': False, 'error': {'code': 'invalid-request', 'message': str(exc), 'retryable': False}})
+                return
+            code = error_id if error_id in annotation_errors else 'cursor-changed' if error_id in ('cursor_changed', 'reading_version_changed') else 'invalid-request' if isinstance(exc, (ValueError, WorkspaceError)) else 'unavailable'
             self._send(annotation_errors.get(code, 409 if code == 'cursor-changed' else 400 if code == 'invalid-request' else 500),
                        {'ok': False, 'error': {'code': code, 'message': str(exc), 'retryable': code == 'unavailable'}})
 
@@ -405,6 +411,15 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if len(parts) == 2 and parts[1] == 'document' and method == 'GET':
                 self._send(200, {'ok': True, 'value': service.source_document(source_id)})
+                return
+            if len(parts) == 4 and parts[1] == 'reading-versions' and parts[3] == 'backup' and method == 'GET':
+                version = int(parts[2])
+                self._send(200, {'ok': True, 'value': service.reading_version_backup(source_id, version)})
+                return
+            if len(parts) == 2 and parts[1] == 'reading-bookmark' and method in ('GET', 'POST'):
+                value = parse_qs(urlsplit(self.path).query).get('readingVersion', [None])[0]
+                self._send(200, {'ok': True, 'value': service.reading_view_bookmark(source_id,
+                    reading_version=int(value) if value else None, payload=self._body() if method == 'POST' else None)})
                 return
             if len(parts) == 2 and parts[1] == 'opening' and method in ('GET', 'POST'):
                 if method == 'POST':
