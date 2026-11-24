@@ -152,17 +152,18 @@ try {
   await numberedReturn(3).click();
   await atFocus(b3);
   const nextId = await b4.getAttribute('data-citation');
-  assert.ok(await source.evaluate((pane, id) => {
+  const evidenceTop = () => source.evaluate((pane, id) => {
     const bounds = pane.getBoundingClientRect();
-    return [...pane.querySelectorAll(`[data-evidence-ids~="${id}"]`)].every(node => {
-      const rect = node.getBoundingClientRect();
-      return rect.top >= bounds.top && rect.bottom <= bounds.bottom;
-    });
-  }, nextId), 'The shorter citation is fully visible before activating it');
-  const originalTop = await scrollTop();
+    const matches = [...pane.querySelectorAll(`[data-evidence-ids~="${id}"]`)].map(node => node.getBoundingClientRect());
+    return matches.length && matches.every(rect => rect.top >= bounds.top && rect.bottom <= bounds.bottom)
+      ? matches[0].top - bounds.top : null;
+  }, nextId);
+  const quoteTop = await evidenceTop();
+  assert.notEqual(quoteTop, null, 'The shorter citation is fully visible before activating it');
   await b4.press('Enter');
   await assertLocated(b4, 'a scalable high-bandwidth');
-  assert.equal(await scrollTop(), originalTop);
+  const finalQuoteTop = await evidenceTop();
+  assert.ok(finalQuoteTop !== null && Math.abs(finalQuoteTop - quoteTop) <= 2, 'The visible quote stays in place');
   await numberedReturn(4).click();
   await atFocus(b4);
 
