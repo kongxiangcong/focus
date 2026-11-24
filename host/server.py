@@ -412,6 +412,13 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'document' and method == 'GET':
                 self._send(200, {'ok': True, 'value': service.source_document(source_id)})
                 return
+            if len(parts) == 2 and parts[1] == 'reading-versions' and method == 'GET':
+                self._send(200, {'ok': True, 'value': service.list_reading_versions(source_id)})
+                return
+            if len(parts) == 4 and parts[1] == 'reading-versions' and parts[3] == 'select' and method == 'POST':
+                self._body()
+                self._send(200, {'ok': True, 'value': service.switch_reading_version(source_id, int(parts[2]))})
+                return
             if len(parts) == 4 and parts[1] == 'reading-versions' and parts[3] == 'backup' and method == 'GET':
                 version = int(parts[2])
                 self._send(200, {'ok': True, 'value': service.reading_version_backup(source_id, version)})

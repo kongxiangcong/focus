@@ -226,15 +226,15 @@ class SourceNotes:
                 "sourceUpdated": updated,
                 "referenceStatus": "historical" if historical else "unavailable" if updated else "current"}
 
-    def list(self, source_id: str, *, include_deleted: bool = False) -> list[dict]:
+    def list(self, source_id: str, *, include_deleted: bool = False, reading_version=None) -> list[dict]:
         version = self.bundle_version(source_id)
-        with _LOCK, closing(self._connect(source_id)) as db, db:
+        with _LOCK, closing(self._connect(source_id, reading_version)) as db, db:
             rows = db.execute("SELECT * FROM notes ORDER BY rowid").fetchall()
             return [self._public(row, source_id, version) for row in rows if include_deleted or not row["deleted"]]
 
-    def result(self, source_id: str, request_id: str) -> dict | None:
+    def result(self, source_id: str, request_id: str, *, reading_version=None) -> dict | None:
         self._check_request(request_id)
-        with _LOCK, closing(self._connect(source_id)) as db, db:
+        with _LOCK, closing(self._connect(source_id, reading_version)) as db, db:
             row = db.execute("SELECT result, cancelled FROM requests WHERE id=?", (request_id,)).fetchone()
             return json.loads(row["result"]) if row and row["result"] else ({"status": "cancelled"} if row and row["cancelled"] else None)
 
@@ -243,9 +243,9 @@ class SourceNotes:
         if not isinstance(request_id, str) or not _REQUEST.fullmatch(request_id):
             raise WorkspaceError("note_request_invalid", "A stable request ID is required")
 
-    def cancel(self, source_id: str, request_id: str) -> dict:
+    def cancel(self, source_id: str, request_id: str, *, reading_version=None) -> dict:
         self._check_request(request_id)
-        with _LOCK, closing(self._connect(source_id)) as db, db:
+        with _LOCK, closing(self._connect(source_id, reading_version)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT result FROM requests WHERE id=?", (request_id,)).fetchone()
             if row and row["result"]:
@@ -258,7 +258,7 @@ class SourceNotes:
              content: str, kind: str, origin: str, evidence_role: str,
              anchor: dict | None = None, placement: dict | None = None,
              sentence: dict | None = None, selection: dict | None = None,
-             expected_generation: int | None = None) -> dict:
+             expected_generation: int | None = None, reading_version=None) -> dict:
         """Commit a candidate only with the Host's bound explicit user intent."""
         self._check_request(request_id)
         self._check_request(intent_id)
@@ -279,7 +279,7 @@ class SourceNotes:
         if selection is not None:
             payload["selection"] = selection
         digest = _payload_identity(payload)
-        with _LOCK, closing(self._connect(source_id)) as db, db:
+        with _LOCK, closing(self._connect(source_id, reading_version)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             if expected_generation is not None and expected_generation != db.execute("SELECT count(*) FROM clears").fetchone()[0]:
                 raise WorkspaceError("discussion_cleared", "This discussion was cleared")
@@ -310,7 +310,7 @@ class SourceNotes:
             return result
 
     def change(self, source_id: str, *, note_id: str, request_id: str,
-               expected_revision: int, operation: str, content: str | None = None) -> dict:
+               expected_revision: int, operation: str, content: str | None = None, reading_version=None) -> dict:
         """Edit, delete, or consume the most recent recovery slot atomically."""
         self._check_request(request_id)
         if not isinstance(note_id, str) or not re.fullmatch(r"[0-9a-f]{32}", note_id):
@@ -325,7 +325,7 @@ class SourceNotes:
         payload = {"sourceId": source_id, "noteId": note_id, "expectedRevision": expected_revision,
                    "operation": operation, "content": content}
         digest = _payload_identity(payload)
-        with _LOCK, closing(self._connect(source_id)) as db, db:
+        with _LOCK, closing(self._connect(source_id, reading_version)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             prior = db.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone()
             if prior:
