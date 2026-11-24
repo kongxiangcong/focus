@@ -23,6 +23,7 @@ export function citedMarkdown(message: ReaderMessage, evidence: readonly Validat
 
 type Positioned = HastNode & { position?: { start: { line: number }; end: { line: number } } };
 type SourceRange = { sourceLines: readonly [number, number]; quoteOffsets?: readonly [number, number] };
+const codePointLength = (value: string) => value.length - (value.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g)?.length ?? 0);
 export type EvidenceProjection = { evidence: ValidatedAnswerEvidence } & (
   | { kind: "unavailable" }
   | ({ kind: "block" } & SourceRange)
@@ -44,7 +45,6 @@ function findCanonicalQuote(markdown: string, starts: readonly number[], evidenc
   }
   if (matched === undefined) return undefined;
   const line = first + (markdown.slice(lower, matched).match(/\n/g)?.length ?? 0);
-  const codePointLength = (value: string) => value.length - (value.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g)?.length ?? 0);
   const start = codePointLength(markdown.slice(0, matched));
   return { sourceLines: [line, line + (exact.match(/\n/g)?.length ?? 0)], quoteOffsets: [start, start + codePointLength(exact)] };
 }
@@ -150,11 +150,25 @@ export function rehypeSourceEvidence(options: { document: ReadingDocument; evide
       node.children?.forEach(child => findMarkedEvidence(child, ids));
     }
     const canonical = normalizeMathWithLines(options.document.markdown).lines;
+    const starts = [0];
+    for (const line of options.document.markdown.replace(/\r\n?/g, "\n").split("\n")) {
+      starts.push(starts[starts.length - 1] + codePointLength(line) + 1);
+    }
+    const blocks = options.document.blocks ?? [];
+    let blockIndex = 0;
     tree.children = tree.children?.flatMap(child => {
       const span = (child as Positioned).position;
       if (child.type !== "element" || !span) return [child];
       const first = canonical[span.start.line - 1]?.[0] ?? 0, last = canonical[span.end.line - 1]?.[1] ?? 0;
-      child.properties = { ...child.properties, dataSourceLine: first, dataSourceEnd: last };
+      if (!first || !last) return [child];
+      const start = starts[first - 1], end = starts[last] - 1;
+      while (blockIndex < blocks.length && blocks[blockIndex].offsets[1] <= start) blockIndex++;
+      const blockIds = [];
+      for (let index = blockIndex; index < blocks.length && blocks[index].offsets[0] < end; index++) {
+        blockIds.push(blocks[index].blockId);
+      }
+      child.properties = { ...child.properties, dataSourceLine: first, dataSourceEnd: last,
+        dataSourceOffsetStart: start, dataSourceOffsetEnd: end, dataSourceBlockIds: blockIds.join(" ") || undefined };
       const fallback = projections.filter(p => p.kind === "block" && first <= p.sourceLines[1] && last >= p.sourceLines[0]);
       if (fallback.length) child.properties.dataEvidenceBlock = fallback.map(p => p.evidence.evidenceId).join(" ");
       const marked = new Set<string>();

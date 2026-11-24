@@ -28,15 +28,13 @@
 .source-reader-columns { display:grid; grid-template-columns:minmax(0,var(--source-share)) 7px minmax(0,1fr); flex:1; min-height:0; }
 .source-original-pane, .source-chat-pane { position:relative; min-width:0; min-height:0; }
 
-/* Left pane: original document with content-visibility optimization & evidence spotlight */
+/* Left pane: reading document and evidence spotlight */
 .source-original-pane { display:flex; flex-direction:column; }
 .source-original { flex:1; min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:38px clamp(24px,4vw,76px) 120px; }
 :is(.source-original, .source-chat)[data-evidence-pending=true] { overflow-anchor:none; }
 .source-original article { max-width:850px; margin:auto; }
 .source-original .focus-markdown { font-family:var(--reader-body-font,var(--reader-serif)); font-size:var(--source-font-size); line-height:var(--reader-prose-leading); overflow-wrap:anywhere; }
 .source-original .focus-markdown > * { transition:opacity var(--reader-duration-move) var(--reader-ease-out); }
-/* Translation positions use measured chunk heights during the view switch. */
-.source-original article > .focus-markdown > * { content-visibility:auto; contain-intrinsic-size:auto 120px; }
 .source-original[data-evidence-focus=true] .focus-markdown > *:not(:has(.is-active)):not(.is-active) { opacity:.68; }
 .source-original img { max-width:100%; height:auto; }
 .source-original :is(.focus-table, pre, .katex-display) { max-width:100%; overflow-x:auto; }
