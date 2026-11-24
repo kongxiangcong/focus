@@ -118,7 +118,7 @@ class SourceReading:
         with _LOCK:
             if not isinstance(arguments, dict) or set(arguments) - {'start', 'end', 'block_ids', 'quote', 'prefix', 'suffix', 'relation'}:
                 raise ValueError('Unexpected citation fields')
-            if scope.get('generation', 0) != self.notes.generation(scope['sourceId']):
+            if scope.get('generation', 0) != self.notes.generation(scope['sourceId'], scope.get('readingVersion')):
                 raise WorkspaceError('discussion_cleared', '会话已清除')
             doc = self.document(scope['sourceId'])
             if doc['bundleVersion'] != scope['bundle']:

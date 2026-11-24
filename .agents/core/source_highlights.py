@@ -25,22 +25,22 @@ class SourceHighlights:
                 "quote": json.loads(row["quote"]), "deleted": bool(row["deleted"]),
                 "canUndo": row["undo"] is not None, "sourceUpdated": row["bundle"] != current_bundle}
 
-    def list(self, source_id: str, *, include_deleted: bool = False) -> list[dict]:
+    def list(self, source_id: str, *, include_deleted: bool = False, reading_version=None) -> list[dict]:
         current = self.notes.bundle_version(source_id)
-        with _LOCK, closing(self.notes._connect(source_id)) as db, db:
+        with _LOCK, closing(self.notes._connect(source_id, reading_version)) as db, db:
             return [self._public(row, source_id, current)
                     for row in db.execute("SELECT * FROM highlights ORDER BY rowid")
                     if include_deleted or not row["deleted"]]
 
-    def result(self, source_id: str, request_id: str) -> dict | None:
-        return self.notes.result(source_id, request_id)
+    def result(self, source_id: str, request_id: str, *, reading_version=None) -> dict | None:
+        return self.notes.result(source_id, request_id, reading_version=reading_version)
 
     def save(self, source_id: str, *, request_id: str, plan_bundle: str,
-             chunk_lines, locator: dict, expected_generation: int | None = None) -> dict:
+             chunk_lines, locator: dict, expected_generation: int | None = None, reading_version=None) -> dict:
         self.notes._check_request(request_id)
         digest = _payload_identity({"entity": "highlight", "op": "create", "sourceId": source_id,
                                     "bundle": plan_bundle, "locator": locator})
-        with _LOCK, closing(self.notes._connect(source_id)) as db, db:
+        with _LOCK, closing(self.notes._connect(source_id, reading_version)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             if expected_generation is not None and expected_generation != db.execute("SELECT count(*) FROM clears").fetchone()[0]:
                 raise WorkspaceError("discussion_cleared", "This discussion was cleared")
@@ -68,7 +68,7 @@ class SourceHighlights:
             return result
 
     def change(self, source_id: str, *, highlight_id: str, request_id: str,
-               expected_revision: int, operation: str) -> dict:
+               expected_revision: int, operation: str, reading_version=None) -> dict:
         self.notes._check_request(request_id)
         if (not isinstance(highlight_id, str) or not re.fullmatch(r"[0-9a-f]{32}", highlight_id)
                 or type(expected_revision) is not int or expected_revision < 1
@@ -76,7 +76,7 @@ class SourceHighlights:
             raise WorkspaceError("highlight_invalid", "Highlight change is invalid")
         digest = _payload_identity({"entity": "highlight", "op": operation, "sourceId": source_id,
                                     "highlightId": highlight_id, "expectedRevision": expected_revision})
-        with _LOCK, closing(self.notes._connect(source_id)) as db, db:
+        with _LOCK, closing(self.notes._connect(source_id, reading_version)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             prior = db.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone()
             if prior:

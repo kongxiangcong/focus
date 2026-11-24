@@ -19,6 +19,7 @@ import { createReaderId, readerFailure, type CreateSourceNoteInput, type CreateH
   type ReaderHost,
   type ReaderHostResult,
   type ReadingWindow,
+  type ReadingVersion,
   type ArticleOverview,
   type SendReaderMessageInput,
   type SourceNoteRequestResult,
@@ -26,6 +27,10 @@ import { createReaderId, readerFailure, type CreateSourceNoteInput, type CreateH
 } from "@focus/reader-contracts";
 
 type Fetch = typeof fetch;
+
+function readingVersionQuery(readingVersion?: number) {
+  return readingVersion === undefined ? "" : `?readingVersion=${readingVersion}`;
+}
 
 export interface HttpReaderHostOptions {
   baseUrl: string;
@@ -399,12 +404,12 @@ export class HttpReaderHost implements ReaderHost {
     };
     this.bookmarkWrites.set(key, Promise.resolve().then(drain));
   }
-  getSourceOpening(sourceId: string, prepare = false): Promise<ReaderHostResult<ReadingOpening>> {
-    return this.sourceAsset<ReadingOpening>(sourceId, "opening", prepare);
+  getSourceOpening(sourceId: string, prepare = false, readingVersion?: number): Promise<ReaderHostResult<ReadingOpening>> {
+    return this.sourceAsset<ReadingOpening>(sourceId, "opening", prepare, readingVersion);
   }
-  private async sourceAsset<T>(sourceId: string, asset: string, prepare: boolean): Promise<ReaderHostResult<T>> {
+  private async sourceAsset<T>(sourceId: string, asset: string, prepare: boolean, readingVersion?: number): Promise<ReaderHostResult<T>> {
     try {
-      const response = await this.fetch(`${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/${asset}`, {
+      const response = await this.fetch(`${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/${asset}${readingVersionQuery(readingVersion)}`, {
         method: prepare ? "POST" : "GET", headers: { "content-type": "application/json" },
         ...(prepare ? { body: "{}" } : {}), cache: "no-store",
       });
@@ -479,14 +484,14 @@ export class HttpReaderHost implements ReaderHost {
   }
 
   changeHighlight(sourceId: string, highlightId: string, operation: "delete" | "undo",
-    expectedRevision: number, requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
+    expectedRevision: number, requestId: string, readingVersion?: number): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/highlights/${encodeURIComponent(highlightId)}/${operation}`,
-      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedRevision, requestId }) });
+      { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ expectedRevision, requestId, readingVersion }) });
   }
 
-  async highlightRequestResult(sourceId: string, requestId: string): Promise<ReaderHostResult<HighlightOperation | { status: "cancelled" } | null>> {
+  async highlightRequestResult(sourceId: string, requestId: string, readingVersion?: number): Promise<ReaderHostResult<HighlightOperation | { status: "cancelled" } | null>> {
     try {
-      const response = await this.fetch(`${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/highlights/requests/${encodeURIComponent(requestId)}`, { method: "GET" });
+      const response = await this.fetch(`${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/highlights/requests/${encodeURIComponent(requestId)}${readingVersionQuery(readingVersion)}`, { method: "GET" });
       const body = await response.json();
       if (response.ok && body?.ok === true) return { ok: true, value: body.value && body.value.status !== "cancelled" ? { sourceId, ...body.value } : body.value ?? null };
       return { ok: false, error: { code: isFailureCode(body?.error?.code) ? body.error.code : "invalid-request", message: body?.error?.message ?? "标注请求结果不可用", retryable: false } };
@@ -496,15 +501,15 @@ export class HttpReaderHost implements ReaderHost {
   }
 
   changeSourceNote(sourceId: string, noteId: string, operation: "edit" | "delete" | "undo",
-    expectedRevision: number, requestId: string, content?: string): Promise<ReaderHostResult<ReadingWindow>> {
+    expectedRevision: number, requestId: string, content?: string, readingVersion?: number): Promise<ReaderHostResult<ReadingWindow>> {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/notes/${encodeURIComponent(noteId)}/${operation}`,
       { method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ expectedRevision, requestId, ...(content === undefined ? {} : { content }) }) });
+        body: JSON.stringify({ expectedRevision, requestId, readingVersion, ...(content === undefined ? {} : { content }) }) });
   }
 
-  async sourceNoteRequestResult(sourceId: string, requestId: string): Promise<ReaderHostResult<SourceNoteRequestResult | null>> {
+  async sourceNoteRequestResult(sourceId: string, requestId: string, readingVersion?: number): Promise<ReaderHostResult<SourceNoteRequestResult | null>> {
     try {
-      const response = await this.fetch(`${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/notes/requests/${encodeURIComponent(requestId)}`);
+      const response = await this.fetch(`${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/notes/requests/${encodeURIComponent(requestId)}${readingVersionQuery(readingVersion)}`);
       const body = await response.json();
       if (response.ok && body?.ok === true) return { ok: true, value: body.value ?? null };
       return { ok: false, error: { code: "invalid-request", message: body?.error?.message ?? "笔记请求结果不可用", retryable: false } };
@@ -624,6 +629,18 @@ export class HttpReaderHost implements ReaderHost {
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/reset-reading`, {
       method: "POST", body: JSON.stringify({ requestId, confirmed: true, readingVersion }),
     });
+  }
+
+  listReadingVersions(sourceId: string): Promise<ReaderHostResult<readonly ReadingVersion[]>> {
+    return this.libraryList<ReadingVersion>(`/library/sources/${encodeURIComponent(sourceId)}/reading-versions`,
+      item => Number.isSafeInteger(item.readingVersion) && typeof item.selected === "boolean" &&
+        typeof item.ready === "boolean" && (item.backedUpAt === null || typeof item.backedUpAt === "number"));
+  }
+
+  async switchReadingVersion(sourceId: string, readingVersion: number): Promise<ReaderHostResult<ReadingWindow>> {
+    await Promise.all(Array.from(this.bookmarkWrites, ([key, pending]) => key.startsWith(`${sourceId}:`) ? pending : undefined));
+    return this.request(`/library/sources/${encodeURIComponent(sourceId)}/reading-versions/${readingVersion}/select`,
+      { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   }
 
   saveBackendConfiguration(input: BackendSetupInput): Promise<ReaderHostResult<ReadingWindow>> {

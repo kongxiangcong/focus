@@ -26,7 +26,7 @@ from .source_blocks import source_lines
 from .source_translation import SourceTranslation
 from .reading_progress import enqueue
 from .reading_structure import validate_structure
-from .reading_versions import selected_version, version_metadata, version_reading_directory
+from .reading_versions import pending_reset, selected_version, version_cursor, version_metadata, version_reading_directory
 
 METHOD_VERSION = "focus-reading-v0.2"
 _LOCK = threading.RLock()
@@ -80,13 +80,15 @@ class ReadingCore:
         state = state if state is not None else _read_document(self.workspace / "state.json")
         return selected_version(state, source_id)
 
-    def plan_belongs_to_version(self, source_id, plan_id):
+    def plan_belongs_to_version(self, source_id, plan_id, *, reading_version=None):
         state = _read_document(self.workspace / 'state.json')
-        metadata = version_metadata(state, source_id)
+        if reading_version is None:
+            reading_version = selected_version(state, source_id)
+        metadata = version_metadata(state, source_id, reading_version)
         if not metadata:
             return True
-        run = self._read(source_id) or {}
-        return (plan_id == state['sources'][source_id].get('current_plan_id')
+        run = self._read(source_id, reading_version) or {}
+        return (plan_id == version_cursor(state, source_id, reading_version).get('current_plan_id')
                 or plan_id in metadata.get('plan_ids', ()) or plan_id in run.get('ready_plans', {}))
 
     def source_language(self, source_id: str) -> str:
@@ -97,12 +99,12 @@ class ReadingCore:
     def _source_translation(self, source_id, bundle, reading_version, *, source=None):
         return SourceTranslation(self._root(source_id) / "parser-bundle", source_id, bundle, reading_version, source=source)
 
-    def _read(self, source_id: str) -> dict | None:
-        path = self._path(source_id)
+    def _read(self, source_id: str, reading_version=None) -> dict | None:
+        path = self._path(source_id, reading_version)
         return _read_document(path) if path.is_file() else None
 
     def _write(self, source_id: str, run: dict) -> None:
-        _write_document(self._path(source_id), run)
+        _write_document(self._path(source_id, run.get("reading_version")), run)
 
     @staticmethod
     def _request_input(entry: dict) -> dict:
@@ -113,14 +115,24 @@ class ReadingCore:
         entry = (run or {}).get("requests", {}).get(request_id)
         return entry.get("result") if isinstance(entry, dict) else None
 
+    def _find_run(self, state, source_id, run_id):
+        selected = self._reading_version(source_id, state)
+        versions = state.get("reading_versions", {}).get(source_id, {})
+        for reading_version in dict.fromkeys([selected, *map(int, versions)]):
+            run = self._read(source_id, reading_version)
+            if run and run["run_id"] == run_id and run.get("reading_version", reading_version) == reading_version:
+                return {**run, "reading_version": reading_version}
+        return None
+
     def _guard(self, source_id: str, run_id: str, attempt: str, bundle: str) -> dict:
-        run = self._read(source_id)
-        if not run or run["run_id"] != run_id or run["attempt"] != attempt:
-            raise WorkspaceError("reading_attempt_changed", "Preparation attempt is stale")
         state = _read_document(self.workspace / "state.json")
-        if run.get("reading_version", self._reading_version(source_id, state)) != self._reading_version(source_id, state):
-            raise WorkspaceError("reading_attempt_changed", "Reading Version changed")
-        reset_id = state.get("pending_reading_resets", {}).get(source_id)
+        run = self._find_run(state, source_id, run_id)
+        if not run or run["attempt"] != attempt:
+            raise WorkspaceError("reading_attempt_changed", "Preparation attempt is stale")
+        reading_version = run["reading_version"]
+        if version_metadata(state, source_id, reading_version).get("revoked_preparation") == run_id:
+            raise WorkspaceError("reading_attempt_changed", "Preparation attempt is stale")
+        reset_id = pending_reset(state, source_id, reading_version)
         if reset_id and run.get("reset_request_id") != reset_id:
             raise WorkspaceError("reading_attempt_changed", "Preparation attempt is stale")
         if run["status"] != "running":
@@ -153,12 +165,17 @@ class ReadingCore:
             raise
 
     def begin(self, source_id: str, *, request_id: str, rebuild: bool = False,
-              runtime: dict | None = None) -> dict:
+              runtime: dict | None = None, reading_version=None) -> dict:
         if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9-]{8,80}", request_id):
             raise WorkspaceError("reading_request_invalid", "Unique request ID required")
         with _LOCK:
+            state = _read_document(self.workspace / "state.json")
+            if reading_version is None:
+                reading_version = self._reading_version(source_id, state)
             bundle = self._bundle_version(source_id)
-            old = self._read(source_id)
+            old = self._read(source_id, reading_version)
+            if old and version_metadata(state, source_id, reading_version).get("revoked_preparation") == old["run_id"]:
+                old = {**old, "status": "cancelled", "error": "已重新阅读，旧准备已取消。"}
             request_payload = {"operation": "rebuild" if rebuild else "begin", "source_id": source_id}
             requests = dict(old.get("requests", {})) if old else {}
             if request_id in requests:
@@ -178,8 +195,7 @@ class ReadingCore:
                     return old
                 if old["status"] == "running":
                     raise WorkspaceError("reading_busy", "Preparation already running")
-            state = _read_document(self.workspace / "state.json")
-            selected = state["sources"][source_id]
+            selected = version_cursor(state, source_id, reading_version)
             plan_id = None if rebuild or (old and old["bundle"] != bundle) else selected.get("current_plan_id")
             if plan_id and not (self._root(source_id) / "reading" / "plans" / plan_id / "chunks.jsonl").is_file():
                 plan_id = None
@@ -187,7 +203,7 @@ class ReadingCore:
                 "run_id": uuid.uuid4().hex, "request_id": request_id,
                 "attempt": uuid.uuid4().hex, "writer_id": self.writer_id,
                 "source_id": source_id, "bundle": bundle, "plan_id": plan_id,
-                "reading_version": self._reading_version(source_id, state),
+                "reading_version": reading_version,
                 "method": METHOD_VERSION, "runtime": runtime, "status": "running",
                 "step": "context", "context": None, "context_revision": None,
                 "glossary_revision": None, "plan_revision": None, "check": None, "repair_rounds": 0,
@@ -197,24 +213,28 @@ class ReadingCore:
                     "result": {"operation": request_payload["operation"], "run_id": None,
                                "status": "started", "source_id": source_id}}},
             }
-            if reset_id := state.get("pending_reading_resets", {}).get(source_id):
+            if reset_id := pending_reset(state, source_id, reading_version):
                 run["reset_request_id"] = reset_id
             run["requests"][request_id]["result"]["run_id"] = run["run_id"]
             self._write(source_id, run)
             return run
 
-    def status(self, source_id: str) -> dict | None:
+    def status(self, source_id: str, *, reading_version=None) -> dict | None:
         with _LOCK:
-            run = self._read(source_id)
+            state = _read_document(self.workspace / "state.json")
+            if reading_version is None:
+                reading_version = self._reading_version(source_id, state)
+            run = self._read(source_id, reading_version)
             if run is None:
                 return None
-            state = _read_document(self.workspace / "state.json")
-            reset_id = state.get("pending_reading_resets", {}).get(source_id)
+            reset_id = pending_reset(state, source_id, reading_version)
             if reset_id and run.get("reset_request_id") != reset_id:
                 return None
-            selected = state["sources"][source_id]
+            if version_metadata(state, source_id, reading_version).get("revoked_preparation") == run["run_id"]:
+                run = {**run, "status": "cancelled", "error": "已重新阅读，旧准备已取消。"}
+            selected = version_cursor(state, source_id, reading_version)
             selected_id = selected.get("current_plan_id")
-            selected_ready = bool(selected_id and self._plan_ready(source_id, selected_id))
+            selected_ready = bool(selected_id and self._plan_ready(source_id, selected_id, reading_version=reading_version))
             if run["bundle"] != self._bundle_version(source_id):
                 return {**run, "status": "bundle_changed", "ready": False,
                         "selected_plan_id": selected_id, "selected_ready": selected_ready,
@@ -229,10 +249,10 @@ class ReadingCore:
                     "selected_plan_id": selected_id, "selected_ready": selected_ready,
                     "candidate": bool(selected_id and run["plan_id"] != selected_id)}
 
-    def note_plan(self, source_id, bundle, source):
+    def note_plan(self, source_id, bundle, source, *, reading_version=None):
         """Return the prepared Plan and the canonical Markdown extent of each Chunk."""
         with _LOCK:
-            run = self.status(source_id)
+            run = self.status(source_id, reading_version=reading_version)
             if not run or run['bundle'] != bundle:
                 return None
             plan = run['selected_plan_id'] if run['selected_ready'] else run['plan_id'] if run['ready'] else None
@@ -246,13 +266,14 @@ class ReadingCore:
                                'sourceOffsets': [source.starts[first - 1], source.starts[last] - 1]})
             return {'planId': plan, 'chunks': chunks}
 
-    def shared_translation(self, source_id, document, *, source=None):
+    def shared_translation(self, source_id, document, *, source=None, reading_version=None):
         with _LOCK:
-            translation = self._source_translation(source_id, document['bundleVersion'],
-                                                   self._reading_version(source_id), source=source)
+            if reading_version is None:
+                reading_version = self._reading_version(source_id)
+            translation = self._source_translation(source_id, document['bundleVersion'], reading_version, source=source)
             if self.source_language(source_id) == 'zh':
                 return {**translation.result('not_applicable'), 'chunks': []}
-            run = self.status(source_id)
+            run = self.status(source_id, reading_version=reading_version)
             asset = translation.load()
             if not run or run['bundle'] != document['bundleVersion']:
                 return {**(self._public_translation(asset) if asset else translation.result('missing')), 'chunks': []}
@@ -386,23 +407,30 @@ class ReadingCore:
             _write_document(state_path, state)
             return result
 
-    def enter_reset_reading(self, source_id: str, *, run_id: str, select_source: bool) -> bool:
+    def enter_reset_reading(self, source_id: str, *, run_id: str, select_source: bool, reading_version=None) -> bool:
         """Activate the ready Plan exactly once for the confirmed reset."""
         with _LOCK:
             path = self.workspace / "state.json"
             state = _read_document(path)
-            selected = state["sources"][source_id]
-            reset_id = state.get("pending_reading_resets", {}).get(source_id)
+            current_version = self._reading_version(source_id, state)
+            if reading_version is None:
+                reading_version = current_version
+            reset_id = pending_reset(state, source_id, reading_version)
             if not reset_id:
                 return False
-            run = self.status(source_id)
+            run = self.status(source_id, reading_version=reading_version)
             if not run or not run["ready"] or run["run_id"] != run_id or run.get("reset_request_id") != reset_id:
                 return False
             plan_id = run["plan_id"]
             chunks = _read_chunk_records(self._root(source_id) / "reading" / "plans" / plan_id / "chunks.jsonl")
+            bound = version_metadata(state, source_id, reading_version)
+            selected = (state["sources"][source_id] if current_version == reading_version else
+                        bound.setdefault("cursor", {"reading_version": reading_version, "reading_pass": 1}))
             selected.update(current_plan_id=plan_id, current_chunk_id=chunks[0]["chunk_id"], reading_started=True)
-            del state["pending_reading_resets"][source_id]
-            if select_source:
+            bound.pop("pending_reset", None)
+            if state.get("pending_reading_resets", {}).get(source_id) == reset_id:
+                del state["pending_reading_resets"][source_id]
+            if select_source and reading_version == current_version:
                 state["current_source_id"] = source_id
                 state["reading_revision"] = int(state.get("reading_revision", 0)) + 1
             _write_document(path, state)
@@ -561,8 +589,8 @@ class ReadingCore:
             self._write(source_id, run)
             return run
 
-    def _plan_ready(self, source_id: str, plan_id: str) -> bool:
-        run = self._read(source_id) or {}
+    def _plan_ready(self, source_id: str, plan_id: str, *, reading_version=None) -> bool:
+        run = self._read(source_id, reading_version) or {}
         certificate = run.get("ready_plans", {}).get(plan_id)
         if certificate is None and run.get("status") == "ready" and run.get("plan_id") == plan_id:
             certificate = run
@@ -726,9 +754,10 @@ class ReadingCore:
                     and not self._plan_status(source_id, run["plan_id"])["pending"]
                     and run["check"].get("content_revision") == self._content_revision(source_id, run))
 
-    def resume(self, source_id: str, *, request_id: str) -> dict:
+    def resume(self, source_id: str, *, request_id: str, reading_version=None) -> dict:
         with _LOCK:
-            run = self._read(source_id)
+            reading_version = self._reading_version(source_id) if reading_version is None else reading_version
+            run = self._read(source_id, reading_version)
             if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9-]{8,80}", request_id):
                 raise WorkspaceError("reading_request_invalid", "Unique request ID required")
             request_payload = {"operation": "resume", "source_id": source_id}
@@ -749,7 +778,7 @@ class ReadingCore:
                 "attempt": run["attempt"], "status": run["status"],
                 "repair_rounds": run["repair_rounds"], "error": run.get("error")})
             run.update(request_id=request_id, attempt=uuid.uuid4().hex, writer_id=self.writer_id,
-                       reading_version=self._reading_version(source_id),
+                       reading_version=reading_version,
                        status="running", error=None, timed_out=False, repair_rounds=0, transport_retries=0)
             run.setdefault("requests", {})[request_id] = {"input": request_payload,
                 "result": {"operation": "resume", "source_id": source_id,
@@ -796,7 +825,7 @@ class ReadingCore:
             except WorkspaceError as exc:
                 if exc.error_id not in ("reading_bundle_changed", "reading_plan_changed", "reading_glossary_changed"):
                     return
-                run = self._read(source_id)
+                run = self._find_run(_read_document(self.workspace / "state.json"), source_id, run_id)
                 if not run or run["run_id"] != run_id or run["attempt"] != attempt or run["status"] != "running" or run["writer_id"] != self.writer_id:
                     return
                 run.update(status="commit_conflict", error=f"{exc.error_id}: {str(exc)}")
@@ -992,8 +1021,8 @@ class ReadingApplication:
         self.core = ReadingCore(workspace, writer_id=writer_id)
         self.runtime = runtime
 
-    def status(self, source_id: str) -> dict | None:
-        return self.core.status(source_id)
+    def status(self, source_id: str, *, reading_version=None) -> dict | None:
+        return self.core.status(source_id, reading_version=reading_version)
 
     def continue_reading(self, **kwargs) -> dict:
         return self.core.continue_reading(**kwargs)
@@ -1007,12 +1036,13 @@ class ReadingApplication:
     def review(self, **kwargs) -> dict:
         return self.core.review(**kwargs)
 
-    def begin(self, source_id: str, *, request_id: str, rebuild: bool = False) -> dict:
+    def begin(self, source_id: str, *, request_id: str, rebuild: bool = False, reading_version=None) -> dict:
         runtime = getattr(self.runtime, "provenance", {"adapter": type(self.runtime).__name__})
-        return self.core.begin(source_id, request_id=request_id, rebuild=rebuild, runtime=runtime)
+        return self.core.begin(source_id, request_id=request_id, rebuild=rebuild, runtime=runtime,
+                               reading_version=reading_version)
 
-    def resume(self, source_id: str, *, request_id: str) -> dict:
-        return self.core.resume(source_id, request_id=request_id)
+    def resume(self, source_id: str, *, request_id: str, reading_version=None) -> dict:
+        return self.core.resume(source_id, request_id=request_id, reading_version=reading_version)
 
     def cancel(self, source_id: str, *, request_id: str) -> dict:
         result = self.core.cancel(source_id, request_id=request_id)
@@ -1095,9 +1125,10 @@ class ReadingApplication:
                     raise
                 feedback = str(exc)
 
-    def process(self, source_id: str, *, run_id: str, attempt: str, on_progress=None) -> dict:
+    def process(self, source_id: str, *, run_id: str, attempt: str, on_progress=None, reading_version=None) -> dict:
         """Run without a long write lock; every result is fenced at Core commit."""
-        run = self.core.status(source_id)
+        reading_version = self.core._reading_version(source_id) if reading_version is None else reading_version
+        run = self.core.status(source_id, reading_version=reading_version)
         if not run or run["run_id"] != run_id or run["attempt"] != attempt or run["status"] != "running":
             raise WorkspaceError("reading_attempt_changed", "Preparation attempt is stale")
         bundle = run["bundle"]
@@ -1162,7 +1193,7 @@ class ReadingApplication:
                 run = self.core.commit_translation(source_id, run_id, attempt, bundle, chunk_id, translation)
                 notify()
             if self.core._check_valid(source_id, run):
-                return self.core.status(source_id)
+                return self.core.status(source_id, reading_version=reading_version)
             while True:
                 with _LOCK:
                     run = self.core._guard(source_id, run_id, attempt, bundle)
@@ -1176,11 +1207,11 @@ class ReadingApplication:
                 run = self.core.commit_check(source_id, run_id, attempt, bundle, report)
                 notify()
                 if run["status"] == "ready":
-                    return self.core.status(source_id)
+                    return self.core.status(source_id, reading_version=reading_version)
                 if run["repair_rounds"] >= 2:
                     self.core.fail(source_id, run_id, attempt, bundle,
                                    "Consistency check still fails after two repair rounds")
-                    return self.core.status(source_id)
+                    return self.core.status(source_id, reading_version=reading_version)
                 self.core.mark_repair_round(source_id, run_id, attempt, bundle)
                 for chunk_id, issue in report["issues"].items():
                     chunk = self.core.core.preparation_chunk(source_id=source_id, plan_id=run["plan_id"],
