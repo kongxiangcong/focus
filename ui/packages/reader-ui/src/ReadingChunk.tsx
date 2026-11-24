@@ -41,7 +41,7 @@ export function ReadingChunk({ chunk, onReference, onFigure, onZoom, onLanguage,
     </header>
     <h2>{chunk.sectionPath.at(-1)}</h2>
     {preparing ? <p role="status">译文尚未准备完成，请打开材料继续准备。</p> : <>
-      <MarkdownContent text={text} sourceId={chunk.sourceId} figures={figures} onFigure={onFigure} marks={marks} annotation={annotation} onAnnotations={reportMarks} bodyRef={bodyRef} />
+      <MarkdownContent text={text} sourceId={chunk.sourceId} bundleVersion={chunk.bundleVersion} figures={figures} onFigure={onFigure} marks={marks} annotation={annotation} onAnnotations={reportMarks} bodyRef={bodyRef} />
       {afterBody}
     </>}
     {!preparing && onFigure && <div className="reader-thumbnail-strip">{figures.map(f => <div className="reader-thumbnail" key={f.id}>

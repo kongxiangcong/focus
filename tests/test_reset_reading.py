@@ -1,6 +1,7 @@
 """Confirmed reading reset through the public Host boundary."""
 import json
 from pathlib import Path
+import shutil
 import threading
 import unittest
 import uuid
@@ -130,6 +131,125 @@ class ResetReadingTests(unittest.TestCase):
         self.assertEqual(second['navigationCurrent']['chunkId'], switched['navigationCurrent']['chunkId'])
         self.assertEqual(['Updated copy', 'Arrived after switching'], [note['content'] for note in switched['sourceNotes']])
         self.assertEqual(1, runtime.calls.count('plan'))
+
+    def test_clear_only_erases_the_selected_round(self):
+        source = 'fixture-paper'
+        runtime = stage4.PlanningRuntime(self.rebuild_draft())
+        self.host.close()
+        self.host = HostService(self.workspace, self.fixture.root / 'host', reading_runtime=runtime,
+            backend_factory=lambda workspace, **kwargs: DiscussionRuntime(
+                workspace, answer='Archived answer', item_id='answer-before-clear', **kwargs))
+        self.host.continue_cached({'receipt': self.receipt(), 'requestId': 'advance-before-clear'})
+        self.host.source_note_create(source, {'requestId': 'note-before-clear',
+            'kind': 'thought', 'origin': 'user', 'content': 'Keep this prior-round note'})
+        first = self.host.snapshot()
+        self.host.start({'sourceId': source, 'discussionId': first['discussionId'], 'readingVersion': 1,
+                         'requestId': 'first-question-before-clear', 'content': 'Keep this prior-round question'})
+        self.host.worker.join(3)
+        first = self.host.snapshot()
+        self.host.reset_source_reading(source, {'requestId': 'reread-before-clear', 'confirmed': True})
+        self.host.reading_workers[source].join(3)
+        second = self.host.snapshot()
+        self.host.start({'sourceId': source, 'discussionId': second['discussionId'], 'readingVersion': 2,
+                         'requestId': 'second-question-before-clear', 'content': 'Clear this current-round question'})
+        self.host.worker.join(3)
+        cleared = self.host.clear_source(source, {'requestId': 'clear-second-round', 'confirmed': True,
+                                                  'resetReading': True})
+        self.assertEqual(second['discussionId'], cleared['discussionId'])
+        self.assertEqual([], cleared['conversation'])
+        self.assertEqual([], cleared['sourceNotes'])
+        self.assertEqual([], cleared['readingProgress'])
+        prior = self.host.switch_reading_version(source, 1)
+        self.assertEqual(first['discussionId'], prior['discussionId'])
+        self.assertEqual(first['conversation'], prior['conversation'])
+        self.assertEqual(first['sourceNotes'], prior['sourceNotes'])
+        self.assertEqual(first['readingProgress'], prior['readingProgress'])
+        self.assertEqual(second['discussionId'], self.host.switch_reading_version(source, 2)['discussionId'])
+
+    def test_closed_host_cannot_save_a_bookmark_after_reopen(self):
+        source = 'fixture-paper'
+        old = self.host
+        document = old.source_document(source)
+        old.close()
+        self.host = HostService(self.workspace, self.fixture.root / 'host')
+
+        bookmark = {'readingVersion': 1, 'bundleVersion': document['bundleVersion'], 'line': 2}
+        with self.assertRaises(WorkspaceError) as expired:
+            old.reading_view_bookmark(source, payload=bookmark)
+        self.assertEqual('workspace_instance_expired', expired.exception.error_id)
+        self.assertIsNone(self.host.reading_view_bookmark(source))
+
+    def test_reset_from_library_backs_up_the_sources_saved_structure(self):
+        source = 'fixture-paper'
+        structure = self.host.snapshot()['structure']
+        self.assertTrue(structure)
+        self.host.close()
+        second = self.workspace / 'sources/second-paper'
+        shutil.copytree(self.workspace / 'sources/fixture-paper', second)
+        metadata = second / 'source.yaml'
+        value = json.loads(metadata.read_text(encoding='utf-8'))
+        metadata.write_text(json.dumps({**value, 'source_id': 'second-paper', 'identity': 'fixture:second'}), encoding='utf-8')
+        state_path = self.workspace / 'state.json'
+        state = json.loads(state_path.read_text(encoding='utf-8'))
+        state['sources']['second-paper'] = dict(state['sources'][source])
+        state_path.write_text(json.dumps(state), encoding='utf-8')
+
+        runtime = stage4.PlanningRuntime(self.rebuild_draft())
+        self.host = HostService(self.workspace, self.fixture.root / 'host', reading_runtime=runtime)
+        self.host.open_prepared_reading('second-paper', request_id='open-while-resetting-another')
+        reset = self.host.reset_source_reading(source, {'requestId': 'reread-from-library', 'confirmed': True})
+        self.host.reading_workers[source].join(3)
+        self.assertEqual('second-paper', reset['source']['sourceId'])
+        backup = self.host.reading_version_backup(source, 1)
+        self.assertEqual(structure, backup['structure'])
+        self.assertEqual('chunk-001', backup['current']['chunkId'])
+
+    def test_reopens_and_continues_a_round_after_the_parser_bundle_changes(self):
+        source = 'fixture-paper'
+        view = self.host.snapshot()
+        old_document = self.host.source_document(source)
+        self.host.reading_app.runtime = stage4.PlanningRuntime(self.rebuild_draft())
+        self.host.reset_source_reading(source, {'requestId': 'first-reset-before-reparse', 'confirmed': True})
+        self.host.reading_workers[source].join(3)
+        self.host.close()
+        path = self.workspace / 'sources/fixture-paper/parser-bundle/content.md'
+        path.write_text(path.read_text(encoding='utf-8').replace(
+            'The alias address keeps source order.', 'The replacement label keeps source order.'), encoding='utf-8')
+        runtime = stage4.PlanningRuntime(self.rebuild_draft())
+        self.host = HostService(self.workspace, self.fixture.root / 'host', reading_runtime=runtime,
+            backend_factory=lambda workspace, **kwargs: DiscussionRuntime(
+                workspace, answer='Archived answer', item_id='answer-old-bundle', **kwargs))
+
+        self.assertTrue(self.host.list_reading_versions(source)[0]['ready'])
+        first = self.host.switch_reading_version(source, 1)
+        self.assertEqual(view['discussionId'], first['discussionId'])
+        for key in ('planId', 'chunkId', 'sourceMarkdown', 'translation'):
+            self.assertEqual(view['current'][key], first['current'][key])
+        self.assertIn(f"/{old_document['bundleVersion']}/", first['current']['images'][0]['src'])
+        document = self.host.source_document(source)
+        self.assertEqual(old_document['markdown'], document['markdown'])
+        self.assertEqual(old_document['translation'], document['translation'])
+        self.assertEqual(document['bundleVersion'], first['sourceBundleVersion'])
+
+        note = self.host.source_note_create(source, {'requestId': 'archived-bundle-note', 'readingVersion': 1,
+            'kind': 'thought', 'origin': 'user', 'content': 'Saved against the original text',
+            'chunk': {'planId': 'plan-001', 'chunkId': 'chunk-001'}, 'quote': 'alias address'})
+        self.assertEqual('current', note['sourceNotes'][0]['referenceStatus'])
+        self.host.start({'sourceId': source, 'discussionId': first['discussionId'], 'readingVersion': 1,
+                         'requestId': 'archived-bundle-question', 'content': 'Cite the original alias wording'})
+        self.host.worker.join(3)
+        followed_up = self.host.snapshot()
+        self.assertEqual(document['bundleVersion'], followed_up['conversation'][-1]['evidence'][0]['bundleVersion'])
+        self.host.continue_cached({'receipt': self.receipt(), 'requestId': 'advance-archived-bundle'})
+        self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])
+        self.host.reset_source_reading(source, {'requestId': 'newest-bundle-reset', 'confirmed': True})
+        self.host.reading_workers[source].join(3)
+        latest = self.host.source_document(source)
+        self.assertIn('replacement label', latest['markdown'])
+        self.assertNotEqual(document['bundleVersion'], latest['bundleVersion'])
+        self.assertEqual(3, latest['readingVersion'])
+        self.assertEqual(['Saved against the original text'],
+                         [item['content'] for item in self.host.switch_reading_version(source, 1)['sourceNotes']])
 
     def test_switch_while_new_round_is_translating_preserves_both_rounds(self):
         source = 'fixture-paper'
@@ -496,7 +616,7 @@ class ResetReadingTests(unittest.TestCase):
         source = 'fixture-paper'
         content = self.workspace / 'sources' / source / 'parser-bundle' / 'content.md'
         content.write_text('Updated source text.\n' + content.read_text(encoding='utf-8'), encoding='utf-8')
-        self.assertNotEqual(backup['bundleVersion'], self.host.source_document(source)['bundleVersion'])
+        self.assertEqual(backup['bundleVersion'], self.host.source_document(source)['bundleVersion'])
         recovery = self.host.reading_version_backup(source, 1)
         self.assertEqual(backup['document'], recovery['document'])
         self.assertEqual(evidence, recovery['conversation'][1]['evidence'][0])

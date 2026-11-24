@@ -9,7 +9,7 @@ import { SectionDirectory } from "./SectionDirectory";
 import { sectionAtLine, sourceSections, type DirectorySection } from "./source-sections";
 import { locatePaperEvidence, overlapsSourceLines } from "./paper-evidence";
 import { blockAtReadingLine, blockAtSourcePosition, fractionAtReadingLine, restoreReadingLine, sourceLinesAt, sourcePositionAt, type SourceLines, type SourcePosition } from "./source-position";
-import { citedMarkdown, messageEvidence, projectEvidence, type EvidenceProjection } from "./source-evidence";
+import { citedMarkdown, messageEvidence, projectEvidence, projectSourceAnnotation, type EvidenceProjection } from "./source-evidence";
 import type { RenderMark } from "./rehype-annotations";
 import { captureSourceText, captureTranslatedText, chunkNoteLinks, documentNoteMarks, sharedDocumentNotes } from "./selected-source-note";
 import { readingFontSizes } from "./typography";
@@ -414,7 +414,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     return () => { live = false; };
   }, [host, sourceId, reloadDocument, isCurrentSource, view.sourceBundleVersion, view.readingVersion, prep?.status, prep?.selected_plan_id, prep?.plan_id, prep?.ready]);
   const originalFormat = document?.original === undefined ? (document?.pdf ? "pdf" : undefined) : document.original?.format;
-  const originalUrl = originalFormat ? host.sourceOriginalUrl?.(sourceId) : undefined;
+  const originalUrl = originalFormat ? host.sourceOriginalUrl?.(sourceId, document?.bundleVersion) : undefined;
   const originalHref = originalUrl && originalFormat === "pdf"
     ? pdfOriginalHref(originalUrl, document?.pdf?.pdfHash, currentPage) : originalUrl;
   const translation = document?.translation;
@@ -528,11 +528,11 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       ...(view.sourceNotes ?? []).filter(n => !n.deleted && !n.sourceUpdated && n.sentence?.layer === "source" && (n.anchor ?? n.placement)).map(n => ({ id: n.noteId, quote: n.sentence!.quote, lines: (n.anchor ?? n.placement)!.sourceLines, bundle: n.bundle, highlight: false })),
     ];
     const legacy = annotations.flatMap(a => {
-      const projected = projectEvidence(document, [{ evidenceId: a.id, sourceId, bundleVersion: a.bundle, messageId: "", discussionId: "", answerRevision: "", displayNumber: 0, sourceLines: a.lines, quote: a.quote, relation: "context" }])[0];
-      return projected.kind === "exact" ? [{ key: a.id, start: projected.start, end: projected.end, ...(a.highlight ? { highlightId: a.id } : { noteId: a.id }), ariaLabel: a.highlight ? "重点" : "备注" } satisfies RenderMark] : [];
+      const projected = projectSourceAnnotation(document, a);
+      return projected ? [{ key: a.id, start: projected.start, end: projected.end, ...(a.highlight ? { highlightId: a.id } : { noteId: a.id }), ariaLabel: a.highlight ? "重点" : "备注" } satisfies RenderMark] : [];
     });
     return [...legacy, ...documentNoteMarks(document, sharedNotes)];
-  }, [document, annotationKey, sourceId, sharedNotes]);
+  }, [document, annotationKey, sharedNotes]);
 
   const active = projections.find(projection => projection.evidence.evidenceId === activeEvidence);
   const rememberedAnswer = !resettingDiscussion && lastAnswerCitation?.discussionId === view.discussionId ? lastAnswerCitation : null;

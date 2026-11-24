@@ -1,9 +1,11 @@
 """Local HTTP boundary for the unified reader; no model or Internet required."""
 from contextlib import closing, contextmanager
 from functools import partial
+import hashlib
 import http.client
 import json
 import queue
+import shutil
 import threading
 import time
 import unittest
@@ -103,6 +105,24 @@ class SourceReadingHTTPTests(unittest.TestCase):
             self.assertNotIn('sourceCompletion', recorded)
             self.assertNotIn('sourceCompletion', self.value(port, '/reader/window'))
             self.assertEqual(before, (self.workspace / 'state.json').read_bytes())
+
+    def test_original_and_figure_requests_resolve_the_requested_bundle(self):
+        with self.serve() as port:
+            source = '/library/sources/fixture-paper'
+            bundle = self.source_root / 'parser-bundle'
+            old = self.value(port, source + '/document')['bundleVersion']
+            archived = self.source_root / 'reading' / 'bundles' / old
+            original = (bundle / 'source.pdf').read_bytes()
+            shutil.copytree(bundle, archived)
+            (bundle / 'source.pdf').write_bytes(b'%PDF updated fixture')
+            (bundle / 'images/image-001.png').write_bytes(b'updated image')
+
+            self.assertEqual((200, original), self.request(port,
+                f"{source}/original?bundle={old}&pdfHash={hashlib.sha256(original).hexdigest()}"))
+            self.assertEqual((200, b'%PDF updated fixture'), self.request(port, source + '/original'))
+            image = '/reader/assets/fixture-paper/images/image-001.png'
+            self.assertEqual((200, b'image'), self.request(port, f'{image}?bundle={old}'))
+            self.assertEqual((200, b'updated image'), self.request(port, image))
 
     def test_legacy_discussion_can_append_line_citations_without_rewriting_the_bundle(self):
         from pypdf import PdfWriter

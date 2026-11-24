@@ -26,7 +26,7 @@ class SourceHighlights:
                 "canUndo": row["undo"] is not None, "sourceUpdated": row["bundle"] != current_bundle}
 
     def list(self, source_id: str, *, include_deleted: bool = False, reading_version=None) -> list[dict]:
-        current = self.notes.bundle_version(source_id)
+        current = self.notes.bundle_version(source_id, reading_version)
         with _LOCK, closing(self.notes._connect(source_id, reading_version)) as db, db:
             return [self._public(row, source_id, current)
                     for row in db.execute("SELECT * FROM highlights ORDER BY rowid")
@@ -51,7 +51,7 @@ class SourceHighlights:
                 if prior["digest"] != digest:
                     raise WorkspaceError("highlight_request_conflict", "Request ID was used with different content")
                 return json.loads(prior["result"])
-            current = self.notes.bundle_version(source_id)
+            current = self.notes.bundle_version(source_id, reading_version)
             if plan_bundle != current:
                 raise WorkspaceError("highlight_bundle_changed", "Source Bundle changed")
             self.notes._check_annotation_overlap(db, plan_bundle, locator, "highlight")
@@ -88,7 +88,7 @@ class SourceHighlights:
             row = db.execute("SELECT * FROM highlights WHERE id=?", (highlight_id,)).fetchone()
             if row is None:
                 raise WorkspaceError("highlight_not_found", "Highlight does not exist")
-            current_bundle = self.notes.bundle_version(source_id)
+            current_bundle = self.notes.bundle_version(source_id, reading_version)
             current = self._public(row, source_id, current_bundle)
             if (row["revision"] != expected_revision or (row["deleted"] and operation != "undo")
                     or (operation == "undo" and row["undo"] is None)):

@@ -38,7 +38,7 @@ from core.source_management import SourceManagement
 from core.source_blocks import SourceBlocks
 from core.source_notes import check_sentence
 from core.reading_versions import ReadingVersions, pending_reset, selected_version, version_metadata, version_reading_directory
-from core.reading_workspace import _read_document
+from core.reading_workspace import _read_document, _source_bundle_at_version
 
 #: The Workbench offers one retry entry per artifact, named by granularity.
 BLOG_ARTIFACT_LABELS = {'reading_blog': '重新生成带读博客', 'html': '重新生成 HTML'}
@@ -680,8 +680,9 @@ class HostService:
     def source_document(self, source_id):
         with self.lock:
             self.source_clear.recover()
-            document = SourceReading(self.workspace).document(source_id)
-            bundle = self.workspace / 'sources' / source_id / 'parser-bundle'
+            version = self.reading_app.core._reading_version(source_id)
+            document = SourceReading(self.workspace).document(source_id, reading_version=version)
+            bundle = _source_bundle_at_version(self.workspace / 'sources' / source_id, document['bundleVersion'])
             from core.source_provenance import SOURCE_ORIGINALS
             source = SourceBlocks(bundle, document['markdown'])
             document['blocks'] = [
@@ -691,12 +692,12 @@ class HostService:
                 for block in source.blocks]
             if source.sections is not None:
                 document['sections'] = source.sections
-            document['language'] = self.reading_app.core.source_language(source_id)
-            document['readingPlan'] = self.reading_app.core.note_plan(source_id, document['bundleVersion'], source)
+            document['language'] = self.reading_app.core.source_language(source_id, reading_version=version)
+            document['readingPlan'] = self.reading_app.core.note_plan(source_id, document['bundleVersion'], source, reading_version=version)
             if (bundle / SOURCE_ORIGINALS['paper_pdf']).is_file():
                 document['pdf'] = source.pdf
-            document['translation'] = self.reading_app.core.shared_translation(source_id, document, source=source)
-            document['readingVersion'] = self.reading_app.core._reading_version(source_id)
+            document['translation'] = self.reading_app.core.shared_translation(source_id, document, source=source, reading_version=version)
+            document['readingVersion'] = version
             document['bookmark'] = self.reading_versions.bookmark(source_id, document['readingVersion'])
             return document
 
@@ -940,7 +941,7 @@ class HostService:
             raise invalid
         if selection['bundleVersion'] != bundle:
             raise WorkspaceError('note_bundle_changed', '这段原文已更新，请重新选文。')
-        source = SourceBlocks(self.workspace / 'sources' / source_id / 'parser-bundle')
+        source = SourceBlocks(_source_bundle_at_version(self.workspace / 'sources' / source_id, bundle))
         plan = self.reading_app.core.note_plan(source_id, bundle, source, reading_version=reading_version)
         if plan is None or selection['planId'] != plan['planId']:
             raise invalid
@@ -1024,8 +1025,8 @@ class HostService:
         for chunk in plan['chunks']:
             first, last = chunk['sourceOffsets']
             covered = [segment_id for segment_id in selected
-                       if first <= by_id[segment_id][1]['sourceOffsets'][0]
-                       and by_id[segment_id][1]['sourceOffsets'][1] <= last]
+                       if first < by_id[segment_id][1]['sourceOffsets'][1]
+                       and by_id[segment_id][1]['sourceOffsets'][0] < last]
             if not covered:
                 continue
             chunk_id = chunk['chunkId']
@@ -1052,7 +1053,7 @@ class HostService:
             kind, origin = payload.get('kind'), payload.get('origin')
             if kind not in ('thought', 'conclusion', 'question') or origin not in ('user', 'dialogue'):
                 raise ValueError('笔记类型或来源不正确。')
-            bundle = self.source_notes.bundle_version(source_id)
+            bundle = self.source_notes.bundle_version(source_id, reading_version)
             chunk, anchor = payload.get('chunk'), None
             sentence = payload.get('sentence')
             selection, placement = payload.get('selection'), None
@@ -1113,7 +1114,7 @@ class HostService:
                 raise ValueError('标注参数不正确。')
             generation = self.source_notes.generation(source_id, reading_version)
             plan_bundle = self.core.plan_bundle(source_id, chunk['planId'])
-            if plan_bundle != self.source_notes.bundle_version(source_id):
+            if plan_bundle != self.source_notes.bundle_version(source_id, reading_version):
                 raise WorkspaceError('highlight_bundle_changed', '这段原文已更新，标注未保存')
             if not self.reading_app.core.plan_belongs_to_version(source_id, chunk['planId'], reading_version=reading_version):
                 raise WorkspaceError('reading_version_changed', '小段属于另一阅读轮次。')
@@ -1891,9 +1892,13 @@ class HostService:
         document = self.source_document(source_id)
         if document['bundleVersion'] != bundle:
             raise WorkspaceError('source_bundle_changed', '备份正文与精读计划的原文版本不一致。')
+        overview = self.article_overview(source_id)
+        if overview['status'] == 'ready' and overview['planId'] == plan_id:
+            structure = overview['structure']
+        else:
+            structure = self.core.plan_structure(source_id, plan_id)[0] if plan_id else []
         return {'document': document, 'current': current, 'readingProgress': self.progress_core.list(source_id),
-                'structure': window['structure'] if window['source']['sourceId'] == source_id else [],
-                'opening': self.source_opening(source_id), 'articleOverview': self.article_overview(source_id),
+                'structure': structure, 'opening': self.source_opening(source_id), 'articleOverview': overview,
                 'discussionId': discussion_id, 'discussion': {**self.state['discussions'][discussion_id],
                     'summary': history['summary'], 'summaryThrough': history['summaryThrough']},
                 'conversation': messages, 'timeline': timeline}

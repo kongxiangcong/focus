@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Any
 
 from .source_provenance import bundle_fingerprint
-from .reading_workspace import WorkspaceError, _read_document, _validate_parser_bundle, validate_source_id
+from .reading_workspace import WorkspaceError, _read_document, _source_bundle_at_version, validate_source_id
 from .source_library import SourceLibrary
-from .reading_versions import version_reading_directory
+from .reading_versions import version_bundle, version_reading_directory
 
 
 _LOCK = threading.RLock()
@@ -66,10 +66,9 @@ class SourceNotes:
         SourceLibrary(self.workspace).get(source_id)
         return self.workspace / "sources" / source_id
 
-    def bundle_version(self, source_id: str) -> str:
-        bundle = self._root(source_id) / "parser-bundle"
-        _validate_parser_bundle(bundle)
-        return bundle_fingerprint(bundle)
+    def bundle_version(self, source_id: str, reading_version=None) -> str:
+        state = _read_document(self.workspace / 'state.json')
+        return version_bundle(self._root(source_id), state, source_id, reading_version)[1]
 
     @staticmethod
     def _ensure_column(db: sqlite3.Connection, name: str) -> None:
@@ -160,10 +159,10 @@ class SourceNotes:
             code = "highlight_overlap" if entity == "highlight" else "note_sentence_overlap"
             raise WorkspaceError(code, "The sentence range is already occupied; select it again")
 
-    def clear(self, source_id: str, *, request_id: str, local_only: bool = False) -> None:
+    def clear(self, source_id: str, *, request_id: str, local_only: bool = False, reading_version=None) -> None:
         """Erase annotations and their recovery payloads, optionally keeping whole-source notes."""
         self._check_request(request_id)
-        with _LOCK, closing(self._connect(source_id)) as db, db:
+        with _LOCK, closing(self._connect(source_id, reading_version)) as db, db:
             db.execute("PRAGMA secure_delete=ON")
             db.execute("BEGIN IMMEDIATE")
             if db.execute("SELECT 1 FROM clears WHERE id=?", (request_id,)).fetchone():
@@ -177,7 +176,7 @@ class SourceNotes:
                 db.execute("UPDATE requests SET digest=NULL, result=NULL, cancelled=1")
             db.execute("DELETE FROM highlights")
             db.execute("INSERT INTO clears VALUES (?)", (request_id,))
-        with closing(self._connect(source_id)) as db:
+        with closing(self._connect(source_id, reading_version)) as db:
             db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
     def _anchor(self, source_id: str, version: str, anchor: dict | None) -> str | None:
@@ -190,7 +189,8 @@ class SourceNotes:
         span = anchor.get("sourceLines")
         if not isinstance(span, list) or len(span) != 2 or any(type(n) is not int for n in span):
             raise WorkspaceError("note_anchor_invalid", "Source anchor lines are invalid")
-        lines = (self._root(source_id) / "parser-bundle" / "content.md").read_text(encoding="utf-8").splitlines()
+        bundle = _source_bundle_at_version(self._root(source_id), version)
+        lines = (bundle / "content.md").read_text(encoding="utf-8").splitlines()
         start, end = span
         if start < 1 or end < start or end > len(lines):
             raise WorkspaceError("note_anchor_invalid", "Source anchor lines are outside the Bundle")
@@ -227,7 +227,7 @@ class SourceNotes:
                 "referenceStatus": "historical" if historical else "unavailable" if updated else "current"}
 
     def list(self, source_id: str, *, include_deleted: bool = False, reading_version=None) -> list[dict]:
-        version = self.bundle_version(source_id)
+        version = self.bundle_version(source_id, reading_version)
         with _LOCK, closing(self._connect(source_id, reading_version)) as db, db:
             rows = db.execute("SELECT * FROM notes ORDER BY rowid").fetchall()
             return [self._public(row, source_id, version) for row in rows if include_deleted or not row["deleted"]]
@@ -290,7 +290,7 @@ class SourceNotes:
                 if prior["digest"] != digest:
                     raise WorkspaceError("note_request_conflict", "Request ID was used with different content")
                 return json.loads(prior["result"])
-            current = self.bundle_version(source_id)
+            current = self.bundle_version(source_id, reading_version)
             if bundle != current:
                 raise WorkspaceError("note_bundle_changed", "Source Bundle changed")
             encoded_anchor = self._anchor(source_id, bundle, anchor)
@@ -337,7 +337,7 @@ class SourceNotes:
             row = db.execute("SELECT * FROM notes WHERE id=?", (note_id,)).fetchone()
             if row is None:
                 raise WorkspaceError("note_missing", "Note does not exist")
-            current_bundle = self.bundle_version(source_id)
+            current_bundle = self.bundle_version(source_id, reading_version)
             current = self._public(row, source_id, current_bundle)
             if row["revision"] != expected_revision or (row["deleted"] and operation != "undo") or (operation == "undo" and row["undo"] is None):
                 result = {"status": "conflict", "current": current, "attemptedContent": content}
