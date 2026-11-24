@@ -172,10 +172,14 @@ try {
     return result.ok && result.value?.line === 57;
   }, await workspaceHeaders());
   assert.deepEqual(await readingProgress(), before);
+  await page.reload();
+  await inBodyViewport(appendixHeading);
+  await appendix.and(currentSection).waitFor();
 
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+  mobile.setDefaultTimeout(8000);
   await mobile.goto(`${base}/reading`);
-  await mobile.getByRole('group', { name: '阅读方式' }).getByRole('button', { name: '对话', exact: true }).click();
+  await mobile.getByRole('combobox', { name: '阅读方式', exact: true }).selectOption('chat');
   await mobile.getByRole('button', { name: '查看正文', exact: true }).click();
   const mobileDirectoryToggle = mobile.getByRole('button', { name: '目录', exact: true });
   assert.equal(await mobileDirectoryToggle.getAttribute('aria-expanded'), 'false');
