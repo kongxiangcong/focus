@@ -14,10 +14,13 @@ const chinese = page.getByRole('button', { name: '中文', exact: true });
 const original = page.getByRole('button', { name: '原文', exact: true });
 const conversation = modes.getByRole('button', { name: '对话', exact: true });
 
-async function readingProgress() {
+async function workspaceHeaders() {
   const binding = await (await page.request.get(`${base}/reader/workspace`)).json();
-  const headers = { 'X-FOCUS-Instance': binding.value.workspace.instanceId };
-  const snapshot = await (await page.request.get(`${base}/reader/window`, { headers })).json();
+  return { 'X-FOCUS-Instance': binding.value.workspace.instanceId };
+}
+
+async function readingProgress() {
+  const snapshot = await (await page.request.get(`${base}/reader/window`, { headers: await workspaceHeaders() })).json();
   assert.ok(snapshot.ok, JSON.stringify(snapshot));
   const { navigationCurrent, readingProgress, readingRevision } = snapshot.value;
   return { chunk: navigationCurrent.chunkId, read: readingProgress.length, readingRevision };
@@ -78,9 +81,32 @@ try {
   const before = await readingProgress();
   assert.equal(before.chunk, 'chunk-002');
   assert.equal(before.read, 1);
+  const directoryToggle = page.getByRole('button', { name: '目录', exact: true });
+  await directoryToggle.waitFor();
+  assert.equal(await directoryToggle.getAttribute('aria-expanded'), 'true');
+  const directory = page.getByRole('navigation', { name: '目录', exact: true });
+  await directory.getByRole('button', { name: '1. 引言', exact: true }).waitFor();
+  const methods = directory.getByRole('button', { name: '2 方法', exact: true });
+  const dataSources = directory.getByRole('button', { name: '2.1 数据来源', exact: true });
+  const branch = directory.getByRole('button', { name: '2 方法的子章节', exact: true });
+  const currentSection = directory.locator('[aria-current="location"]');
   await readAt('阅读段落 17 用来核对阅读位置。');
+  await dataSources.and(currentSection).waitFor();
+  const beforeCollapse = await body.evaluate(pane => pane.scrollTop);
+  await branch.press('Space');
+  await dataSources.waitFor({ state: 'hidden' });
+  await methods.and(currentSection).waitFor();
+  assert.equal(await body.evaluate(pane => pane.scrollTop), beforeCollapse);
+  await directoryToggle.press('Enter');
+  await directory.waitFor({ state: 'hidden' });
+  await atReadingLine('阅读段落 17 用来核对阅读位置。');
+  await directoryToggle.press('Space');
+  await methods.and(currentSection).waitFor();
+  await atReadingLine('阅读段落 17 用来核对阅读位置。');
   await original.press('Enter');
   await atReadingLine('Reading passage 17 with context to read.');
+  await directory.getByRole('button', { name: '2 Methods', exact: true }).and(currentSection).waitFor();
+  assert.equal(await directory.getByRole('button', { name: '2 Methods的子章节', exact: true }).getAttribute('aria-expanded'), 'false');
   await readAt('Reading passage 23 with context to read.');
   await chinese.click();
   await atReadingLine('阅读段落 23 用来核对阅读位置。');
@@ -107,9 +133,15 @@ try {
   await message.fill('核对双语证据');
   await message.press('Enter');
   const citation = chat.getByRole('button', { name: '1', exact: true });
+  await branch.press('Enter');
+  await readAt('阅读段落 25 用来核对阅读位置。');
+  const appendix = directory.getByRole('button', { name: '3 Appendix', exact: true });
+  await appendix.and(currentSection).waitFor();
   await citation.press('Enter');
   const translationEvidence = body.locator('[data-evidence-block].is-active');
   await inBodyViewport(translationEvidence.getByText('阅读段落 17 用来核对阅读位置。', { exact: true }));
+  await methods.and(currentSection).waitFor();
+  assert.equal(await branch.getAttribute('aria-expanded'), 'false');
   assert.equal(await chinese.getAttribute('aria-pressed'), 'true');
   const evidenceId = await citation.getAttribute('data-citation');
   assert.equal(await translationEvidence.getAttribute('data-evidence-block'), evidenceId);
@@ -126,14 +158,57 @@ try {
   await atReadingLine('Reading passage 25 with context to read.');
   assert.deepEqual(await readingProgress(), before);
 
+  await chinese.click();
+  await inBodyViewport(body.getByText('附录概述。', { exact: true }));
+  await appendix.press('Enter');
+  const appendixHeading = body.getByRole('heading', { name: 'Appendix', exact: true });
+  await inBodyViewport(appendixHeading);
+  assert.ok(await appendixHeading.evaluate(node => document.activeElement === node));
+  await appendix.and(currentSection).waitFor();
+  assert.equal(await chinese.getAttribute('aria-pressed'), 'true');
+  await page.waitForFunction(async headers => {
+    const response = await fetch('/library/sources/fixture-paper/reading-bookmark', { headers });
+    const result = await response.json();
+    return result.ok && result.value?.line === 57;
+  }, await workspaceHeaders());
+  assert.deepEqual(await readingProgress(), before);
+  await page.reload();
+  await inBodyViewport(appendixHeading);
+  await appendix.and(currentSection).waitFor();
+
+  const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+  mobile.setDefaultTimeout(8000);
+  await mobile.goto(`${base}/reading`);
+  await mobile.getByRole('combobox', { name: '阅读方式', exact: true }).selectOption('chat');
+  await mobile.getByRole('button', { name: '查看正文', exact: true }).click();
+  const mobileDirectoryToggle = mobile.getByRole('button', { name: '目录', exact: true });
+  assert.equal(await mobileDirectoryToggle.getAttribute('aria-expanded'), 'false');
+  await mobileDirectoryToggle.press('Enter');
+  const mobileDirectory = mobile.getByRole('navigation', { name: '目录', exact: true });
+  await mobileDirectory.getByRole('button', { name: '2.1 数据来源', exact: true }).click();
+  await mobileDirectory.waitFor({ state: 'hidden' });
+  await inBodyViewport(mobile.getByLabel('文章原文', { exact: true }).getByRole('heading', { name: '数据来源', exact: true }));
+  assert.equal(await mobile.evaluate(() => document.documentElement.scrollWidth), 390);
+  await mobile.getByRole('button', { name: '返回对话', exact: true }).click();
+  await mobile.getByRole('button', { name: '文章导读', exact: false }).waitFor();
+  await mobile.close();
+
   await page.getByRole('link', { name: '知识库', exact: true }).click();
   const chineseSource = page.getByRole('listitem').filter({ has: page.getByRole('button', { name: '中文原文示例', exact: true }) });
   await chineseSource.getByRole('button', { name: '阅读', exact: true }).click();
   await conversation.click();
   await body.getByRole('heading', { name: '中文原文示例', exact: true }).waitFor();
   assert.equal(await page.getByRole('group', { name: '正文语言', exact: true }).count(), 0);
+  await directory.getByRole('button', { name: '1 原文小节 1', exact: true }).waitFor();
 
-  console.log('PASS default and remembered language, mapped reading position, shared translation, stable progress, and Chinese original');
+  await page.getByRole('link', { name: '知识库', exact: true }).click();
+  const unheadedSource = page.getByRole('listitem').filter({ has: page.getByRole('button', { name: '无标题正文', exact: true }) });
+  await unheadedSource.getByRole('button', { name: '阅读', exact: true }).click();
+  await conversation.click();
+  await body.getByText('中文原文第 1 段。', { exact: true }).waitFor();
+  assert.equal(await directoryToggle.count(), 0);
+
+  console.log('PASS bilingual position and evidence, canonical and legacy section directories, section bookmarks, desktop and mobile layout, and stable reading progress');
 } catch (error) {
   console.error((await page.locator('body').innerText()).slice(0, 1800));
   throw error;
