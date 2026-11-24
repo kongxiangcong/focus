@@ -10,11 +10,18 @@ page.setDefaultTimeout(8000);
 const modes = page.getByRole('group', { name: '阅读方式' });
 const mode = name => modes.getByRole('button', { name, exact: true }).click();
 const body = page.getByLabel('文章原文', { exact: true });
-const language = name => page.getByRole('group', { name: '正文语言' }).getByRole('button', { name, exact: true }).click();
+const languages = page.getByRole('group', { name: '正文语言' });
+async function language(name) {
+  await languages.getByRole('button', { name, exact: true }).click();
+  await languages.getByRole('button', { name, exact: true, pressed: true }).waitFor();
+}
 const startNote = page.getByRole('button', { name: '记笔记', exact: true });
 const drawer = page.getByRole('complementary', { name: '来源笔记' });
 const content = drawer.getByRole('textbox', { name: '笔记内容' });
-const close = () => drawer.getByRole('button', { name: '关闭笔记', exact: true }).click();
+async function close() {
+  await drawer.getByRole('button', { name: '关闭笔记', exact: true }).click();
+  await drawer.waitFor({ state: 'hidden' });
+}
 const group = n => page.locator('[data-reading-group]').filter({ has: page.locator(`[data-chunk-key$="chunk-00${n}"]`) });
 const notes = n => group(n).getByRole('region', { name: '小段笔记' });
 const mark = (surface, kind = 'shared-note') =>
