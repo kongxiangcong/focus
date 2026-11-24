@@ -43,6 +43,10 @@ function pdfOriginalHref(url: string, pdfHash?: string, page?: number) {
   return `${path}${hash}${page ? `#page=${page}` : ""}`;
 }
 
+function evidenceDestinations(pane: HTMLElement | null, id: string) {
+  return [...(pane?.querySelectorAll<HTMLElement>(`[data-evidence-ids~="${id}"], [data-evidence-block~="${id}"]`) ?? [])];
+}
+
 type AnswerLocation = { messageId: string; evidenceId: string; origin?: HTMLButtonElement };
 type DiscussionCitation = AnswerLocation & { discussionId?: string };
 type AnswerReturn = { messageId: string; evidenceId?: string; origin?: HTMLButtonElement; discussionId?: string };
@@ -392,11 +396,12 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   function switchPaper(next: boolean) {
     const pane = original.current;
     if (!pane || !document || showingTranslation === next) return;
-    const cited = activeEvidence ? target(activeEvidence) : undefined;
-    const citedBounds = cited?.getBoundingClientRect();
     const paneBounds = pane.getBoundingClientRect();
-    const citedBlock = citedBounds && citedBounds.top < paneBounds.bottom && citedBounds.bottom > paneBounds.top
-      ? cited?.closest<HTMLElement>("[data-source-line]") : undefined;
+    const cited = activeEvidence && evidenceDestinations(pane, activeEvidence).find(node => {
+      const bounds = node.getBoundingClientRect();
+      return bounds.top < paneBounds.bottom && bounds.bottom > paneBounds.top;
+    });
+    const citedBlock = cited ? cited.closest<HTMLElement>("[data-source-line]") : undefined;
     const anchor = citedBlock ?? blockAtReadingLine(pane);
     const projection = citedBlock && active;
     const prior = position.current;
@@ -448,6 +453,12 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const projections = useMemo(() => document ? projectEvidence(document, evidence) : [], [document, evidence]);
   const paperLocations = useMemo(() => document?.translation ? projections.map(projection => locatePaperEvidence(document, projection)) : [],
     [document, projections]);
+  const requestedPaperEvidence = showingTranslation && intent && intent.destination !== "answer" && isLatest(intent) &&
+    intent.sourceId === sourceId && intent.discussionId === view.discussionId && intent.selectionGeneration === selectionGeneration
+    ? paperLocations.find(location => location.evidence.messageId === intent.messageId && location.evidence.evidenceId === intent.evidenceId &&
+      (location.segmentIds.length || location.fallbackLines)) : undefined;
+  const paperFallback = showingTranslation
+    ? requestedPaperEvidence ?? paperLocations.find(location => location.evidence.evidenceId === activeEvidence) : undefined;
 
   const permanentMarks = useMemo(() => {
     if (!document) return [];
@@ -481,7 +492,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       pane.querySelectorAll(`[data-evidence-ids~="${activeEvidence}"], [data-evidence="${activeEvidence}"], [data-evidence-block~="${activeEvidence}"]`)
         .forEach(el => el.classList.add("is-active"));
     }
-  }, [activeEvidence, evidenceKey, document, showingTranslation, annotationKey]);
+  }, [activeEvidence, evidenceKey, document, showingTranslation, annotationKey, paperFallback]);
 
   // Keep latest turn focused when new turns arrive.
   useEffect(() => {
@@ -540,9 +551,6 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     });
   }
 
-  const target = (id: string) => original.current?.querySelector<HTMLElement>(
-    `[data-evidence-ids~="${id}"], [data-evidence-block~="${id}"]`) ?? undefined;
-
   // Keep the previous return until the new jump reaches its source location.
   const rememberAnswerReturn = useCallback((navigationIntent: EvidenceNavigationIntent) => {
     const pending = pendingAnswerCitation.current;
@@ -556,14 +564,14 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const pane = original.current;
     const id = projection.evidence.evidenceId;
     if (!pane || !isCurrentSource()) return;
-    const destinations = pane.querySelectorAll<HTMLElement>(`[data-evidence-ids~="${id}"], [data-evidence-block~="${id}"]`);
+    const destinations = evidenceDestinations(pane, id);
     if (!destinations.length || !pane.clientHeight) return;
     if (navigationIntent && !consume(navigationIntent)) return;
     if (navigationIntent) rememberAnswerReturn(navigationIntent);
 
     manual.current = false;
     const viewport = pane.getBoundingClientRect();
-    const bounds = [...destinations].map(node => node.getBoundingClientRect());
+    const bounds = destinations.map(node => node.getBoundingClientRect());
     const top = Math.min(...bounds.map(rect => rect.top));
     const bottom = Math.max(...bounds.map(rect => rect.bottom));
     if (top < viewport.top || bottom > viewport.bottom) {
@@ -627,7 +635,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const message = messages.find(item => item.messageId === intent.messageId);
     const cited = message && messageEvidence(message, document, view.discussionId).find(item => item.evidenceId === intent.evidenceId);
     const verified = cited && projections.find(item => item.evidence.evidenceId === intent.evidenceId);
-    if (!verified || verified.kind === "unavailable" || !target(intent.evidenceId)) {
+    if (!verified || verified.kind === "unavailable" || !evidenceDestinations(original.current, intent.evidenceId).length) {
       consume(intent);
       return;
     }
@@ -696,8 +704,15 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const pending = turn.current;
     if (!visible || intent || !pending || pending.located || pending.cancelled || !latest || pending.seen.has(latest.messageId) || !evidence.length) return;
     const first = projections.find((p): p is Exclude<EvidenceProjection, { kind: "unavailable" }> => p.evidence.messageId === latest.messageId && p.kind !== "unavailable");
-    if (first && selected?.messageId === latest.messageId) { pending.located = true; if ((shell.current?.clientWidth ?? 0) >= 960) moveTo(first); }
-  }, [visible, intent, latest, evidence, projections, selected, moveTo]);
+    if (!first || selected?.messageId !== latest.messageId) return;
+    pending.located = true;
+    if ((shell.current?.clientWidth ?? 0) < 960) return;
+    const { messageId, evidenceId } = first.evidence;
+    if (showingTranslation && paperLocations.some(location => location.evidence.evidenceId === evidenceId && location.fallbackLines)) {
+      start({ sourceId, discussionId: view.discussionId, selectionGeneration, messageId, evidenceId });
+    } else moveTo(first);
+  }, [visible, intent, latest, evidence, projections, selected, showingTranslation, paperLocations, start, sourceId,
+    view.discussionId, selectionGeneration, moveTo]);
 
   useLayoutEffect(() => {
     if (!chat.current) return;
@@ -895,7 +910,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
             }
           }}>
           <ActiveSourceCitation.Provider value={markerSelection}>
-            {document ? showingTranslation ? <TranslatedPaper document={document} evidence={paperLocations} notes={sharedNotes} noteLinks={noteLinks} /> :
+            {document ? showingTranslation ? <TranslatedPaper document={document} evidence={paperLocations}
+              fallback={paperFallback} originalMarks={permanentMarks} notes={sharedNotes} noteLinks={noteLinks} /> :
               <article><MarkdownContent text={document.markdown} sourceId={sourceId} marks={permanentMarks} sourceEvidence={sourceInput} bodyRef={sourceBody} /></article> :
               <span role="status" className="source-loading">加载中…</span>}
           </ActiveSourceCitation.Provider>

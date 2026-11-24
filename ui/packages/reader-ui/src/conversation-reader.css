@@ -162,6 +162,7 @@
 .source-composer.focus-composer .focus-composer__send svg { width:15px; height:15px; }
 
 /* Evidence marks */
+.source-excerpt-language { color:var(--reader-muted); font-size:.75em; }
 .source-evidence { background:transparent; color:inherit; border-radius:2px; transition:background-color var(--reader-duration-quick) var(--reader-ease-out); }
 .source-evidence.is-active:not(:has(.reader-anno)) { background:var(--reader-mark); }
 .conversation-reader .source-evidence-number, .answer-evidence-number { display:inline; color:var(--reader-mark-ink); background:var(--reader-mark-soft); padding:1px 5px; font:600 11px/1.5 system-ui; vertical-align:super; border-radius:4px; margin:0 2px; }
