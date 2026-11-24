@@ -539,7 +539,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   function requestReadingReset(sourceId: string, opener: HTMLElement) {
     const reset = host.resetSourceReading?.bind(host);
     if (!reset) return;
-    const storageKey = `focus.resetReading:${view?.workspace?.workspaceId ?? "local"}:${sourceId}`;
+    const readingVersion = view?.source.sourceId === sourceId ? view.readingVersion ?? undefined : undefined;
+    const storageKey = `focus.resetReading:${view?.workspace?.workspaceId ?? "local"}:${sourceId}:${readingVersion ?? "selected"}`;
     const label = "重新阅读";
     const resetReading = async () => {
       if (!canOperate(label)) return;
@@ -553,7 +554,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
             requestId = sessionStorage.getItem(storageKey) ?? fallbackId;
             sessionStorage.setItem(storageKey, requestId);
           } catch { /* The in-memory identity still covers retries. */ }
-          const result = await reset(sourceId, requestId);
+          const result = await reset(sourceId, requestId, readingVersion);
           if (result.ok) {
             try { sessionStorage.removeItem(storageKey); } catch { /* Storage is optional. */ }
           }
@@ -563,7 +564,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     };
     setResetConfirmation({
       title: "重新阅读本篇？",
-      description: "将清除精读进度、旧计划、小段笔记、句子备注和重点。整篇笔记会保留，旧对话归档，并开启新对话。",
+      description: "会先备份本轮进度、译文、批注和对话。你可以在管理来源中切回本轮。新一轮从头准备，只复制整篇笔记，并开启空白对话。",
       label: "确认重新阅读",
       opener,
       confirm: () => void resetReading(),

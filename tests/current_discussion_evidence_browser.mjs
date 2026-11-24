@@ -75,8 +75,23 @@ const citation = (message, number) => message.getByRole('button', { name: String
 const numberedReturn = (number, location = referencedParagraph) => location.getByRole('button', { name: `返回回答证据 ${number}`, exact: true });
 const scrollTop = () => source.evaluate(pane => pane.scrollTop);
 
+async function selectAnswer(message) {
+  await message.locator('p').first().click({ position: { x: 3, y: 6 } });
+  await page.waitForFunction(node => node.dataset.selected === 'true', await message.elementHandle());
+}
+
+async function browseToStart() {
+  const point = await source.evaluate(pane => {
+    const bounds = pane.getBoundingClientRect();
+    return { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2, distance: pane.scrollHeight };
+  });
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.wheel(0, -point.distance);
+  await page.waitForFunction(() => document.querySelector('[aria-label="文章原文"]').scrollTop < 20);
+}
+
 async function assertLocated(button, quote) {
-  const id = await button.getAttribute('data-citation');
+  const id = typeof button === 'string' ? button : await button.getAttribute('data-citation');
   const marked = source.locator(`mark.is-active[data-evidence-ids~="${id}"]`);
   await marked.first().waitFor();
   assert.equal((await marked.allTextContents()).join(''), quote);
@@ -129,15 +144,22 @@ try {
   await ask('当前回答 B', 4);
   const b = answer('当前回答 B');
   const b3 = citation(b, 3), b4 = citation(b, 4);
-  await source.press('Home');
-  await page.waitForFunction(() => document.querySelector('[aria-label="文章原文"]').scrollTop < 20);
+  await browseToStart();
   await b3.click();
   await assertLocated(b3, 'a scalable high-bandwidth system');
   assert.ok((await originalLink.getAttribute('href')).endsWith('#page=8'));
-  const originalTop = await scrollTop();
-  assert.ok(originalTop > 0);
+  assert.ok(await scrollTop() > 0);
   await numberedReturn(3).click();
   await atFocus(b3);
+  const nextId = await b4.getAttribute('data-citation');
+  assert.ok(await source.evaluate((pane, id) => {
+    const bounds = pane.getBoundingClientRect();
+    return [...pane.querySelectorAll(`[data-evidence-ids~="${id}"]`)].every(node => {
+      const rect = node.getBoundingClientRect();
+      return rect.top >= bounds.top && rect.bottom <= bounds.bottom;
+    });
+  }, nextId), 'The shorter citation is fully visible before activating it');
+  const originalTop = await scrollTop();
   await b4.press('Enter');
   await assertLocated(b4, 'a scalable high-bandwidth');
   assert.equal(await scrollTop(), originalTop);
@@ -156,25 +178,26 @@ try {
 
   await ask('当前回答 C', 2);
   const c = answer('当前回答 C');
-  await c.click();
+  await selectAnswer(c);
   await numberedReturn(1).click();
   await atFocus(citation(c, 1));
-  await b.click();
-  await numberedReturn(4).click();
-  await atFocus(b4);
+  await selectAnswer(b);
+  const bReturn = referencedParagraph.getByRole('button', { name: /^返回回答证据 [34]$/ });
+  const bNumber = (await bReturn.textContent()).trim();
+  await bReturn.click();
+  await atFocus(citation(b, bNumber));
 
   await citation(c, 2).click();
   await b4.click();
   await assertLocated(b4, 'a scalable high-bandwidth');
   assert.ok((await originalLink.getAttribute('href')).endsWith('#page=8'));
-  await source.press('Home');
-  await page.waitForFunction(() => document.querySelector('[aria-label="文章原文"]').scrollTop < 20);
+  await browseToStart();
   await b4.click();
   await assertLocated(b4, 'a scalable high-bandwidth');
   await page.reload();
   await chatTab.click();
   await originalLink.waitFor();
-  assert.ok(await scrollTop() < 20, 'A manual Home bookmark survives a later citation jump and reopening');
+  assert.ok(await scrollTop() < 20, 'A manual bookmark survives a later citation jump and reopening');
 
   await chinese.click();
   await b4.click();
@@ -197,8 +220,9 @@ try {
   const narrowMode = page.getByRole('combobox', { name: '阅读方式' });
   if (await narrowMode.isVisible()) await narrowMode.selectOption('chat');
   const narrowCitation = citation(answer('当前回答 B'), 4);
+  const narrowId = await narrowCitation.getAttribute('data-citation');
   await narrowCitation.press('Enter');
-  await assertLocated(narrowCitation, 'a scalable high-bandwidth');
+  await assertLocated(narrowId, 'a scalable high-bandwidth');
   await numberedReturn(4).click();
   await atFocus(narrowCitation);
   await page.getByRole('button', { name: '查看正文', exact: true }).click();
