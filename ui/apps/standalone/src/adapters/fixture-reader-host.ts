@@ -153,6 +153,7 @@ export class FixtureReaderHost implements ReaderHost {
     if (input.sentence != null && (!chunk || input.kind !== "thought" || input.origin !== "user" || input.quote != null || !validSentence(input.sentence, chunk))) return readerFailure("note_sentence_invalid", "句子备注参数不正确");
     if (input.quote && chunk && !chunk.sourceMarkdown.includes(input.quote)) return readerFailure("invalid-request", "引文不匹配原文");
     const selection = input.selection;
+    if (selection?.layer === "translation") return readerFailure("note_selection_invalid", "选文位置已失效，请重新选择。");
     const selected = selection ? this.chunks.filter(c => {
       const start = c.sourceOffset;
       if (c.bundleVersion !== selection.bundleVersion || c.planId !== selection.planId || start === undefined) return false;
@@ -160,7 +161,7 @@ export class FixtureReaderHost implements ReaderHost {
       return selection.ranges.some(span => span.start < start + text.length && span.end > start &&
         text.slice(Math.max(0, span.start - start), span.end - start).join("").trim());
     }) : [];
-    if (selection && (!selected.length || selection.layer !== "source" || input.kind !== "thought" || input.origin !== "user" ||
+    if (selection && (!selected.length || input.kind !== "thought" || input.origin !== "user" ||
       input.chunk || input.sentence || input.quote !== undefined)) return readerFailure("note_selection_invalid", "选文位置已失效，请重新选择。");
     const prior = this.replay("note", input.requestId, input); if (prior) return prior;
     const failure = this.writeFailure("note"); if (failure) return failure;

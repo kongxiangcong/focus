@@ -107,6 +107,36 @@ it("highlights a fully visible quotation without moving the source or opening a 
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
 });
 
+it("shows only the verified original block in place when an older Host has no validated translation mapping", async () => {
+  const sourceDocument = { sourceId: "paper", bundleVersion: "v1", title: "Paper", markdown: "# Paper\n\nFirst evidence.\n\nSecond evidence. Second evidence.", lineCount: 5,
+    translation: { status: "ready", planId: "plan", chunks: [{ id: "chunk-1", sourceLines: [1, 5] as const, blockIds: [],
+      text: "# 论文\n\n译文中的第二段。\n\n译文中的第一段。" }] } };
+  setup(answer([first, second]), { getSourceDocument: async () => readerSuccess(sourceDocument) });
+  const source = within(await screen.findByLabelText("文章原文"));
+  const translated = await screen.findByRole("button", { name: "中文译文" });
+  fireEvent.click(translated);
+  expect(source.queryByText(first.quote.exact)).not.toBeInTheDocument();
+
+  const chat = within(screen.getByLabelText("文章对话"));
+  const citation = await chat.findByRole("button", { name: "1" });
+  fireEvent.click(citation, { detail: 1 });
+  expect(translated).toHaveAttribute("aria-pressed", "true");
+  const originalBlock = source.getByRole("region", { name: "原文证据" });
+  expect(within(originalBlock).getByText(first.quote.exact)).toHaveClass("is-active");
+  expect(source.queryByText(/Second evidence/)).not.toBeInTheDocument();
+  expect(source.getByText("译文中的第一段。").closest("[data-evidence-block]")).toBeNull();
+  fireEvent.click(chat.getByRole("button", { name: "2" }));
+  expect(within(originalBlock).getByText(first.quote.exact)).toHaveClass("is-active");
+  expect(source.queryByText(/Second evidence/)).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "原文" }));
+  expect(source.getByText(first.quote.exact)).toHaveClass("is-active");
+  expect(source.queryByRole("region", { name: "原文证据" })).not.toBeInTheDocument();
+  fireEvent.click(translated);
+  fireEvent.click(within(source.getByRole("region", { name: "原文证据" })).getByRole("button", { name: "返回回答证据 1" }));
+  expect(citation).toHaveFocus();
+});
+
 it("saves the selected occurrence across chunks and leaves an overlapping highlight after deletion", async () => {
   const markdown = "同词以及**同词😀**\n然后继续。";
   const document = { sourceId: "paper", bundleVersion: "v1", title: "Paper", markdown, lineCount: 2,
@@ -226,6 +256,8 @@ it.each([
   { scenario: "a changed bundle", evidence: { ...first, bundleVersion: "older" } },
   { scenario: "a missing context match", evidence: { ...first, quote: { ...first.quote, suffix: " different context" } } },
   { scenario: "a missing range", evidence: { ...first, sourceLines: [] as unknown as ValidatedAnswerEvidence["sourceLines"] } },
+  { scenario: "an absent legacy range", evidence: { ...first, sourceLines: undefined as unknown as ValidatedAnswerEvidence["sourceLines"] } },
+  { scenario: "a malformed legacy range", evidence: { ...first, sourceLines: {} as unknown as ValidatedAnswerEvidence["sourceLines"] } },
 ])("leaves the reading position and previous highlight intact after $scenario", async ({ evidence }) => {
   setup(answer([second, evidence]));
   const conversation = within(await screen.findByLabelText("文章对话"));

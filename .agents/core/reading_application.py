@@ -266,13 +266,14 @@ class ReadingCore:
                                'sourceOffsets': [source.starts[first - 1], source.starts[last] - 1]})
             return {'planId': plan, 'chunks': chunks}
 
-    def shared_translation(self, source_id, document, *, source=None):
+    def shared_translation(self, source_id, document, *, source=None, reading_version=None):
         with _LOCK:
-            translation = self._source_translation(source_id, document['bundleVersion'],
-                                                   self._reading_version(source_id), source=source)
+            if reading_version is None:
+                reading_version = self._reading_version(source_id)
+            translation = self._source_translation(source_id, document['bundleVersion'], reading_version, source=source)
             if self.source_language(source_id) == 'zh':
                 return {**translation.result('not_applicable'), 'chunks': []}
-            run = self.status(source_id)
+            run = self.status(source_id, reading_version=reading_version)
             asset = translation.load()
             if not run or run['bundle'] != document['bundleVersion']:
                 return {**(self._public_translation(asset) if asset else translation.result('missing')), 'chunks': []}

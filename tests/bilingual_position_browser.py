@@ -1,5 +1,6 @@
 """Exercise bilingual reading in the built workbench against the formal Host."""
 from contextlib import closing
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -13,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from reading_fixture import ReadingFixture
+from pdf_evidence_browser import CitationRuntime
 from test_stage4_reading import ReadingRuntimeDouble, enter_body
 from workspace_fixture import publish_workspace
 from core.article_blog import bundle_fingerprint
@@ -88,7 +90,9 @@ def main():
     try:
         runtime = BilingualRuntime()
         with closing(Workbench(workspace=configure(fixture), settings_path=fixture.root / 'settings.json',
-                               reading_runtime=runtime)) as workbench:
+                               reading_runtime=runtime, backend_factory=partial(CitationRuntime, requests={
+                                   '核对双语证据': [{'lines': [39, 39], 'quote': 'Reading passage 17'}],
+                               }))) as workbench:
             host = workbench.host
             assert host is not None, workbench.status()
             source_id = 'fixture-paper'

@@ -2,6 +2,7 @@ import type { ReaderMessage, ReadingDocument, ValidatedAnswerEvidence } from "@f
 import { hastTextNodes, type HastNode } from "./annotatable-text";
 import { normalizeMathWithLines } from "./math-markdown";
 import { markdownTree } from "./markdown-pipeline";
+import type { ChunkNoteLink } from "./selected-source-note";
 
 export function messageEvidence(message: ReaderMessage, scope: { sourceId: string }, discussionId?: string | null) {
   return (message.evidence ?? []).filter(e => e.sourceId === scope.sourceId &&
@@ -32,7 +33,8 @@ export type EvidenceProjection = { evidence: ValidatedAnswerEvidence } & (
 );
 
 function findCanonicalQuote(markdown: string, starts: readonly number[], evidence: ValidatedAnswerEvidence): (SourceRange & { quoteOffsets: readonly [number, number]; canonicalStart: number }) | undefined {
-  const [first, last] = evidence.sourceLines ?? [];
+  if (!Array.isArray(evidence.sourceLines) || evidence.sourceLines.length !== 2) return undefined;
+  const [first, last] = evidence.sourceLines;
   if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last)) return undefined;
   const lower = starts[first - 1], upper = starts[last] === undefined ? markdown.length : starts[last] - 1;
   if (lower === undefined || first < 1 || last < first || last > starts.length) return undefined;
@@ -95,7 +97,8 @@ function resolve(tree: HastNode, document: ReadingDocument, evidence: readonly V
   return evidence.map(e => {
     const no = { evidence: e, kind: "unavailable" as const };
     if (e.sourceId !== document.sourceId || e.bundleVersion !== document.bundleVersion) return no;
-    const [first, last] = e.sourceLines ?? [];
+    if (!Array.isArray(e.sourceLines) || e.sourceLines.length !== 2) return no;
+    const [first, last] = e.sourceLines;
     if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last) || first < 1 || last < first || last > document.lineCount) return no;
     if (!e.quote.exact.trim()) return no;
     const verified = locate(e);
@@ -136,7 +139,8 @@ export function projectEvidence(document: ReadingDocument, evidence: readonly Va
   return resolve(cached.tree, document, evidence);
 }
 
-export function rehypeSourceEvidence(options: { document: ReadingDocument; evidence: readonly ValidatedAnswerEvidence[]; active?: string }) {
+export function rehypeSourceEvidence(options: { document: ReadingDocument; evidence: readonly ValidatedAnswerEvidence[];
+  active?: string; noteLinks?: readonly ChunkNoteLink[] }) {
   return (tree: HastNode) => {
     const projections = resolve(tree, options.document, options.evidence);
     const exact = projections.filter(p => p.kind === "exact");
@@ -171,6 +175,7 @@ export function rehypeSourceEvidence(options: { document: ReadingDocument; evide
       starts.push(starts[starts.length - 1] + codePointLength(line) + 1);
     }
     const blocks = options.document.blocks ?? [];
+    const remainingNoteLinks = new Set(options.noteLinks);
     let blockIndex = 0;
     tree.children = tree.children?.flatMap(child => {
       const span = (child as Positioned).position;
@@ -185,20 +190,25 @@ export function rehypeSourceEvidence(options: { document: ReadingDocument; evide
       }
       child.properties = { ...child.properties, dataSourceLine: first, dataSourceEnd: last,
         dataSourceOffsetStart: start, dataSourceOffsetEnd: end, dataSourceBlockIds: blockIds.join(" ") || undefined };
+      const notes = [...remainingNoteLinks].filter(({ sourceOffsets: [low, high] }) => start < high && low < end);
+      for (const note of notes) remainingNoteLinks.delete(note);
+      const after: HastNode[] = notes.length ? [{ type: "element", tagName: "span", properties: {
+        dataAnnoUi: "", dataSourceChunkNotes: notes.map(note => note.index).join(" "),
+      }, children: [] }] : [];
       const fallback = projections.filter(p => p.kind === "block" && first <= p.sourceLines[1] && last >= p.sourceLines[0]);
       if (fallback.length) child.properties.dataEvidenceBlock = fallback.map(p => p.evidence.evidenceId).join(" ");
       const marked = new Set<string>();
       if (exact.length) findMarkedEvidence(child, marked);
       const items = projections.filter(p => marked.has(p.evidence.evidenceId) || fallback.includes(p));
-      if (!items.length) return [child];
+      if (!items.length) return [child, ...after];
       const marker: HastNode = { type: "element", tagName: "span", properties: {
         dataAnnoUi: "", dataSourceEvidenceMarkers: items.map(p => p.evidence.evidenceId).join(" "),
       }, children: [] };
       if (child.tagName && /^(?:p|h[1-6])$/.test(child.tagName)) {
         child.children?.push(marker);
-        return [child];
+        return [child, ...after];
       }
-      return [child, marker];
+      return [child, marker, ...after];
     });
   };
 }

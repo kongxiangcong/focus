@@ -1,6 +1,6 @@
 import { rehypeSourceEvidence } from "./source-evidence";
 import { SourceEvidenceMarkers } from "./SourceEvidenceMarkers";
-import type { ReadingDocument, ValidatedAnswerEvidence } from "@focus/reader-contracts";
+import { ChunkNoteLinks } from "./ChunkNoteLinks";
 import { useCallback, memo, useContext, useLayoutEffect, useMemo, useRef, type Ref } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import "katex/dist/katex.min.css";
@@ -12,6 +12,7 @@ import { rehypeAnnotations, type RenderMark } from "./rehype-annotations";
 import { hastAnnotatableText, type HastNode } from "./annotatable-text";
 import { buildMarks, type Located, type PendingAnnotation, type ResolvedMark } from "./annotation-projection";
 import type { AnnotationLayer } from "@focus/reader-contracts";
+import type { SourceLines } from "./source-position";
 
 export interface MarkdownAnnotationInput {
   located: readonly Located[]; layer: AnnotationLayer; pending?: PendingAnnotation | null;
@@ -21,6 +22,7 @@ export interface MarkdownAnnotationInput {
 const components: Components = {
   table: ({ node, children }) => <div className="focus-table" tabIndex={0}
     data-source-line={node?.properties.dataSourceLine} data-source-end={node?.properties.dataSourceEnd}
+    data-source-offset-start={node?.properties.dataSourceOffsetStart} data-source-offset-end={node?.properties.dataSourceOffsetEnd}
     data-evidence-block={node?.properties.dataEvidenceBlock}>
     <table>{children}</table>
   </div>,
@@ -29,12 +31,23 @@ const components: Components = {
   a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
   img: ({ src, alt }) => <img src={src} alt={alt ?? ""} loading="lazy" />,
 };
+
+function rehypeSourceExcerpt({ lines: [first, last] }: { lines: SourceLines }) {
+  return (tree: HastNode) => {
+    // Filter after projecting evidence and notes on the entire original so the
+    // excerpt retains the canonical offsets and any Markdown reference definitions.
+    tree.children = tree.children?.filter(({ properties }) => properties &&
+      (typeof properties.dataSourceEvidenceMarkers === "string" ||
+        Number(properties.dataSourceLine) <= last && Number(properties.dataSourceEnd) >= first));
+  };
+}
+
 export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, figures, onFigure, inlineFigures = false, marks, annotation, onAnnotations, sourceEvidence, onCitation, activeCitation, bodyRef }: {
   text: string; sourceId?: string; figures?: readonly Figure[]; onFigure?: (figure: Figure) => void; inlineFigures?: boolean;
   bodyRef?: Ref<HTMLDivElement>;
   activeCitation?: string;
   onCitation?: (id: string, keyboard: boolean, origin: HTMLButtonElement) => void;
-  sourceEvidence?: { document: ReadingDocument; evidence: readonly ValidatedAnswerEvidence[]; active?: string };
+  sourceEvidence?: Parameters<typeof rehypeSourceEvidence>[0] & { excerpt?: SourceLines };
   marks?: readonly RenderMark[];
   annotation?: MarkdownAnnotationInput;
   onAnnotations?: (marks: readonly ResolvedMark[], lost: readonly Located[], text: string) => void;
@@ -61,11 +74,15 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
     ? JSON.stringify([
         sourceEvidence.document.sourceId,
         sourceEvidence.document.bundleVersion,
+        sourceEvidence.excerpt,
         sourceEvidence.evidence.map(e => [e.evidenceId, e.messageId, e.sourceLines, e.quote, e.displayNumber, e.renderGranularity]),
+        sourceEvidence.noteLinks,
       ])
     : "";
   const evidenceById = useMemo(() => new Map(sourceEvidence?.evidence.map(item => [item.evidenceId, item])), [evidenceKey]);
   const evidencePlugins = useMemo(() => sourceEvidence ? [[rehypeSourceEvidence, sourceEvidence] as [typeof rehypeSourceEvidence, typeof sourceEvidence]] : [], [evidenceKey]);
+  const excerptPlugins = useMemo(() => sourceEvidence?.excerpt
+    ? [[rehypeSourceExcerpt, { lines: sourceEvidence.excerpt }] as [typeof rehypeSourceExcerpt, { lines: SourceLines }]] : [], [evidenceKey]);
   const markKey = JSON.stringify(marks ?? []);
   const annotationPlugins = useMemo(() => !annotation && marks?.length ? [[rehypeAnnotations, { items: marks }] as [typeof rehypeAnnotations, { items: readonly RenderMark[] }]] : [], [!!annotation, markKey]);
   const resultRef = useRef<{ marks: readonly ResolvedMark[]; lost: readonly Located[]; text: string } | null>(null);
@@ -91,8 +108,13 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
     if (annotation && resultRef.current) onAnnotations?.(resultRef.current.marks, resultRef.current.lost, resultRef.current.text);
   }, [annotationKey, text, onAnnotations]);
   // Parent handlers may change on each token; retain the parsed tree for stable content.
-  const rendered = useMemo(() => <Markdown remarkPlugins={remarkPlugins} rehypePlugins={[...rehypePlugins, markFigures, ...evidencePlugins, ...annotationPlugins, ...(annotation ? [probe] : [])]}
+  const rendered = useMemo(() => <Markdown remarkPlugins={remarkPlugins} rehypePlugins={[...rehypePlugins, markFigures, ...evidencePlugins, ...annotationPlugins, ...(annotation ? [probe] : []), ...excerptPlugins]}
     components={{ ...components, a: renderLink, span: ({ node, ...props }) => {
+      const chunks = node?.properties.dataSourceChunkNotes;
+      if (typeof chunks === "string" && sourceEvidence?.noteLinks) {
+        const indices = chunks.split(" ").map(Number);
+        return <ChunkNoteLinks links={sourceEvidence.noteLinks.filter(link => indices.includes(link.index))} />;
+      }
       const ids = node?.properties.dataSourceEvidenceMarkers;
       if (typeof ids !== "string" || !sourceEvidence) return <span {...props} />;
       const items = ids.split(" ").flatMap(id => evidenceById.get(id) ?? []);

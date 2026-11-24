@@ -112,8 +112,15 @@ class SourceTranslation:
         return result
 
     def render(self, segments, start, end):
+        projection = self.project(segments, start, end)
+        return projection[0] if projection is not None else None
+
+    def project(self, segments, start, end):
+        """Return the Chunk translation and each segment's offset within it."""
         pieces = []
+        offsets = {}
         cursor = start
+        length = 0
         for segment in segments:
             first, last = segment['sourceOffsets']
             if last <= start:
@@ -125,11 +132,16 @@ class SourceTranslation:
             separator = self.source.markdown[cursor:first]
             if separator.strip():
                 return None
+            length += len(separator)
+            offsets[segment['id']] = length
             pieces.extend([separator, segment['text']])
+            length += len(segment['text'])
             cursor = last
         if not pieces or self.source.markdown[cursor:end].strip():
             return None
-        return ''.join(pieces).strip()
+        text = ''.join(pieces)
+        leading = len(text) - len(text.lstrip())
+        return text.strip(), {segment_id: offset - leading for segment_id, offset in offsets.items()}
 
     def add_candidates(self, segments, candidates):
         expected = [(segment, self.source.markdown[slice(*segment['sourceOffsets'])]) for segment in segments]

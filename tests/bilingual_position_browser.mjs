@@ -57,6 +57,15 @@ async function atReadingLine(text) {
   }
 }
 
+async function inBodyViewport(locator) {
+  await locator.waitFor();
+  assert.ok(await locator.evaluate(node => {
+    const bounds = node.getBoundingClientRect();
+    const viewport = node.closest('[aria-label="文章原文"]').getBoundingClientRect();
+    return bounds.top >= viewport.top && bounds.bottom <= viewport.bottom;
+  }));
+}
+
 try {
   await page.goto(`${base}/reading`);
   await conversation.waitFor();
@@ -90,6 +99,31 @@ try {
   await body.getByText(sharedText, { exact: true }).waitFor();
   await modes.getByRole('button', { name: '精读', exact: true }).click();
   await page.getByRole('main', { name: '阅读与对话', exact: true }).getByText(sharedText, { exact: true }).waitFor();
+  assert.deepEqual(await readingProgress(), before);
+
+  await conversation.click();
+  const chat = page.getByLabel('文章对话', { exact: true });
+  const message = page.getByRole('textbox', { name: '输入消息' });
+  await message.fill('核对双语证据');
+  await message.press('Enter');
+  const citation = chat.getByRole('button', { name: '1', exact: true });
+  await citation.press('Enter');
+  const translationEvidence = body.locator('[data-evidence-block].is-active');
+  await inBodyViewport(translationEvidence.getByText('阅读段落 17 用来核对阅读位置。', { exact: true }));
+  assert.equal(await chinese.getAttribute('aria-pressed'), 'true');
+  const evidenceId = await citation.getAttribute('data-citation');
+  assert.equal(await translationEvidence.getAttribute('data-evidence-block'), evidenceId);
+  await original.click();
+  const exactQuote = body.locator('mark.is-active').getByText('Reading passage 17', { exact: true });
+  await inBodyViewport(exactQuote);
+  assert.equal(await exactQuote.getAttribute('data-evidence-ids'), evidenceId);
+  await chinese.click();
+  await inBodyViewport(translationEvidence.getByText('阅读段落 17 用来核对阅读位置。', { exact: true }));
+  await body.getByRole('button', { name: '返回回答证据 1' }).click();
+  assert.ok(await citation.evaluate(node => document.activeElement === node));
+  await readAt('阅读段落 25 用来核对阅读位置。');
+  await original.click();
+  await atReadingLine('Reading passage 25 with context to read.');
   assert.deepEqual(await readingProgress(), before);
 
   await page.getByRole('link', { name: '知识库', exact: true }).click();
