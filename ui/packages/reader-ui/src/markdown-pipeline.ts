@@ -63,13 +63,14 @@ function rehypeCellMath() {
   };
 }
 function rehypeDisplayMathBlocks() {
-  return (tree: HastNode & { children?: (HastNode & { position?: unknown })[] }) => {
-    tree.children = tree.children?.map(node => {
-      const code = node.children?.[0];
-      const classes = code?.properties?.className;
-      if (node.tagName !== "pre" || code?.tagName !== "code" || !Array.isArray(classes) || !classes.includes("language-math")) return node;
+  return (tree: Parameters<ReturnType<typeof rehypeKatex>>[0]) => {
+    tree.children = tree.children.map(node => {
+      if (node.type !== "element" || node.tagName !== "pre") return node;
+      const code = node.children[0];
+      const classes = code?.type === "element" && code.tagName === "code" && code.properties.className;
+      if (!Array.isArray(classes) || !classes.includes("language-math")) return node;
       // Keep the source range on a wrapper because KaTeX replaces the math node.
-      return { type: "element", tagName: "div", properties: {}, children: [node], position: node.position };
+      return { ...node, tagName: "div", properties: {}, children: [node] };
     });
   };
 }

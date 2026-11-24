@@ -36,9 +36,16 @@ describe("source evidence rendering boundary", () => {
     expect(projectEvidence(doc, [ref])[0].kind).toBe("block");
     expect(projectEvidence(doc, [{ ...ref, quote: { ...ref.quote, exact: "missing quote" } }])[0].kind).toBe("unavailable");
     const { container } = render(<MarkdownContent text={doc.markdown} sourceEvidence={{ document: doc,
-      evidence: [{ ...ref, sourceLines: [3, 3], quote: { ...ref.quote, exact: "keeps order" } }] }} />);
-    expect(container.querySelectorAll("p[data-evidence-block]")).toHaveLength(1);
+      evidence: [ref] }} />);
+    expect(container.querySelectorAll("p[data-evidence-block]")).toHaveLength(2);
     expect(container.querySelector("mark.source-evidence")).toBeNull();
+  });
+  it("highlights literal text when the signed context includes Markdown formatting", () => {
+    const doc = { ...document, markdown: "# Paper\n\nThis **method** keeps order. The result follows.", lineCount: 3 };
+    const ref = { ...evidence, renderGranularity: "block" as const, sourceLines: [3, 3] as const,
+      quote: { exact: "keeps order", prefix: "This **method** ", suffix: ". The result follows." } };
+    const { container } = render(<MarkdownContent text={doc.markdown} sourceEvidence={{ document: doc, evidence: [ref] }} />);
+    expect(container.querySelector("mark.source-evidence")?.textContent).toBe("keeps order");
   });
   it("binds original images to the displayed source version", () => {
     const doc = { ...document, markdown: "![Figure](images/image-001.png)" };

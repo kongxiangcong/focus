@@ -55,17 +55,17 @@ async function readingProgress() {
 
 async function enterSecondChunk() {
   await closeReading.click();
-  await page.waitForFunction(async instanceId => {
+  const ready = await page.waitForFunction(async instanceId => {
     const response = await fetch('/reader/window', { headers: { 'X-FOCUS-Instance': instanceId } });
-    return (await response.json()).value?.navigationCurrent?.index === 1;
+    const { value } = await response.json();
+    return value?.navigationCurrent?.index === 1 && value?.preparations?.[value.source.sourceId]?.ready && value;
   }, instance, { polling: 250 });
-  const view = await snapshot();
+  const view = await ready.jsonValue();
   if (!view.readingStarted) {
     const { sourceId, planId, chunkId } = view.navigationCurrent;
     await host('/reader/continue', { requestId: randomUUID(), beginBody: true,
       receipt: { sourceId, planId, chunkId, readingRevision: view.readingRevision } });
   }
-  await chunk(1).waitFor();
   await page.getByRole('button', { name: '继续', exact: true }).click();
   await chunk(2).waitFor();
 }

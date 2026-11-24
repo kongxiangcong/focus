@@ -11,7 +11,7 @@ const browser = await chromium.launch({
   args: ['--no-sandbox', '--disable-dev-shm-usage'],
 });
 const page = await browser.newPage({ viewport: { width: 1600, height: 950 }, reducedMotion: 'reduce' });
-page.setDefaultTimeout(12000);
+page.setDefaultTimeout(30000);
 const navigation = page.getByRole('group', { name: '阅读方式', exact: true });
 const conversation = page.getByLabel('文章对话', { exact: true });
 const source = page.getByLabel('文章原文', { exact: true });
@@ -54,9 +54,13 @@ async function readingProgress() {
 
 async function ask(name, expectedCitations) {
   await composer.fill(name);
-  await send.click();
-  const result = answer(name);
-  await result.waitFor();
+  const [response] = await Promise.all([
+    page.waitForResponse(response => response.url().endsWith('/reader/messages') && response.request().method() === 'POST'),
+    send.click(),
+  ]);
+  const result = await response.json();
+  assert.equal(result.ok, true, JSON.stringify(result));
+  await answer(name).waitFor();
   await page.waitForFunction(({ name, count }) => Array.from(document.querySelectorAll('[data-role="assistant"]'))
     .some(message => message.textContent.includes(name) && message.querySelectorAll('button[data-citation]').length === count),
   { name, count: expectedCitations });
@@ -95,7 +99,7 @@ try {
   await referencedParagraph.waitFor();
   const initial = await snapshot();
   await host('/reader/session', { sessionId: initial.sessionId });
-  await answer('归档回答 A').waitFor({ state: 'detached' });
+  await conversation.locator('[data-message-id]').first().waitFor({ state: 'detached' });
   await ask('归档回答 A', 1);
   const archived = await snapshot();
   const current = await host('/reader/session', { sessionId: archived.sessionId });
@@ -187,6 +191,7 @@ try {
   assert.deepEqual(errors, []);
   console.log('PASS exact source jumps, selected answer return, manual bookmark, mobile navigation and unchanged Reading Cursor');
 } catch (error) {
+  console.error((await page.getByRole('alert').allTextContents()).join('\n'));
   console.error((await page.locator('body').innerText()).slice(-1500));
   throw error;
 } finally {

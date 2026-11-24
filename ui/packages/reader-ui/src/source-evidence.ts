@@ -21,7 +21,8 @@ export function citedMarkdown(message: ReaderMessage, evidence: readonly Validat
   }).replace(/\[\[e:[^\]]*$/, "");
 }
 
-type Positioned = HastNode & { position?: { start: { line: number }; end: { line: number } } };
+type Point = { line: number; column?: number; offset?: number };
+type Positioned = HastNode & { position?: { start: Point; end: Point } };
 type SourceRange = { sourceLines: readonly [number, number]; quoteOffsets?: readonly [number, number] };
 export type EvidenceProjection = { evidence: ValidatedAnswerEvidence } & (
   | { kind: "unavailable" }
@@ -29,7 +30,7 @@ export type EvidenceProjection = { evidence: ValidatedAnswerEvidence } & (
   | ({ kind: "exact"; start: number; end: number } & SourceRange)
 );
 
-function findCanonicalQuote(markdown: string, starts: readonly number[], evidence: ValidatedAnswerEvidence): (SourceRange & { quoteOffsets: readonly [number, number] }) | undefined {
+function findCanonicalQuote(markdown: string, starts: readonly number[], evidence: ValidatedAnswerEvidence): (SourceRange & { quoteOffsets: readonly [number, number]; canonicalStart: number }) | undefined {
   const [first, last] = evidence.sourceLines ?? [];
   if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last)) return undefined;
   const lower = starts[first - 1], upper = starts[last] === undefined ? markdown.length : starts[last] - 1;
@@ -47,7 +48,7 @@ function findCanonicalQuote(markdown: string, starts: readonly number[], evidenc
   const line = first + (markdown.slice(lower, matched).match(/\n/g)?.length ?? 0);
   const codePointLength = (value: string) => value.length - (value.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g)?.length ?? 0);
   const start = codePointLength(markdown.slice(0, matched));
-  return { sourceLines: [line, line + (exact.match(/\n/g)?.length ?? 0)], quoteOffsets: [start, start + codePointLength(exact)] };
+  return { sourceLines: [line, line + (exact.match(/\n/g)?.length ?? 0)], quoteOffsets: [start, start + codePointLength(exact)], canonicalStart: matched };
 }
 
 function canonicalQuoteLocator(document: ReadingDocument) {
@@ -80,7 +81,12 @@ export function evidenceBySourceBlock(document: ReadingDocument, evidence: reado
 function resolve(tree: HastNode, document: ReadingDocument, evidence: readonly ValidatedAnswerEvidence[]): EvidenceProjection[] {
   if (!evidence.length) return [];
   const lines = new Map<HastNode, readonly [number, number]>();
-  const canonical = normalizeMathWithLines(document.markdown).lines;
+  const original = document.markdown.replace(/\r\n?/g, "\n");
+  const rawLines = original.split("\n");
+  const rawLineStarts = [0, ...Array.from(original.matchAll(/\n/g), newline => newline.index! + 1)];
+  const normalized = normalizeMathWithLines(original);
+  const normalizedLines = normalized.markdown.split("\n");
+  const canonical = normalized.lines;
   function visit(node: Positioned, inherited?: readonly [number, number]) {
     const span = node.position ? [canonical[node.position.start.line - 1]?.[0] ?? 0, canonical[node.position.end.line - 1]?.[1] ?? 0] as const : inherited;
     if (span) lines.set(node, span);
@@ -101,12 +107,24 @@ function resolve(tree: HastNode, document: ReadingDocument, evidence: readonly V
       return span && span[0] <= verified.sourceLines[1] && span[1] >= verified.sourceLines[0];
     });
     if (!verified && (e.messageId || e.renderGranularity || e.blockIds || e.layoutVersion || e.pdfRegions)) return no;
-    if (verified && e.renderGranularity === "block") return { evidence: e, kind: "block", ...verified };
     const candidates: number[] = [];
     for (let at = text.indexOf(e.quote.exact); at !== -1; at = text.indexOf(e.quote.exact, at + 1)) {
       const touched = nodes.filter(n => n.start < at + e.quote.exact.length && n.start + (n.node.value?.length ?? 0) > at);
-      if (touched.length && touched.every(n => { const span = lines.get(n.node); return span && span[0] >= first && span[1] <= last; }) &&
-        text.slice(0, at).endsWith(e.quote.prefix) && text.slice(at + e.quote.exact.length).startsWith(e.quote.suffix)) candidates.push(at);
+      if (!touched.length || !touched.every(n => {
+        const span = lines.get(n.node);
+        return span && span[0] >= first && span[1] <= last;
+      })) continue;
+      const renderedContextMatches = text.slice(0, at).endsWith(e.quote.prefix) && text.slice(at + e.quote.exact.length).startsWith(e.quote.suffix);
+      if (renderedContextMatches) { candidates.push(at); continue; }
+      // Markdown can remove syntax in a signed quote's surrounding context. Verify
+      // an unchanged text node's canonical offset before highlighting that occurrence.
+      if (!verified || touched.length !== 1) continue;
+      const { node, start } = touched[0];
+      const position = (node as Positioned).position?.start;
+      const sourceLine = position && canonical[position.line - 1]?.[0];
+      if (!position?.column || !sourceLine || normalizedLines[position.line - 1] !== rawLines[sourceLine - 1]) continue;
+      const rawStart = rawLineStarts[sourceLine - 1] + position.column - 1;
+      if (rawStart + at - start === verified.canonicalStart && original.startsWith(node.value!, rawStart)) candidates.push(at);
     }
     if (candidates.length === 1) return { evidence: e, kind: "exact", start: candidates[0], end: candidates[0] + e.quote.exact.length, ...(verified ?? { sourceLines: e.sourceLines }) };
     return verified && block ? { evidence: e, kind: "block", ...verified } : no;
