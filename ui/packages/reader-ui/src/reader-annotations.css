@@ -15,6 +15,9 @@
 }
 .reader-anno--hl { --anno-hl-img: linear-gradient(var(--reader-anno-highlight), var(--reader-anno-highlight)); font-weight: 700; }
 .reader-anno--note { --anno-ul-img: repeating-linear-gradient(90deg, var(--reader-anno-line) 0 4px, transparent 4px 7px); }
+.reader-anno--shared-note { background-color: var(--reader-accent-soft); }
+.reader-anno--hl.reader-anno--shared-note { box-shadow: inset 0 -2px var(--reader-accent); }
+.reader-anno--shared-note:not([data-anno-key]) { cursor: text; }
 .reader-anno--pending { --anno-ul-img: repeating-linear-gradient(90deg, var(--reader-anno-pending-line) 0 4px, transparent 4px 7px); background-color: var(--reader-hover); }
 .reader-anno.is-linked, .reader-anno:focus-visible { background-color: var(--reader-accent-soft); outline: none; }
 .reader-anno-nb { white-space: nowrap; }

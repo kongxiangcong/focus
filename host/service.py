@@ -35,6 +35,7 @@ from .ingestion_inspector import IngestionInspector
 from .configuration import BackendBusyError, UserSettings
 from core.workspace_lifecycle import WorkspaceLease, create_workspace
 from core.source_management import SourceManagement
+from core.source_blocks import SourceBlocks
 from core.source_notes import check_sentence
 
 #: The Workbench offers one retry entry per artifact, named by granularity.
@@ -660,7 +661,6 @@ class HostService:
             self.source_clear.recover()
             document = SourceReading(self.workspace).document(source_id)
             bundle = self.workspace / 'sources' / source_id / 'parser-bundle'
-            from core.source_blocks import SourceBlocks
             from core.source_provenance import SOURCE_ORIGINALS
             source = SourceBlocks(bundle, document['markdown'])
             document['blocks'] = [
@@ -669,6 +669,7 @@ class HostService:
                  **({'pageNumber': block['page']} if 'page' in block else {})}
                 for block in source.blocks]
             document['language'] = self.reading_app.core.source_language(source_id)
+            document['readingPlan'] = self.reading_app.core.note_plan(source_id, document['bundleVersion'], source)
             if (bundle / SOURCE_ORIGINALS['paper_pdf']).is_file():
                 document['pdf'] = source.pdf
             document['translation'] = self.reading_app.core.shared_translation(source_id, document, source=source)
@@ -888,6 +889,40 @@ class HostService:
             self.changed()
             return self.snapshot()
 
+    def _note_selection(self, source_id, bundle, selection):
+        invalid = WorkspaceError('note_selection_invalid', '选文位置已失效，请重新选择。')
+        if (not isinstance(selection, dict) or set(selection) != {'layer', 'planId', 'bundleVersion', 'ranges'}
+                or selection['layer'] != 'source'):
+            raise invalid
+        if selection['bundleVersion'] != bundle:
+            raise WorkspaceError('note_bundle_changed', '这段原文已更新，请重新选文。')
+        source = SourceBlocks(self.workspace / 'sources' / source_id / 'parser-bundle')
+        plan = self.reading_app.core.note_plan(source_id, bundle, source)
+        if plan is None or selection['planId'] != plan['planId']:
+            raise invalid
+        ranges = selection['ranges']
+        if not isinstance(ranges, list) or not ranges:
+            raise invalid
+        previous = 0
+        for span in ranges:
+            if (not isinstance(span, dict) or set(span) != {'start', 'end'}
+                    or any(type(offset) is not int for offset in span.values())):
+                raise invalid
+            start, end = span['start'], span['end']
+            if not previous <= start < end <= len(source.markdown) or not source.markdown[start:end].strip():
+                raise invalid
+            previous = end
+        chunk_ids = [chunk['chunkId'] for chunk in plan['chunks']
+                     for first, last in [chunk['sourceOffsets']]
+                     if any(span['start'] < last and first < span['end']
+                            and source.markdown[max(first, span['start']):min(last, span['end'])].strip()
+                            for span in ranges)]
+        if not chunk_ids:
+            raise invalid
+        placement = {'sourceId': source_id, 'bundle': bundle,
+                     'sourceLines': list(source.line_span(ranges[0]['start'], ranges[-1]['end']))}
+        return {**selection, 'chunkIds': chunk_ids}, placement
+
     def source_note_create(self, source_id, payload):
         with self.lock:
             self.source_clear.recover()
@@ -900,6 +935,11 @@ class HostService:
             bundle = self.source_notes.bundle_version(source_id)
             chunk, anchor = payload.get('chunk'), None
             sentence = payload.get('sentence')
+            selection, placement = payload.get('selection'), None
+            if selection is not None:
+                if any(value is not None for value in (chunk, sentence, payload.get('quote'))) or kind != 'thought' or origin != 'user':
+                    raise ValueError('笔记类型或来源不正确。')
+                selection, placement = self._note_selection(source_id, bundle, selection)
             if sentence is not None:
                 if chunk is None:
                     raise WorkspaceError('note_sentence_invalid', '句子备注需要段落引用')
@@ -923,7 +963,7 @@ class HostService:
             result = self.source_notes.save(source_id, bundle=bundle, request_id=request_id, intent_id=request_id,
                 content=payload.get('content'), kind=kind, origin=origin,
                 evidence_role='unresolved_question' if kind == 'question' else 'explanation', anchor=anchor,
-                sentence=sentence)
+                sentence=sentence, placement=placement, selection=selection)
             self.state['noteOperation'] = {'sourceId': source_id, **result}
             self.changed()
             return self.snapshot()

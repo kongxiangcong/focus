@@ -107,6 +107,56 @@ it("highlights a fully visible quotation without moving the source or opening a 
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
 });
 
+it("saves the selected occurrence across chunks and leaves an overlapping highlight after deletion", async () => {
+  const markdown = "同词以及**同词😀**\n然后继续。";
+  const document = { sourceId: "paper", bundleVersion: "v1", title: "Paper", markdown, lineCount: 2,
+    readingPlan: { planId: "plan", chunks: [{ chunkId: "c0", sourceOffsets: [0, 11] as const }, { chunkId: "c1", sourceOffsets: [12, 17] as const }] } };
+  const highlight = { highlightId: "highlight", sourceId: "paper", revision: 1, bundle: "v1", sourceLines: [1, 2] as const,
+    deleted: false, canUndo: false, sourceUpdated: false, planId: "plan", chunkId: "c0", layer: "source" as const,
+    range: { start: 4, end: 6 }, quote: { exact: "同词", prefix: "同词以及", suffix: "😀\n然后继续。" } };
+  const start = { ...initial, sourceHighlights: [highlight] };
+  const selection = { layer: "source" as const, planId: "plan", bundleVersion: "v1",
+    ranges: [{ start: 6, end: 9 }, { start: 11, end: 14 }] };
+  const note: SourceNote = { noteId: "one-note", sourceId: "paper", revision: 1, content: "我的笔记",
+    kind: "thought", origin: "user", evidenceRole: "explanation", bundle: "v1", anchor: null,
+    referenceStatus: "current", sourceUpdated: false, deleted: false, canUndo: false,
+    selection: { ...selection, chunkIds: ["c0", "c1"] } };
+  const createSourceNote = vi.fn<NonNullable<ReaderHost["createSourceNote"]>>().mockResolvedValue(readerSuccess({ ...start, revision: 2, sourceNotes: [note] }));
+  setup(start, {
+    getSourceDocument: async () => readerSuccess(document),
+    createSourceNote,
+    changeSourceNote: async () => readerSuccess({ ...start, revision: 3, sourceNotes: [] }),
+  });
+  const pane = await screen.findByLabelText("文章原文");
+  await waitFor(() => expect(pane.querySelector("strong")).toHaveTextContent("同词😀"));
+  const paragraph = pane.querySelector("p")!;
+  function selectAcrossChunks() {
+    const range = window.document.createRange();
+    range.setStart(paragraph.querySelector("strong")!, 0);
+    range.setEnd(paragraph.lastChild!, 3);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    fireEvent(window.document, new Event("selectionchange"));
+  }
+  selectAcrossChunks();
+  fireEvent.click(screen.getByRole("button", { name: "记笔记" }));
+  fireEvent.click(screen.getByRole("button", { name: "关闭笔记" }));
+  expect(createSourceNote).not.toHaveBeenCalled();
+  expect(pane.querySelector(".reader-anno--shared-note")).toBeNull();
+
+  selectAcrossChunks();
+  fireEvent.click(screen.getByRole("button", { name: "记笔记" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "笔记内容" }), { target: { value: note.content } });
+  fireEvent.click(screen.getByRole("button", { name: "保存笔记" }));
+  await screen.findByText(note.content);
+  expect(createSourceNote).toHaveBeenCalledWith(expect.objectContaining({ selection }));
+  expect(pane.textContent).toContain("同词以及同词😀\n然后继续。");
+  expect([...pane.querySelectorAll(".reader-anno--shared-note")].map(mark => mark.textContent).join("")).toBe("同词😀\n然后");
+  fireEvent.click(screen.getByRole("button", { name: "删除" }));
+  await waitFor(() => expect(pane.querySelector(".reader-anno--shared-note")).toBeNull());
+  expect([...pane.querySelectorAll(".reader-anno--hl")].map(mark => mark.textContent).join("")).toBe("同词");
+});
+
 it("automatically locates at most one evidence per turn", async () => {
   const app = setup(); await send();
   app.emit(answer([first]));

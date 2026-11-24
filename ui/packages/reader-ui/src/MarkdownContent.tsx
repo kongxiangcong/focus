@@ -67,7 +67,7 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
   const evidenceById = useMemo(() => new Map(sourceEvidence?.evidence.map(item => [item.evidenceId, item])), [evidenceKey]);
   const evidencePlugins = useMemo(() => sourceEvidence ? [[rehypeSourceEvidence, sourceEvidence] as [typeof rehypeSourceEvidence, typeof sourceEvidence]] : [], [evidenceKey]);
   const markKey = JSON.stringify(marks ?? []);
-  const annotationPlugins = useMemo(() => marks?.length ? [[rehypeAnnotations, { items: marks }] as [typeof rehypeAnnotations, { items: readonly RenderMark[] }]] : [], [markKey]);
+  const annotationPlugins = useMemo(() => !annotation && marks?.length ? [[rehypeAnnotations, { items: marks }] as [typeof rehypeAnnotations, { items: readonly RenderMark[] }]] : [], [!!annotation, markKey]);
   const resultRef = useRef<{ marks: readonly ResolvedMark[]; lost: readonly Located[]; text: string } | null>(null);
   const annotationKey = JSON.stringify(annotation);
   const probe = useMemo(() => function annotationProbe() {
@@ -84,9 +84,9 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
         if (existing) existing.pending = true;
         else items.push({ key: `p:${pending.requestId ?? `${pending.start}-${pending.end}`}`, start: pending.start, end: pending.end, pending: true, ariaLabel: "正在写备注" });
       }
-      rehypeAnnotations({ items })(tree);
+      rehypeAnnotations({ items: [...items, ...(marks ?? [])] })(tree);
     };
-  }, [annotationKey]);
+  }, [annotationKey, markKey]);
   useLayoutEffect(() => {
     if (annotation && resultRef.current) onAnnotations?.(resultRef.current.marks, resultRef.current.lost, resultRef.current.text);
   }, [annotationKey, text, onAnnotations]);

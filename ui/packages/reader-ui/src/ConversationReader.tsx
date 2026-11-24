@@ -1,5 +1,5 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { createReaderId, type ReaderHost, type ReaderHostResult, type ReaderMessage, type ReadingDocument, type ReadingOpening, type ReadingWindow } from "@focus/reader-contracts";
+import { createReaderId, type ReaderHost, type ReaderHostResult, type ReaderMessage, type ReadingDocument, type ReadingOpening, type ReadingWindow, type SourceTextSelectionInput } from "@focus/reader-contracts";
 import { useEvidenceNavigation, type EvidenceNavigation, type EvidenceNavigationIntent } from "./evidence-navigation";
 import type { ReadingSession } from "./reading-session";
 import { MarkdownContent } from "./MarkdownContent";
@@ -8,6 +8,7 @@ import { TranslatedPaper } from "./PaperViews";
 import { locatePaperEvidence, matchesTranslationChunk, overlapsSourceLines } from "./paper-evidence";
 import { citedMarkdown, messageEvidence, projectEvidence, type EvidenceProjection } from "./source-evidence";
 import type { RenderMark } from "./rehype-annotations";
+import { captureSourceText, documentNoteMarks } from "./selected-source-note";
 import { readingFontSizes } from "./typography";
 import { AgentControls } from "./AgentControls";
 import { AssetInstanceContext } from "./asset-context";
@@ -257,9 +258,12 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const position = useRef<{ lines: SourceLines; fraction: number; chunk?: string } | null>(null);
   const restorePaperPosition = useRef(false);
   const scrollByLanguage = useRef({ original: 0, translation: 0 });
-  const [selection, setSelection] = useState("");
+  const [selection, setSelection] = useState<{ text: string; range: Range } | null>(null);
+  const [noteSelection, setNoteSelection] = useState<SourceTextSelectionInput>();
   const [noteEdit, setNoteEdit] = useState<{ id: string; revision: number } | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+  const noteRequest = useRef<{ key: string; id: string; busy: boolean } | null>(null);
   const [activeMessage, setActiveMessage] = useState<string | null>(null), [activeEvidence, setActiveEvidence] = useState<string | undefined>();
   const [answerReturn, setAnswerReturn] = useState<AnswerReturn | null>(null);
   const [lastAnswerCitation, setLastAnswerCitation] = useState<DiscussionCitation | null>(null);
@@ -271,17 +275,20 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     if (!notesOpen) notesOpener.current = opener;
     setNotesOpen(true);
   }
-  function closeNotes() { setNotesOpen(false); }
+  const closeNotes = useCallback(() => {
+    if (noteSelection) { setNoteSelection(undefined); setNoteDraft(""); }
+    setNotesOpen(false);
+  }, [noteSelection]);
   useEffect(() => {
     if (!visible || !notesOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (!canDismissReaderLayer(event)) return;
       event.preventDefault();
-      setNotesOpen(false);
+      closeNotes();
     };
     globalThis.document.addEventListener("keydown", closeOnEscape);
     return () => globalThis.document.removeEventListener("keydown", closeOnEscape);
-  }, [notesOpen, visible]);
+  }, [notesOpen, visible, closeNotes]);
   useLayoutEffect(() => {
     if (notesOpen && visible) noteInput.current?.focus({ preventScroll: true });
     else if (notesOpener.current) {
@@ -294,6 +301,15 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const scope = `${view.workspace?.workspaceId ?? "local"}:${sourceId}:${view.sourceGeneration ?? view.resetVersion ?? 0}`;
   const draftKey = `focus.sourceDraft:${scope}:${view.discussionId ?? ""}`;
   const original = useRef<HTMLDivElement>(null), chat = useRef<HTMLDivElement>(null), shell = useRef<HTMLDivElement>(null);
+  const sourceBody = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    setSelection(null);
+    setNoteSelection(undefined);
+    setNoteDraft("");
+    setNoteEdit(null);
+    setSavingNote(false);
+    noteRequest.current = null;
+  }, [draftKey]);
   const sendRequest = useRef<{ content: string; id: string } | null>(null);
   const sendBusy = useRef(false);
   const composer = useRef<ComposerHandle>(null);
@@ -391,7 +407,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     restorePaperPosition.current = true;
     locatedPage.current = null;
     manual.current = false;
-    setSelection("");
+    setSelection(null);
     setTranslated(next);
   }
 
@@ -434,10 +450,11 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       ...(view.sourceHighlights ?? []).filter(h => !h.deleted && !h.sourceUpdated && h.layer === "source").map(h => ({ id: h.highlightId, quote: h.quote, lines: h.sourceLines, bundle: h.bundle, highlight: true })),
       ...(view.sourceNotes ?? []).filter(n => !n.deleted && !n.sourceUpdated && n.sentence?.layer === "source" && (n.anchor ?? n.placement)).map(n => ({ id: n.noteId, quote: n.sentence!.quote, lines: (n.anchor ?? n.placement)!.sourceLines, bundle: n.bundle, highlight: false })),
     ];
-    return annotations.flatMap(a => {
+    const legacy = annotations.flatMap(a => {
       const projected = projectEvidence(document, [{ evidenceId: a.id, sourceId, bundleVersion: a.bundle, messageId: "", discussionId: "", answerRevision: "", displayNumber: 0, sourceLines: a.lines, quote: a.quote, relation: "context" }])[0];
       return projected.kind === "exact" ? [{ key: a.id, start: projected.start, end: projected.end, ...(a.highlight ? { highlightId: a.id } : { noteId: a.id }), ariaLabel: a.highlight ? "重点" : "备注" } satisfies RenderMark] : [];
     });
+    return [...legacy, ...documentNoteMarks(document, view.sourceNotes ?? [])];
   }, [document, annotationKey, sourceId]);
 
   const rememberedAnswer = !resettingDiscussion && lastAnswerCitation?.discussionId === view.discussionId ? lastAnswerCitation : null;
@@ -482,6 +499,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   }, [resettingDiscussion, stopNavigation]);
 
   useEffect(() => {
+    setSelection(null);
     if (!visible) return;
     const selectText = () => {
       const picked = window.getSelection();
@@ -489,13 +507,13 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       if (!pane || !picked?.anchorNode || !picked.focusNode ||
           !pane.contains(picked.anchorNode) || !pane.contains(picked.focusNode)) return;
       const text = picked.toString().trim();
-      if (!text) return;
+      if (!text || !picked.rangeCount) return;
       stopNavigation();
-      setSelection(text.slice(0, 4000));
+      setSelection({ text: text.slice(0, 4000), range: picked.getRangeAt(0).cloneRange() });
     };
     globalThis.document.addEventListener("selectionchange", selectText);
     return () => globalThis.document.removeEventListener("selectionchange", selectText);
-  }, [stopNavigation, visible]);
+  }, [document, showingTranslation, stopNavigation, visible]);
 
   const manualBrowse = useCallback(() => {
     stopNavigation();
@@ -683,6 +701,54 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     return false;
   }, [setView, acceptSession, isCurrentSource, selectionGeneration, sourceId, showOperationError]);
 
+  function beginSelectedNote(opener: HTMLElement) {
+    if (!selection || savingNote) return;
+    let locator: SourceTextSelectionInput | undefined;
+    if (!showingTranslation && document?.readingPlan) {
+      locator = sourceBody.current ? captureSourceText(sourceBody.current, selection.range, document) : undefined;
+      if (!locator) {
+        showOperationError("note-save", "选文位置已失效，请重新选择。");
+        return;
+      }
+    }
+    showOperationError("note-save", "");
+    setNoteEdit(null);
+    setNoteSelection(locator);
+    setNoteDraft(`「${selection.text}」\n`);
+    openNotes(opener);
+    setSelection(null);
+    noteInput.current?.focus({ preventScroll: true });
+  }
+
+  async function saveCurrentNote() {
+    const content = noteDraft.trim();
+    if (!content || !host.createSourceNote || noteRequest.current?.busy) return;
+    const key = JSON.stringify([noteEdit, noteSelection, content]);
+    const request = noteRequest.current?.key === key ? noteRequest.current : { key, id: createReaderId(), busy: false };
+    noteRequest.current = request;
+    request.busy = true;
+    setSavingNote(true);
+    const write = Promise.resolve().then(() => noteEdit && host.changeSourceNote
+      ? host.changeSourceNote(sourceId, noteEdit.id, "edit", noteEdit.revision, request.id, content)
+      : host.createSourceNote!({ sourceId, requestId: request.id, content, kind: "thought", origin: "user", ...(noteSelection ? { selection: noteSelection } : {}) }));
+    const ok = await apply("note-save", write, result => {
+      if (noteRequest.current !== request) return;
+      if (result.noteOperation?.status === "conflict") {
+        showOperationError("note-save", "笔记已更新，请核对当前内容后再保存。");
+        if (result.noteOperation.current) setNoteEdit({ id: result.noteOperation.current.noteId, revision: result.noteOperation.current.revision });
+        return;
+      }
+      setNoteDraft("");
+      setNoteEdit(null);
+      setNoteSelection(undefined);
+    });
+    if (noteRequest.current === request) {
+      setSavingNote(false);
+      request.busy = false;
+      if (ok) noteRequest.current = null;
+    }
+  }
+
   const sendMessage = useCallback(async (content: string) => {
     if (!content || sendBusy.current || sending || running) return false;
     sendBusy.current = true;
@@ -776,7 +842,11 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
         <div ref={original} className="source-original"
           aria-label="文章原文" tabIndex={0} onWheel={e => { if (!e.ctrlKey) manualBrowse(); }} onTouchStart={manualBrowse}
           onPointerDown={e => { if (e.target === e.currentTarget) manualBrowse(); }}
-          onKeyDown={e => { if (isScrollKey(e)) manualBrowse(); }}
+          onKeyDown={e => {
+            if ((e.key === "Enter" || e.key === " ") && (e.target as HTMLElement).matches("[data-shared-note-ids][role=button]")) {
+              e.preventDefault(); openNotes(e.target as HTMLElement);
+            } else if (isScrollKey(e)) manualBrowse();
+          }}
           onScroll={event => {
             const pane = event.currentTarget;
             updateOriginalPage(pane);
@@ -796,11 +866,15 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
           }}>
           <ActiveSourceCitation.Provider value={markerSelection}>
             {document ? showingTranslation ? <TranslatedPaper document={document} evidence={paperLocations} /> :
-              <article><MarkdownContent text={document.markdown} sourceId={sourceId} marks={permanentMarks} sourceEvidence={sourceInput} /></article> :
+              <article><MarkdownContent text={document.markdown} sourceId={sourceId} marks={permanentMarks} sourceEvidence={sourceInput} bodyRef={sourceBody} /></article> :
               <span role="status" className="source-loading">加载中…</span>}
           </ActiveSourceCitation.Provider>
         </div>
-        {selection && <div className="source-selection-actions"><button onClick={() => { composer.current?.insertQuote(selection); setSelection(""); setMobile("chat"); }}>引用</button><button onClick={e => { setNoteDraft(`「${selection}」\n`); openNotes(e.currentTarget); setSelection(""); }}>记笔记</button><button aria-label="取消选择" onClick={() => setSelection("")}>×</button></div>}
+        {selection && <div className="source-selection-actions">
+          <button onClick={() => { composer.current?.insertQuote(selection.text); setSelection(null); setMobile("chat"); }}>引用</button>
+          {host.createSourceNote && (showingTranslation || document?.readingPlan !== null) && <button disabled={savingNote} onClick={e => beginSelectedNote(e.currentTarget)}>记笔记</button>}
+          <button aria-label="取消选择" onClick={() => { window.getSelection()?.removeAllRanges(); setSelection(null); }}>×</button>
+        </div>}
       </div>
       <div className="source-splitter" role="separator" aria-label="调整原文宽度" aria-orientation="vertical" aria-valuemin={40} aria-valuemax={70} aria-valuenow={share} tabIndex={0}
         onKeyDown={e => { if (["ArrowLeft", "ArrowRight"].includes(e.key)) { e.preventDefault(); const v = Math.max(40, Math.min(70, share + (e.key === "ArrowLeft" ? -2 : 2))); setShare(v); safeWrite("focus.sourceShare", String(v)); } }}
@@ -886,17 +960,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
         <h3>笔记</h3>
         <button type="button" className="source-icon-btn" onClick={closeNotes} aria-label="关闭笔记"><Close /></button>
       </div>
-      <textarea ref={noteInput} aria-label="笔记内容" placeholder="记录想法或结论…" value={noteDraft} onChange={e => setNoteDraft(e.target.value)} />
-      {host.createSourceNote && <button className="source-notes-save" disabled={!noteDraft.trim()} onClick={async () => { const request = noteEdit && host.changeSourceNote ? host.changeSourceNote(sourceId, noteEdit.id, "edit", noteEdit.revision, createReaderId(), noteDraft.trim()) : host.createSourceNote!({ sourceId, requestId: createReaderId(), content: noteDraft.trim(), kind: "thought", origin: "user" });
-        await apply("note-save", request, result => {
-          if (result.noteOperation?.status === "conflict") {
-            showOperationError("note-save", "笔记已更新，请核对当前内容后再保存。");
-            if (result.noteOperation.current) setNoteEdit({ id: result.noteOperation.current.noteId, revision: result.noteOperation.current.revision });
-            return;
-          }
-          setNoteDraft(""); setNoteEdit(null);
-        }); }}>保存笔记</button>}
-      {(view.sourceNotes ?? []).filter(n => !n.deleted || n.canUndo).map(n => <article key={n.noteId}>{n.sentence && <blockquote>{n.sentence.quote.exact}</blockquote>}<MarkdownContent text={n.content} />{host.changeSourceNote && <div className="source-note-actions">{!n.deleted && <button onClick={() => { setNoteEdit({ id: n.noteId, revision: n.revision }); setNoteDraft(n.content); }}>编辑</button>}<button onClick={() => void apply(`note:${n.noteId}`, host.changeSourceNote!(sourceId, n.noteId, n.deleted ? "undo" : "delete", n.revision, createReaderId()))}>{n.deleted ? "撤销删除" : "删除"}</button></div>}</article>)}
+      <textarea ref={noteInput} aria-label="笔记内容" placeholder="记录想法或结论…" value={noteDraft} readOnly={savingNote} onChange={e => setNoteDraft(e.target.value)} />
+      {host.createSourceNote && <button className="source-notes-save" disabled={savingNote || !noteDraft.trim()} onClick={() => void saveCurrentNote()}>保存笔记</button>}
+      {(view.sourceNotes ?? []).filter(n => !n.deleted || n.canUndo).map(n => <article key={n.noteId}>{n.sentence && <blockquote>{n.sentence.quote.exact}</blockquote>}<MarkdownContent text={n.content} />{host.changeSourceNote && <div className="source-note-actions">{!n.deleted && <button disabled={savingNote} onClick={() => { setNoteSelection(undefined); setNoteEdit({ id: n.noteId, revision: n.revision }); setNoteDraft(n.content); }}>编辑</button>}<button onClick={() => void apply(`note:${n.noteId}`, host.changeSourceNote!(sourceId, n.noteId, n.deleted ? "undo" : "delete", n.revision, createReaderId()))}>{n.deleted ? "撤销删除" : "删除"}</button></div>}</article>)}
       {(view.sourceHighlights ?? []).filter(h => !h.deleted || h.canUndo).map(h => <article key={h.highlightId}><blockquote>{h.quote.exact}</blockquote>{host.changeHighlight && <div className="source-note-actions"><button onClick={() => void apply(`highlight:${h.highlightId}`, host.changeHighlight!(sourceId, h.highlightId, h.deleted ? "undo" : "delete", h.revision, createReaderId()))}>{h.deleted ? "撤销删除重点" : "取消重点"}</button></div>}</article>)}
     </aside>}
   </section>;

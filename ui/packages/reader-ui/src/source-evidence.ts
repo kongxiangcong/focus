@@ -21,7 +21,7 @@ export function citedMarkdown(message: ReaderMessage, evidence: readonly Validat
   }).replace(/\[\[e:[^\]]*$/, "");
 }
 
-type Point = { line: number; column?: number; offset?: number };
+type Point = { line: number; offset?: number };
 type Positioned = HastNode & { position?: { start: Point; end: Point } };
 type SourceRange = { sourceLines: readonly [number, number]; quoteOffsets?: readonly [number, number] };
 export type EvidenceProjection = { evidence: ValidatedAnswerEvidence } & (
@@ -81,11 +81,8 @@ export function evidenceBySourceBlock(document: ReadingDocument, evidence: reado
 function resolve(tree: HastNode, document: ReadingDocument, evidence: readonly ValidatedAnswerEvidence[]): EvidenceProjection[] {
   if (!evidence.length) return [];
   const lines = new Map<HastNode, readonly [number, number]>();
-  const original = document.markdown.replace(/\r\n?/g, "\n");
-  const rawLines = original.split("\n");
-  const rawLineStarts = [0, ...Array.from(original.matchAll(/\n/g), newline => newline.index! + 1)];
+  const original = document.markdown;
   const normalized = normalizeMathWithLines(original);
-  const normalizedLines = normalized.markdown.split("\n");
   const canonical = normalized.lines;
   function visit(node: Positioned, inherited?: readonly [number, number]) {
     const span = node.position ? [canonical[node.position.start.line - 1]?.[0] ?? 0, canonical[node.position.end.line - 1]?.[1] ?? 0] as const : inherited;
@@ -120,11 +117,12 @@ function resolve(tree: HastNode, document: ReadingDocument, evidence: readonly V
       // an unchanged text node's canonical offset before highlighting that occurrence.
       if (!verified || touched.length !== 1) continue;
       const { node, start } = touched[0];
-      const position = (node as Positioned).position?.start;
-      const sourceLine = position && canonical[position.line - 1]?.[0];
-      if (!position?.column || !sourceLine || normalizedLines[position.line - 1] !== rawLines[sourceLine - 1]) continue;
-      const rawStart = rawLineStarts[sourceLine - 1] + position.column - 1;
-      if (rawStart + at - start === verified.canonicalStart && original.startsWith(node.value!, rawStart)) candidates.push(at);
+      const offset = (node as Positioned).position?.start.offset;
+      const rawStart = offset === undefined ? null : normalized.sourceOffsetAt(offset);
+      if (rawStart === null || !original.startsWith(node.value!, rawStart)) continue;
+      const rawOffset = rawStart + at - start;
+      const canonicalOffset = rawOffset - (original.slice(0, rawOffset).match(/\r\n/g)?.length ?? 0);
+      if (canonicalOffset === verified.canonicalStart) candidates.push(at);
     }
     if (candidates.length === 1) return { evidence: e, kind: "exact", start: candidates[0], end: candidates[0] + e.quote.exact.length, ...(verified ?? { sourceLines: e.sourceLines }) };
     return verified && block ? { evidence: e, kind: "block", ...verified } : no;

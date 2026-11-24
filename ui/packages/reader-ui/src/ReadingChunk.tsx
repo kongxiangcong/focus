@@ -1,17 +1,19 @@
 import { AssetInstanceContext } from "./asset-context";
 import { withAssetInstance } from "./figures";
-import type { AnnotationLayer, ReaderChunk, ReaderImage, ReaderMessage, ValidatedAnswerEvidence } from "@focus/reader-contracts";
+import type { AnnotationLayer, ReaderChunk, ReaderImage, ReaderMessage, SourceNote, ValidatedAnswerEvidence } from "@focus/reader-contracts";
 import { useCallback, useContext, useEffect, useId, useMemo, useState, type ReactNode, type Ref } from "react";
 import { MarkdownContent } from "./MarkdownContent";
 import { answerEvidenceKey, citedMarkdown, messageEvidence } from "./source-evidence";
 import type { Located, PendingAnnotation, ResolvedMark } from "./annotation-projection";
 import { chunkFigures, imageIdentity, type Figure } from "./figures";
+import { chunkNoteMarks } from "./selected-source-note";
 
 export const chunkKey = (c: { sourceId: string; planId: string; chunkId: string }) => `${c.sourceId}/${c.planId}/${c.chunkId}`;
 
-export function ReadingChunk({ chunk, onReference, onFigure, onZoom, onLanguage, located, pending, fresh, onLayerChange, onMarks, evidence = [], onEvidence, bodyRef, afterBody }: { chunk: ReaderChunk; onReference: (chunk: ReaderChunk) => void;
+export function ReadingChunk({ chunk, onReference, onFigure, onZoom, onLanguage, located, pending, fresh, onLayerChange, onMarks, sharedNotes, evidence = [], onEvidence, bodyRef, afterBody }: { chunk: ReaderChunk; onReference: (chunk: ReaderChunk) => void;
   onZoom?: (figure: Figure, origin: HTMLElement) => void; onFigure?: (figure: Figure) => void; onLanguage?: (chunk: ReaderChunk, original: boolean) => void;
   located?: readonly Located[]; pending?: PendingAnnotation | null; fresh?: Record<string, ("hl" | "note")[]>;
+  sharedNotes?: readonly SourceNote[];
   evidence?: readonly ValidatedAnswerEvidence[];
   onEvidence?: (item: ValidatedAnswerEvidence) => void;
   bodyRef?: Ref<HTMLDivElement>;
@@ -30,6 +32,7 @@ export function ReadingChunk({ chunk, onReference, onFigure, onZoom, onLanguage,
   const layer: AnnotationLayer = translated ? "translation" : "source";
   const key = chunkKey(chunk);
   const annotation = useMemo(() => located || pending || onMarks ? { located: located ?? [], pending, fresh, layer } : undefined, [located, pending, fresh, layer, onMarks]);
+  const marks = useMemo(() => layer === "source" && sharedNotes ? chunkNoteMarks(chunk, sharedNotes) : [], [chunk, layer, sharedNotes]);
   const reportMarks = useCallback((marks: readonly ResolvedMark[], lost: readonly Located[], text: string) => onMarks?.(key, marks, lost, layer, text), [key, layer, onMarks]);
   useEffect(() => { onLayerChange?.(chunk, layer); }, [chunk, layer, onLayerChange]);
   return <article className="focus-reading focus-reader__chunk" data-chunk-key={chunkKey(chunk)} data-annotation-layer={layer}>
@@ -38,7 +41,7 @@ export function ReadingChunk({ chunk, onReference, onFigure, onZoom, onLanguage,
     </header>
     <h2>{chunk.sectionPath.at(-1)}</h2>
     {preparing ? <p role="status">译文尚未准备完成，请打开材料继续准备。</p> : <>
-      <MarkdownContent text={text} sourceId={chunk.sourceId} figures={figures} onFigure={onFigure} annotation={annotation} onAnnotations={reportMarks} bodyRef={bodyRef} />
+      <MarkdownContent text={text} sourceId={chunk.sourceId} figures={figures} onFigure={onFigure} marks={marks} annotation={annotation} onAnnotations={reportMarks} bodyRef={bodyRef} />
       {afterBody}
     </>}
     {!preparing && onFigure && <div className="reader-thumbnail-strip">{figures.map(f => <div className="reader-thumbnail" key={f.id}>

@@ -16,8 +16,8 @@ const texCommand = /\\[a-zA-Z]+/;
 export function normalizeMathMarkdown(markdown: string): string { return normalizeMathWithLines(markdown).markdown; }
 
 /** Maps normalized parser lines back to the canonical original, including inserted display-math lines. */
-export function normalizeMathWithLines(markdown: string): { markdown: string; lines: readonly (readonly [number, number])[] } {
-  if (!markdown.includes("\\")) return { markdown, lines: markdown.split("\n").map((_, i) => [i + 1, i + 1]) };
+export function normalizeMathWithLines(markdown: string): { markdown: string; lines: readonly (readonly [number, number])[]; sourceOffsetAt: (offset: number) => number | null } {
+  if (!markdown.includes("\\")) return { markdown, lines: markdown.split("\n").map((_, i) => [i + 1, i + 1]), sourceOffsetAt: offset => offset };
   const protectedRanges: Range[] = [];
   function visit(node: Node) {
     if (protectedTypes.has(node.type) && node.position?.start.offset !== undefined && node.position.end.offset !== undefined) {
@@ -75,5 +75,14 @@ export function normalizeMathWithLines(markdown: string): { markdown: string; li
     end = edit.end;
   }
   unchanged(markdown.slice(end));
-  return { markdown: result.join(""), lines };
+  return { markdown: result.join(""), lines, sourceOffsetAt(offset) {
+    let shift = 0;
+    for (const edit of edits) {
+      const start = edit.start + shift;
+      if (offset < start) break;
+      if (offset < start + edit.value.length) return null;
+      shift += edit.value.length - (edit.end - edit.start);
+    }
+    return offset - shift;
+  } };
 }
