@@ -669,9 +669,9 @@ class HostService:
                  **({'pageNumber': block['page']} if 'page' in block else {})}
                 for block in source.blocks]
             document['language'] = self.reading_app.core.source_language(source_id)
-            document['translation'] = self.reading_app.core.shared_translation(source_id, document, source=source)
             if (bundle / SOURCE_ORIGINALS['paper_pdf']).is_file():
                 document['pdf'] = source.pdf
+            document['translation'] = self.reading_app.core.shared_translation(source_id, document, source=source)
             return document
 
     def complete_source(self, source_id, payload):
