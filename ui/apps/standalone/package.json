@@ -14,8 +14,5 @@
     "@focus/reader-ui": "workspace:*",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
-  },
-  "devDependencies": {
-    "vite-plugin-static-copy": "3.1.4"
   }
 }

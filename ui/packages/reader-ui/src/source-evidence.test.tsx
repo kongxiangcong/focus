@@ -15,7 +15,7 @@ describe("source evidence rendering boundary", () => {
     expect(container.querySelectorAll("mark.source-evidence")).toHaveLength(1);
     expect(container.querySelectorAll("p")[0].querySelector("mark")).toBeNull();
     expect(container.querySelectorAll("p")[1].querySelector("mark")?.textContent).toBe("alias keeps order");
-    expect(screen.getByRole("button", { name: "返回相关回答" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "返回回答证据 1" })).toBeTruthy();
   });
   it("does not silently resolve ambiguous, outdated or fabricated quotes", () => {
     expect(projectEvidence(document, [{ ...evidence, sourceLines: [1, 9] }])[0].kind).toBe("unavailable");
@@ -36,9 +36,16 @@ describe("source evidence rendering boundary", () => {
     expect(projectEvidence(doc, [ref])[0].kind).toBe("block");
     expect(projectEvidence(doc, [{ ...ref, quote: { ...ref.quote, exact: "missing quote" } }])[0].kind).toBe("unavailable");
     const { container } = render(<MarkdownContent text={doc.markdown} sourceEvidence={{ document: doc,
-      evidence: [{ ...ref, sourceLines: [3, 3], quote: { ...ref.quote, exact: "keeps order" } }] }} />);
-    expect(container.querySelectorAll("p[data-evidence-block]")).toHaveLength(1);
+      evidence: [ref] }} />);
+    expect(container.querySelectorAll("p[data-evidence-block]")).toHaveLength(2);
     expect(container.querySelector("mark.source-evidence")).toBeNull();
+  });
+  it("highlights literal text when the signed context includes Markdown formatting", () => {
+    const doc = { ...document, markdown: "# Paper\n\nThis **method** keeps order. The result follows.", lineCount: 3 };
+    const ref = { ...evidence, renderGranularity: "block" as const, sourceLines: [3, 3] as const,
+      quote: { exact: "keeps order", prefix: "This **method** ", suffix: ". The result follows." } };
+    const { container } = render(<MarkdownContent text={doc.markdown} sourceEvidence={{ document: doc, evidence: [ref] }} />);
+    expect(container.querySelector("mark.source-evidence")?.textContent).toBe("keeps order");
   });
   it("binds original images to the displayed source version", () => {
     const doc = { ...document, markdown: "![Figure](images/image-001.png)" };
@@ -52,12 +59,12 @@ describe("source evidence rendering boundary", () => {
     expect(messageEvidence({ ...message, answerRevision: "edited" }, document, "discussion")).toHaveLength(0);
     expect(citedMarkdown(message, [])).not.toContain("#e-");
   });
-  it("keeps the focused citation button mounted across hover callback updates", () => {
+  it("keeps the focused citation button mounted across answer focus updates", () => {
     const text = `[1](#e-${evidence.evidenceId})`;
-    const { container, rerender } = render(<MarkdownContent text={text} onCitation={() => {}} onCitationHover={() => {}} />);
+    const { container, rerender } = render(<MarkdownContent text={text} onCitation={() => {}} />);
     const button = container.querySelector("button")!;
     button.focus();
-    rerender(<MarkdownContent text={text} onCitation={() => {}} onCitationHover={() => {}} />);
+    rerender(<MarkdownContent text={text} activeCitation={evidence.evidenceId} onCitation={() => {}} />);
     expect(container.querySelector("button")).toBe(button);
     expect(button.ownerDocument.activeElement).toBe(button);
   });
