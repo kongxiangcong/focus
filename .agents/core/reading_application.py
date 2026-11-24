@@ -1095,7 +1095,7 @@ class ReadingApplication:
         document = self.core._source_translation(source_id, bundle, reading_version)
         asset = document.load()
         if asset:
-            return document, asset["segments"]
+            return document, asset
 
         translate = getattr(self.runtime, "translate_document", None)
         if translate is None:
@@ -1118,7 +1118,29 @@ class ReadingApplication:
             self._translate_document_batch(run, document, translate, glossary, batch)
         asset = self.core.commit_document_translation(*identity, segments)
         notify()
-        return document, asset["segments"]
+        return document, asset
+
+    def _reuses_checked_translation(self, source_id, run, document, asset):
+        if (asset is None or asset.get("preparationId") == run["run_id"]
+                or not run.get("rebuild") or not run.get("ready_plans")):
+            return False
+        plans = self.core._root(source_id) / "reading" / "plans"
+
+        def matches(plan_id):
+            root = plans / plan_id
+            for chunk in _read_chunk_records(root / "chunks.jsonl"):
+                record = _read_reading_record(root / "records" / f"{chunk['chunk_id']}.json", chunk["chunk_id"])
+                if record["translation"] is not None and record["translation"] != document.render(
+                        asset["segments"], *document.interval(chunk["source_lines"])):
+                    return False
+            return True
+
+        # A ready Plan certifies the saved wording. A replan can move Chunk
+        # boundaries through those segments while reusing that same wording.
+        with _LOCK:
+            return matches(run["plan_id"]) and any(
+                self.core._plan_ready(source_id, plan, reading_version=run["reading_version"]) and matches(plan)
+                for plan in run["ready_plans"])
 
     def _translate_document_batch(self, run, document, translate, glossary, segments):
         batch = [{"id": segment["id"], "block_ids": segment["blockIds"],
@@ -1187,7 +1209,8 @@ class ReadingApplication:
             root = self.core._root(source_id) / "reading" / "plans" / run["plan_id"]
             chunks = _read_chunk_records(root / "chunks.jsonl")
             glossary = _read_glossary(root / "glossary.tsv")
-            document, segments = self._prepare_document(source_id, run, glossary, notify)
+            document, asset = self._prepare_document(source_id, run, glossary, notify)
+            segments = asset["segments"] if asset else None
             pending = self.core._plan_status(source_id, run["plan_id"], bundle=bundle)["pending"]
             for chunk_id in pending:
                 chunk = self.core.core.preparation_chunk(source_id=source_id, plan_id=run["plan_id"],
@@ -1205,6 +1228,11 @@ class ReadingApplication:
                 run = self.core.commit_translation(source_id, run_id, attempt, bundle, chunk_id, translation)
                 notify()
             if self.core._check_valid(source_id, run):
+                return self.core.status(source_id, reading_version=reading_version)
+            if self._reuses_checked_translation(source_id, run, document, asset):
+                self.core.commit_check(source_id, run_id, attempt, bundle,
+                                       {"passed": True, "issues": {}, "coverage": [chunk["chunk_id"] for chunk in chunks]})
+                notify()
                 return self.core.status(source_id, reading_version=reading_version)
             while True:
                 with _LOCK:

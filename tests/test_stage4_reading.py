@@ -185,6 +185,11 @@ class Stage4PreparationTests(unittest.TestCase):
                 return [{"id": part["id"], "text": part["source_text"].replace(original, "两行共用一份译文。")}
                         for part in segments]
 
+            def check(self, **kwargs):
+                if "plan" in self.calls:
+                    raise AssertionError("Ordinary replanning reuses the verified wording")
+                return super().check(**kwargs)
+
         runtime = Runtime(draft)
         self.host.reading_app.runtime = runtime
         self.host.prepare_reading(source_id, request_id="prepare-shared-translation")
