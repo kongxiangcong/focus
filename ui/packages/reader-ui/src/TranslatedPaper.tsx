@@ -51,7 +51,7 @@ export function TranslatedPaper({ document, evidence, fallback, originalMarks, n
         data-source-block-ids={passage.blockIds.join(" ") || undefined}
         data-translation-granularity={passage.granularity} lang={passage.granularity === "source" ? document.language : "zh"}
         data-evidence-block={items.map(item => item.evidenceId).join(" ") || undefined}>
-        <SourceEvidenceMarkers items={items} /><MarkdownContent text={passage.text} sourceId={document.sourceId} marks={marks.length ? marks : undefined} />
+        <SourceEvidenceMarkers items={items} /><MarkdownContent text={passage.text} sourceId={document.sourceId} bundleVersion={document.bundleVersion} marks={marks.length ? marks : undefined} />
         {links && <ChunkNoteLinks links={links} />}
       </section>
     </Fragment>;

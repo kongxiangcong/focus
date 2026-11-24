@@ -561,7 +561,7 @@ export interface ReaderHost {
   /** Explicit resubmission after the user accepted the duplicate-parsing risk. */
   resubmitIngestion?(itemId: string, requestId: string, riskChoiceId: string): Promise<ReaderHostResult<IngestionItem>>;
   cancelIngestion?(itemId: string): Promise<ReaderHostResult<IngestionItem>>;
-  sourceOriginalUrl?(sourceId: string): string;
+  sourceOriginalUrl?(sourceId: string, bundleVersion?: string): string;
   sourceContentUrl?(sourceId: string): string;
   deleteSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   saveSourceDetails?(sourceId: string, title: string, topicIds: readonly string[], requestId: string, displayTitle?: string): Promise<ReaderHostResult<ReadingWindow>>;

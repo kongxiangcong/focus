@@ -42,8 +42,8 @@ function rehypeSourceExcerpt({ lines: [first, last] }: { lines: SourceLines }) {
   };
 }
 
-export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, figures, onFigure, inlineFigures = false, marks, annotation, onAnnotations, sourceEvidence, onCitation, activeCitation, bodyRef }: {
-  text: string; sourceId?: string; figures?: readonly Figure[]; onFigure?: (figure: Figure) => void; inlineFigures?: boolean;
+export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, bundleVersion, figures, onFigure, inlineFigures = false, marks, annotation, onAnnotations, sourceEvidence, onCitation, activeCitation, bodyRef }: {
+  text: string; sourceId?: string; bundleVersion?: string; figures?: readonly Figure[]; onFigure?: (figure: Figure) => void; inlineFigures?: boolean;
   bodyRef?: Ref<HTMLDivElement>;
   activeCitation?: string;
   onCitation?: (id: string, keyboard: boolean, origin: HTMLButtonElement) => void;
@@ -108,6 +108,7 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
     if (annotation && resultRef.current) onAnnotations?.(resultRef.current.marks, resultRef.current.lost, resultRef.current.text);
   }, [annotationKey, text, onAnnotations]);
   // Parent handlers may change on each token; retain the parsed tree for stable content.
+  const assetBundle = sourceEvidence?.document.bundleVersion ?? bundleVersion;
   const rendered = useMemo(() => <Markdown remarkPlugins={remarkPlugins} rehypePlugins={[...rehypePlugins, markFigures, ...evidencePlugins, ...annotationPlugins, ...(annotation ? [probe] : []), ...excerptPlugins]}
     components={{ ...components, a: renderLink, span: ({ node, ...props }) => {
       const chunks = node?.properties.dataSourceChunkNotes;
@@ -125,14 +126,14 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
     } }} urlTransform={(url, key) => {
       if (sourceId && key === "src") {
         const resolved = imageUrl(url, sourceId, instanceId);
-        if (sourceEvidence && resolved.startsWith("/reader/assets/")) {
+        if (assetBundle && resolved.startsWith("/reader/assets/")) {
           const bound = new URL(resolved, "https://focus.invalid");
-          bound.searchParams.set("bundle", sourceEvidence.document.bundleVersion);
+          bound.searchParams.set("bundle", assetBundle);
           return bound.pathname + bound.search + bound.hash;
         }
         return resolved;
       }
       return defaultUrlTransform(url);
-    }}>{markdown}</Markdown>, [markdown, activeCitation, sourceId, instanceId, inlineFigures, JSON.stringify(figures), !!onFigure, markKey, annotationKey, evidenceKey, !!onCitation]);
+    }}>{markdown}</Markdown>, [markdown, activeCitation, sourceId, assetBundle, instanceId, inlineFigures, JSON.stringify(figures), !!onFigure, markKey, annotationKey, evidenceKey, !!onCitation]);
   return <div className="focus-markdown" ref={bodyRef}>{rendered}</div>;
 });

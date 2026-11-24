@@ -47,7 +47,7 @@ class ArticleOverview:
         root = self.core._root(source_id) / 'reading' / 'plans' / plan
         chunks = _read_chunk_records(root / 'chunks.jsonl')
         from .reading_application import _digest
-        bundle = self.core._bundle_version(source_id)
+        bundle = self.core._bundle_version(source_id, reading_version)
         provenance = root / 'provenance.json'
         if provenance.exists() and _read_document(provenance).get('bundle') != bundle:
             raise WorkspaceError('overview_stale_plan', '原文已更新，请先准备并启用新版阅读计划。')
@@ -110,7 +110,7 @@ class ArticleOverview:
             if stopped() or target is None or target[2] != identity or _read_document(path).get('revision') != attempt:
                 raise WorkspaceError('overview_changed', '准备已停止或原文版本已变化，请重试。')
         try:
-            ranges = self.app._ranges(source_id)
+            ranges = self.app._ranges(source_id, reading_version=reading_version)
             try:
                 tree = validate_chinese_structure(read_structure(root, chunks), chunks)
             except WorkspaceError:

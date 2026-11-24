@@ -274,11 +274,9 @@ class Handler(BaseHTTPRequestHandler):
             source, relative = unquote(path[len('/reader/assets/'):]).split('/', 1)
             expected = parse_qs(urlsplit(self.path).query).get('bundle', [None])[0]
             with service.lock:
-                if expected and service.source_notes.bundle_version(source) != expected:
-                    raise WorkspaceError('source_bundle_changed', '图片原文版本已改变，请重新打开。')
-                target = service.core.image(source, relative)
+                target = service.core.image(source, relative, bundle_version=expected)
                 data = target.read_bytes()
-                if expected and service.source_notes.bundle_version(source) != expected:
+                if expected and service.core.image(source, relative, bundle_version=expected) != target:
                     raise WorkspaceError('source_bundle_changed', '图片原文版本已改变，请重新打开。')
             self._send(200, data, content_type=mimetypes.guess_type(target)[0] or 'image/png')
             return
@@ -454,14 +452,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, target.read_bytes(), content_type=mimetypes.guess_type(target)[0] or 'image/png')
                 return
             elif method == 'GET' and len(parts) == 2 and parts[1] in ('original', 'content'):
-                target = service.core.source_resource(source_id, parts[1])
+                params = parse_qs(urlsplit(self.path).query)
+                target = service.core.source_resource(source_id, parts[1], bundle_version=params.get('bundle', [None])[0])
                 content_type = 'text/markdown; charset=utf-8' if parts[1] == 'content' else mimetypes.guess_type(target)[0] or 'application/octet-stream'
                 headers = {'Content-Disposition': ('inline; filename="' + target.name.replace('"', '') + '"')}
                 if parts[1] == 'original' and target.suffix.lower() == '.html':
                     # Preserve original bytes without granting saved pages Host privileges.
                     headers['Content-Security-Policy'] = "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'"
                 data = target.read_bytes()
-                expected = parse_qs(urlsplit(self.path).query).get('pdfHash', [None])[0]
+                expected = params.get('pdfHash', [None])[0]
                 if expected and hashlib.sha256(data).hexdigest() != expected:
                     raise WorkspaceError('source_bundle_changed', '原版 PDF 已更新，请重新打开。')
                 self._send(200, data, content_type=content_type,

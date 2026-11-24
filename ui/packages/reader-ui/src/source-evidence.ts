@@ -80,19 +80,44 @@ export function evidenceBySourceBlock(document: ReadingDocument, evidence: reado
   return byBlock;
 }
 
-function resolve(tree: HastNode, document: ReadingDocument, evidence: readonly ValidatedAnswerEvidence[]): EvidenceProjection[] {
-  if (!evidence.length) return [];
+function renderedSource(tree: HastNode, markdown: string) {
   const lines = new Map<HastNode, readonly [number, number]>();
-  const original = document.markdown;
-  const normalized = normalizeMathWithLines(original);
+  const offsets = new Map<HastNode, readonly [number, number]>();
+  const normalized = normalizeMathWithLines(markdown);
   const canonical = normalized.lines;
-  function visit(node: Positioned, inherited?: readonly [number, number]) {
-    const span = node.position ? [canonical[node.position.start.line - 1]?.[0] ?? 0, canonical[node.position.end.line - 1]?.[1] ?? 0] as const : inherited;
+  function visit(node: Positioned, inherited?: readonly [number, number], bounds?: readonly [number, number] | null) {
+    const position = node.position;
+    const span = position ? [canonical[position.start.line - 1]?.[0] ?? 0, canonical[position.end.line - 1]?.[1] ?? 0] as const : inherited;
     if (span) lines.set(node, span);
-    node.children?.forEach(child => visit(child, span));
+
+    const start = position?.start.offset, end = position?.end.offset;
+    let nextBounds = bounds;
+    if (node.type !== "root" && bounds !== null && start !== undefined && end !== undefined) {
+      // Embedded Markdown reparsed inside a node can have fragment-relative positions.
+      nextBounds = bounds && (start < bounds[0] || end > bounds[1]) ? null : [start, end];
+      if (nextBounds) offsets.set(node, nextBounds);
+    }
+    node.children?.forEach(child => visit(child, span, nextBounds));
   }
   visit(tree);
   const nodes = hastTextNodes(tree), text = nodes.map(n => n.node.value ?? "").join("");
+  function* matches(quote: string, [first, last]: readonly [number, number]) {
+    if (!quote.trim()) return;
+    for (let at = text.indexOf(quote); at !== -1; at = text.indexOf(quote, at + 1)) {
+      const touched = nodes.filter(n => n.start < at + quote.length && n.start + (n.node.value?.length ?? 0) > at);
+      if (touched.length && touched.every(({ node }) => {
+        const span = lines.get(node);
+        return span && span[0] >= first && span[1] <= last;
+      })) yield { at, touched };
+    }
+  }
+  return { lines, offsets, normalized, text, matches };
+}
+
+function resolve(tree: HastNode, document: ReadingDocument, evidence: readonly ValidatedAnswerEvidence[]): EvidenceProjection[] {
+  if (!evidence.length) return [];
+  const original = document.markdown;
+  const { lines, offsets, normalized, matches } = renderedSource(tree, original);
   const locate = canonicalQuoteLocator(document);
   return evidence.map(e => {
     const no = { evidence: e, kind: "unavailable" as const };
@@ -106,37 +131,52 @@ function resolve(tree: HastNode, document: ReadingDocument, evidence: readonly V
       const span = lines.get(n);
       return span && span[0] <= verified.sourceLines[1] && span[1] >= verified.sourceLines[0];
     });
-    if (!verified && (e.messageId || e.renderGranularity || e.blockIds || e.layoutVersion || e.pdfRegions)) return no;
+    if (!verified) return no;
     const candidates: number[] = [];
-    for (let at = text.indexOf(e.quote.exact); at !== -1; at = text.indexOf(e.quote.exact, at + 1)) {
-      const touched = nodes.filter(n => n.start < at + e.quote.exact.length && n.start + (n.node.value?.length ?? 0) > at);
-      if (!touched.length || !touched.every(n => {
-        const span = lines.get(n.node);
-        return span && span[0] >= first && span[1] <= last;
-      })) continue;
-      const renderedContextMatches = text.slice(0, at).endsWith(e.quote.prefix) && text.slice(at + e.quote.exact.length).startsWith(e.quote.suffix);
-      if (renderedContextMatches) { candidates.push(at); continue; }
-      // Markdown can remove syntax in a signed quote's surrounding context. Verify
-      // an unchanged text node's canonical offset before highlighting that occurrence.
-      if (!verified || touched.length !== 1) continue;
-      const { node, start } = touched[0];
-      const offset = (node as Positioned).position?.start.offset;
-      const rawStart = offset === undefined ? null : normalized.sourceOffsetAt(offset);
-      if (rawStart === null || !original.startsWith(node.value!, rawStart)) continue;
-      const rawOffset = rawStart + at - start;
-      const canonicalOffset = rawOffset - (original.slice(0, rawOffset).match(/\r\n/g)?.length ?? 0);
-      if (canonicalOffset === verified.canonicalStart) candidates.push(at);
+    for (const { at, touched } of matches(e.quote.exact, e.sourceLines)) {
+      // Rendered text can resemble a signed quotation at a different source offset.
+      // Require each visible piece to map to its own matching canonical span.
+      const mapsToQuote = touched.length && touched.every(({ node, start }) => {
+        const bounds = offsets.get(node);
+        if (!bounds) return false;
+        const rawStart = normalized.sourceOffsetAt(bounds[0]), rawEnd = normalized.sourceOffsetAt(bounds[1]);
+        if (rawStart === null || rawEnd === null || original.slice(rawStart, rawEnd) !== node.value) return false;
+        const pieceStart = Math.max(at, start);
+        const rawOffset = rawStart + pieceStart - start;
+        const canonicalOffset = rawOffset - (original.slice(0, rawOffset).match(/\r\n/g)?.length ?? 0);
+        return canonicalOffset === verified.canonicalStart + pieceStart - at;
+      });
+      if (mapsToQuote) candidates.push(at);
     }
-    if (candidates.length === 1) return { evidence: e, kind: "exact", start: candidates[0], end: candidates[0] + e.quote.exact.length, ...(verified ?? { sourceLines: e.sourceLines }) };
-    return verified && block ? { evidence: e, kind: "block", ...verified } : no;
+    if (candidates.length === 1) return { evidence: e, kind: "exact", start: candidates[0], end: candidates[0] + e.quote.exact.length, ...verified };
+    return block ? { evidence: e, kind: "block", ...verified } : no;
   });
 }
 
 let cached: { markdown: string; tree: HastNode } | undefined;
+function originalTree(markdown: string) {
+  if (cached?.markdown !== markdown) cached = { markdown, tree: markdownTree(markdown) };
+  return cached.tree;
+}
+
 export function projectEvidence(document: ReadingDocument, evidence: readonly ValidatedAnswerEvidence[]) {
-  if (!evidence.length) return [];
-  if (cached?.markdown !== document.markdown) cached = { markdown: document.markdown, tree: markdownTree(document.markdown) };
-  return resolve(cached.tree, document, evidence);
+  return evidence.length ? resolve(originalTree(document.markdown), document, evidence) : [];
+}
+
+export function projectSourceAnnotation(document: ReadingDocument, annotation: {
+  bundle: string; lines: readonly [number, number]; quote: ValidatedAnswerEvidence["quote"];
+}) {
+  if (annotation.bundle !== document.bundleVersion) return;
+  const { quote, lines } = annotation;
+  const { text, matches } = renderedSource(originalTree(document.markdown), document.markdown);
+  let range: { start: number; end: number } | undefined;
+  for (const { at } of matches(quote.exact, lines)) {
+    const end = at + quote.exact.length;
+    if (!text.slice(0, at).endsWith(quote.prefix) || !text.startsWith(quote.suffix, end)) continue;
+    if (range) return;
+    range = { start: at, end };
+  }
+  return range;
 }
 
 export function rehypeSourceEvidence(options: { document: ReadingDocument; evidence: readonly ValidatedAnswerEvidence[];

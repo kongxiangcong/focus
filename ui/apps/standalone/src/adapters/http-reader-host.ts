@@ -367,9 +367,12 @@ export class HttpReaderHost implements ReaderHost {
   cancelIngestion(itemId: string): Promise<ReaderHostResult<IngestionItem>> {
     return this.ingestionRequest(`/library/inbox/${encodeURIComponent(itemId)}/cancel`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
   }
-  sourceOriginalUrl(sourceId: string): string {
-    const instance = this.instanceId ? `?instance=${encodeURIComponent(this.instanceId)}` : "";
-    return `${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/original${instance}`;
+  sourceOriginalUrl(sourceId: string, bundleVersion?: string): string {
+    const params = new URLSearchParams();
+    if (this.instanceId) params.set("instance", this.instanceId);
+    if (bundleVersion) params.set("bundle", bundleVersion);
+    const query = params.toString();
+    return `${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/original${query ? `?${query}` : ""}`;
   }
   sourceContentUrl(sourceId: string): string {
     return `${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/content`;

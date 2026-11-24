@@ -19,12 +19,13 @@ def _segment(source, blocks, start, end, *, original=False, coarse=False):
 
 
 class SourceTranslation:
-    def __init__(self, bundle, source_id, bundle_version, reading_version, *, source=None):
+    def __init__(self, root, bundle, source_id, bundle_version, reading_version, *, source=None):
+        self.bundle = bundle
         self.source = source if source is not None else SourceBlocks(bundle)
         self.source_id = source_id
         self.bundle_version = bundle_version
         self.reading_version = reading_version
-        self.path = bundle.parent / 'reading' / 'translations' / f'{reading_version}.json'
+        self.path = root / 'reading' / 'translations' / f'{reading_version}.json'
         self.ends = [block['offsets'][1] for block in self.source.blocks]
 
     def result(self, status, segments=()):
@@ -127,8 +128,8 @@ class SourceTranslation:
                 continue
             if first >= end:
                 break
-            if first < start or last > end:
-                return None
+            # A new Plan can divide an existing translated segment. Keep its
+            # whole text in every intersecting Chunk, with its original mapping.
             separator = self.source.markdown[cursor:first]
             if separator.strip():
                 return None

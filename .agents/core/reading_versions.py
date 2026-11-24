@@ -12,6 +12,7 @@ from .reading_workspace import (
 )
 from .source_blocks import source_lines
 from .source_provenance import bundle_fingerprint
+from .workspace_lifecycle import guard_workspace_class
 
 
 def selected_version(state, source_id):
@@ -22,6 +23,12 @@ def version_metadata(state, source_id, reading_version=None):
     if reading_version is None:
         reading_version = selected_version(state, source_id)
     return state.get('reading_versions', {}).get(source_id, {}).get(str(reading_version), {})
+
+
+def version_bundle(root, state, source_id, reading_version=None):
+    version = version_metadata(state, source_id, reading_version).get('bundle_version')
+    bundle = _source_bundle_at_version(root, version)
+    return bundle, version or bundle_fingerprint(bundle)
 
 
 def version_cursor(state, source_id, reading_version):
@@ -62,9 +69,11 @@ def _asset_hashes(root):
     return hashes
 
 
+@guard_workspace_class
 class ReadingVersions:
     def __init__(self, reading, notes):
         self.reading = reading
+        self.workspace = reading.workspace
         self.notes = notes
         self.state_path = reading.workspace / 'state.json'
 
@@ -185,7 +194,7 @@ class ReadingVersions:
                                           'backed_up_at': backed_up_at, 'backup_sha256': manifest_hash}
                 if run.get('status') == 'running':
                     versions[str(current)]['revoked_preparation'] = run['run_id']
-                versions[str(following)] = {'storage': 'versioned', 'bundle_version': self.reading._bundle_version(source_id),
+                versions[str(following)] = {'storage': 'versioned', 'bundle_version': bundle_fingerprint(_source_bundle_at_version(root, None)),
                                             'discussion_id': uuid.uuid4().hex, 'plan_ids': [], 'pending_reset': request_id}
                 for entry in state.get('reading_progress', {}).values():
                     if entry['source_id'] == source_id:
@@ -244,17 +253,20 @@ class ReadingVersions:
         return data
 
     def recover(self, source_id, reading_version):
-        self.reading._root(source_id)
+        from .reading_application import _LOCK
+
+        source_root = self.reading._root(source_id)
         self.check_version(reading_version)
-        metadata = version_metadata(_read_document(self.state_path), source_id, reading_version)
-        if 'backup' not in metadata:
-            raise WorkspaceError('reading_backup_missing', '此轮阅读没有可恢复的备份。')
-        try:
-            root = version_directory(self.reading._root(source_id), reading_version) / 'backups' / metadata['backup']
-            return self._read_backup(root, source_id, reading_version, metadata['bundle_version'], metadata['backed_up_at'],
-                                     metadata['backup_sha256'])
-        except (OSError, ValueError, KeyError, sqlite3.Error, WorkspaceError) as exc:
-            raise WorkspaceError('reading_backup_invalid', '此轮阅读备份无法读取。') from exc
+        with _LOCK:
+            metadata = version_metadata(_read_document(self.state_path), source_id, reading_version)
+            if 'backup' not in metadata:
+                raise WorkspaceError('reading_backup_missing', '此轮阅读没有可恢复的备份。')
+            try:
+                root = version_directory(source_root, reading_version) / 'backups' / metadata['backup']
+                return self._read_backup(root, source_id, reading_version, metadata['bundle_version'], metadata['backed_up_at'],
+                                         metadata['backup_sha256'])
+            except (OSError, ValueError, KeyError, sqlite3.Error, WorkspaceError) as exc:
+                raise WorkspaceError('reading_backup_invalid', '此轮阅读备份无法读取。') from exc
 
     @staticmethod
     def check_version(value):

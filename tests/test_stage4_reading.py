@@ -157,6 +157,54 @@ class Stage4PreparationTests(unittest.TestCase):
         self.assertEqual(opened["readingOperation"]["reading_revision"],
                          json.loads((self.workspace / "state.json").read_text(encoding="utf-8")).get("reading_revision", 0))
 
+    def test_replanning_across_a_saved_translation_segment_preserves_the_translation(self):
+        from core.source_provenance import bundle_fingerprint
+
+        source_id = "fixture-paper"
+        source = self.workspace / "sources" / source_id
+        bundle = source / "parser-bundle"
+        markdown = bundle / "content.md"
+        original = "The alias address keeps source order.\nThe second line explains why."
+        markdown.write_text(markdown.read_text(encoding="utf-8").replace(
+            "The alias address keeps source order.\n![Architecture](images/image-001.png)\nFigure 1: Architecture overview.",
+            original + "\n![Architecture](images/image-001.png)"), encoding="utf-8")
+        provenance = source / "reading/plans/plan-001/provenance.json"
+        record = json.loads(provenance.read_text(encoding="utf-8"))
+        provenance.write_text(json.dumps({**record, "bundle": bundle_fingerprint(bundle)}), encoding="utf-8")
+        path = ["Fixture Paper", "Method"]
+        draft = {"chunks": [
+            {"source_lines": [1, 4], "section_path": path, "images": []},
+            {"source_lines": [5, 6], "section_path": path, "images": ["images/image-001.png"]},
+            {"source_lines": [7, 10], "section_path": ["Fixture Paper", "Runtime"], "images": []},
+            {"source_lines": [11, 12], "section_path": ["Fixture Paper", "Results"], "images": []},
+        ]}
+
+        class Runtime(PlanningRuntime):
+            def translate_document(self, *, segments, **kwargs):
+                self.calls.append("document")
+                return [{"id": part["id"], "text": part["source_text"].replace(original, "两行共用一份译文。")}
+                        for part in segments]
+
+        runtime = Runtime(draft)
+        self.host.reading_app.runtime = runtime
+        self.host.prepare_reading(source_id, request_id="prepare-shared-translation")
+        self.host.reading_workers[source_id].join(3)
+        before = self.host.source_document(source_id)["translation"]
+        self.assertIn("两行共用一份译文。", before["chunks"][0]["text"])
+        calls = runtime.calls.count("document")
+
+        self.host.prepare_reading(source_id, request_id="replan-shared-translation", rebuild=True)
+        self.host.reading_workers[source_id].join(3)
+        view = self.host.snapshot()
+        preparation = view["preparations"][source_id]
+        self.assertTrue(preparation["ready"], preparation)
+        self.host.activate_reading_candidate(source_id, {"planId": preparation["plan_id"],
+            "readingRevision": view["readingRevision"], "requestId": "activate-shared-translation"})
+        after = self.host.source_document(source_id)["translation"]
+        self.assertEqual(before["segments"], after["segments"])
+        self.assertTrue(all("两行共用一份译文。" in chunk["text"] for chunk in after["chunks"][:2]))
+        self.assertEqual(calls, runtime.calls.count("document"))
+
     def test_cancel_fences_late_translation_and_manual_resume_reuses_context(self):
         self.host.close()
         self.runtime = WaitingRuntime()
@@ -804,6 +852,10 @@ class Stage4DiscussionIntegrationTests(unittest.TestCase):
         content = self.workspace / "sources/fixture-paper/parser-bundle/content.md"
         content.write_text(content.read_text(encoding="utf-8").replace("alias address", "renamed address")
                            + "\nNew version.\n", encoding="utf-8")
+        factory = self.host.backend_factory
+        self.host.close()
+        self.host = HostService(self.workspace, self.fixture.root / "host", backend_factory=factory,
+                                reading_runtime=PlanningRuntime(draft))
         self.assertEqual("historical", self.host.snapshot()["sourceNotes"][0]["referenceStatus"])
         question_id = uuid.uuid4().hex
         self.host.start({"requestId": question_id, "sourceId": "fixture-paper",

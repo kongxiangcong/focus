@@ -2,8 +2,9 @@
 
 Build the standalone UI, then run this file with the imported workspace path
 from .scratch/evidence-backannotation-unified-ir/batch-b-acceptance.md.
-Set FOCUS_BROWSER_URL to the printed origin for current_discussion_evidence_browser.mjs,
-or FOCUS_BROWSER_PORT to its port for evidence_navigation_browser.mjs.
+Set FOCUS_BROWSER_URL to the printed origin for current_discussion_evidence_browser.mjs.
+For the close-reading citation scenario, pass --scenario tests/chunk_discussion_evidence_scenario.json
+and use chunk_discussion_evidence_browser.mjs.
 """
 from argparse import ArgumentParser
 from contextlib import closing

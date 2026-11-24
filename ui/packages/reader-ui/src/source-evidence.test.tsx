@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import type { ReadingDocument, ValidatedAnswerEvidence } from "@focus/reader-contracts";
 import { projectEvidence } from "./source-evidence";
 import { MarkdownContent } from "./MarkdownContent";
@@ -46,6 +46,15 @@ describe("source evidence rendering boundary", () => {
       quote: { exact: "keeps order", prefix: "This **method** ", suffix: ". The result follows." } };
     const { container } = render(<MarkdownContent text={doc.markdown} sourceEvidence={{ document: doc, evidence: [ref] }} />);
     expect(container.querySelector("mark.source-evidence")?.textContent).toBe("keeps order");
+  });
+  it("uses the verified block when escaped text looks like a signed formatted quote", () => {
+    const doc = { ...document, markdown: String.raw`The **alias** matches the \*\*alias\*\*.`, lineCount: 1 };
+    const ref = { ...evidence, renderGranularity: "block" as const, sourceLines: [1, 1] as const,
+      quote: { exact: "**alias**", prefix: "", suffix: "" } };
+    const { container } = render(<MarkdownContent text={doc.markdown} sourceEvidence={{ document: doc, evidence: [ref] }} />);
+    expect(container.querySelector("p[data-evidence-block]")?.textContent).toContain("The alias matches");
+    expect(container.querySelector("mark.source-evidence")).toBeNull();
+    expect(within(container).getByRole("button", { name: "返回回答证据 1" })).toBeTruthy();
   });
   it("binds original images to the displayed source version", () => {
     const doc = { ...document, markdown: "![Figure](images/image-001.png)" };
