@@ -1,6 +1,6 @@
 """Canonical Markdown lines and block bounds shared by the source tools."""
 from .pdf_layout import layout
-from .source_ir_document import load_source_ir, project_source_blocks
+from .source_ir_document import load_source_ir, project_source_blocks, project_source_sections
 from .source_markdown import MarkdownBlocks, has_readable_text, source_lines
 from .source_provenance import SOURCE_ORIGINALS
 from .workspace_errors import WorkspaceError
@@ -16,6 +16,7 @@ class SourceBlocks(MarkdownBlocks):
             if (bundle / SOURCE_ORIGINALS['paper_pdf']).is_file():
                 pdf = layout(bundle, markdown=markdown, source_ir=ir)
         self.pdf = pdf
+        self.sections = project_source_sections(ir) if ir is not None else None
         super().__init__(markdown, pdf=pdf, blocks=project_source_blocks(ir) if ir else None)
 
     def block_ids_at(self, start, stop):

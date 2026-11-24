@@ -1,10 +1,12 @@
-import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { forwardRef, memo, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createReaderId, type ReaderHost, type ReaderHostResult, type ReaderMessage, type ReadingDocument, type ReadingOpening, type ReadingWindow, type SourceTextSelectionInput } from "@focus/reader-contracts";
 import { useEvidenceNavigation, type EvidenceNavigation, type EvidenceNavigationIntent } from "./evidence-navigation";
 import type { ReadingSession } from "./reading-session";
 import { MarkdownContent } from "./MarkdownContent";
 import { ActiveSourceCitation } from "./SourceEvidenceMarkers";
 import { TranslatedPaper } from "./TranslatedPaper";
+import { SectionDirectory } from "./SectionDirectory";
+import { sectionAtLine, sourceSections, type DirectorySection } from "./source-sections";
 import { locatePaperEvidence, overlapsSourceLines } from "./paper-evidence";
 import { blockAtReadingLine, blockAtSourcePosition, fractionAtReadingLine, restoreReadingLine, sourceLinesAt, sourcePositionAt, type SourceLines, type SourcePosition } from "./source-position";
 import { citedMarkdown, messageEvidence, projectEvidence, type EvidenceProjection } from "./source-evidence";
@@ -19,7 +21,6 @@ import "./conversation-reader.css";
 
 const safeRead = (key: string) => { try { return localStorage.getItem(key); } catch { return null; } };
 const safeWrite = (key: string, value: string) => { try { localStorage.setItem(key, value); } catch { /* Session remains usable. */ } };
-const reduced = () => window.document.documentElement.dataset.reducedMotion === "true" || typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 const scrollKeys = new Set(["PageDown", "PageUp", "ArrowDown", "ArrowUp", "Home", "End", " "]);
 
 function isScrollKey(event: ReactKeyboardEvent) {
@@ -62,6 +63,11 @@ function pdfOriginalHref(url: string, pdfHash?: string, page?: number) {
 
 function evidenceDestinations(pane: HTMLElement | null, id: string) {
   return [...(pane?.querySelectorAll<HTMLElement>(`[data-evidence-ids~="${id}"], [data-evidence-block~="${id}"]`) ?? [])];
+}
+
+function paperBlockAt(pane: HTMLElement, position: SourcePosition) {
+  return pane.querySelector<HTMLElement>(`[data-original-section] [data-source-line="${position.lines[0]}"]`) ??
+    blockAtSourcePosition(pane, position);
 }
 
 type AnswerLocation = { messageId: string; evidenceId: string; origin?: HTMLButtonElement };
@@ -317,6 +323,25 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const draftKey = `focus.sourceDraft:${scope}:${view.discussionId ?? ""}`;
   const original = useRef<HTMLDivElement>(null), chat = useRef<HTMLDivElement>(null), shell = useRef<HTMLDivElement>(null);
   const sourceBody = useRef<HTMLDivElement>(null);
+  const directory = useMemo(() => sourceSections(document), [document]);
+  const directoryId = useId();
+  const [wide, setWide] = useState(false);
+  const [directoryChoice, setDirectoryChoice] = useState<boolean>();
+  const [activeSection, setActiveSection] = useState<string>();
+  const [directoryJump, setDirectoryJump] = useState<DirectorySection>();
+  const directoryOpen = directoryChoice ?? wide;
+  const directoryAnchor = useRef<{ top: number; position: SourcePosition } | null>(null);
+  const directoryResizeAnchor = useRef<(SourcePosition & { fraction: number }) | null>(null);
+  const pendingDirectoryJump = useRef<DirectorySection | null>(null);
+  useLayoutEffect(() => {
+    const reader = shell.current;
+    if (!reader || !visible) return;
+    const resizeLayout = () => setWide(reader.clientWidth >= 960);
+    resizeLayout();
+    const resize = typeof ResizeObserver === "function" ? new ResizeObserver(resizeLayout) : undefined;
+    resize?.observe(reader);
+    return () => resize?.disconnect();
+  }, [visible]);
   useLayoutEffect(() => {
     setSelection(null);
     setNoteSelection(undefined);
@@ -412,6 +437,20 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setCurrentPage(block ? sourcePdfPage(document.pdf, sourceLinesAt(block)) : undefined);
   }, [document?.pdf]);
 
+  const setSectionAtLine = useCallback((line?: number) => {
+    setActiveSection(line === undefined ? undefined : sectionAtLine(directory.order, line)?.id);
+  }, [directory]);
+
+  const updateDirectory = useCallback((pane: HTMLElement, block = blockAtReadingLine(pane)) => {
+    if (!pane.clientHeight) return;
+    const anchor = directoryAnchor.current;
+    if (anchor?.top === pane.scrollTop) setSectionAtLine(anchor.position.lines[0]);
+    else {
+      directoryAnchor.current = null;
+      setSectionAtLine(block && sourceLinesAt(block)[0]);
+    }
+  }, [setSectionAtLine]);
+
   function switchPaper(next: boolean) {
     const pane = original.current;
     if (!pane || !document || showingTranslation === next) return;
@@ -427,6 +466,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     if (citedBlock && projection && projection.kind !== "unavailable") {
       position.current = { lines: projection.sourceLines, offset: projection.quoteOffsets?.[0],
         fraction: fractionAtReadingLine(pane, citedBlock) };
+    } else if (directoryAnchor.current?.top === pane.scrollTop) {
+      position.current = { ...directoryAnchor.current.position, fraction: 0 };
     } else if (!anchor || manual.current || anchor.dataset.translationGranularity !== "group" || !prior || blockAtSourcePosition(pane, prior) !== anchor) {
       position.current = anchor ? { ...sourcePositionAt(anchor), fraction: fractionAtReadingLine(pane, anchor) } : null;
     }
@@ -446,10 +487,11 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     if (!pane || !restorePaperPosition.current) return;
     restorePaperPosition.current = false;
     manual.current = false;
-    const node = anchor && blockAtSourcePosition(pane, anchor);
+    const node = anchor && paperBlockAt(pane, anchor);
     if (node && anchor) {
       restoreReadingLine(pane, node, anchor.fraction);
     } else pane.scrollTop = scrollByLanguage.current[showingTranslation ? "translation" : "original"];
+    if (directoryAnchor.current && anchor) directoryAnchor.current = { top: pane.scrollTop, position: anchor };
   }, [showingTranslation]);
 
   const messages = useMemo(() => view.conversation.filter(m => !m.sourceDeleted && (!m.sourceId || m.sourceId === sourceId)), [view.conversation, sourceId]);
@@ -556,11 +598,12 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     restorePaperPosition.current = false;
     restored.current = true;
     manual.current = true;
+    directoryAnchor.current = null;
   }, [stopNavigation]);
 
-  function saveBookmark(pane: HTMLElement, block: HTMLElement) {
+  function saveBookmark(pane: HTMLElement, block: HTMLElement, source = sourcePositionAt(block)) {
     if (!bookmark) return;
-    const { lines, offset } = sourcePositionAt(block);
+    const { lines, offset } = source;
     const position = { line: lines[0], sourceOffset: offset, fraction: fractionAtReadingLine(pane, block) };
     const saved = JSON.stringify(position);
     if (saved === safeRead(bookmark)) return;
@@ -569,6 +612,67 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       ...position, readingVersion: document.readingVersion, bundleVersion: document.bundleVersion,
     });
   }
+
+  function toggleDirectory() {
+    const pane = original.current;
+    const block = pane && blockAtReadingLine(pane);
+    if (wide && pane && block) {
+      manual.current = false;
+      directoryResizeAnchor.current = { ...sourcePositionAt(block), fraction: fractionAtReadingLine(pane, block) };
+    }
+    setDirectoryChoice(!directoryOpen);
+  }
+
+  useLayoutEffect(() => {
+    const pane = original.current, anchor = directoryResizeAnchor.current;
+    if (!pane || !anchor) return;
+    directoryResizeAnchor.current = null;
+    const block = paperBlockAt(pane, anchor);
+    if (block) restoreReadingLine(pane, block, anchor.fraction);
+    if (directoryAnchor.current) directoryAnchor.current.top = pane.scrollTop;
+    updateDirectory(pane);
+  }, [directoryOpen, updateDirectory]);
+
+  function jumpToSection(section: DirectorySection) {
+    const pane = original.current;
+    if (!pane || !isCurrentSource()) return;
+    stopNavigation();
+    manual.current = false;
+    restored.current = true;
+    restorePaperPosition.current = false;
+    setSelection(null);
+    setActiveEvidence(undefined);
+    if (!wide) setDirectoryChoice(false);
+    if (directoryJump === section) revealSection(pane, section);
+    else {
+      pendingDirectoryJump.current = section;
+      setDirectoryJump(section);
+    }
+  }
+
+  function revealSection(pane: HTMLElement, section: DirectorySection) {
+    const block = paperBlockAt(pane, section.position);
+    if (!block) return;
+    restoreReadingLine(pane, block, 0);
+    directoryAnchor.current = { top: pane.scrollTop, position: section.position };
+    updateDirectory(pane, block);
+    saveBookmark(pane, block, section.position);
+    if (document?.pdf) {
+      const page = sourcePdfPage(document.pdf, section.position.lines);
+      locatedPage.current = { top: pane.scrollTop, page };
+      setCurrentPage(page);
+    }
+    const heading = block.querySelector<HTMLElement>("h1, h2, h3, h4, h5, h6") ?? block;
+    heading.tabIndex = -1;
+    heading.focus({ preventScroll: true });
+  }
+
+  useLayoutEffect(() => {
+    const pane = original.current, section = pendingDirectoryJump.current;
+    if (!pane || !section || !visible || !isCurrentSource()) return;
+    pendingDirectoryJump.current = null;
+    revealSection(pane, section);
+  }, [directoryJump, isCurrentSource, visible]);
 
   // Keep the previous return until the new jump reaches its source location.
   const rememberAnswerReturn = useCallback((navigationIntent: EvidenceNavigationIntent) => {
@@ -603,13 +707,15 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       locatedPage.current = { top: pane.scrollTop, page };
       setCurrentPage(page);
     }
+    directoryAnchor.current = { top: pane.scrollTop, position: { lines: projection.sourceLines, offset: projection.quoteOffsets?.[0] } };
+    setSectionAtLine(projection.sourceLines[0]);
     setActiveEvidence(id);
     if (keyboard) {
       const destination = destinations[0];
       destination.tabIndex = -1;
       destination.focus({ preventScroll: true });
     }
-  }, [consume, document?.pdf, isCurrentSource, rememberAnswerReturn]);
+  }, [consume, document?.pdf, isCurrentSource, rememberAnswerReturn, setSectionAtLine]);
 
   useLayoutEffect(() => {
     if (visible) return;
@@ -699,25 +805,33 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       const saved = document.bookmark ?? local ?? (view.readingStarted && view.navigationCurrent?.bundleVersion === document.bundleVersion
         ? { line: view.navigationCurrent.sourceLines[0], offset: 0 } : null);
       if (saved && Number.isSafeInteger(saved.line)) {
-        const node = blockAtSourcePosition(pane, { lines: [saved.line, saved.line], offset: saved.sourceOffset });
+        const section = directory.order.find(item => item.position.lines[0] === saved.line);
+        if (showingTranslation && section && !section.translatedHeading && directoryJump !== section) {
+          setDirectoryJump(section);
+          restored.current = false;
+          return;
+        }
+        const node = paperBlockAt(pane, { lines: [saved.line, saved.line], offset: saved.sourceOffset });
         if (node && Number.isFinite(saved.fraction)) restoreReadingLine(pane, node, saved.fraction);
         else if (node && Number.isFinite(saved.offset)) pane.scrollTop += node.getBoundingClientRect().top - pane.getBoundingClientRect().top + saved.offset;
+        if (node && section) directoryAnchor.current = { top: pane.scrollTop, position: section.position };
         if (!document.bookmark && local && document.readingVersion !== undefined) {
           host.saveReadingViewBookmark?.(sourceId, { readingVersion: document.readingVersion, bundleVersion: document.bundleVersion,
             line: local.line, sourceOffset: local.sourceOffset, fraction: local.fraction, offset: local.offset });
         }
       }
     } catch { /* Ignore malformed display bookmarks, never mutate the Cursor. */ }
-  }, [document, bookmark, legacyBookmark, host, sourceId, intent, visible, mobile]);
+  }, [document, bookmark, legacyBookmark, host, sourceId, intent, visible, mobile, directory, directoryJump, showingTranslation]);
 
   useLayoutEffect(() => {
     const pane = original.current;
-    if (!visible || !document?.pdf || !pane) return;
-    updateOriginalPage(pane);
+    if (!visible || !document || !pane) return;
+    updateDirectory(pane);
+    if (document.pdf) updateOriginalPage(pane);
     const resize = typeof ResizeObserver === "function" ? new ResizeObserver(() => updateOriginalPage(pane)) : undefined;
     resize?.observe(pane);
     return () => resize?.disconnect();
-  }, [document?.pdf, mobile, showingTranslation, updateOriginalPage, visible]);
+  }, [document, mobile, showingTranslation, updateDirectory, updateOriginalPage, visible]);
 
   useEffect(() => {
     const pending = turn.current;
@@ -899,14 +1013,19 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     <div className="source-reader-columns">
       <div className="source-original-pane">
         <button type="button" className="source-mobile-toggle source-mobile-return" onClick={() => { stopNavigation(); setMobile("chat"); }}>返回对话</button>
-        {(showLanguageControls || originalHref) && <div className="source-original-toolbar">
+        {(directory.roots.length > 0 || showLanguageControls || originalHref) && <div className="source-original-toolbar">
+          {!!directory.roots.length && <button type="button" className="source-directory-toggle" aria-expanded={directoryOpen} aria-controls={directoryId}
+            onClick={toggleDirectory}><ListOutline />目录</button>}
           {showLanguageControls && <div className="paper-view-controls" role="group" aria-label="正文语言">
             <button aria-pressed={showingTranslation} disabled={!translationReady} onClick={() => switchPaper(true)}>{modernDocument ? "中文" : `中文译文${translationReady ? "" : translationState === "running" ? " · 准备中" : translationInterrupted ? " · 未完成" : " · 未就绪"}`}</button>
             <button aria-pressed={!showingTranslation} onClick={() => switchPaper(false)}>原文</button>
             {translationInterrupted && host.resumePreparation && <button onClick={() => void apply("translation", host.resumePreparation!(sourceId, createReaderId()))}>重试译文</button>}</div>}
           {originalHref && <a className="source-original-link" href={originalHref} target="_blank" rel="noreferrer">打开原件 ↗</a>}
         </div>}
-        <div ref={original} className="source-original"
+        <div className="source-reading-area">
+          {!!directory.roots.length && <SectionDirectory id={directoryId} open={directoryOpen} sections={directory}
+            activeId={activeSection} translated={showingTranslation} onJump={jumpToSection} />}
+          <div ref={original} className="source-original"
           aria-label="文章原文" tabIndex={0} onWheel={e => { if (!e.ctrlKey) manualBrowse(); }} onTouchStart={manualBrowse}
           onPointerDown={e => { if (e.target === e.currentTarget) manualBrowse(); }}
           onKeyDown={e => {
@@ -921,9 +1040,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
           onScroll={event => {
             const pane = event.currentTarget;
             updateOriginalPage(pane);
-            if (!manual.current) return;
             const block = blockAtReadingLine(pane);
-            if (block) saveBookmark(pane, block);
+            updateDirectory(pane, block);
+            if (block && manual.current) saveBookmark(pane, block);
           }}
           onClick={e => {
             const node = e.target as HTMLElement;
@@ -936,10 +1055,12 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
           }}>
           <ActiveSourceCitation.Provider value={markerSelection}>
             {document ? showingTranslation ? <TranslatedPaper document={document} evidence={paperLocations}
-              fallback={paperFallback} originalMarks={permanentMarks} notes={sharedNotes} noteLinks={noteLinks} /> :
+              fallback={paperFallback} originalMarks={permanentMarks} notes={sharedNotes} noteLinks={noteLinks}
+              originalSection={directoryJump && !directoryJump.translatedHeading ? directoryJump.position.lines : undefined} /> :
               <article><MarkdownContent text={document.markdown} sourceId={sourceId} marks={permanentMarks} sourceEvidence={sourceInput} bodyRef={sourceBody} /></article> :
               <span role="status" className="source-loading">加载中…</span>}
           </ActiveSourceCitation.Provider>
+          </div>
         </div>
         {selection && <div className="source-selection-actions">
           <button onClick={() => { composer.current?.insertQuote(selection.text); setSelection(null); setMobile("chat"); }}>引用</button>
@@ -958,12 +1079,11 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
               <div className="source-opening__head">
                 <button type="button" className="source-guide-toggle" onClick={() => setGuideOpen(!guideOpen)} aria-expanded={guideOpen}>
                   <ListOutline />
-                  <span>文章导读{opening.structure?.length ? ` · ${opening.structure.length} 节` : ""}</span>
+                  <span>文章导读</span>
                   <span className="source-guide-toggle__hint">{guideOpen ? "收起" : "展开"}</span>
                 </button>
               </div>
               {opening.guide && <p className="source-opening__summary">{opening.guide}</p>}
-              {guideOpen && opening.structure && <ul className="source-opening__list">{opening.structure.map(n => <li key={n.id} data-child={!!n.parentId}><button onClick={() => { stopNavigation(); manual.current = false; setMobile("original"); requestAnimationFrame(() => { const blocks = [...(original.current?.querySelectorAll<HTMLElement>("[data-source-line]") ?? [])]; const el = blocks.find(b => Number(b.dataset.sourceLine) >= n.sourceLines[0]); el?.scrollIntoView({ block: "start", behavior: reduced() ? "instant" : "smooth" }); }); }}>{n.title}</button></li>)}</ul>}
             </section>
           )}
           {opening?.status === "running" && <div className="source-opening-skeleton" aria-label="正在准备导读" role="status"><i /><i /><i /></div>}
