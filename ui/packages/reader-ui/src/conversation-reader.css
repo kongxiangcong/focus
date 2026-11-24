@@ -184,6 +184,7 @@
 .source-note-actions { display:flex; gap:6px; margin-top:6px; font-size:12px; color:var(--reader-muted); }
 
 .source-selection-actions { position:absolute; bottom:18px; left:24px; display:flex; gap:2px; background:var(--reader-popover); border:1px solid var(--reader-line); border-radius:10px; box-shadow:0 4px 20px rgba(29,33,37,.12); padding:4px; z-index:2; font-size:12.5px; }
+.source-original .source-chunk-note-link { margin-inline-end:4px; color:var(--reader-muted); font-size:12.5px; }
 
 
 /* Narrow container & Fullscreen chat mode */

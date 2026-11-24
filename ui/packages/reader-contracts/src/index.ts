@@ -100,14 +100,27 @@ export interface SentenceInput {
   quote: SentenceQuote;
 }
 export interface SentenceLocator extends SentenceInput { planId: string; chunkId: string }
-export interface SourceTextSelectionInput {
-  layer: "source";
+interface SelectedTextScope {
   planId: string;
   bundleVersion: string;
-  /** Ordered half-open ranges in canonical Markdown code points. */
-  ranges: readonly { start: number; end: number }[];
 }
-export interface SourceTextSelection extends SourceTextSelectionInput { chunkIds: readonly string[] }
+/** A half-open range of Unicode code points in the corresponding Markdown. */
+export interface MarkdownTextRange { start: number; end: number }
+interface OriginalTextSelection extends SelectedTextScope {
+  layer: "source";
+  ranges: readonly MarkdownTextRange[];
+}
+interface TranslatedTextSelection extends SelectedTextScope {
+  layer: "translation";
+  readingVersion: number;
+  ranges: readonly (MarkdownTextRange & { segmentId: string })[];
+}
+export type SourceTextSelectionInput = OriginalTextSelection | TranslatedTextSelection;
+export type SourceTextSelection = { chunkIds: readonly string[] } & (
+  OriginalTextSelection | (TranslatedTextSelection & {
+    chunkRanges: readonly { chunkId: string; ranges: readonly MarkdownTextRange[] }[];
+  })
+);
 export interface ReadingHighlight extends SentenceLocator {
   highlightId: string; sourceId: string; revision: number; bundle: string;
   sourceLines: readonly [number, number]; deleted: boolean; canUndo: boolean; sourceUpdated: boolean;
