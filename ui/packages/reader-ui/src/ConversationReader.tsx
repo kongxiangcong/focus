@@ -6,7 +6,7 @@ import { MarkdownContent } from "./MarkdownContent";
 import { ActiveSourceCitation } from "./SourceEvidenceMarkers";
 import { TranslatedPaper } from "./TranslatedPaper";
 import { SectionDirectory } from "./SectionDirectory";
-import { sourceSections, type DirectorySection } from "./source-sections";
+import { sectionAtLine, sourceSections, type DirectorySection } from "./source-sections";
 import { locatePaperEvidence, overlapsSourceLines } from "./paper-evidence";
 import { blockAtReadingLine, blockAtSourcePosition, fractionAtReadingLine, restoreReadingLine, sourceLinesAt, sourcePositionAt, type SourceLines, type SourcePosition } from "./source-position";
 import { citedMarkdown, messageEvidence, projectEvidence, type EvidenceProjection } from "./source-evidence";
@@ -63,6 +63,11 @@ function pdfOriginalHref(url: string, pdfHash?: string, page?: number) {
 
 function evidenceDestinations(pane: HTMLElement | null, id: string) {
   return [...(pane?.querySelectorAll<HTMLElement>(`[data-evidence-ids~="${id}"], [data-evidence-block~="${id}"]`) ?? [])];
+}
+
+function paperBlockAt(pane: HTMLElement, position: SourcePosition) {
+  return pane.querySelector<HTMLElement>(`[data-original-section] [data-source-line="${position.lines[0]}"]`) ??
+    blockAtSourcePosition(pane, position);
 }
 
 type AnswerLocation = { messageId: string; evidenceId: string; origin?: HTMLButtonElement };
@@ -320,10 +325,12 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const directoryId = useId();
   const [wide, setWide] = useState(false);
   const [directoryChoice, setDirectoryChoice] = useState<boolean>();
-  const [directoryLine, setDirectoryLine] = useState<number>();
+  const [activeSection, setActiveSection] = useState<string>();
+  const [directoryJump, setDirectoryJump] = useState<DirectorySection>();
   const directoryOpen = directoryChoice ?? wide;
   const directoryAnchor = useRef<{ top: number; position: SourcePosition } | null>(null);
   const directoryResizeAnchor = useRef<(SourcePosition & { fraction: number }) | null>(null);
+  const pendingDirectoryJump = useRef<DirectorySection | null>(null);
   useLayoutEffect(() => {
     const reader = shell.current;
     if (!reader || !visible) return;
@@ -428,15 +435,19 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setCurrentPage(block ? sourcePdfPage(document.pdf, sourceLinesAt(block)) : undefined);
   }, [document?.pdf]);
 
+  const setSectionAtLine = useCallback((line?: number) => {
+    setActiveSection(line === undefined ? undefined : sectionAtLine(directory.order, line)?.id);
+  }, [directory]);
+
   const updateDirectory = useCallback((pane: HTMLElement, block = blockAtReadingLine(pane)) => {
     if (!pane.clientHeight) return;
     const anchor = directoryAnchor.current;
-    if (anchor?.top === pane.scrollTop) setDirectoryLine(anchor.position.lines[0]);
+    if (anchor?.top === pane.scrollTop) setSectionAtLine(anchor.position.lines[0]);
     else {
       directoryAnchor.current = null;
-      setDirectoryLine(block && sourceLinesAt(block)[0]);
+      setSectionAtLine(block && sourceLinesAt(block)[0]);
     }
-  }, []);
+  }, [setSectionAtLine]);
 
   function switchPaper(next: boolean) {
     const pane = original.current;
@@ -474,7 +485,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     if (!pane || !restorePaperPosition.current) return;
     restorePaperPosition.current = false;
     manual.current = false;
-    const node = anchor && blockAtSourcePosition(pane, anchor);
+    const node = anchor && paperBlockAt(pane, anchor);
     if (node && anchor) {
       restoreReadingLine(pane, node, anchor.fraction);
     } else pane.scrollTop = scrollByLanguage.current[showingTranslation ? "translation" : "original"];
@@ -605,9 +616,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const block = pane && blockAtReadingLine(pane);
     if (wide && pane && block) {
       manual.current = false;
-      const anchor = directoryAnchor.current;
-      directoryResizeAnchor.current = anchor?.top === pane.scrollTop ? { ...anchor.position, fraction: 0 } :
-        { ...sourcePositionAt(block), fraction: fractionAtReadingLine(pane, block) };
+      directoryResizeAnchor.current = { ...sourcePositionAt(block), fraction: fractionAtReadingLine(pane, block) };
     }
     setDirectoryChoice(!directoryOpen);
   }
@@ -616,16 +625,15 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const pane = original.current, anchor = directoryResizeAnchor.current;
     if (!pane || !anchor) return;
     directoryResizeAnchor.current = null;
-    const block = blockAtSourcePosition(pane, anchor);
+    const block = paperBlockAt(pane, anchor);
     if (block) restoreReadingLine(pane, block, anchor.fraction);
-    if (directoryAnchor.current) directoryAnchor.current = { top: pane.scrollTop, position: anchor };
+    if (directoryAnchor.current) directoryAnchor.current.top = pane.scrollTop;
     updateDirectory(pane);
   }, [directoryOpen, updateDirectory]);
 
   function jumpToSection(section: DirectorySection) {
     const pane = original.current;
-    const block = pane && blockAtSourcePosition(pane, section.position);
-    if (!pane || !block || !isCurrentSource()) return;
+    if (!pane || !isCurrentSource()) return;
     stopNavigation();
     manual.current = false;
     restored.current = true;
@@ -633,15 +641,36 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setSelection(null);
     setActiveEvidence(undefined);
     if (!wide) setDirectoryChoice(false);
+    if (directoryJump === section) revealSection(pane, section);
+    else {
+      pendingDirectoryJump.current = section;
+      setDirectoryJump(section);
+    }
+  }
+
+  function revealSection(pane: HTMLElement, section: DirectorySection) {
+    const block = paperBlockAt(pane, section.position);
+    if (!block) return;
     restoreReadingLine(pane, block, 0);
     directoryAnchor.current = { top: pane.scrollTop, position: section.position };
     updateDirectory(pane, block);
     saveBookmark(pane, block, section.position);
-    updateOriginalPage(pane);
+    if (document?.pdf) {
+      const page = sourcePdfPage(document.pdf, section.position.lines);
+      locatedPage.current = { top: pane.scrollTop, page };
+      setCurrentPage(page);
+    }
     const heading = block.querySelector<HTMLElement>("h1, h2, h3, h4, h5, h6") ?? block;
     heading.tabIndex = -1;
     heading.focus({ preventScroll: true });
   }
+
+  useLayoutEffect(() => {
+    const pane = original.current, section = pendingDirectoryJump.current;
+    if (!pane || !section || !visible || !isCurrentSource()) return;
+    pendingDirectoryJump.current = null;
+    revealSection(pane, section);
+  }, [directoryJump, isCurrentSource, visible]);
 
   // Keep the previous return until the new jump reaches its source location.
   const rememberAnswerReturn = useCallback((navigationIntent: EvidenceNavigationIntent) => {
@@ -677,14 +706,14 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       setCurrentPage(page);
     }
     directoryAnchor.current = { top: pane.scrollTop, position: { lines: projection.sourceLines, offset: projection.quoteOffsets?.[0] } };
-    setDirectoryLine(projection.sourceLines[0]);
+    setSectionAtLine(projection.sourceLines[0]);
     setActiveEvidence(id);
     if (keyboard) {
       const destination = destinations[0];
       destination.tabIndex = -1;
       destination.focus({ preventScroll: true });
     }
-  }, [consume, document?.pdf, isCurrentSource, rememberAnswerReturn]);
+  }, [consume, document?.pdf, isCurrentSource, rememberAnswerReturn, setSectionAtLine]);
 
   useLayoutEffect(() => {
     if (visible) return;
@@ -774,16 +803,23 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       const saved = document.bookmark ?? local ?? (view.readingStarted && view.navigationCurrent?.bundleVersion === document.bundleVersion
         ? { line: view.navigationCurrent.sourceLines[0], offset: 0 } : null);
       if (saved && Number.isSafeInteger(saved.line)) {
-        const node = blockAtSourcePosition(pane, { lines: [saved.line, saved.line], offset: saved.sourceOffset });
+        const section = directory.order.find(item => item.position.lines[0] === saved.line);
+        if (showingTranslation && section && !section.translatedHeading && directoryJump !== section) {
+          setDirectoryJump(section);
+          restored.current = false;
+          return;
+        }
+        const node = paperBlockAt(pane, { lines: [saved.line, saved.line], offset: saved.sourceOffset });
         if (node && Number.isFinite(saved.fraction)) restoreReadingLine(pane, node, saved.fraction);
         else if (node && Number.isFinite(saved.offset)) pane.scrollTop += node.getBoundingClientRect().top - pane.getBoundingClientRect().top + saved.offset;
+        if (node && section) directoryAnchor.current = { top: pane.scrollTop, position: section.position };
         if (!document.bookmark && local && document.readingVersion !== undefined) {
           host.saveReadingViewBookmark?.(sourceId, { readingVersion: document.readingVersion, bundleVersion: document.bundleVersion,
             line: local.line, sourceOffset: local.sourceOffset, fraction: local.fraction, offset: local.offset });
         }
       }
     } catch { /* Ignore malformed display bookmarks, never mutate the Cursor. */ }
-  }, [document, bookmark, legacyBookmark, host, sourceId, intent, visible, mobile]);
+  }, [document, bookmark, legacyBookmark, host, sourceId, intent, visible, mobile, directory, directoryJump, showingTranslation]);
 
   useLayoutEffect(() => {
     const pane = original.current;
@@ -983,7 +1019,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
         </div>}
         <div className="source-reading-area">
           {!!directory.roots.length && <SectionDirectory id={directoryId} open={directoryOpen} sections={directory}
-            line={directoryLine} translated={showingTranslation} onJump={jumpToSection} />}
+            activeId={activeSection} translated={showingTranslation} onJump={jumpToSection} />}
           <div ref={original} className="source-original"
           aria-label="文章原文" tabIndex={0} onWheel={e => { if (!e.ctrlKey) manualBrowse(); }} onTouchStart={manualBrowse}
           onPointerDown={e => { if (e.target === e.currentTarget) manualBrowse(); }}
@@ -1014,7 +1050,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
           }}>
           <ActiveSourceCitation.Provider value={markerSelection}>
             {document ? showingTranslation ? <TranslatedPaper document={document} evidence={paperLocations}
-              fallback={paperFallback} originalMarks={permanentMarks} notes={sharedNotes} noteLinks={noteLinks} /> :
+              fallback={paperFallback} originalMarks={permanentMarks} notes={sharedNotes} noteLinks={noteLinks}
+              originalSection={directoryJump && !directoryJump.translatedHeading ? directoryJump.position.lines : undefined} /> :
               <article><MarkdownContent text={document.markdown} sourceId={sourceId} marks={permanentMarks} sourceEvidence={sourceInput} bodyRef={sourceBody} /></article> :
               <span role="status" className="source-loading">加载中…</span>}
           </ActiveSourceCitation.Provider>

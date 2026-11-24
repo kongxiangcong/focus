@@ -38,6 +38,16 @@ export type DirectorySection = {
   position: SourcePosition; translatedHeading: boolean; children: DirectorySection[];
 };
 
+export function sectionAtLine(sections: readonly DirectorySection[], line: number) {
+  let low = 0, high = sections.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (sections[middle].position.lines[0] <= line) low = middle + 1;
+    else high = middle;
+  }
+  return sections[low - 1];
+}
+
 export function sourceSections(document: ReadingDocument | null) {
   const roots: DirectorySection[] = [], order: DirectorySection[] = [];
   const byId = new Map<string, DirectorySection>();
@@ -72,7 +82,7 @@ export function sourceSections(document: ReadingDocument | null) {
     const segment = block && passages.get(block.blockId);
     let translated: string | undefined;
     let translatedHeading = false;
-    if (segment && segment.sourceOffsets[0] === block.offsets[0] && segment.sourceOffsets[1] === block.offsets[1] &&
+    if (block && segment && segment.sourceOffsets[0] === block.offsets[0] && segment.sourceOffsets[1] === block.offsets[1] &&
       segment.sourceLines[0] === lines[0] && segment.sourceLines[1] === lines[1]) {
       const candidates = headings(segment.text);
       translatedHeading = candidates.length === 1 && candidates[0].level === section.level && candidates[0].lines[0] === 1;
@@ -86,11 +96,17 @@ export function sourceSections(document: ReadingDocument | null) {
     numbers.set(parentId, index);
     const number = authored?.[1] ?? `${prefix}${index}`;
     prefixes.set(section.id, number);
-    const originalTitle = authored || otherNumber.test(title) ? title : `${number} ${title}`;
-    const translatedNumber = translated && arabicNumber.exec(translated);
-    const translatedTitle = !translated ? originalTitle :
-      (translatedNumber?.[1] === number && translatedNumber || otherNumber.test(translated)) ? translated :
-        `${authored?.[0] ?? `${number} `}${translated.replace(arabicNumber, "")}`;
+    const otherAuthored = otherNumber.exec(title);
+    const originalTitle = authored || otherAuthored ? title : `${number} ${title}`;
+    let translatedTitle = originalTitle;
+    if (translated) {
+      const translatedNumber = arabicNumber.exec(translated);
+      if (translatedNumber?.[1] === number || otherNumber.test(translated)) translatedTitle = translated;
+      else {
+        const label = (authored?.[0] ?? otherAuthored?.[0] ?? number).trimEnd();
+        translatedTitle = `${label} ${translated.replace(arabicNumber, "")}`;
+      }
+    }
     const entry = { id: section.id, parentId, originalTitle, translatedTitle, translatedHeading,
       position: { lines, offset: block?.offsets[0] }, children: [] };
     (parent?.children ?? roots).push(entry);

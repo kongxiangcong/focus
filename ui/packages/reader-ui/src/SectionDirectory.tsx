@@ -2,16 +2,12 @@ import { useState } from "react";
 import { ChevronDown } from "./ReaderIcons";
 import type { DirectorySection, sourceSections } from "./source-sections";
 
-export function SectionDirectory({ id, open, sections, line, translated, onJump }: {
-  id: string; open: boolean; sections: ReturnType<typeof sourceSections>; line: number | undefined;
+export function SectionDirectory({ id, open, sections, activeId, translated, onJump }: {
+  id: string; open: boolean; sections: ReturnType<typeof sourceSections>; activeId: string | undefined;
   translated: boolean; onJump: (section: DirectorySection) => void;
 }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
-  let active: DirectorySection | undefined;
-  if (line !== undefined) for (const section of sections.order) {
-    if (section.position.lines[0] > line) break;
-    active = section;
-  }
+  let active = activeId ? sections.byId.get(activeId) : undefined;
   for (let parent = active?.parentId; parent; parent = sections.byId.get(parent)?.parentId) {
     if (collapsed.has(parent)) active = sections.byId.get(parent);
   }

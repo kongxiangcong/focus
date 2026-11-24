@@ -26,7 +26,7 @@ from host.workbench import Workbench
 class BilingualRuntime(ReadingRuntimeDouble):
     def opening(self, **kwargs):
         return {'guide': '用来核对阅读位置。', 'structure': [
-            {'id': 'root', 'parentId': None, 'title': '双语位置', 'sourceLines': [1, 80]}]}
+            {'id': 'root', 'parentId': None, 'title': '双语位置', 'sourceLines': kwargs['ranges'][0]['source_lines']}]}
 
     def translate_document(self, *, segments, **kwargs):
         self.calls.append('document')
@@ -35,20 +35,21 @@ class BilingualRuntime(ReadingRuntimeDouble):
                  .replace('Introduction', '引言')
                  .replace('Methods', '方法')
                  .replace('Data sources', '数据来源')
-                 .replace('Appendix', '附录')
+                 .replace('Appendix\n--------', '附录概述。')
                  .replace('Reading passage', '阅读段落')
                  .replace('with context to read.', '用来核对阅读位置。')}
                 for segment in segments]
 
 
-def configure_source(source, source_id, title, *, chinese=False):
+def configure_source(source, source_id, title, *, chinese=False, headings=True, legacy=False):
     plan = source / 'reading/plans/plan-001'
-    passages = ['# ' + title]
+    passages = ['# ' + title] if headings else []
     chunks = []
     for number in range(1, 4):
         start = len(passages) * 2 + 1 if number > 1 else 1
         section = f'原文小节 {number}' if chinese else ['1. Introduction', 'Methods', 'Appendix'][number - 1]
-        passages.append('## ' + section)
+        if headings:
+            passages.append('Appendix\n--------' if not chinese and number == 3 else '## ' + section)
         for index in range(number * 12 - 11, number * 12 + 1):
             if not chinese and index == 14:
                 passages.append('### Data sources')
@@ -68,7 +69,8 @@ def configure_source(source, source_id, title, *, chinese=False):
     metadata = bundle / 'metadata.json'
     metadata.write_text(json.dumps({**json.loads(metadata.read_text()), 'source_kind': 'article_markdown',
         'language': 'zh' if chinese else 'en', 'parser': 'markdown-import'}), encoding='utf-8')
-    publish_source_ir(bundle, build_source_ir(bundle, markdown, source_kind='article_markdown'))
+    if not legacy:
+        publish_source_ir(bundle, build_source_ir(bundle, markdown, source_kind='article_markdown'))
     (plan / 'chunks.jsonl').write_text(''.join(json.dumps(chunk) + '\n' for chunk in chunks), encoding='utf-8')
     provenance = plan / 'provenance.json'
     provenance.write_text(json.dumps({**json.loads(provenance.read_text()), 'source_id': source_id,
@@ -78,12 +80,16 @@ def configure_source(source, source_id, title, *, chinese=False):
 def configure(fixture):
     workspace, source, _ = fixture._workspace()
     chinese = source.parent / 'fixture-chinese-article'
+    unheaded = source.parent / 'fixture-unheaded-article'
     copytree(source, chinese)
+    copytree(source, unheaded)
     configure_source(source, source.name, 'Bilingual Position')
-    configure_source(chinese, chinese.name, '中文原文示例', chinese=True)
+    configure_source(chinese, chinese.name, '中文原文示例', chinese=True, legacy=True)
+    configure_source(unheaded, unheaded.name, '无标题正文', chinese=True, headings=False)
     state_path = workspace / 'state.json'
     state = json.loads(state_path.read_text())
-    state['sources'][chinese.name] = dict(state['sources'][source.name])
+    for candidate in (chinese, unheaded):
+        state['sources'][candidate.name] = dict(state['sources'][source.name])
     state_path.write_text(json.dumps(state), encoding='utf-8')
     publish_workspace(workspace)
     return workspace
@@ -101,7 +107,8 @@ def main():
             host = workbench.host
             assert host is not None, workbench.status()
             source_id = 'fixture-paper'
-            for candidate, expected in [(source_id, 'ready'), ('fixture-chinese-article', 'not_applicable')]:
+            for candidate, expected in [(source_id, 'ready'), ('fixture-chinese-article', 'not_applicable'),
+                                        ('fixture-unheaded-article', 'not_applicable')]:
                 host.prepare_reading(candidate, request_id=uuid4().hex)
                 worker = host.reading_workers.get(candidate)
                 if worker:
