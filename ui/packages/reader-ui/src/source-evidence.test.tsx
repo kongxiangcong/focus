@@ -15,7 +15,7 @@ describe("source evidence rendering boundary", () => {
     expect(container.querySelectorAll("mark.source-evidence")).toHaveLength(1);
     expect(container.querySelectorAll("p")[0].querySelector("mark")).toBeNull();
     expect(container.querySelectorAll("p")[1].querySelector("mark")?.textContent).toBe("alias keeps order");
-    expect(screen.getByRole("button", { name: "返回相关回答" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "返回回答证据 1" })).toBeTruthy();
   });
   it("does not silently resolve ambiguous, outdated or fabricated quotes", () => {
     expect(projectEvidence(document, [{ ...evidence, sourceLines: [1, 9] }])[0].kind).toBe("unavailable");
@@ -52,12 +52,12 @@ describe("source evidence rendering boundary", () => {
     expect(messageEvidence({ ...message, answerRevision: "edited" }, document, "discussion")).toHaveLength(0);
     expect(citedMarkdown(message, [])).not.toContain("#e-");
   });
-  it("keeps the focused citation button mounted across hover callback updates", () => {
+  it("keeps the focused citation button mounted across answer focus updates", () => {
     const text = `[1](#e-${evidence.evidenceId})`;
-    const { container, rerender } = render(<MarkdownContent text={text} onCitation={() => {}} onCitationHover={() => {}} />);
+    const { container, rerender } = render(<MarkdownContent text={text} onCitation={() => {}} />);
     const button = container.querySelector("button")!;
     button.focus();
-    rerender(<MarkdownContent text={text} onCitation={() => {}} onCitationHover={() => {}} />);
+    rerender(<MarkdownContent text={text} activeCitation={evidence.evidenceId} onCitation={() => {}} />);
     expect(container.querySelector("button")).toBe(button);
     expect(button.ownerDocument.activeElement).toBe(button);
   });

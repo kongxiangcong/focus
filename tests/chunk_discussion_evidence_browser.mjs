@@ -18,7 +18,8 @@ const chat = nav.getByRole('button', { name: '对话', exact: true });
 const stream = page.getByRole('main', { name: '阅读与对话', exact: true });
 const conversation = page.getByLabel('文章对话', { exact: true });
 const source = page.getByLabel('文章原文', { exact: true });
-const evidenceCard = page.getByLabel('原文证据', { exact: true });
+const original = page.getByRole('button', { name: '原文', exact: true });
+const originalLink = page.getByRole('link', { name: '打开原件 ↗' });
 const chunk = number => stream.locator(`[data-chunk-key$="/chunk-00${number}"]`).last();
 const capsule = (section, count) => section.getByRole('button', { name: `对话证据 · ${count} 条`, exact: true });
 const answer = name => conversation.locator('[data-role="assistant"]').filter({ hasText: name });
@@ -97,14 +98,19 @@ async function followEvidence(list, name, number, quote) {
   await page.waitForFunction(() => document.activeElement?.getAttribute('data-answer-target') === 'true');
   assert.equal(await target.evaluate(node => document.activeElement === node), true);
   assert.equal(await chat.getAttribute('aria-pressed'), 'true');
-  assert.equal(await evidenceCard.count(), 0);
+  assert.equal(await source.locator('.is-active[data-evidence-ids], .is-active[data-evidence-block]').count(), 0);
+  await original.click();
   await target.click();
-  await evidenceCard.getByText(quote, { exact: true }).waitFor();
-  await source.locator('[data-pdf-page="4"] [data-active="true"]').first().waitFor();
+  const id = await target.getAttribute('data-citation');
+  await source.locator(`.is-active:is([data-evidence-ids~="${id}"], [data-evidence-block~="${id}"])`).first().waitFor();
+  assert.ok((await originalLink.getAttribute('href')).endsWith('#page=4'));
 }
 
 try {
   await page.goto(new URL('/reading', base).href);
+  await nav.waitFor();
+  const initial = await snapshot();
+  await host('/reader/session', { sessionId: initial.sessionId });
   await enterSecondChunk();
   const b = '精读证据四条引文';
   const newAnswer = '新讨论单条引文';

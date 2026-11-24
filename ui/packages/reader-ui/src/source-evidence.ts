@@ -30,7 +30,8 @@ export type EvidenceProjection = { evidence: ValidatedAnswerEvidence } & (
 );
 
 function findCanonicalQuote(markdown: string, starts: readonly number[], evidence: ValidatedAnswerEvidence): (SourceRange & { quoteOffsets: readonly [number, number] }) | undefined {
-  const [first, last] = evidence.sourceLines;
+  const [first, last] = evidence.sourceLines ?? [];
+  if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last)) return undefined;
   const lower = starts[first - 1], upper = starts[last] === undefined ? markdown.length : starts[last] - 1;
   if (lower === undefined || first < 1 || last < first || last > starts.length) return undefined;
   const normalize = (value: string) => value.replace(/\r\n?/g, "\n");
@@ -91,17 +92,16 @@ function resolve(tree: HastNode, document: ReadingDocument, evidence: readonly V
   return evidence.map(e => {
     const no = { evidence: e, kind: "unavailable" as const };
     if (e.sourceId !== document.sourceId || e.bundleVersion !== document.bundleVersion) return no;
-    const [first, last] = e.sourceLines;
+    const [first, last] = e.sourceLines ?? [];
+    if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last) || first < 1 || last < first || last > document.lineCount) return no;
     if (!e.quote.exact.trim()) return no;
     const verified = locate(e);
     const block = verified && tree.children?.some(n => {
       const span = lines.get(n);
       return span && span[0] <= verified.sourceLines[1] && span[1] >= verified.sourceLines[0];
     });
-    if (e.renderGranularity || e.blockIds || e.layoutVersion || e.pdfRegions) {
-      if (!verified) return no;
-      if (e.renderGranularity === "block") return { evidence: e, kind: "block", ...verified };
-    }
+    if (!verified && (e.messageId || e.renderGranularity || e.blockIds || e.layoutVersion || e.pdfRegions)) return no;
+    if (verified && e.renderGranularity === "block") return { evidence: e, kind: "block", ...verified };
     const candidates: number[] = [];
     for (let at = text.indexOf(e.quote.exact); at !== -1; at = text.indexOf(e.quote.exact, at + 1)) {
       const touched = nodes.filter(n => n.start < at + e.quote.exact.length && n.start + (n.node.value?.length ?? 0) > at);

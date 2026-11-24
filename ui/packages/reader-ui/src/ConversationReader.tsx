@@ -1,9 +1,9 @@
 import { forwardRef, memo, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { createReaderId, type ReaderHost, type ReaderHostResult, type ReaderMessage, type ReadingDocument, type ReadingOpening, type ReadingWindow, type ValidatedAnswerEvidence } from "@focus/reader-contracts";
+import { createReaderId, type ReaderHost, type ReaderHostResult, type ReaderMessage, type ReadingDocument, type ReadingOpening, type ReadingWindow } from "@focus/reader-contracts";
 import { useEvidenceNavigation, type EvidenceNavigation, type EvidenceNavigationIntent } from "./evidence-navigation";
 import type { ReadingSession } from "./reading-session";
 import { MarkdownContent } from "./MarkdownContent";
-import { ActiveSourceCitation, SourceAnswerChooser } from "./SourceEvidenceMarkers";
+import { ActiveSourceCitation } from "./SourceEvidenceMarkers";
 import { TranslatedPaper } from "./PaperViews";
 import { locatePaperEvidence, matchesTranslationChunk, overlapsSourceLines } from "./paper-evidence";
 import { citedMarkdown, messageEvidence, projectEvidence, type EvidenceProjection } from "./source-evidence";
@@ -185,14 +185,12 @@ interface MessageItemProps {
   activeCitation?: string;
   onSelect: (messageId: string) => void;
   onCite: (message: ReaderMessage, id: string, keyboard: boolean, origin: HTMLButtonElement) => void;
-  onHoverCitation: (messageId: string, id: string | undefined) => void;
 }
 
 const ConversationMessage = memo(function ConversationMessage({
-  message, markdown, isSelected, activeCitation, onSelect, onCite, onHoverCitation,
+  message, markdown, isSelected, activeCitation, onSelect, onCite,
 }: MessageItemProps) {
   const handleCitation = useCallback((id: string, keyboard: boolean, origin: HTMLButtonElement) => onCite(message, id, keyboard, origin), [onCite, message]);
-  const handleHover = useCallback((id: string | undefined) => onHoverCitation(message.messageId, id), [onHoverCitation, message.messageId]);
   return <section
     data-message-id={message.messageId}
     data-role={message.role}
@@ -205,7 +203,6 @@ const ConversationMessage = memo(function ConversationMessage({
       text={markdown}
       activeCitation={activeCitation}
       onCitation={message.role === "assistant" ? handleCitation : undefined}
-      onCitationHover={message.role === "assistant" ? handleHover : undefined}
     />
   </section>;
 });
@@ -263,9 +260,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const [selection, setSelection] = useState("");
   const [noteEdit, setNoteEdit] = useState<{ id: string; revision: number } | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
-  const [hoverEvidence, setHoverEvidence] = useState<string | undefined>();
   const [activeMessage, setActiveMessage] = useState<string | null>(null), [activeEvidence, setActiveEvidence] = useState<string | undefined>();
-  const [answerChoices, setAnswerChoices] = useState<{ ids: readonly string[]; opener: HTMLElement; discussionId?: string } | null>(null);
   const [answerReturn, setAnswerReturn] = useState<AnswerReturn | null>(null);
   const [lastAnswerCitation, setLastAnswerCitation] = useState<DiscussionCitation | null>(null);
   const [mobile, setMobile] = useState("chat"), [guideOpen, setGuideOpen] = useState(false), [notesOpen, setNotesOpen] = useState(false);
@@ -305,23 +300,15 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const pendingAnswerCitation = useRef<(DiscussionCitation & { nonce: string }) | null>(null);
   const [answerTarget, setAnswerTarget] = useState<(AnswerLocation & { discussionId: string }) | null>(null);
   const manual = useRef(false), followChat = useRef(true), turn = useRef<{ seen: Set<string>; cancelled: boolean; located: boolean } | null>(null);
-  const jumpOrigin = useRef<number | null>(null);
   const localNavigation = useEvidenceNavigation();
   const { intent, start, isLatest, consume, cancel, isResettingDiscussion } = evidenceNavigation ?? localNavigation;
   const resettingDiscussion = isResettingDiscussion(sourceId, view.discussionId);
-  const waitingPosition = useRef<{ nonce: string; scrollTop: number } | null>(null);
-  const [cardAtTop, setCardAtTop] = useState(false);
-  const [returnPosition, setReturnPosition] = useState<number | null>(null);
-  const [regionNumber, setRegionNumber] = useState(0);
   const [focusedTurn, setFocusedTurn] = useState<number>(-1);
   const chatScrollTop = useRef(0);
-  const scrollAnimation = useRef<number | null>(null);
-  useEffect(() => () => { if (scrollAnimation.current !== null) cancelAnimationFrame(scrollAnimation.current); }, []);
   const restored = useRef(false), bookmark = document ? `focus.sourceBookmark:${scope}:${document.bundleVersion}` : "";
   useEffect(() => {
     setActiveMessage(safeRead(`focus.activeAnswer:${draftKey}`));
     setActiveEvidence(undefined);
-    setAnswerChoices(null);
     setAnswerTarget(target => target?.discussionId === view.discussionId ? target : null);
     pendingAnswerCitation.current = null;
     setLastAnswerCitation(current => current?.discussionId === view.discussionId ? current : null);
@@ -434,13 +421,11 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     [answers, document, view.discussionId, resettingDiscussion]);
   const evidenceKey = JSON.stringify(validated);
   const evidence = useMemo(() => validated, [evidenceKey]);
-  // Do NOT include hoverEvidence/activeEvidence here; toggling active highlight via DOM avoids reparsing the full document.
+  // Keep the parsed document stable when the active citation changes.
   const sourceInput = useMemo(() => document ? { document, evidence } : undefined, [document, evidence]);
   const projections = useMemo(() => document ? projectEvidence(document, evidence) : [], [document, evidence]);
-  const paperLocations = useMemo(() => document?.pdf ? projections.map(projection => locatePaperEvidence(document, projection)) : [],
+  const paperLocations = useMemo(() => document?.translation ? projections.map(projection => locatePaperEvidence(document, projection)) : [],
     [document, projections]);
-  const sourceIntent = visible && intent && intent.destination !== "answer" && intent.sourceId === sourceId &&
-    intent.discussionId === view.discussionId && intent.selectionGeneration === selectionGeneration && isLatest(intent) ? intent : null;
 
   const annotationKey = JSON.stringify([view.sourceHighlights, view.sourceNotes]);
   const permanentMarks = useMemo(() => {
@@ -455,23 +440,25 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     });
   }, [document, annotationKey, sourceId]);
 
-  const active = projections.find(p => p.evidence.evidenceId === activeEvidence);
   const rememberedAnswer = !resettingDiscussion && lastAnswerCitation?.discussionId === view.discussionId ? lastAnswerCitation : null;
-  const highlightedEvidenceId = hoverEvidence ?? activeEvidence ?? rememberedAnswer?.evidenceId;
+  const markerSelection = useMemo(() => ({
+    messageId: selected?.messageId,
+    evidenceId: rememberedAnswer?.messageId === selected?.messageId ? rememberedAnswer?.evidenceId : undefined,
+  }), [selected?.messageId, rememberedAnswer]);
   const run = view.agent?.run?.sourceId === sourceId ? view.agent.run : null;
   const agent = run ? view.agent : undefined;
   const running = !!run && ["running", "approval", "stopping"].includes(run.status);
 
-  // Imperatively toggle active evidence class on the original DOM — < 0.2ms, zero Markdown reparse!
+  // Highlight on the existing source DOM without reprocessing the entire document.
   useLayoutEffect(() => {
     const pane = original.current;
     if (!pane) return;
-    pane.querySelectorAll(".is-active").forEach(el => el.classList.remove("is-active"));
-    if (highlightedEvidenceId) {
-      pane.querySelectorAll(`[data-evidence-ids~="${highlightedEvidenceId}"], [data-evidence="${highlightedEvidenceId}"], [data-evidence-block~="${highlightedEvidenceId}"]`)
+    pane.querySelectorAll("[data-evidence-ids].is-active, [data-evidence-block].is-active").forEach(el => el.classList.remove("is-active"));
+    if (activeEvidence) {
+      pane.querySelectorAll(`[data-evidence-ids~="${activeEvidence}"], [data-evidence="${activeEvidence}"], [data-evidence-block~="${activeEvidence}"]`)
         .forEach(el => el.classList.add("is-active"));
     }
-  }, [highlightedEvidenceId, evidenceKey, document, showingTranslation]);
+  }, [activeEvidence, evidenceKey, document, showingTranslation, annotationKey]);
 
   // Keep latest turn focused when new turns arrive.
   useEffect(() => {
@@ -484,14 +471,6 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     cancel();
     pendingAnswerCitation.current = null;
     setAnswerReturn(null);
-    setAnswerChoices(null);
-    jumpOrigin.current = null;
-    waitingPosition.current = null;
-    setReturnPosition(null);
-    if (scrollAnimation.current !== null) {
-      cancelAnimationFrame(scrollAnimation.current);
-      scrollAnimation.current = null;
-    }
     if (turn.current) turn.current.cancelled = true;
   }, [cancel]);
 
@@ -499,7 +478,6 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     if (!resettingDiscussion) return;
     stopNavigation();
     setActiveEvidence(undefined);
-    setHoverEvidence(undefined);
     setLastAnswerCitation(null);
   }, [resettingDiscussion, stopNavigation]);
 
@@ -537,64 +515,38 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setLastAnswerCitation({ messageId, evidenceId, origin, discussionId });
   }, []);
 
-  const moveTo = useCallback((id: string, { keyboard = false, automatic = false, navigationIntent, el = target(id), instant = false, projection }: {
-    keyboard?: boolean; automatic?: boolean; navigationIntent?: EvidenceNavigationIntent; el?: HTMLElement; instant?: boolean; projection?: EvidenceProjection;
-  } = {}) => {
+  const moveTo = useCallback((projection: Exclude<EvidenceProjection, { kind: "unavailable" }>,
+    { keyboard = false, navigationIntent }: { keyboard?: boolean; navigationIntent?: EvidenceNavigationIntent } = {}) => {
     const pane = original.current;
-    if (!el || !pane || !isCurrentSource()) return;
-    const current = () => isCurrentSource() && (!navigationIntent || isLatest(navigationIntent));
-    if (!current()) return;
-    if (jumpOrigin.current === null) jumpOrigin.current = pane.scrollTop;
+    const id = projection.evidence.evidenceId;
+    if (!pane || !isCurrentSource()) return;
+    const destinations = pane.querySelectorAll<HTMLElement>(`[data-evidence-ids~="${id}"], [data-evidence-block~="${id}"]`);
+    if (!destinations.length || !pane.clientHeight) return;
+    if (navigationIntent && !consume(navigationIntent)) return;
+    if (navigationIntent) rememberAnswerReturn(navigationIntent);
+
     manual.current = false;
-    if (!automatic) setMobile("original");
-    if (scrollAnimation.current !== null) {
-      cancelAnimationFrame(scrollAnimation.current);
-      scrollAnimation.current = null;
+    const viewport = pane.getBoundingClientRect();
+    const bounds = [...destinations].map(node => node.getBoundingClientRect());
+    const top = Math.min(...bounds.map(rect => rect.top));
+    const bottom = Math.max(...bounds.map(rect => rect.bottom));
+    if (top < viewport.top || bottom > viewport.bottom) {
+      const height = bottom - top;
+      const inset = Math.min(pane.clientHeight * .32, Math.max(0, (pane.clientHeight - height) / 2));
+      pane.scrollTo({ top: Math.max(0, pane.scrollTop + top - viewport.top - inset), behavior: "instant" });
     }
-    const targetRect = el.getBoundingClientRect(), paneRect = pane.getBoundingClientRect();
-    const cardClearance = 200;
-    const { top, bottom } = targetRect;
-    const inset = pane.clientHeight * .32;
-    const visibleTarget = top >= paneRect.top && bottom <= paneRect.bottom;
-    setCardAtTop(automatic && visibleTarget && bottom > paneRect.bottom - cardClearance);
-    const complete = () => {
-      if (!current() || (navigationIntent && !consume(navigationIntent))) return;
-      if (navigationIntent) rememberAnswerReturn(navigationIntent);
-      waitingPosition.current = null;
-      if (document?.pdf && projection && projection.kind !== "unavailable") {
-        const page = sourcePdfPage(document.pdf, projection.sourceLines, projection.quoteOffsets);
-        locatedPage.current = { top: pane.scrollTop, page };
-        setCurrentPage(page);
-      }
-      setReturnPosition(jumpOrigin.current);
-      setActiveEvidence(id);
-      if (keyboard) { el.tabIndex = -1; el.focus({ preventScroll: true }); }
-    };
-    const trackScroll = () => {
-      const waiting = waitingPosition.current;
-      if (waiting && waiting.nonce === navigationIntent?.nonce) waiting.scrollTop = pane.scrollTop;
-    };
-    if (automatic && visibleTarget) { complete(); return; }
-    const from = pane.scrollTop;
-    const to = Math.max(0, Math.min(pane.scrollHeight - pane.clientHeight, from + top - paneRect.top - inset));
-    if (instant || keyboard || reduced() || Math.abs(to - from) > pane.clientHeight * 1.2) {
-      pane.scrollTo({ top: to, behavior: "instant" });
-      trackScroll();
-      complete();
-    } else {
-      const started = performance.now();
-      const duration = parseFloat(getComputedStyle(pane).getPropertyValue("--reader-duration-move")) || 240;
-      const tick = (now: number) => {
-        if (!current()) { scrollAnimation.current = null; return; }
-        const t = Math.min(1, (now - started) / duration);
-        pane.scrollTop = from + (to - from) * (1 - Math.pow(1 - t, 3));
-        trackScroll();
-        scrollAnimation.current = t < 1 ? requestAnimationFrame(tick) : null;
-        if (t === 1) complete();
-      };
-      scrollAnimation.current = requestAnimationFrame(tick);
+    if (document?.pdf) {
+      const page = sourcePdfPage(document.pdf, projection.sourceLines, projection.quoteOffsets);
+      locatedPage.current = { top: pane.scrollTop, page };
+      setCurrentPage(page);
     }
-  }, [consume, document?.pdf, isCurrentSource, isLatest, rememberAnswerReturn]);
+    setActiveEvidence(id);
+    if (keyboard) {
+      const destination = destinations[0];
+      destination.tabIndex = -1;
+      destination.focus({ preventScroll: true });
+    }
+  }, [consume, document?.pdf, isCurrentSource, rememberAnswerReturn]);
 
   useLayoutEffect(() => {
     if (visible) return;
@@ -602,30 +554,12 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     if (!readingSession) stopNavigation();
     turn.current = null;
     pendingAnswerCitation.current = null;
-    jumpOrigin.current = null;
-    setAnswerChoices(null);
     setAnswerReturn(null);
     setAnswerTarget(null);
     setActiveEvidence(undefined);
-    setHoverEvidence(undefined);
-    setReturnPosition(null);
   }, [visible, selectionGeneration, stopNavigation]);
 
-  const wasFullscreen = useRef(fullscreen);
   useLayoutEffect(() => {
-    const layoutChanged = wasFullscreen.current !== fullscreen;
-    wasFullscreen.current = fullscreen;
-    if (layoutChanged) {
-      // Resolve any pending placement in the resized reading pane.
-      if (scrollAnimation.current !== null) cancelAnimationFrame(scrollAnimation.current);
-      scrollAnimation.current = null;
-      const pane = original.current;
-      if (waitingPosition.current && pane) waitingPosition.current.scrollTop = pane.scrollTop;
-      if (!fullscreen && visible && mobile === "original" && activeEvidence && !intent && !manual.current && pane?.clientHeight) {
-        const region = pane.querySelectorAll<HTMLElement>(`[data-evidence-block~="${activeEvidence}"]`)[regionNumber];
-        if (region) moveTo(activeEvidence, { automatic: true, el: region, instant: true });
-      }
-    }
     if (!visible || !intent || intent.sourceId !== sourceId || !isCurrentSource() || !isLatest(intent)) return;
     if (intent.discussionId !== view.discussionId || intent.selectionGeneration !== selectionGeneration) {
       consume(intent);
@@ -648,39 +582,26 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       setActiveEvidence(undefined);
       citation.scrollIntoView({ block: "nearest", behavior: "instant" });
       citation.focus({ preventScroll: true });
-      setHoverEvidence(undefined);
       safeWrite(`focus.activeAnswer:${draftKey}`, intent.messageId);
       setActiveMessage(intent.messageId);
       setAnswerTarget({ messageId: intent.messageId, evidenceId: intent.evidenceId, discussionId: intent.discussionId });
       return;
     }
-    manual.current = false;
-    restored.current = true;
-    restorePaperPosition.current = false;
-    if (scrollAnimation.current !== null) return;
-    if (mobile !== "original") { setMobile("original"); return; }
-    if (original.current && waitingPosition.current?.nonce !== intent.nonce) {
-      waitingPosition.current = { nonce: intent.nonce, scrollTop: original.current.scrollTop };
-    }
     if (!document) return;
     const message = messages.find(item => item.messageId === intent.messageId);
     const cited = message && messageEvidence(message, document, view.discussionId).find(item => item.evidenceId === intent.evidenceId);
-    if (!cited) { consume(intent); return; }
-    if (selected?.messageId !== intent.messageId) {
-      setActiveMessage(intent.messageId);
+    const verified = cited && projections.find(item => item.evidence.evidenceId === intent.evidenceId);
+    if (!verified || verified.kind === "unavailable" || !target(intent.evidenceId)) {
+      consume(intent);
       return;
     }
-    const verified = projections.find(item => item.evidence.evidenceId === intent.evidenceId);
-    if (!verified || verified.kind === "unavailable") {
-      if (consume(intent)) setActiveEvidence(intent.evidenceId);
-      return;
-    }
-    const destination = target(intent.evidenceId);
-    if (destination) moveTo(intent.evidenceId, { keyboard: intent.keyboard, navigationIntent: intent,
-      el: destination, instant: layoutChanged, projection: verified });
-    else if (consume(intent)) setActiveEvidence(intent.evidenceId);
-  }, [fullscreen, visible, intent, activeEvidence, regionNumber, sourceId, selectionGeneration, isCurrentSource, isLatest, consume, document, messages, draftKey, view.discussionId,
-    view.sourceBundleVersion, view.sourceGeneration, view.resetVersion,
+    if (mobile !== "original") { setMobile("original"); return; }
+    if (selected?.messageId !== intent.messageId) { setActiveMessage(intent.messageId); return; }
+    restored.current = true;
+    restorePaperPosition.current = false;
+    moveTo(verified, { keyboard: intent.keyboard, navigationIntent: intent });
+  }, [visible, intent, sourceId, selectionGeneration, isCurrentSource, isLatest, consume, document, messages, draftKey,
+    view.discussionId, view.sourceBundleVersion, view.sourceGeneration, view.resetVersion,
     selected?.messageId, mobile, showingTranslation, projections, moveTo]);
 
   const cite = useCallback((message: ReaderMessage, id: string, keyboard: boolean, origin: HTMLButtonElement) => {
@@ -689,14 +610,12 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     manual.current = false;
     restored.current = true;
     restorePaperPosition.current = false;
-    setHoverEvidence(undefined);
     safeWrite(`focus.activeAnswer:${draftKey}`, message.messageId);
     setActiveMessage(message.messageId);
-    setActiveEvidence(undefined);
     const next = start({ sourceId, discussionId: view.discussionId, selectionGeneration, messageId: message.messageId, evidenceId: id,
-      preferredView: showingTranslation ? "translation" : "source", keyboard });
+      keyboard });
     pendingAnswerCitation.current = { nonce: next.nonce, messageId: message.messageId, evidenceId: id, origin, discussionId: view.discussionId };
-  }, [stopNavigation, draftKey, isCurrentSource, resettingDiscussion, sourceId, view.discussionId, selectionGeneration, showingTranslation, start]);
+  }, [stopNavigation, draftKey, isCurrentSource, resettingDiscussion, sourceId, view.discussionId, selectionGeneration, start]);
 
   const handleSelectMessage = useCallback((messageId: string) => {
     if (selectedIdRef.current !== messageId) {
@@ -706,10 +625,6 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       setActiveEvidence(undefined);
     }
   }, [stopNavigation, draftKey]);
-
-  const handleHoverCitation = useCallback((messageId: string, id: string | undefined) => {
-    if (messageId === selectedIdRef.current) setHoverEvidence(id);
-  }, []);
 
   useLayoutEffect(() => {
     if (!document || !original.current || restored.current || intent) return;
@@ -736,8 +651,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   useEffect(() => {
     const pending = turn.current;
     if (!visible || intent || !pending || pending.located || pending.cancelled || !latest || pending.seen.has(latest.messageId) || !evidence.length) return;
-    const first = projections.find(p => p.evidence.messageId === latest.messageId && p.kind !== "unavailable");
-    if (first && selected?.messageId === latest.messageId) { pending.located = true; if ((shell.current?.clientWidth ?? 0) >= 960) moveTo(first.evidence.evidenceId, { automatic: true, projection: first }); }
+    const first = projections.find((p): p is Exclude<EvidenceProjection, { kind: "unavailable" }> => p.evidence.messageId === latest.messageId && p.kind !== "unavailable");
+    if (first && selected?.messageId === latest.messageId) { pending.located = true; if ((shell.current?.clientWidth ?? 0) >= 960) moveTo(first); }
   }, [visible, intent, latest, evidence, projections, selected, moveTo]);
 
   useLayoutEffect(() => {
@@ -842,48 +757,10 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setFocusedTurn(prev => (prev === best ? prev : best));
   }, [intent, isLatest, stopNavigation, turns.length]);
 
-  useEffect(() => { setRegionNumber(0); }, [activeEvidence, translated]);
-  function nextRegion() {
-    if (!activeEvidence || !original.current) return;
-    const regions = original.current.querySelectorAll<HTMLElement>(`[data-evidence-block~="${activeEvidence}"]`);
-    if (!regions.length) return;
-    const next = (regionNumber + 1) % regions.length;
-    manual.current = false;
-    regions[next].scrollIntoView({ block: "center", behavior: reduced() ? "instant" : "smooth" });
-    setRegionNumber(next);
-  }
   const translationInterrupted = ["failed", "cancelled", "interrupted"].includes(translationState ?? "");
-  const activeChunks = paperLocations.find(item => item.evidence.evidenceId === activeEvidence)?.translationChunks ?? [];
-  const locationLabel = active?.kind === "unavailable" ? " · 历史引文" : showingTranslation ?
-    activeChunks.length ? " · 译块定位" : " · 译块位置暂不可用" : active?.kind === "block" ? " · 段落定位" : "";
-  const partCount = showingTranslation ? activeChunks.length : 0;
-  function returnToReading() {
-    const top = jumpOrigin.current;
-    stopNavigation();
-    manual.current = false;
-    locatedPage.current = null;
-    if (top !== null) original.current?.scrollTo({ top, behavior: "instant" });
-    updateOriginalPage();
-    setActiveEvidence(undefined);
-  }
-  const choiceItems = answerChoices && answerChoices.discussionId === view.discussionId
-    ? evidence.filter(item => answerChoices.ids.includes(item.evidenceId)) : [];
-  function closeAnswerChooser() {
-    setAnswerChoices(null);
-    answerChoices?.opener.focus({ preventScroll: true });
-  }
   const activeFocusIndex = focusedTurn >= 0 && focusedTurn < turns.length ? focusedTurn : turns.length - 1;
 
-  return <section ref={shell} className="conversation-reader" data-fullscreen={!!fullscreen} data-mobile={mobile} data-font-size={fontSize} hidden={!visible} style={{ "--source-share": `${share}%`, "--source-font-size": `${readingFontSizes[fontSize as keyof typeof readingFontSizes] ?? 18}px` } as CSSProperties}
-    onKeyDown={e => {
-      if (!canDismissReaderLayer(e.nativeEvent)) return;
-      if (notesOpen) { e.stopPropagation(); closeNotes(); return; }
-      if (choiceItems.length) { e.stopPropagation(); closeAnswerChooser(); return; }
-      if (!activeEvidence || fullscreen) return;
-      if (rememberedAnswer?.evidenceId === activeEvidence || pendingAnswerCitation.current?.evidenceId === activeEvidence) backToAnswer(activeEvidence);
-      else stopNavigation();
-      setActiveEvidence(undefined);
-    }}>
+  return <section ref={shell} className="conversation-reader" data-fullscreen={!!fullscreen} data-mobile={mobile} data-font-size={fontSize} hidden={!visible} style={{ "--source-share": `${share}%`, "--source-font-size": `${readingFontSizes[fontSize as keyof typeof readingFontSizes] ?? 18}px` } as CSSProperties}>
     {documentError && <div role="alert" className="source-reader-error">{documentError}<button onClick={() => setReloadDocument(v => v + 1)}>重试</button><button onClick={() => setDocumentError("")}>关闭</button></div>}
     {Object.entries(operationErrors).map(([key, message]) => <div key={key} role="alert" className="source-reader-error">{message}<button onClick={() => showOperationError(key, "")}>关闭</button></div>)}
     {!running && run?.error && dismissedRun !== run.runId && <div role="alert" className="source-reader-error">{run.error}<button onClick={() => setDismissedRun(run.runId)}>关闭</button></div>}
@@ -896,20 +773,13 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
             {translationInterrupted && host.resumePreparation && <button onClick={() => void apply("translation", host.resumePreparation!(sourceId, createReaderId()))}>重试译文</button>}</div>}
           {originalHref && <a className="source-original-link" href={originalHref} target="_blank" rel="noreferrer">打开原件 ↗</a>}
         </div>}
-        <div ref={original} className="source-original" data-evidence-focus={activeEvidence ? "true" : undefined} data-evidence-pending={sourceIntent ? "true" : undefined}
+        <div ref={original} className="source-original"
           aria-label="文章原文" tabIndex={0} onWheel={e => { if (!e.ctrlKey) manualBrowse(); }} onTouchStart={manualBrowse}
           onPointerDown={e => { if (e.target === e.currentTarget) manualBrowse(); }}
           onKeyDown={e => { if (isScrollKey(e)) manualBrowse(); }}
           onScroll={event => {
             const pane = event.currentTarget;
             updateOriginalPage(pane);
-            const waiting = waitingPosition.current;
-            if (sourceIntent && isLatest(sourceIntent) && waiting?.nonce === sourceIntent.nonce && waiting.scrollTop !== pane.scrollTop) {
-              // Resizing the reading surface can clamp scrollTop to its new end.
-              const limit = Math.max(0, pane.scrollHeight - pane.clientHeight);
-              if (waiting.scrollTop > limit && Math.abs(pane.scrollTop - limit) <= 1) waiting.scrollTop = pane.scrollTop;
-              else manualBrowse();
-            }
             if (!manual.current || !bookmark) return;
             const block = blockAtReadingLine(pane, 0);
             if (block) safeWrite(bookmark, JSON.stringify({ line: Number(block.dataset.sourceLine),
@@ -917,28 +787,20 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
           }}
           onClick={e => {
             const node = e.target as HTMLElement;
-            const choices = node.closest<HTMLElement>("[data-evidence-choices]");
             const id = node.closest<HTMLElement>("[data-evidence]")?.dataset.evidence;
-            const messageId = node.closest<HTMLElement>("[data-evidence-answer]")?.dataset.evidenceAnswer;
             if (id) backToAnswer(id);
-            else if (messageId) goToAnswer(messageId);
-            else if (choices?.dataset.evidenceChoices && isCurrentSource()) {
-              stopNavigation();
-              setAnswerChoices({ ids: choices.dataset.evidenceChoices.split(" "), opener: choices, discussionId: view.discussionId });
-            } else {
+            else {
               const mark = node.closest<HTMLElement>("[data-anno-key], [data-anno-bulb]");
               if (mark) openNotes(mark);
             }
           }}>
-          <ActiveSourceCitation.Provider value={rememberedAnswer?.evidenceId}>
+          <ActiveSourceCitation.Provider value={markerSelection}>
             {document ? showingTranslation ? <TranslatedPaper document={document} evidence={paperLocations} /> :
               <article><MarkdownContent text={document.markdown} sourceId={sourceId} marks={permanentMarks} sourceEvidence={sourceInput} /></article> :
               <span role="status" className="source-loading">加载中…</span>}
           </ActiveSourceCitation.Provider>
         </div>
         {selection && <div className="source-selection-actions"><button onClick={() => { composer.current?.insertQuote(selection); setSelection(""); setMobile("chat"); }}>引用</button><button onClick={e => { setNoteDraft(`「${selection}」\n`); openNotes(e.currentTarget); setSelection(""); }}>记笔记</button><button aria-label="取消选择" onClick={() => setSelection("")}>×</button></div>}
-        {choiceItems.length > 0 && <SourceAnswerChooser items={choiceItems} answers={answers} onChoose={goToAnswer} onClose={closeAnswerChooser} />}
-        {active && !choiceItems.length && <aside className="source-evidence-card" data-top={cardAtTop} aria-label="原文证据"><button aria-label="关闭证据" onClick={() => { stopNavigation(); setActiveEvidence(undefined); }}>×</button><button onClick={() => backToAnswer(active.evidence.evidenceId)}>证据 {active.evidence.displayNumber}{locationLabel}</button><p>{active.evidence.quote.exact}</p>{partCount > 1 && <button onClick={nextRegion}>下一处（{regionNumber + 1}/{partCount}）</button>}{returnPosition !== null && <button onClick={returnToReading}>返回阅读位置</button>}</aside>}
       </div>
       <div className="source-splitter" role="separator" aria-label="调整原文宽度" aria-orientation="vertical" aria-valuemin={40} aria-valuemax={70} aria-valuenow={share} tabIndex={0}
         onKeyDown={e => { if (["ArrowLeft", "ArrowRight"].includes(e.key)) { e.preventDefault(); const v = Math.max(40, Math.min(70, share + (e.key === "ArrowLeft" ? -2 : 2))); setShare(v); safeWrite("focus.sourceShare", String(v)); } }}
@@ -976,7 +838,6 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
                   activeCitation={answerTarget?.messageId === message.messageId ? answerTarget.evidenceId : undefined}
                   onSelect={handleSelectMessage}
                   onCite={cite}
-                  onHoverCitation={handleHoverCitation}
                 />;
               })}
             </div>;
@@ -984,7 +845,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
         </div>
         <div className="source-composer-dock">
           <div className="source-composer-actions" role="toolbar" aria-label="对话操作">
-            <button type="button" className="source-mobile-toggle" onClick={() => { stopNavigation(); setMobile("original"); }}>查看原文</button>
+            <button type="button" className="source-mobile-toggle" onClick={() => { stopNavigation(); setMobile("original"); }}>查看正文</button>
             <div className="source-composer-icons">
               {(view.discussions?.length ?? 0) > 1 && host.selectDiscussionSource && (
                 <select className="source-discussion-select" aria-label="对话记录" value={view.discussionId ?? ""} disabled={running} onChange={e => { stopNavigation(); void apply("discussion", host.selectDiscussionSource!(sourceId, e.target.value)); }}>
