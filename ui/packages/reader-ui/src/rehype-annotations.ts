@@ -2,6 +2,7 @@ import { hastTextNodes, type HastNode } from "./annotatable-text";
 
 export interface RenderMark {
   key: string; start: number; end: number; highlightId?: string; noteId?: string;
+  sharedNoteId?: string; interactive?: boolean;
   pending?: boolean; fresh?: ("hl" | "note")[]; ariaLabel: string;
 }
 const element = (tagName: string, properties: Record<string, unknown>, children: HastNode[]): HastNode => ({ type: "element", tagName, properties, children });
@@ -24,29 +25,40 @@ export function rehypeAnnotations(options: { items: readonly RenderMark[] }): (t
     // Capture original nodes first; injected text and bulb UI must not advance offsets.
     for (const { node, parent, start } of hastTextNodes(tree)) {
       const value = node.value ?? "", end = start + value.length, parts: HastNode[] = [];
-      let cursor = 0;
-      for (const mark of items) {
-        if (mark.start >= end || mark.end <= start) continue;
-        const from = Math.max(0, mark.start - start), to = Math.min(value.length, mark.end - start);
-        if (from > cursor) parts.push(textNode(value.slice(cursor, from)));
-        const classes = ["reader-anno", ...(mark.highlightId ? ["reader-anno--hl"] : []), ...(mark.noteId ? ["reader-anno--note"] : []),
-          ...(mark.pending ? ["reader-anno--pending"] : []), ...(mark.fresh?.includes("hl") ? ["is-new-hl"] : []), ...(mark.fresh?.includes("note") ? ["is-new-note"] : [])];
-        function span(value: string, tail = false): HastNode {
-          const first = !seen.has(mark.key); seen.add(mark.key);
-          return element("span", { className: [...classes, ...(tail ? ["reader-anno--tail"] : [])], dataAnnoKey: mark.key,
-            ...(first ? { tabIndex: 0, role: "button", ariaLabel: mark.ariaLabel } : {}) }, [textNode(value)]);
-        }
-        const segment = value.slice(from, to);
-        if (start + to === mark.end) {
-          const tail = Array.from(segment).at(-1)!;
-          const head = segment.slice(0, -tail.length);
-          if (head) parts.push(span(head));
-          parts.push(element("span", { className: ["reader-anno-nb"] }, [span(tail, true), ...(mark.noteId ? [bulb(mark)] : [])]));
-        } else parts.push(span(segment));
-        cursor = to;
+      const touching = items.filter(mark => mark.start < end && mark.end > start);
+      if (!touching.length || !value) continue;
+      const cuts = new Set([start, end]);
+      const tails = new Map<number, RenderMark[]>();
+      for (const mark of touching) {
+        cuts.add(Math.max(start, mark.start));
+        cuts.add(Math.min(end, mark.end));
+        if (mark.sharedNoteId || mark.end > end) continue;
+        const tail = Array.from(value.slice(0, mark.end - start)).at(-1)!;
+        cuts.add(mark.end - tail.length);
+        tails.set(mark.end, [...(tails.get(mark.end) ?? []), mark]);
       }
-      if (!parts.length) continue;
-      if (cursor < value.length) parts.push(textNode(value.slice(cursor)));
+      const offsets = [...cuts].sort((a, b) => a - b);
+      for (let i = 1; i < offsets.length; i++) {
+        const from = offsets[i - 1], to = offsets[i];
+        const segment = textNode(value.slice(from - start, to - start));
+        const owners = touching.filter(mark => mark.start <= from && mark.end >= to);
+        if (!owners.length) { parts.push(segment); continue; }
+        const legacy = owners.find(mark => !mark.sharedNoteId);
+        const shared = owners.filter(mark => mark.sharedNoteId);
+        const control = legacy ?? shared.find(mark => mark.interactive);
+        const first = control && !seen.has(control.key);
+        if (control) seen.add(control.key);
+        const tail = tails.get(to) ?? [];
+        const classes = ["reader-anno", ...(legacy?.highlightId ? ["reader-anno--hl"] : []), ...(legacy?.noteId ? ["reader-anno--note"] : []),
+          ...(legacy?.pending ? ["reader-anno--pending"] : []), ...(legacy?.fresh?.includes("hl") ? ["is-new-hl"] : []),
+          ...(legacy?.fresh?.includes("note") ? ["is-new-note"] : []), ...(tail.length ? ["reader-anno--tail"] : []),
+          ...(shared.length ? ["reader-anno--shared-note"] : [])];
+        const span = element("span", { className: classes, dataAnnoKey: control?.key,
+          dataSharedNoteIds: shared.length ? Array.from(new Set(shared.map(mark => mark.sharedNoteId))).join(" ") : undefined,
+          ...(first ? { tabIndex: 0, role: "button", ariaLabel: control.ariaLabel } : {}) }, [segment]);
+        parts.push(tail.length ? element("span", { className: ["reader-anno-nb"] },
+          [span, ...tail.filter(mark => mark.noteId).map(bulb)]) : span);
+      }
       const index = parent.children!.indexOf(node);
       parent.children!.splice(index, 1, ...parts);
     }

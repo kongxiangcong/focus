@@ -134,7 +134,7 @@ class Handler(BaseHTTPRequestHandler):
             annotation_errors = {'note_bundle_changed': 409, 'highlight_bundle_changed': 409,
                                  'highlight_overlap': 409, 'note_sentence_overlap': 409,
                                  'highlight_request_conflict': 409, 'highlight_invalid': 400,
-                                 'note_sentence_invalid': 400, 'highlight_not_found': 404}
+                                 'note_sentence_invalid': 400, 'note_selection_invalid': 400, 'highlight_not_found': 404}
             code = error_id if error_id in annotation_errors else 'cursor-changed' if error_id == 'cursor_changed' else 'invalid-request' if isinstance(exc, (ValueError, WorkspaceError)) else 'unavailable'
             self._send(annotation_errors.get(code, 409 if code == 'cursor-changed' else 400 if code == 'invalid-request' else 500),
                        {'ok': False, 'error': {'code': code, 'message': str(exc), 'retryable': code == 'unavailable'}})

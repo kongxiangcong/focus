@@ -580,6 +580,7 @@ def _chunk_presentation(
         "total": total,
         "section_path": section_path,
         "source_lines": source_range,
+        "source_offset": source.starts[start - 1],
         "block_ids": source.chunk_block_ids(start, end),
         "source_text": source_text,
         "translation": reading_record["translation"],

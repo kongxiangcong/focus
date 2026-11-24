@@ -38,6 +38,8 @@ export interface ReaderChunk {
   total: number;
   sectionPath: readonly string[];
   sourceLines: readonly [number, number];
+  /** Start of sourceMarkdown in canonical Markdown code points. */
+  sourceOffset?: number;
   blockIds?: readonly string[];
   sourceMarkdown: string;
   translation: string | null;
@@ -98,6 +100,14 @@ export interface SentenceInput {
   quote: SentenceQuote;
 }
 export interface SentenceLocator extends SentenceInput { planId: string; chunkId: string }
+export interface SourceTextSelectionInput {
+  layer: "source";
+  planId: string;
+  bundleVersion: string;
+  /** Ordered half-open ranges in canonical Markdown code points. */
+  ranges: readonly { start: number; end: number }[];
+}
+export interface SourceTextSelection extends SourceTextSelectionInput { chunkIds: readonly string[] }
 export interface ReadingHighlight extends SentenceLocator {
   highlightId: string; sourceId: string; revision: number; bundle: string;
   sourceLines: readonly [number, number]; deleted: boolean; canUndo: boolean; sourceUpdated: boolean;
@@ -122,6 +132,7 @@ export interface SourceNote {
   anchor: { sourceId: string; bundle: string; sourceLines: readonly [number, number]; quote?: string } | null;
   placement?: NotePlacement | null;
   sentence?: SentenceLocator | null;
+  selection?: SourceTextSelection;
   referenceStatus: "current" | "historical" | "unavailable";
   sourceUpdated: boolean;
   deleted: boolean;
@@ -359,6 +370,7 @@ export type ReaderFailureCode =
   | "highlight_request_conflict"
   | "highlight_not_found"
   | "note_sentence_invalid"
+  | "note_selection_invalid"
   | "note_bundle_changed"
   | "cursor-changed"
   | "invalid-request"
@@ -486,6 +498,7 @@ export interface CreateSourceNoteInput {
   chunk?: { planId: string; chunkId: string };
   quote?: string;
   sentence?: SentenceInput;
+  selection?: SourceTextSelectionInput;
 }
 
 export type WorkbenchSourceSelection = { workbenchId: string; generation: number };
