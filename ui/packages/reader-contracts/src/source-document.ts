@@ -14,6 +14,15 @@ export interface ValidatedAnswerEvidence extends SourceScope {
 }
 export type PdfBox = readonly [number, number, number, number];
 
+export interface ReadingViewBookmark {
+  readingVersion: number;
+  bundleVersion: string;
+  line: number;
+  sourceOffset?: number;
+  fraction?: number;
+  offset?: number;
+}
+
 export interface ReadingTranslationSegment {
   id: string;
   text: string;
@@ -26,6 +35,8 @@ export interface ReadingTranslationSegment {
 }
 
 export interface ReadingDocument extends SourceScope { generation?: number; title: string; markdown: string; lineCount: number;
+  readingVersion?: number;
+  bookmark?: ReadingViewBookmark | null;
   /** Prepared Chunk boundaries in canonical Markdown code points. */
   readingPlan?: { planId: string; chunks: readonly { chunkId: string; sourceOffsets: readonly [number, number] }[] } | null;
   /** A null value indicates that the Host has no original file to open. */

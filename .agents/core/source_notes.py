@@ -126,8 +126,8 @@ class SourceNotes:
             return {'sourceNotes': [self._public(row, source_id, bundle) for row in notes],
                     'sourceHighlights': [SourceHighlights._public(row, source_id, bundle) for row in highlights]}
 
-    def generation(self, source_id: str) -> int:
-        with _LOCK, closing(self._connect(source_id)) as db:
+    def generation(self, source_id: str, reading_version=None) -> int:
+        with _LOCK, closing(self._connect(source_id, reading_version)) as db:
             return db.execute("SELECT count(*) FROM clears").fetchone()[0]
 
     @staticmethod

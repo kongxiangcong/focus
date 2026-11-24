@@ -28,7 +28,18 @@ class DiscussionRuntime(CandidateRuntime):
         self.item_id = item_id
 
     def release(self):
-        self.events.put({'method': 'message/completed', 'params': {'itemId': self.item_id, 'text': self.answer}})
+        if self.item_id.startswith('answer-') and self.answer.startswith('Archived'):
+            self.events.put({'id': 42, 'method': 'tool/call', 'params': {'tool': 'focus', 'arguments': {
+                'action': 'cite', 'arguments': json.dumps({'start': 4, 'end': 4, 'quote': 'alias address'})}}})
+        else:
+            self.complete(self.answer)
+
+    def send(self, response):
+        evidence = json.loads(response['result']['text'])
+        self.complete(self.answer + ' ' + evidence['marker'])
+
+    def complete(self, answer):
+        self.events.put({'method': 'message/completed', 'params': {'itemId': self.item_id, 'text': answer}})
         self.events.put({'method': 'turn/completed', 'params': {'status': 'completed'}})
 
 
@@ -71,12 +82,33 @@ class ResetReadingTests(unittest.TestCase):
         self.host.source_highlight_create('fixture-paper', {
             'requestId': 'reset-highlight', 'chunk': chunk, **selection})
         document = self.host.source_document('fixture-paper')
+        markdown = document['markdown']
+        cross = {'layer': 'source', 'planId': 'plan-001', 'bundleVersion': document['bundleVersion'],
+                 'ranges': [{'start': markdown.index('Figure 1:'), 'end': markdown.index('Relocation') + len('Relocation')}]}
+        shared = self.host.source_note_create('fixture-paper', {'requestId': 'reset-shared-note',
+            'kind': 'thought', 'origin': 'user', 'content': 'One note across two chunks', 'selection': cross})['noteOperation']['note']
         bookmark = {'readingVersion': 1, 'bundleVersion': document['bundleVersion'], 'line': 1, 'offset': 5}
         self.host.reading_view_bookmark('fixture-paper', payload=bookmark)
+        document = self.host.source_document('fixture-paper')
         before = self.host.snapshot()
         runtime = stage4.PlanningRuntime(self.rebuild_draft())
         self.host.reading_app.runtime = runtime
         payload = {'requestId': 'reset-this-source', 'confirmed': True}
+
+        replace = Path.replace
+
+        def corrupt_staging(path, target):
+            result = replace(path, target)
+            if target.name == 'backup.json':
+                (target.parent / 'parser-bundle' / 'content.md').write_text('Incomplete copy', encoding='utf-8')
+            return result
+
+        with patch.object(Path, 'replace', corrupt_staging):
+            with self.assertRaises(WorkspaceError) as failure:
+                self.host.reset_source_reading('fixture-paper', payload)
+            self.assertEqual('clear_incomplete', failure.exception.error_id)
+        self.assertEqual(before['sourceNotes'], self.host.snapshot()['sourceNotes'])
+        self.assertEqual(before['navigationCurrent'], self.host.snapshot()['navigationCurrent'])
 
         reset = self.host.reset_source_reading('fixture-paper', payload)
         self.host.reading_workers['fixture-paper'].join(3)
@@ -105,6 +137,8 @@ class ResetReadingTests(unittest.TestCase):
         self.assertEqual(before['readingProgress'], backup['readingProgress'])
         self.assertEqual(before['sourceNotes'], backup['sourceNotes'])
         self.assertEqual(before['sourceHighlights'], backup['sourceHighlights'])
+        self.assertEqual(['chunk-001', 'chunk-002'], shared['selection']['chunkIds'])
+        self.assertEqual([shared], [note for note in backup['sourceNotes'] if note['noteId'] == shared['noteId']])
         self.assertEqual(bookmark, backup['bookmark'])
         self.assertIsNone(self.host.reading_view_bookmark('fixture-paper'))
         with self.assertRaises(WorkspaceError):
@@ -146,6 +180,10 @@ class ResetReadingTests(unittest.TestCase):
             send(old, f'Archived question {n}', f'archived-request-{n}')
         self.assertTrue(old_summary in runtimes[-1].prompt, 'The original discussion has a compacted prefix')
         original = self.host.snapshot()
+        evidence = original['conversation'][1]['evidence'][0]
+        self.assertEqual('alias address', evidence['quote']['exact'])
+        self.assertEqual([4, 4], evidence['sourceLines'])
+        self.assertEqual(original['conversation'][1]['answerRevision'], evidence['answerRevision'])
         request = {'requestId': 'interrupted-reset', 'confirmed': True}
 
         replace = Path.replace
@@ -194,7 +232,7 @@ class ResetReadingTests(unittest.TestCase):
         backup = self.host.reading_version_backup('fixture-paper', 1)
         self.assertEqual(original['conversation'], backup['conversation'])
         self.assertEqual(old_summary, backup['discussion']['summary'])
-        self.assertEqual(backup['conversation'][1]['messageId'], backup['discussion']['summaryThrough'])
+        self.assertIn(backup['discussion']['summaryThrough'], ('answer-0', 'answer-1'))
 
         runtime.fail_generation = False
         self.host.resume_preparation('fixture-paper', request_id='retry-reset-preparation')

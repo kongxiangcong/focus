@@ -682,6 +682,8 @@ class HostService:
             if (bundle / SOURCE_ORIGINALS['paper_pdf']).is_file():
                 document['pdf'] = source.pdf
             document['translation'] = self.reading_app.core.shared_translation(source_id, document, source=source)
+            document['readingVersion'] = self.reading_app.core._reading_version(source_id)
+            document['bookmark'] = self.reading_versions.bookmark(source_id, document['readingVersion'])
             return document
 
     def complete_source(self, source_id, payload):
@@ -692,7 +694,8 @@ class HostService:
             return self.snapshot()
 
     def _opening_status(self, source_id, app, attempt):
-        result = app.opening(source_id)
+        version = self.reading_app.core._reading_version(source_id)
+        result = app.opening(source_id, reading_version=version)
         if result['status'] == 'missing':
             legacy = ArticleOverview(self.workspace, self.reading_app).status(source_id)
             if legacy.get('status') == 'ready':
@@ -700,12 +703,12 @@ class HostService:
             worker = self.reading_workers.get(source_id)
             if worker and worker.is_alive() and hasattr(self.reading_app.runtime, 'overview_structure'):
                 return {**result, 'status': 'running'}
-        worker = self.opening_workers.get(source_id)
+        worker = self.opening_workers.get((source_id, version))
         if result['status'] == 'ready':
             return result
         if worker and worker.is_alive():
             return {**result, 'status': 'running'}
-        if not attempt or attempt['bundleVersion'] != result['bundleVersion']:
+        if not attempt or attempt['bundleVersion'] != result['bundleVersion'] or attempt.get('readingVersion', 1) != version:
             return result
         error = '导读生成已中断，请重试。' if attempt['status'] == 'running' else attempt['error']
         return {**result, 'status': 'failed', 'error': error}
@@ -721,28 +724,34 @@ class HostService:
             self._require_backend_admission()
             if self.shutting_down or self.resetting:
                 raise ValueError('工作区正在关闭或重置')
-            attempt = {'attemptId': uuid.uuid4().hex, 'bundleVersion': result['bundleVersion'], 'status': 'running'}
+            version = self.reading_app.core._reading_version(source_id)
+            key = (source_id, version)
+            attempt = {'attemptId': uuid.uuid4().hex, 'bundleVersion': result['bundleVersion'], 'status': 'running',
+                       'readingVersion': version}
             self.store.put('openingAttempts', {**attempts, source_id: attempt})
 
             def generate():
                 error = None
                 try:
-                    app.generate(source_id, self.reading_app.runtime, stopped=lambda: self.shutting_down or self.resetting)
+                    app.generate(source_id, self.reading_app.runtime, reading_version=version,
+                                 stopped=lambda: self.shutting_down or self.resetting)
                 except Exception as exc:
                     error = str(exc)
                 finally:
                     with self.lock:
-                        self.opening_workers.pop(source_id, None)
+                        self.opening_workers.pop(key, None)
                         if not self.shutting_down:
                             current = self.store.get('openingAttempts') or {}
+                            if (current.get(source_id) or {}).get('attemptId') != attempt['attemptId']:
+                                return
                             if error is None:
                                 current.pop(source_id, None)
                             elif source_id not in SourceLibrary(self.workspace).deleted_sources():
                                 current[source_id] = {**attempt, 'status': 'failed', 'error': error}
                             self.store.put('openingAttempts', current)
                             self.changed()
-            self.opening_workers[source_id] = threading.Thread(target=generate, daemon=True)
-            self.opening_workers[source_id].start()
+            self.opening_workers[key] = threading.Thread(target=generate, daemon=True)
+            self.opening_workers[key].start()
             self._publish_snapshot_locked()
             return {**result, 'status': 'running', 'error': None}
 
@@ -889,6 +898,10 @@ class HostService:
             self.source_clear.recover()
             SourceLibrary(self.workspace).get(source_id)
             self.source_notes.bundle_version(source_id)
+            state = _read_document(self.workspace / 'state.json')
+            round_discussion = version_metadata(state, source_id).get('discussion_id')
+            if discussion_id and round_discussion and discussion_id != round_discussion:
+                raise WorkspaceError('reading_version_changed', '此讨论属于另一阅读轮次。')
             if selection is not None and self.reading_app.status(source_id) is None:
                 self.prepare_reading(source_id, request_id=uuid.uuid4().hex)
             self._cancel_early_summary_locked()
@@ -1725,6 +1738,10 @@ class HostService:
 
     def clear_source(self, source_id, payload):
         with self.lock:
+            request_id = payload.get('requestId')
+            self.source_notes._check_request(request_id)
+            if request_id in self.reading_versions.receipts():
+                raise WorkspaceError('clear_request_conflict', '请求已用于另一操作。')
             self._cancel_early_summary_locked()
             result = self.source_clear.execute(source_id, payload, busy=self.source_clear_busy(source_id))
             self.changed()
@@ -1754,7 +1771,9 @@ class HostService:
                     raise WorkspaceError('source_busy', '该材料有活动任务，请等待任务结束后再重新阅读。')
                 state = _read_document(self.workspace / 'state.json')
                 versions = version_metadata(state, source_id)
-                discussion_id = versions.get('discussion_id') or discussions.select(self.state, source_id)
+                discussion_id = versions.get('discussion_id')
+                if discussion_id not in self.state.get('discussions', {}):
+                    discussion_id = discussions.select(self.state, source_id)
                 result = self.reading_versions.reset(source_id, request_id, expected=expected, discussion_id=discussion_id,
                     capture=lambda plan, bundle: self._capture_reading_version(source_id, discussion_id, plan, bundle), clock=self.clock)
                 self._cancel_early_summary_locked()

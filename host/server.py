@@ -135,7 +135,13 @@ class Handler(BaseHTTPRequestHandler):
                                  'highlight_overlap': 409, 'note_sentence_overlap': 409,
                                  'highlight_request_conflict': 409, 'highlight_invalid': 400,
                                  'note_sentence_invalid': 400, 'note_selection_invalid': 400, 'highlight_not_found': 404}
-            code = error_id if error_id in annotation_errors else 'cursor-changed' if error_id == 'cursor_changed' else 'invalid-request' if isinstance(exc, (ValueError, WorkspaceError)) else 'unavailable'
+            if error_id == 'clear_incomplete':
+                self._send(503, {'ok': False, 'error': {'code': 'unavailable', 'message': str(exc), 'retryable': True}})
+                return
+            if error_id in ('reading_backup_missing', 'reading_version_missing'):
+                self._send(404, {'ok': False, 'error': {'code': 'invalid-request', 'message': str(exc), 'retryable': False}})
+                return
+            code = error_id if error_id in annotation_errors else 'cursor-changed' if error_id in ('cursor_changed', 'reading_version_changed') else 'invalid-request' if isinstance(exc, (ValueError, WorkspaceError)) else 'unavailable'
             self._send(annotation_errors.get(code, 409 if code == 'cursor-changed' else 400 if code == 'invalid-request' else 500),
                        {'ok': False, 'error': {'code': code, 'message': str(exc), 'retryable': code == 'unavailable'}})
 

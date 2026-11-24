@@ -1,4 +1,4 @@
-import type { ReadingDocument, ReadingOpening } from "@focus/reader-contracts";
+import type { ReadingDocument, ReadingOpening, ReadingViewBookmark } from "@focus/reader-contracts";
 import { mergeText } from "./text-stream";
 import { createReaderId, readerFailure, type CreateSourceNoteInput, type CreateHighlightInput, type HighlightOperation,
   type BackendSetupAction, type BackendSetupInput, type BackendSetupResult,
@@ -183,6 +183,8 @@ export class HttpReaderHost implements ReaderHost {
   private readonly baseUrl: string;
   private readonly fetch: Fetch;
   private readonly instanceId?: string;
+  private readonly pendingBookmarks = new Map<string, ReadingViewBookmark>();
+  private readonly bookmarkWrites = new Map<string, Promise<void>>();
 
   constructor(options: HttpReaderHostOptions) {
     this.baseUrl = options.baseUrl.replace(/\/$/, "");
@@ -378,6 +380,24 @@ export class HttpReaderHost implements ReaderHost {
   }
   getSourceDocument(sourceId: string): Promise<ReaderHostResult<ReadingDocument>> {
     return this.sourceAsset<ReadingDocument>(sourceId, "document", false);
+  }
+  saveReadingViewBookmark(sourceId: string, bookmark: ReadingViewBookmark) {
+    const key = `${sourceId}:${bookmark.readingVersion}`;
+    this.pendingBookmarks.set(key, bookmark);
+    if (this.bookmarkWrites.has(key)) return;
+    const drain = async () => {
+      let next: ReadingViewBookmark | undefined;
+      while ((next = this.pendingBookmarks.get(key))) {
+        this.pendingBookmarks.delete(key);
+        try {
+          await this.fetch(`${this.baseUrl}/library/sources/${encodeURIComponent(sourceId)}/reading-bookmark`, {
+            method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(next),
+          });
+        } catch { /* The browser retains the position locally when offline. */ }
+      }
+      this.bookmarkWrites.delete(key);
+    };
+    this.bookmarkWrites.set(key, Promise.resolve().then(drain));
   }
   getSourceOpening(sourceId: string, prepare = false): Promise<ReaderHostResult<ReadingOpening>> {
     return this.sourceAsset<ReadingOpening>(sourceId, "opening", prepare);
@@ -599,9 +619,10 @@ export class HttpReaderHost implements ReaderHost {
       method: "POST", body: JSON.stringify({ requestId, confirmed: true, resetReading: true }),
     });
   }
-  resetSourceReading(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>> {
+  async resetSourceReading(sourceId: string, requestId: string, readingVersion?: number): Promise<ReaderHostResult<ReadingWindow>> {
+    await Promise.all(Array.from(this.bookmarkWrites, ([key, pending]) => key.startsWith(`${sourceId}:`) ? pending : undefined));
     return this.request(`/library/sources/${encodeURIComponent(sourceId)}/reset-reading`, {
-      method: "POST", body: JSON.stringify({ requestId, confirmed: true }),
+      method: "POST", body: JSON.stringify({ requestId, confirmed: true, readingVersion }),
     });
   }
 

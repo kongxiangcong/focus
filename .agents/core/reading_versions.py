@@ -1,7 +1,6 @@
 """Reading Version selection, committed backup recovery, and browsing bookmarks."""
 from contextlib import closing
 import hashlib
-from pathlib import Path
 import shutil
 import sqlite3
 import uuid
@@ -12,7 +11,6 @@ from .reading_workspace import (
     _write_document,
 )
 from .source_blocks import source_lines
-from .source_library import SourceLibrary
 from .source_provenance import bundle_fingerprint
 
 
@@ -38,10 +36,10 @@ def version_reading_directory(root, state, source_id, reading_version=None):
     return root / 'reading'
 
 
-def files_in(root):
+def _asset_hashes(root):
     hashes = {}
     for path in sorted(root.rglob('*')):
-        if path.is_file() and path.name != 'backup.json':
+        if path.is_file() and path != root / 'backup.json':
             with path.open('rb') as asset:
                 hashes[path.relative_to(root).as_posix()] = hashlib.file_digest(asset, 'sha256').hexdigest()
     return hashes
@@ -106,14 +104,14 @@ class ReadingVersions:
                 snapshot.update(annotations, sourceId=source_id, readingVersion=current, bundleVersion=bundle,
                                 cursor=dict(cursor), planId=old_plan, bookmark=self._bookmark_at(state, source_id, current, bundle),
                                 backedUpAt=backed_up_at)
-                manifest = {'snapshot': snapshot, 'files': files_in(staging)}
-                _write_document(staging / 'backup.json', manifest)
-                self._read_backup(staging, source_id, current, bundle, backed_up_at)
+                manifest_path = staging / 'backup.json'
+                _write_document(manifest_path, {'snapshot': snapshot, 'files': _asset_hashes(staging)})
+                manifest_hash = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+                self._read_backup(staging, source_id, current, bundle, backed_up_at, manifest_hash)
 
-                prior_backup = bound.get('backup')
                 versions[str(current)] = {**bound, 'bundle_version': bundle, 'discussion_id': discussion_id,
                                           'cursor': dict(cursor), 'plan_ids': plan_ids, 'backup': token,
-                                          'backed_up_at': backed_up_at}
+                                          'backed_up_at': backed_up_at, 'backup_sha256': manifest_hash}
                 versions[str(following)] = {'storage': 'versioned', 'bundle_version': self.reading._bundle_version(source_id),
                                             'discussion_id': uuid.uuid4().hex, 'plan_ids': []}
                 for entry in state.get('reading_progress', {}).values():
@@ -130,23 +128,26 @@ class ReadingVersions:
             except Exception as exc:
                 # If an error was reported after the atomic replacement, the receipt
                 # still owns the staged assets and will be reconciled by Host.
-                durable = self.receipts().get(request_id)
-                if durable:
-                    return durable
-                shutil.rmtree(staging, ignore_errors=True)
-                raise WorkspaceError('clear_incomplete', '阅读备份未完成，请重试重新阅读。') from exc
-            if prior_backup:
-                shutil.rmtree(backup_root / prior_backup, ignore_errors=True)
+                receipt = self.receipts().get(request_id)
+                if not receipt:
+                    shutil.rmtree(staging, ignore_errors=True)
+                    raise WorkspaceError('clear_incomplete', '阅读备份未完成，请重试重新阅读。') from exc
+            for backup in backup_root.iterdir():
+                if backup != staging:
+                    shutil.rmtree(backup, ignore_errors=True)
             return receipt
 
     @staticmethod
-    def _read_backup(root, source_id, reading_version, bundle, backed_up_at):
-        manifest = _read_document(root / 'backup.json')
+    def _read_backup(root, source_id, reading_version, bundle, backed_up_at, manifest_hash):
+        path = root / 'backup.json'
+        if hashlib.sha256(path.read_bytes()).hexdigest() != manifest_hash:
+            raise ValueError('Reading backup manifest has changed')
+        manifest = _read_document(path)
         data = manifest['snapshot']
         if (data['sourceId'], data['readingVersion'], data['bundleVersion'], data['backedUpAt']) != (
                 source_id, reading_version, bundle, backed_up_at):
             raise ValueError('Reading backup identity is invalid')
-        if files_in(root) != manifest['files']:
+        if _asset_hashes(root) != manifest['files']:
             raise ValueError('Reading backup assets are incomplete')
         parser = root / 'parser-bundle'
         _validate_parser_bundle(parser)
@@ -160,9 +161,8 @@ class ReadingVersions:
             chunk_ids = [chunk['chunk_id'] for chunk in chunks]
             if data['cursor'].get('current_chunk_id') not in (None, *chunk_ids):
                 raise ValueError('Reading backup Cursor is invalid')
-            for chunk_id in chunk_ids:
-                _read_reading_record(plan / 'records' / f'{chunk_id}.json', chunk_id)
-            data['chunks'] = chunks
+            data['chunks'] = [{**chunk, 'record': _read_reading_record(plan / 'records' / f'{chunk_id}.json', chunk_id)}
+                              for chunk, chunk_id in zip(chunks, chunk_ids)]
         else:
             data['chunks'] = []
         database = root / 'notes.sqlite3'
@@ -179,7 +179,8 @@ class ReadingVersions:
             raise WorkspaceError('reading_backup_missing', '此轮阅读没有可恢复的备份。')
         try:
             root = version_directory(self.reading._root(source_id), reading_version) / 'backups' / metadata['backup']
-            return self._read_backup(root, source_id, reading_version, metadata['bundle_version'], metadata['backed_up_at'])
+            return self._read_backup(root, source_id, reading_version, metadata['bundle_version'], metadata['backed_up_at'],
+                                     metadata['backup_sha256'])
         except (OSError, ValueError, KeyError, sqlite3.Error, WorkspaceError) as exc:
             raise WorkspaceError('reading_backup_invalid', '此轮阅读备份无法读取。') from exc
 
@@ -208,14 +209,20 @@ class ReadingVersions:
             bundle = metadata.get('bundle_version') or self.reading._bundle_version(source_id)
             if payload is None:
                 return self._bookmark_at(state, source_id, reading_version, bundle)
-            if (set(payload) != {'readingVersion', 'bundleVersion', 'line', 'offset'}
+            if (set(payload) - {'readingVersion', 'bundleVersion', 'line', 'offset', 'sourceOffset', 'fraction'}
                     or payload['readingVersion'] != reading_version or payload['bundleVersion'] != bundle):
                 raise WorkspaceError('reading_bookmark_changed', '阅读位置的原文已改变，请刷新后重试。')
-            line, offset = payload['line'], payload['offset']
+            line, offset = payload.get('line'), payload.get('offset', 0)
+            source_offset, fraction = payload.get('sourceOffset', 0), payload.get('fraction', 0)
             parser = _source_bundle_at_version(root, bundle)
-            if (type(line) is not int or not 1 <= line <= len(source_lines((parser / 'content.md').read_text(encoding='utf-8')))
-                    or type(offset) not in (int, float) or not -100000 <= offset <= 100000):
+            markdown = (parser / 'content.md').read_text(encoding='utf-8')
+            if (type(line) is not int or not 1 <= line <= len(source_lines(markdown))
+                    or type(offset) not in (int, float) or not -100000 <= offset <= 100000
+                    or type(source_offset) is not int or not 0 <= source_offset < len(markdown)
+                    or type(fraction) not in (int, float) or not 0 <= fraction <= 1):
                 raise WorkspaceError('reading_bookmark_invalid', '阅读书签无效。')
-            state.setdefault('reading_view_bookmarks', {}).setdefault(source_id, {})[str(reading_version)] = payload
-            _write_document(self.state_path, state)
+            bookmarks = state.setdefault('reading_view_bookmarks', {}).setdefault(source_id, {})
+            if bookmarks.get(str(reading_version)) != payload:
+                bookmarks[str(reading_version)] = payload
+                _write_document(self.state_path, state)
             return payload
