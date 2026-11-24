@@ -26,6 +26,8 @@ export interface ReadingTranslationSegment {
 }
 
 export interface ReadingDocument extends SourceScope { generation?: number; title: string; markdown: string; lineCount: number;
+  /** Prepared Chunk boundaries in canonical Markdown code points. */
+  readingPlan?: { planId: string; chunks: readonly { chunkId: string; sourceOffsets: readonly [number, number] }[] } | null;
   /** A null value indicates that the Host has no original file to open. */
   original?: { format: "pdf" | "html" | "markdown" } | null;
   /** Half-open Unicode code-point offsets in canonical Markdown. */

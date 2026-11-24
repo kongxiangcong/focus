@@ -216,6 +216,23 @@ class ReadingCore:
                     "selected_plan_id": selected_id, "selected_ready": selected_ready,
                     "candidate": bool(selected_id and run["plan_id"] != selected_id)}
 
+    def note_plan(self, source_id, bundle, source):
+        """Return the prepared Plan and the canonical Markdown extent of each Chunk."""
+        with _LOCK:
+            run = self.status(source_id)
+            if not run or run['bundle'] != bundle:
+                return None
+            plan = run['selected_plan_id'] if run['selected_ready'] else run['plan_id'] if run['ready'] else None
+            if plan is None:
+                return None
+            root = self._root(source_id) / 'reading' / 'plans' / plan
+            chunks = []
+            for chunk in _read_chunk_records(root / 'chunks.jsonl'):
+                first, last = chunk['source_lines']
+                chunks.append({'chunkId': chunk['chunk_id'],
+                               'sourceOffsets': [source.starts[first - 1], source.starts[last] - 1]})
+            return {'planId': plan, 'chunks': chunks}
+
     def shared_translation(self, source_id, document, *, source=None):
         with _LOCK:
             translation = self._source_translation(source_id, document['bundleVersion'],
