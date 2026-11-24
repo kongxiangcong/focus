@@ -15,6 +15,7 @@ from .reading_workspace import (
 )
 from .source_library import SourceLibrary
 from .source_provenance import SOURCE_ORIGINALS, file_fingerprint
+from .source_markdown import document_language
 
 
 INGESTION_METHOD_VERSION = "focus-ingestion-v1"
@@ -179,6 +180,8 @@ class IngestionCore:
         if _source_kind(item) == "paper_pdf":
             from .source_ir import publish_pdf_source_ir
             publish_pdf_source_ir(candidate)
+        metadata["source_language"] = document_language((candidate / "content.md").read_text(encoding="utf-8"))
+        _write_document(candidate / "metadata.json", metadata)
         result = SourceLibrary(self.workspace).register(
             candidate,
             source_kind=_source_kind(item),

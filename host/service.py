@@ -381,6 +381,7 @@ class HostService:
                 dismissed = self.store.get('dismissedPreparation:' + source_id)
                 projected['dismissed'] = dismissed == {
                     'run_id': preparation['run_id'], 'attempt': preparation['attempt']}
+        window['unifiedPreparation'] = True
         window['preparations'] = preparations
         window['clearBusySources'] = [source['sourceId'] for source in sources_overview
                                       if self.source_clear_busy(source['sourceId'], restart_reading=True)]
@@ -639,14 +640,19 @@ class HostService:
             # ReadingCore has already persisted a failed or closed attempt.
             pass
         finally:
-            self._reading_worker_finished(run_id)
+            self._reading_worker_finished(run_id, source_id=source_id, attempt=attempt)
 
-    def _reading_worker_finished(self, run_id=None):
+    def _reading_worker_finished(self, run_id=None, *, source_id=None, attempt=None):
         with self.lock:
             if not self.shutting_down:
                 # A confirmed reset can queue its new run while an older,
                 # revoked attempt still owns the source's model worker.
-                self._recover_pending_reading_resets(finished=(threading.current_thread(), run_id))
+                worker = threading.current_thread()
+                self._recover_pending_reading_resets(finished=(worker, run_id))
+                if source_id and self.reading_workers.get(source_id) is worker:
+                    retry = self.reading_app.status(source_id)
+                    if retry and retry['run_id'] == run_id and retry['attempt'] != attempt:
+                        self._start_reading_worker(source_id, retry, finished=worker)
                 self.changed()
 
     def source_document(self, source_id):
@@ -657,10 +663,15 @@ class HostService:
             from core.source_blocks import SourceBlocks
             from core.source_provenance import SOURCE_ORIGINALS
             source = SourceBlocks(bundle, document['markdown'])
-            document['blocks'] = [{'blockId': block['block_id'], 'offsets': block['offsets']} for block in source.blocks]
+            document['blocks'] = [
+                {'blockId': block['block_id'], 'offsets': block['offsets'],
+                 'sourceLines': source.line_span(*block['offsets']),
+                 **({'pageNumber': block['page']} if 'page' in block else {})}
+                for block in source.blocks]
+            document['language'] = self.reading_app.core.source_language(source_id)
+            document['translation'] = self.reading_app.core.shared_translation(source_id, document, source=source)
             if (bundle / SOURCE_ORIGINALS['paper_pdf']).is_file():
                 document['pdf'] = source.pdf
-                document['translation'] = self.reading_app.core.shared_translation(source_id, document)
             return document
 
     def complete_source(self, source_id, payload):
@@ -795,7 +806,9 @@ class HostService:
             self.source_clear.recover()
             worker = self.reading_workers.get(source_id)
             if worker and worker.is_alive():
-                return self.snapshot()
+                preparation = self.reading_app.status(source_id)
+                if not preparation or preparation['status'] not in ('failed', 'cancelled', 'interrupted'):
+                    return self.snapshot()
             run = self.reading_app.resume(source_id, request_id=request_id)
             self._start_reading_worker(source_id, run)
             self.changed()
@@ -866,6 +879,8 @@ class HostService:
             self.source_clear.recover()
             SourceLibrary(self.workspace).get(source_id)
             self.source_notes.bundle_version(source_id)
+            if selection is not None and self.reading_app.status(source_id) is None:
+                self.prepare_reading(source_id, request_id=uuid.uuid4().hex)
             self._cancel_early_summary_locked()
             discussions.select(self.state, source_id, discussion_id=discussion_id)
             self.state['discussionSourceId'] = source_id
@@ -1066,7 +1081,7 @@ class HostService:
             self._publish_snapshot_locked()
             return confirmed
 
-    def _prepare_uploaded_pdf(self, source_id, *, start_allowed):
+    def _prepare_uploaded_reading(self, source_id, *, start_allowed):
         with self.lock:
             if start_allowed and not start_allowed():
                 return
@@ -1090,7 +1105,7 @@ class HostService:
 
     def _processing_app(self):
         if self.processing is None:
-            self.processing = ProcessingApplication(self.ingestion, self._blog_app(), self._prepare_uploaded_pdf)
+            self.processing = ProcessingApplication(self.ingestion, self._blog_app(), self._prepare_uploaded_reading)
         return self.processing
 
     def inbox_start(self, item_id, *, request_id):
@@ -1161,14 +1176,14 @@ class HostService:
             return result
 
     def batch_start(self, item_ids, *, request_id, generate_blog=True, prepare_reading=False):
-        if type(prepare_reading) is not bool or (prepare_reading and not generate_blog):
+        if type(prepare_reading) is not bool:
             raise ValueError('阅读准备范围无效。')
         if type(generate_blog) is not bool:
             raise ValueError('生成博客选项无效。')
         app = self._batch_app()
         with app.lock, self._batch_admission(requires_backend=(
-            generate_blog and isinstance(item_ids, list)
-            and any(supports_ingestion_blog(self.ingestion.get(i)) for i in item_ids if isinstance(i, str))
+            prepare_reading or (generate_blog and isinstance(item_ids, list)
+            and any(supports_ingestion_blog(self.ingestion.get(i)) for i in item_ids if isinstance(i, str)))
         )):
             with self.lock:
                 if isinstance(item_ids, list) and any(self.ingestion_workers.get(i) and self.ingestion_workers[i].is_alive() for i in item_ids if isinstance(i, str)):
@@ -1351,7 +1366,7 @@ class HostService:
             status = self.reading_app.status(source_id)
             if status and (status.get('selected_ready') or (status['ready'] and not status.get('candidate'))):
                 return self.open_prepared_reading(source_id, request_id=request_id)
-            if restore:
+            if restore and status:
                 return self.snapshot()
             if status and status['status'] in ('failed', 'cancelled', 'interrupted'):
                 raise ValueError('准备已中断，请明确选择恢复。')
