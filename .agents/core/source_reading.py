@@ -9,6 +9,7 @@ from .source_library import SourceLibrary
 from .reading_workspace import WorkspaceError, _read_document, _write_document
 from .article_overview import validate_guide
 from .source_blocks import SourceBlocks, source_lines
+from .source_provenance import SOURCE_ORIGINALS
 
 
 
@@ -22,10 +23,15 @@ class SourceReading:
         with _LOCK:
             version = self.notes.bundle_version(source_id)
             source = SourceLibrary(self.workspace).get(source_id)
-            markdown = (self.notes._root(source_id) / 'parser-bundle' / 'content.md').read_text(encoding='utf-8', errors='replace')
+            bundle = (self.notes._root(source_id) / 'parser-bundle').resolve()
+            markdown = (bundle / 'content.md').read_text(encoding='utf-8', errors='replace')
+            original_name = SOURCE_ORIGINALS[source['source_kind']]
+            original = (bundle / original_name).resolve()
+            original_format = {'source.pdf': 'pdf', 'source.html': 'html', 'source.md': 'markdown'}[original_name]
+            original_resource = {'format': original_format} if original.is_relative_to(bundle) and original.is_file() else None
             if self.notes.bundle_version(source_id) != version:
                 raise WorkspaceError('source_bundle_changed', '原文版本已改变，请重新打开。')
-            return {'sourceId': source_id, 'bundleVersion': version, 'title': source['title'],
+            return {'sourceId': source_id, 'bundleVersion': version, 'title': source['title'], 'original': original_resource,
                     'markdown': markdown, 'lineCount': len(source_lines(markdown)), 'generation': self.notes.generation(source_id)}
 
     def opening(self, source_id):

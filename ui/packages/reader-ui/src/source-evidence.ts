@@ -154,7 +154,7 @@ export function rehypeSourceEvidence(options: { document: ReadingDocument; evide
       const span = (child as Positioned).position;
       if (child.type !== "element" || !span) return [child];
       const first = canonical[span.start.line - 1]?.[0] ?? 0, last = canonical[span.end.line - 1]?.[1] ?? 0;
-      child.properties = { ...child.properties, dataSourceLine: first };
+      child.properties = { ...child.properties, dataSourceLine: first, dataSourceEnd: last };
       const fallback = projections.filter(p => p.kind === "block" && first <= p.sourceLines[1] && last >= p.sourceLines[0]);
       if (fallback.length) child.properties.dataEvidenceBlock = fallback.map(p => p.evidence.evidenceId).join(" ");
       const marked = new Set<string>();

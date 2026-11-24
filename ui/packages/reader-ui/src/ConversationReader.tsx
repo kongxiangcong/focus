@@ -4,9 +4,9 @@ import { useEvidenceNavigation, type EvidenceNavigation, type EvidenceNavigation
 import type { ReadingSession } from "./reading-session";
 import { MarkdownContent } from "./MarkdownContent";
 import { ActiveSourceCitation, SourceAnswerChooser } from "./SourceEvidenceMarkers";
-import { boxesForBlock, OriginalPaper, TranslatedPaper, type PdfPageState } from "./PaperViews";
-import { locatePaperEvidence, matchesTranslationChunk } from "./paper-evidence";
-import { citedMarkdown, messageEvidence, projectEvidence } from "./source-evidence";
+import { TranslatedPaper } from "./PaperViews";
+import { locatePaperEvidence, matchesTranslationChunk, overlapsSourceLines } from "./paper-evidence";
+import { citedMarkdown, messageEvidence, projectEvidence, type EvidenceProjection } from "./source-evidence";
 import type { RenderMark } from "./rehype-annotations";
 import { readingFontSizes } from "./typography";
 import { AgentControls } from "./AgentControls";
@@ -24,6 +24,41 @@ function isScrollKey(event: ReactKeyboardEvent) {
   const target = event.target as HTMLElement;
   return !event.defaultPrevented && !event.ctrlKey && !event.altKey && !event.metaKey && scrollKeys.has(event.key) &&
     !target.closest("input, textarea, select, [contenteditable=true]") && (event.key !== " " || !target.closest("button, a"));
+}
+
+type SourceLines = readonly [number, number];
+
+function sourceLinesAt(block: HTMLElement): SourceLines {
+  return [Number(block.dataset.sourceLine), Number(block.dataset.sourceEnd ?? block.dataset.sourceLine)];
+}
+
+function blockAtReadingLine(pane: HTMLElement, fraction = .32) {
+  const viewport = pane.getBoundingClientRect();
+  const readingLine = viewport.top + pane.clientHeight * fraction;
+  const blocks = pane.querySelectorAll<HTMLElement>("[data-source-line]");
+  let start = 0, end = blocks.length;
+  while (start < end) {
+    const middle = Math.floor((start + end) / 2);
+    if (blocks[middle].getBoundingClientRect().bottom <= readingLine) start = middle + 1;
+    else end = middle;
+  }
+  const block = blocks[start];
+  if (block && block.getBoundingClientRect().top < viewport.bottom) return block;
+}
+
+function sourcePdfPage(pdf: ReadingDocument["pdf"], sourceLines: SourceLines, quoteOffsets?: SourceLines) {
+  if (!pdf) return;
+  const pages = new Set(pdf.blocks.filter(block => overlapsSourceLines(block.sourceLines, sourceLines) &&
+    (!quoteOffsets || !block.offsets || block.offsets[0] < quoteOffsets[1] && quoteOffsets[0] < block.offsets[1]))
+    .map(block => block.page)
+    .filter(page => Number.isSafeInteger(page) && page > 0 && (!pdf.pages?.length || pdf.pages.some(item => item.page === page))));
+  if (pages.size === 1) return [...pages][0];
+}
+
+function pdfOriginalHref(url: string, pdfHash?: string, page?: number) {
+  const [path] = url.split("#", 1);
+  const hash = pdfHash ? `${path.includes("?") ? "&" : "?"}pdfHash=${encodeURIComponent(pdfHash)}` : "";
+  return `${path}${hash}${page ? `#page=${page}` : ""}`;
 }
 
 type AnswerLocation = { messageId: string; evidenceId: string; origin?: HTMLButtonElement };
@@ -220,21 +255,11 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     });
   }, []);
   const [translated, setTranslated] = useState(false);
-  const [pdfRevision, setPdfRevision] = useState(0);
-  const [settledPdf, setSettledPdf] = useState<{ url: string; pageCount: number }>();
-  const [pdfPages, setPdfPages] = useState<ReadonlyMap<number, PdfPageState>>(() => new Map());
-  const mountedPdfUrl = useRef<string | false | undefined>(undefined);
-  const position = useRef<{ block?: string; page?: number; chunk: string; fraction: number } | null>(null);
-  const movedSinceSwitch = useRef(false);
+  const [currentPage, setCurrentPage] = useState<number>();
+  const locatedPage = useRef<{ top: number; page?: number } | null>(null);
+  const position = useRef<{ lines: SourceLines; fraction: number; chunk?: string } | null>(null);
   const restorePaperPosition = useRef(false);
-  const lastPdfScroll = useRef(0), lastTranslationScroll = useRef(0);
-  const [positionNotice, setPositionNotice] = useState("");
-  useEffect(() => {
-    if (!positionNotice) return;
-    const timer = setTimeout(() => setPositionNotice(""), 3000);
-    return () => clearTimeout(timer);
-  }, [positionNotice]);
-  const pointerX = useRef<number | undefined>(undefined);
+  const scrollByLanguage = useRef({ original: 0, translation: 0 });
   const [selection, setSelection] = useState("");
   const [noteEdit, setNoteEdit] = useState<{ id: string; revision: number } | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
@@ -281,7 +306,6 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const [answerTarget, setAnswerTarget] = useState<(AnswerLocation & { discussionId: string }) | null>(null);
   const manual = useRef(false), followChat = useRef(true), turn = useRef<{ seen: Set<string>; cancelled: boolean; located: boolean } | null>(null);
   const jumpOrigin = useRef<number | null>(null);
-  const jumpFromPdf = useRef(false);
   const localNavigation = useEvidenceNavigation();
   const { intent, start, isLatest, consume, cancel, isResettingDiscussion } = evidenceNavigation ?? localNavigation;
   const resettingDiscussion = isResettingDiscussion(sourceId, view.discussionId);
@@ -342,96 +366,61 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     }).catch(e => { if (live && isCurrentSource()) setDocumentError(String(e)); });
     return () => { live = false; };
   }, [host, sourceId, reloadDocument, isCurrentSource, view.sourceBundleVersion, prep?.status, prep?.selected_plan_id, prep?.plan_id, prep?.ready]);
-  const originalUrl = document?.pdf && host.sourceOriginalUrl?.(sourceId);
-  const pdfUrl = originalUrl && originalUrl + (originalUrl.includes("?") ? "&" : "?") + "pdfHash=" + document!.pdf!.pdfHash +
-    (view.workspace?.instanceId ? "&instance=" + encodeURIComponent(view.workspace.instanceId) : "");
+  const originalFormat = document?.original === undefined ? (document?.pdf ? "pdf" : undefined) : document.original?.format;
+  const originalUrl = originalFormat ? host.sourceOriginalUrl?.(sourceId) : undefined;
+  const originalHref = originalUrl && originalFormat === "pdf"
+    ? pdfOriginalHref(originalUrl, document?.pdf?.pdfHash, currentPage) : originalUrl;
   const translationState = document?.translation?.status;
   const translationReady = translationState === "ready";
   const showingTranslation = translated && translationReady;
-  const activePdfUrl = !showingTranslation && pdfUrl;
-  useLayoutEffect(() => {
-    mountedPdfUrl.current = activePdfUrl;
-    setSettledPdf(undefined);
-    setPdfPages(new Map());
-    return () => { mountedPdfUrl.current = undefined; };
-  }, [activePdfUrl]);
-  const pdfReady = useCallback((pageCount: number) => {
-    if (!activePdfUrl || activePdfUrl !== mountedPdfUrl.current || !isCurrentSource()) return;
-    setSettledPdf({ url: activePdfUrl, pageCount });
-    setPdfPages(new Map());
-    setPdfRevision(revision => revision + 1);
-  }, [activePdfUrl, isCurrentSource]);
-  const pdfUnavailable = useCallback(() => pdfReady(0), [pdfReady]);
-  const pdfPageSettled = useCallback((page: number, state: PdfPageState) => {
-    if (!activePdfUrl || activePdfUrl !== mountedPdfUrl.current || !isCurrentSource()) return;
-    setPdfPages(current => current.get(page) === state ? current : new Map(current).set(page, state));
-  }, [activePdfUrl, isCurrentSource]);
+
+  const updateOriginalPage = useCallback((pane: HTMLElement | null = original.current) => {
+    if (!document?.pdf || !pane?.clientHeight) return;
+    if (locatedPage.current?.top === pane.scrollTop) {
+      setCurrentPage(locatedPage.current.page);
+      return;
+    }
+    locatedPage.current = null;
+    const block = blockAtReadingLine(pane);
+    setCurrentPage(block ? sourcePdfPage(document.pdf, sourceLinesAt(block)) : undefined);
+  }, [document?.pdf]);
+
   function switchPaper(next: boolean) {
     const pane = original.current;
-    if (!pane || !document?.pdf || translated === next) return;
-    const rect = pane.getBoundingClientRect(), y = rect.top + pane.clientHeight * .32;
-    const x = pointerX.current ?? rect.left + rect.width / 2;
-    const pages = [...pane.querySelectorAll<HTMLElement>("[data-pdf-page]")];
-    const page = pages.find(el => {
-      const bounds = el.getBoundingClientRect();
-      return bounds.top <= y && bounds.bottom >= y;
-    });
-    const bounds = (el: HTMLElement) => (el.closest("[data-page-only]") ?? el).getBoundingClientRect();
-    const dist = (el: HTMLElement) => {
-      const r = bounds(el);
-      return Math.max(r.top - y, y - r.bottom, 0) + Math.max(r.left - x, x - r.right, 0);
-    };
-    const anchors = [...((next ? page : pane)?.querySelectorAll<HTMLElement>(next ? "[data-block-id]" : "[data-translation-chunk]") ?? [])]
-      .filter(el => {
-        const r = bounds(el);
-        return r.top <= y && r.bottom >= y;
-      });
-    const cited = !manual.current && activeEvidence ?
-      pane.querySelectorAll<HTMLElement>(`[data-evidence-block~="${activeEvidence}"]`)[regionNumber] : null;
-    const citedBlock = cited?.matches("[data-block-id], [data-translation-chunk]") ? cited :
-      [...(cited?.querySelectorAll<HTMLElement>("[data-block-id]") ?? [])].find(el =>
-        activePaper?.pdfBlocks.some(block => block.blockId === el.dataset.blockId));
-    const current = citedBlock ?? anchors.sort((a, b) => dist(a) - dist(b))[0];
-    const previous = position.current;
-    const chunks = document.translation?.chunks ?? [];
-    const block = document.pdf.blocks.find(item => item.blockId === current?.dataset.blockId &&
-      item.page === Number(current?.closest<HTMLElement>("[data-pdf-page]")?.dataset.pdfPage));
-    const chunk = next ? chunks.find(item => block && matchesTranslationChunk(item, block.sourceLines, [block.blockId])) :
-      chunks.find(item => item.id === current?.dataset.translationChunk);
-    const linkedBlocks = chunk ? document.pdf.blocks.filter(item => matchesTranslationChunk(chunk, item.sourceLines, [item.blockId])) : [];
-    const linkedBlock = !movedSinceSwitch.current ? linkedBlocks.find(item => item.blockId === previous?.block && item.page === previous.page) : undefined;
-    const r = current && bounds(current);
-    const fraction = r ? Math.max(0, Math.min(1, (y - r.top) / Math.max(1, r.height))) : 0;
-    const placement = block ?? linkedBlock ?? linkedBlocks[0];
-    position.current = chunk ? { chunk: chunk.id, block: placement?.blockId, page: placement?.page,
-      fraction: linkedBlock && previous ? previous.fraction : fraction } : null;
-    if (!next) lastTranslationScroll.current = pane.scrollTop;
-    else if (settledPdf?.pageCount && settledPdf.url === activePdfUrl) lastPdfScroll.current = pane.scrollTop;
-    setPositionNotice(next && !chunk && page ? `第 ${page.dataset.pdfPage} 页暂无对应译块` : "");
-    stopNavigation(); restorePaperPosition.current = true; movedSinceSwitch.current = false;
-    manual.current = false; setSelection(""); setTranslated(next);
+    if (!pane || !document || translated === next) return;
+    const line = pane.getBoundingClientRect().top + pane.clientHeight * .32;
+    const cited = !manual.current && activeEvidence ? target(activeEvidence) : undefined;
+    const citedBounds = cited?.getBoundingClientRect();
+    const anchor = cited && citedBounds && citedBounds.top >= pane.getBoundingClientRect().top &&
+      citedBounds.bottom <= pane.getBoundingClientRect().bottom ? cited.closest<HTMLElement>("[data-source-line]") : blockAtReadingLine(pane);
+    const bounds = anchor?.getBoundingClientRect();
+    const lines = anchor && sourceLinesAt(anchor);
+    const ids = document.pdf?.blocks.filter(block => lines && overlapsSourceLines(lines, block.sourceLines)).map(block => block.blockId) ?? [];
+    const chunk = next && lines ? document.translation?.chunks.find(item => matchesTranslationChunk(item, lines, ids)) : undefined;
+    position.current = lines && bounds ? { lines, chunk: chunk?.id,
+      fraction: Math.max(0, Math.min(1, (line - bounds.top) / Math.max(1, bounds.height))) } : null;
+    scrollByLanguage.current[showingTranslation ? "translation" : "original"] = pane.scrollTop;
+    stopNavigation();
+    restorePaperPosition.current = true;
+    locatedPage.current = null;
+    manual.current = false;
+    setSelection("");
+    setTranslated(next);
   }
+
   useLayoutEffect(() => {
     const anchor = position.current, pane = original.current;
     if (!pane || !restorePaperPosition.current) return;
-    if (!translated && pdfUrl && settledPdf?.url !== pdfUrl) return;
     restorePaperPosition.current = false;
     manual.current = false;
-    const node = translated ? [...pane.querySelectorAll<HTMLElement>("[data-translation-chunk]")]
-      .find(el => el.dataset.translationChunk === anchor?.chunk) :
-      [...pane.querySelectorAll<HTMLElement>(`[data-pdf-page="${anchor?.page}"] [data-block-id]`)]
-        .find(el => el.dataset.blockId === anchor?.block);
+    const node = anchor && [...pane.querySelectorAll<HTMLElement>("[data-source-line]")].find(element =>
+      showingTranslation ? element.dataset.translationChunk === anchor.chunk : overlapsSourceLines(sourceLinesAt(element), anchor.lines));
     if (node && anchor) {
-      const r = (node.closest("[data-page-only]") ?? node).getBoundingClientRect();
-      const offset = translated ? 0 : anchor.fraction * r.height;
-      pane.scrollTop += r.top - pane.getBoundingClientRect().top + offset - pane.clientHeight * .32;
-    } else {
-      pane.scrollTop = translated ? lastTranslationScroll.current : lastPdfScroll.current;
-      if (!translated && settledPdf?.pageCount && anchor?.chunk) {
-        setPositionNotice("此译块暂无可靠版面位置，已返回上次 PDF 阅读处");
-      }
-    }
-  }, [translated, settledPdf, pdfUrl]);
+      const rect = node.getBoundingClientRect();
+      pane.scrollTop += rect.top - pane.getBoundingClientRect().top +
+        (showingTranslation ? 0 : anchor.fraction * rect.height) - pane.clientHeight * .32;
+    } else pane.scrollTop = scrollByLanguage.current[showingTranslation ? "translation" : "original"];
+  }, [showingTranslation]);
 
   const messages = useMemo(() => view.conversation.filter(m => !m.sourceDeleted && (!m.sourceId || m.sourceId === sourceId)), [view.conversation, sourceId]);
   const turns = useMemo(() => groupIntoTurns(messages), [messages]);
@@ -452,8 +441,6 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     [document, projections]);
   const sourceIntent = visible && intent && intent.destination !== "answer" && intent.sourceId === sourceId &&
     intent.discussionId === view.discussionId && intent.selectionGeneration === selectionGeneration && isLatest(intent) ? intent : null;
-  const requestedPdfPages = activePdfUrl && sourceIntent && sourceIntent.preferredView !== "translation"
-    ? paperLocations.find(item => item.evidence.evidenceId === sourceIntent.evidenceId)?.pdfPages : undefined;
 
   const annotationKey = JSON.stringify([view.sourceHighlights, view.sourceNotes]);
   const permanentMarks = useMemo(() => {
@@ -484,7 +471,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       pane.querySelectorAll(`[data-evidence-ids~="${highlightedEvidenceId}"], [data-evidence="${highlightedEvidenceId}"], [data-evidence-block~="${highlightedEvidenceId}"]`)
         .forEach(el => el.classList.add("is-active"));
     }
-  }, [highlightedEvidenceId, evidenceKey, document, translated, pdfRevision, pdfPages]);
+  }, [highlightedEvidenceId, evidenceKey, document, showingTranslation]);
 
   // Keep latest turn focused when new turns arrive.
   useEffect(() => {
@@ -499,7 +486,6 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setAnswerReturn(null);
     setAnswerChoices(null);
     jumpOrigin.current = null;
-    jumpFromPdf.current = false;
     waitingPosition.current = null;
     setReturnPosition(null);
     if (scrollAnimation.current !== null) {
@@ -517,20 +503,31 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setLastAnswerCitation(null);
   }, [resettingDiscussion, stopNavigation]);
 
+  useEffect(() => {
+    if (!visible) return;
+    const selectText = () => {
+      const picked = window.getSelection();
+      const pane = original.current;
+      if (!pane || !picked?.anchorNode || !picked.focusNode ||
+          !pane.contains(picked.anchorNode) || !pane.contains(picked.focusNode)) return;
+      const text = picked.toString().trim();
+      if (!text) return;
+      stopNavigation();
+      setSelection(text.slice(0, 4000));
+    };
+    globalThis.document.addEventListener("selectionchange", selectText);
+    return () => globalThis.document.removeEventListener("selectionchange", selectText);
+  }, [stopNavigation, visible]);
+
   const manualBrowse = useCallback(() => {
     stopNavigation();
-    setPositionNotice("");
     restorePaperPosition.current = false;
     restored.current = true;
-    movedSinceSwitch.current = true;
     manual.current = true;
   }, [stopNavigation]);
 
-  const target = (id: string, pages?: ReadonlySet<number>) => {
-    const candidates = [...(original.current?.querySelectorAll<HTMLElement>(`[data-evidence-ids~="${id}"], [data-evidence-block~="${id}"]`) ?? [])]
-      .filter(element => !pages || pages.has(Number(element.closest<HTMLElement>("[data-pdf-page]")?.dataset.pdfPage)));
-    return candidates.find(element => element.dataset.pageOnly !== "true") ?? candidates[0];
-  };
+  const target = (id: string) => original.current?.querySelector<HTMLElement>(
+    `[data-evidence-ids~="${id}"], [data-evidence-block~="${id}"]`) ?? undefined;
 
   // Keep the previous return until the new jump reaches its source location.
   const rememberAnswerReturn = useCallback((navigationIntent: EvidenceNavigationIntent) => {
@@ -540,15 +537,14 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setLastAnswerCitation({ messageId, evidenceId, origin, discussionId });
   }, []);
 
-  const moveTo = useCallback((id: string, { keyboard = false, automatic = false, navigationIntent, el = target(id), instant = false }: {
-    keyboard?: boolean; automatic?: boolean; navigationIntent?: EvidenceNavigationIntent; el?: HTMLElement; instant?: boolean;
+  const moveTo = useCallback((id: string, { keyboard = false, automatic = false, navigationIntent, el = target(id), instant = false, projection }: {
+    keyboard?: boolean; automatic?: boolean; navigationIntent?: EvidenceNavigationIntent; el?: HTMLElement; instant?: boolean; projection?: EvidenceProjection;
   } = {}) => {
     const pane = original.current;
     if (!el || !pane || !isCurrentSource()) return;
     const current = () => isCurrentSource() && (!navigationIntent || isLatest(navigationIntent));
     if (!current()) return;
     if (jumpOrigin.current === null) jumpOrigin.current = pane.scrollTop;
-    movedSinceSwitch.current = true;
     manual.current = false;
     if (!automatic) setMobile("original");
     if (scrollAnimation.current !== null) {
@@ -557,27 +553,19 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     }
     const targetRect = el.getBoundingClientRect(), paneRect = pane.getBoundingClientRect();
     const cardClearance = 200;
-    let { top, bottom } = targetRect;
-    let inset = pane.clientHeight * .32;
-    const pdfPage = el.closest("[data-pdf-page]");
-    const regions = pdfPage?.querySelectorAll(`[data-evidence-block~="${id}"]:not([data-page-only=true])`);
-    if (regions && regions.length > 1) {
-      const boxes = Array.from(regions, region => region.getBoundingClientRect());
-      const pageTop = Math.min(...boxes.map(box => box.top));
-      const pageBottom = Math.max(...boxes.map(box => box.bottom));
-      const height = pageBottom - pageTop;
-      if (height <= pane.clientHeight) {
-        top = pageTop;
-        bottom = pageBottom;
-        inset = Math.min(inset, Math.max(0, pane.clientHeight - height - cardClearance));
-      }
-    }
+    const { top, bottom } = targetRect;
+    const inset = pane.clientHeight * .32;
     const visibleTarget = top >= paneRect.top && bottom <= paneRect.bottom;
     setCardAtTop(automatic && visibleTarget && bottom > paneRect.bottom - cardClearance);
     const complete = () => {
       if (!current() || (navigationIntent && !consume(navigationIntent))) return;
       if (navigationIntent) rememberAnswerReturn(navigationIntent);
       waitingPosition.current = null;
+      if (document?.pdf && projection && projection.kind !== "unavailable") {
+        const page = sourcePdfPage(document.pdf, projection.sourceLines, projection.quoteOffsets);
+        locatedPage.current = { top: pane.scrollTop, page };
+        setCurrentPage(page);
+      }
       setReturnPosition(jumpOrigin.current);
       setActiveEvidence(id);
       if (keyboard) { el.tabIndex = -1; el.focus({ preventScroll: true }); }
@@ -606,7 +594,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       };
       scrollAnimation.current = requestAnimationFrame(tick);
     }
-  }, [consume, isCurrentSource, isLatest, rememberAnswerReturn]);
+  }, [consume, document?.pdf, isCurrentSource, isLatest, rememberAnswerReturn]);
 
   useLayoutEffect(() => {
     if (visible) return;
@@ -628,7 +616,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const layoutChanged = wasFullscreen.current !== fullscreen;
     wasFullscreen.current = fullscreen;
     if (layoutChanged) {
-      // A pending placement must use the resized PDF geometry and keep its nonce.
+      // Resolve any pending placement in the resized reading pane.
       if (scrollAnimation.current !== null) cancelAnimationFrame(scrollAnimation.current);
       scrollAnimation.current = null;
       const pane = original.current;
@@ -687,40 +675,13 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       if (consume(intent)) setActiveEvidence(intent.evidenceId);
       return;
     }
-    const paper = paperLocations.find(item => item.evidence.evidenceId === intent.evidenceId);
-    let destination = target(intent.evidenceId);
-    if (activePdfUrl) {
-      const wantsTranslation = intent.preferredView === "translation";
-      const candidates = wantsTranslation ? [] : paper?.pdfPages ?? [];
-      if (candidates.length && settledPdf?.url !== activePdfUrl) return;
-      const pages = candidates.filter(page => page <= (settledPdf?.pageCount ?? 0));
-      if (pages.some(page => !pdfPages.has(page))) return;
-      destination = target(intent.evidenceId, new Set(pages.filter(page => pdfPages.get(page) === "ready")));
-      const needsTranslation = !destination;
-      if (needsTranslation && translationReady) {
-        const pane = original.current;
-        if (pane && settledPdf?.pageCount && settledPdf.url === activePdfUrl) lastPdfScroll.current = pane.scrollTop;
-        if (paper?.translationChunks.length) {
-          jumpOrigin.current = lastPdfScroll.current;
-          jumpFromPdf.current = true;
-        }
-        waitingPosition.current = null;
-        setSelection("");
-        setTranslated(true);
-        return;
-      }
-      if (needsTranslation && (translationState === "running" || prep?.status === "running")) return;
-    }
-    if (destination) moveTo(intent.evidenceId, { keyboard: intent.keyboard, navigationIntent: intent, el: destination, instant: layoutChanged });
-    else if (consume(intent)) {
-      if (showingTranslation && intent.preferredView !== "translation" && original.current) {
-        original.current.scrollTop = lastTranslationScroll.current;
-      }
-      setActiveEvidence(intent.evidenceId);
-    }
+    const destination = target(intent.evidenceId);
+    if (destination) moveTo(intent.evidenceId, { keyboard: intent.keyboard, navigationIntent: intent,
+      el: destination, instant: layoutChanged, projection: verified });
+    else if (consume(intent)) setActiveEvidence(intent.evidenceId);
   }, [fullscreen, visible, intent, activeEvidence, regionNumber, sourceId, selectionGeneration, isCurrentSource, isLatest, consume, document, messages, draftKey, view.discussionId,
     view.sourceBundleVersion, view.sourceGeneration, view.resetVersion,
-    selected?.messageId, mobile, prep?.status, translationState, translationReady, showingTranslation, projections, paperLocations, activePdfUrl, settledPdf, pdfPages, moveTo]);
+    selected?.messageId, mobile, showingTranslation, projections, moveTo]);
 
   const cite = useCallback((message: ReaderMessage, id: string, keyboard: boolean, origin: HTMLButtonElement) => {
     if (!isCurrentSource() || resettingDiscussion) return;
@@ -728,15 +689,14 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     manual.current = false;
     restored.current = true;
     restorePaperPosition.current = false;
-    setPositionNotice("");
     setHoverEvidence(undefined);
     safeWrite(`focus.activeAnswer:${draftKey}`, message.messageId);
     setActiveMessage(message.messageId);
     setActiveEvidence(undefined);
     const next = start({ sourceId, discussionId: view.discussionId, selectionGeneration, messageId: message.messageId, evidenceId: id,
-      preferredView: showingTranslation ? "translation" : pdfUrl ? "pdf" : "source", keyboard });
+      preferredView: showingTranslation ? "translation" : "source", keyboard });
     pendingAnswerCitation.current = { nonce: next.nonce, messageId: message.messageId, evidenceId: id, origin, discussionId: view.discussionId };
-  }, [stopNavigation, draftKey, isCurrentSource, resettingDiscussion, sourceId, view.discussionId, selectionGeneration, showingTranslation, pdfUrl, start]);
+  }, [stopNavigation, draftKey, isCurrentSource, resettingDiscussion, sourceId, view.discussionId, selectionGeneration, showingTranslation, start]);
 
   const handleSelectMessage = useCallback((messageId: string) => {
     if (selectedIdRef.current !== messageId) {
@@ -752,7 +712,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   }, []);
 
   useLayoutEffect(() => {
-    if (!document || !original.current || restored.current || intent || (pdfUrl && !pdfRevision)) return;
+    if (!document || !original.current || restored.current || intent) return;
     restored.current = true;
     try {
       const raw = safeRead(bookmark);
@@ -762,13 +722,22 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
         if (el) original.current.scrollTop += el.getBoundingClientRect().top - original.current.getBoundingClientRect().top + saved.offset;
       }
     } catch { /* Ignore malformed display bookmarks, never mutate the Cursor. */ }
-  }, [document, bookmark, pdfUrl, pdfRevision, intent]);
+  }, [document, bookmark, intent]);
+
+  useLayoutEffect(() => {
+    const pane = original.current;
+    if (!visible || !document?.pdf || !pane) return;
+    updateOriginalPage(pane);
+    const resize = typeof ResizeObserver === "function" ? new ResizeObserver(() => updateOriginalPage(pane)) : undefined;
+    resize?.observe(pane);
+    return () => resize?.disconnect();
+  }, [document?.pdf, mobile, showingTranslation, updateOriginalPage, visible]);
 
   useEffect(() => {
     const pending = turn.current;
     if (!visible || intent || !pending || pending.located || pending.cancelled || !latest || pending.seen.has(latest.messageId) || !evidence.length) return;
     const first = projections.find(p => p.evidence.messageId === latest.messageId && p.kind !== "unavailable");
-    if (first && selected?.messageId === latest.messageId) { pending.located = true; if ((shell.current?.clientWidth ?? 0) >= 960) moveTo(first.evidence.evidenceId, { automatic: true }); }
+    if (first && selected?.messageId === latest.messageId) { pending.located = true; if ((shell.current?.clientWidth ?? 0) >= 960) moveTo(first.evidence.evidenceId, { automatic: true, projection: first }); }
   }, [visible, intent, latest, evidence, projections, selected, moveTo]);
 
   useLayoutEffect(() => {
@@ -879,37 +848,22 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     const regions = original.current.querySelectorAll<HTMLElement>(`[data-evidence-block~="${activeEvidence}"]`);
     if (!regions.length) return;
     const next = (regionNumber + 1) % regions.length;
-    manual.current = false; movedSinceSwitch.current = true;
+    manual.current = false;
     regions[next].scrollIntoView({ block: "center", behavior: reduced() ? "instant" : "smooth" });
     setRegionNumber(next);
   }
   const translationInterrupted = ["failed", "cancelled", "interrupted"].includes(translationState ?? "");
-  const activePaper = paperLocations.find(item => item.evidence.evidenceId === activeEvidence);
-  const activeBlocks = activePaper?.pdfBlocks ?? [];
-  const activePages = activePaper?.pdfPages ?? [];
-  const activeChunks = activePaper?.translationChunks ?? [];
+  const activeChunks = paperLocations.find(item => item.evidence.evidenceId === activeEvidence)?.translationChunks ?? [];
   const locationLabel = active?.kind === "unavailable" ? " · 历史引文" : showingTranslation ?
-    activeChunks.length ? " · 译块定位" : " · 译块位置暂不可用" : pdfUrl ?
-    settledPdf?.pageCount && activePages.length && activeEvidence && target(activeEvidence) ?
-      ` · 第 ${activePages.join("、")} 页 · ${activeBlocks.some(b => boxesForBlock(b).length) ? "段落定位" : "页定位"}` : " · 版面位置暂不可用" :
-    active?.kind === "block" ? " · 段落定位" : "";
-  const partCount = showingTranslation ? activeChunks.length : new Set([
-    ...activeBlocks.flatMap(block => boxesForBlock(block).map(box => `${block.blockId}:${box.join(",")}`)),
-    ...activePages.filter(page => !activeBlocks.some(block => block.page === page) ||
-      activeBlocks.some(block => block.page === page && !boxesForBlock(block).length)).map(page => `page:${page}`),
-  ]).size;
+    activeChunks.length ? " · 译块定位" : " · 译块位置暂不可用" : active?.kind === "block" ? " · 段落定位" : "";
+  const partCount = showingTranslation ? activeChunks.length : 0;
   function returnToReading() {
     const top = jumpOrigin.current;
-    const backToPdf = jumpFromPdf.current;
     stopNavigation();
     manual.current = false;
-    if (top !== null && backToPdf) {
-      lastPdfScroll.current = top;
-      position.current = null;
-      restorePaperPosition.current = true;
-      setPositionNotice("");
-      setTranslated(false);
-    } else if (top !== null) original.current?.scrollTo({ top, behavior: "instant" });
+    locatedPage.current = null;
+    if (top !== null) original.current?.scrollTo({ top, behavior: "instant" });
+    updateOriginalPage();
     setActiveEvidence(undefined);
   }
   const choiceItems = answerChoices && answerChoices.discussionId === view.discussionId
@@ -934,18 +888,21 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     {Object.entries(operationErrors).map(([key, message]) => <div key={key} role="alert" className="source-reader-error">{message}<button onClick={() => showOperationError(key, "")}>关闭</button></div>)}
     {!running && run?.error && dismissedRun !== run.runId && <div role="alert" className="source-reader-error">{run.error}<button onClick={() => setDismissedRun(run.runId)}>关闭</button></div>}
     <div className="source-reader-columns">
-      <div className="source-original-pane" data-paper={!!pdfUrl}>
+      <div className="source-original-pane">
         <button type="button" className="source-mobile-toggle source-mobile-return" onClick={() => { stopNavigation(); setMobile("chat"); }}>返回对话</button>
-        {pdfUrl && <div className="paper-view-controls"><button aria-pressed={!showingTranslation} onClick={() => switchPaper(false)}>原版 PDF</button>
-          <button aria-pressed={!!showingTranslation} disabled={!translationReady} onClick={() => switchPaper(true)}>中文译文{translationReady ? "" : translationState === "running" ? " · 准备中" : translationInterrupted ? " · 未完成" : " · 未就绪"}</button>
-          {translationInterrupted && host.resumePreparation && <button onClick={() => void apply("translation", host.resumePreparation!(sourceId, createReaderId()))}>重试译文</button>}</div>}
-        {pdfUrl && positionNotice && <span role="status">{positionNotice}</span>}
+        {(document?.translation || originalHref) && <div className="source-original-toolbar">
+          {document?.translation && <div className="paper-view-controls"><button aria-pressed={!showingTranslation} onClick={() => switchPaper(false)}>原文</button>
+            <button aria-pressed={showingTranslation} disabled={!translationReady} onClick={() => switchPaper(true)}>中文译文{translationReady ? "" : translationState === "running" ? " · 准备中" : translationInterrupted ? " · 未完成" : " · 未就绪"}</button>
+            {translationInterrupted && host.resumePreparation && <button onClick={() => void apply("translation", host.resumePreparation!(sourceId, createReaderId()))}>重试译文</button>}</div>}
+          {originalHref && <a className="source-original-link" href={originalHref} target="_blank" rel="noreferrer">打开原件 ↗</a>}
+        </div>}
         <div ref={original} className="source-original" data-evidence-focus={activeEvidence ? "true" : undefined} data-evidence-pending={sourceIntent ? "true" : undefined}
-          aria-label="文章原文" tabIndex={0} onPointerMove={e => { pointerX.current = e.clientX; }} onWheel={e => { if (!e.ctrlKey) manualBrowse(); }} onTouchStart={manualBrowse}
+          aria-label="文章原文" tabIndex={0} onWheel={e => { if (!e.ctrlKey) manualBrowse(); }} onTouchStart={manualBrowse}
           onPointerDown={e => { if (e.target === e.currentTarget) manualBrowse(); }}
           onKeyDown={e => { if (isScrollKey(e)) manualBrowse(); }}
           onScroll={event => {
             const pane = event.currentTarget;
+            updateOriginalPage(pane);
             const waiting = waitingPosition.current;
             if (sourceIntent && isLatest(sourceIntent) && waiting?.nonce === sourceIntent.nonce && waiting.scrollTop !== pane.scrollTop) {
               // Resizing the reading surface can clamp scrollTop to its new end.
@@ -954,11 +911,10 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
               else manualBrowse();
             }
             if (!manual.current || !bookmark) return;
-            const top = pane.getBoundingClientRect().top;
-            const block = [...pane.querySelectorAll<HTMLElement>("[data-source-line]")].find(el => el.getBoundingClientRect().bottom > top);
-            if (block) safeWrite(bookmark, JSON.stringify({ line: Number(block.dataset.sourceLine), offset: top - block.getBoundingClientRect().top }));
+            const block = blockAtReadingLine(pane, 0);
+            if (block) safeWrite(bookmark, JSON.stringify({ line: Number(block.dataset.sourceLine),
+              offset: pane.getBoundingClientRect().top - block.getBoundingClientRect().top }));
           }}
-          onMouseUp={() => { const selectedText = window.getSelection()?.toString().trim() ?? ""; if (selectedText) { stopNavigation(); setSelection(selectedText.slice(0, 4000)); } }}
           onClick={e => {
             const node = e.target as HTMLElement;
             const choices = node.closest<HTMLElement>("[data-evidence-choices]");
@@ -975,9 +931,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
             }
           }}>
           <ActiveSourceCitation.Provider value={rememberedAnswer?.evidenceId}>
-            {document?.pdf && pdfUrl ? showingTranslation ? <TranslatedPaper document={document} evidence={paperLocations} /> :
-              <OriginalPaper key={pdfUrl} pdf={document.pdf} url={pdfUrl} evidence={paperLocations} active={highlightedEvidenceId} requestedPages={requestedPdfPages}
-                onReady={pdfReady} onUnavailable={pdfUnavailable} onPageSettled={pdfPageSettled} /> : document ? <article><MarkdownContent text={document.markdown} sourceId={sourceId} marks={permanentMarks} sourceEvidence={sourceInput} /></article> : <span role="status" className="source-loading">加载中…</span>}
+            {document ? showingTranslation ? <TranslatedPaper document={document} evidence={paperLocations} /> :
+              <article><MarkdownContent text={document.markdown} sourceId={sourceId} marks={permanentMarks} sourceEvidence={sourceInput} /></article> :
+              <span role="status" className="source-loading">加载中…</span>}
           </ActiveSourceCitation.Provider>
         </div>
         {selection && <div className="source-selection-actions"><button onClick={() => { composer.current?.insertQuote(selection); setSelection(""); setMobile("chat"); }}>引用</button><button onClick={e => { setNoteDraft(`「${selection}」\n`); openNotes(e.currentTarget); setSelection(""); }}>记笔记</button><button aria-label="取消选择" onClick={() => setSelection("")}>×</button></div>}
