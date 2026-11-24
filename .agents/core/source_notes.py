@@ -15,8 +15,9 @@ from pathlib import Path
 from typing import Any
 
 from .source_provenance import bundle_fingerprint
-from .reading_workspace import WorkspaceError, _validate_parser_bundle, validate_source_id
+from .reading_workspace import WorkspaceError, _read_document, _validate_parser_bundle, validate_source_id
 from .source_library import SourceLibrary
+from .reading_versions import version_reading_directory
 
 
 _LOCK = threading.RLock()
@@ -77,10 +78,15 @@ class SourceNotes:
         if name not in {row["name"] for row in db.execute("PRAGMA table_info(notes)")}:
             db.execute(f"ALTER TABLE notes ADD COLUMN {name} TEXT")
 
-    def _connect(self, source_id: str) -> sqlite3.Connection:
-        root = self._root(source_id) / "notes"
-        root.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(root / "notes.sqlite3", timeout=15)
+    def _connect(self, source_id: str, reading_version=None) -> sqlite3.Connection:
+        root = self._root(source_id)
+        state = _read_document(self.workspace / 'state.json')
+        directory = version_reading_directory(root, state, source_id, reading_version)
+        return self._open((root / 'notes' if directory == root / 'reading' else directory) / 'notes.sqlite3')
+
+    def _open(self, path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        db = sqlite3.connect(path, timeout=15)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA journal_mode=WAL")
         db.execute("CREATE TABLE IF NOT EXISTS notes (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, "
@@ -100,8 +106,28 @@ class SourceNotes:
                    "deleted INTEGER NOT NULL, undo TEXT)")
         return db
 
-    def generation(self, source_id: str) -> int:
-        with _LOCK, closing(self._connect(source_id)) as db:
+    def backup_round(self, source_id, bundle, backup_path, next_path):
+        from .source_highlights import SourceHighlights
+
+        with _LOCK, closing(self._connect(source_id)) as live, closing(sqlite3.connect(backup_path)) as backup:
+            live.backup(backup)
+            backup.row_factory = sqlite3.Row
+            notes = backup.execute('SELECT * FROM notes ORDER BY rowid').fetchall()
+            highlights = backup.execute('SELECT * FROM highlights ORDER BY rowid').fetchall()
+            # Only an unpublished version can reach this path. A crash may have
+            # left a staged copy, so replace it before rebuilding the inheritance.
+            for suffix in ('-wal', '-shm', ''):
+                next_path.with_name(next_path.name + suffix).unlink(missing_ok=True)
+            with closing(self._open(next_path)) as next_round, next_round:
+                next_round.executemany('INSERT INTO notes(id, revision, content, kind, origin, bundle, evidence_role, deleted) '
+                                       'VALUES(?, 1, ?, ?, ?, ?, ?, 0)', (
+                    (uuid.uuid4().hex, row['content'], row['kind'], row['origin'], row['bundle'], row['evidence_role'])
+                    for row in notes if not row['deleted'] and all(row[key] is None for key in ('anchor', 'placement', 'sentence', 'selection'))))
+            return {'sourceNotes': [self._public(row, source_id, bundle) for row in notes],
+                    'sourceHighlights': [SourceHighlights._public(row, source_id, bundle) for row in highlights]}
+
+    def generation(self, source_id: str, reading_version=None) -> int:
+        with _LOCK, closing(self._connect(source_id, reading_version)) as db:
             return db.execute("SELECT count(*) FROM clears").fetchone()[0]
 
     @staticmethod

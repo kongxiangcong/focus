@@ -73,7 +73,7 @@ export function ConversationReader({ host, visible = true, fontSize = "standard"
   }, [host, acceptView, managed]);
   if (!view) return <div className="conversation-reader" role="status" hidden={!visible}>{error || "加载中…"}</div>;
   if (!view.source.sourceId) return <div className="conversation-reader" hidden={!visible} />;
-  return <AssetInstanceContext.Provider value={view.workspace?.instanceId}><ReadingSurface key={`${view.workspace?.instanceId}:${view.source.sourceId}:${view.sourceBundleVersion ?? ""}:${view.sourceGeneration ?? view.resetVersion ?? 0}:${readingSession?.generation ?? 0}`} {...fullscreenControls} host={host} view={view} setView={acceptView} readingSession={readingSession} evidenceNavigation={evidenceNavigation} approvalManaged={approvalManaged} visible={visible} fontSize={fontSize} /></AssetInstanceContext.Provider>;
+  return <AssetInstanceContext.Provider value={view.workspace?.instanceId}><ReadingSurface key={`${view.workspace?.instanceId}:${view.source.sourceId}:${view.sourceBundleVersion ?? ""}:${view.readingVersion ?? "legacy"}:${view.sourceGeneration ?? view.resetVersion ?? 0}:${readingSession?.generation ?? 0}`} {...fullscreenControls} host={host} view={view} setView={acceptView} readingSession={readingSession} evidenceNavigation={evidenceNavigation} approvalManaged={approvalManaged} visible={visible} fontSize={fontSize} /></AssetInstanceContext.Provider>;
 }
 
 interface ComposerHandle {
@@ -303,7 +303,10 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const resettingDiscussion = isResettingDiscussion(sourceId, view.discussionId);
   const [focusedTurn, setFocusedTurn] = useState<number>(-1);
   const chatScrollTop = useRef(0);
-  const restored = useRef(false), bookmark = document ? `focus.sourceBookmark:${scope}:${document.bundleVersion}` : "";
+  const restored = useRef(false);
+  const legacyBookmark = document ? `focus.sourceBookmark:${scope}:${document.bundleVersion}` : "";
+  const bookmark = document?.readingVersion === undefined ? legacyBookmark :
+    `focus.readingViewBookmark:${view.workspace?.workspaceId ?? "local"}:${sourceId}:${document.readingVersion}:${document.bundleVersion}`;
   useEffect(() => {
     setActiveMessage(safeRead(`focus.activeAnswer:${draftKey}`));
     setActiveEvidence(undefined);
@@ -344,13 +347,14 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     void host.getSourceDocument!(sourceId).then(result => {
       if (!live || !isCurrentSource()) return;
       if (!result.ok) setDocumentError(result.error.message);
-      else if (result.value.sourceId === sourceId && (!view.sourceBundleVersion || result.value.bundleVersion === view.sourceBundleVersion)) {
+      else if (result.value.sourceId === sourceId && (!view.sourceBundleVersion || result.value.bundleVersion === view.sourceBundleVersion) &&
+          (result.value.readingVersion === undefined || !view.readingVersion || result.value.readingVersion === view.readingVersion)) {
         setDocument(result.value);
         setDocumentError("");
       }
     }).catch(e => { if (live && isCurrentSource()) setDocumentError(String(e)); });
     return () => { live = false; };
-  }, [host, sourceId, reloadDocument, isCurrentSource, view.sourceBundleVersion, prep?.status, prep?.selected_plan_id, prep?.plan_id, prep?.ready]);
+  }, [host, sourceId, reloadDocument, isCurrentSource, view.sourceBundleVersion, view.readingVersion, prep?.status, prep?.selected_plan_id, prep?.plan_id, prep?.ready]);
   const originalFormat = document?.original === undefined ? (document?.pdf ? "pdf" : undefined) : document.original?.format;
   const originalUrl = originalFormat ? host.sourceOriginalUrl?.(sourceId) : undefined;
   const originalHref = originalUrl && originalFormat === "pdf"
@@ -512,6 +516,18 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     manual.current = true;
   }, [stopNavigation]);
 
+  function saveBookmark(pane: HTMLElement, block: HTMLElement) {
+    if (!bookmark) return;
+    const { lines, offset } = sourcePositionAt(block);
+    const position = { line: lines[0], sourceOffset: offset, fraction: fractionAtReadingLine(pane, block) };
+    const saved = JSON.stringify(position);
+    if (saved === safeRead(bookmark)) return;
+    safeWrite(bookmark, saved);
+    if (document?.readingVersion !== undefined) host.saveReadingViewBookmark?.(sourceId, {
+      ...position, readingVersion: document.readingVersion, bundleVersion: document.bundleVersion,
+    });
+  }
+
   const target = (id: string) => original.current?.querySelector<HTMLElement>(
     `[data-evidence-ids~="${id}"], [data-evidence-block~="${id}"]`) ?? undefined;
 
@@ -639,15 +655,21 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     if (!document || !pane?.clientHeight || !visible || restored.current || intent) return;
     restored.current = true;
     try {
-      const raw = safeRead(bookmark);
-      const saved = raw ? JSON.parse(raw) : view.readingStarted && view.navigationCurrent?.bundleVersion === document.bundleVersion ? { line: view.navigationCurrent.sourceLines[0], offset: 0 } : null;
+      const raw = safeRead(bookmark) ?? (document.readingVersion === 1 ? safeRead(legacyBookmark) : null);
+      const local = raw ? JSON.parse(raw) : null;
+      const saved = document.bookmark ?? local ?? (view.readingStarted && view.navigationCurrent?.bundleVersion === document.bundleVersion
+        ? { line: view.navigationCurrent.sourceLines[0], offset: 0 } : null);
       if (saved && Number.isSafeInteger(saved.line)) {
         const node = blockAtSourcePosition(pane, { lines: [saved.line, saved.line], offset: saved.sourceOffset });
         if (node && Number.isFinite(saved.fraction)) restoreReadingLine(pane, node, saved.fraction);
         else if (node && Number.isFinite(saved.offset)) pane.scrollTop += node.getBoundingClientRect().top - pane.getBoundingClientRect().top + saved.offset;
+        if (!document.bookmark && local && document.readingVersion !== undefined) {
+          host.saveReadingViewBookmark?.(sourceId, { readingVersion: document.readingVersion, bundleVersion: document.bundleVersion,
+            line: local.line, sourceOffset: local.sourceOffset, fraction: local.fraction, offset: local.offset });
+        }
       }
     } catch { /* Ignore malformed display bookmarks, never mutate the Cursor. */ }
-  }, [document, bookmark, intent, visible, mobile]);
+  }, [document, bookmark, legacyBookmark, host, sourceId, intent, visible, mobile]);
 
   useLayoutEffect(() => {
     const pane = original.current;
@@ -844,12 +866,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
           onScroll={event => {
             const pane = event.currentTarget;
             updateOriginalPage(pane);
-            if (!manual.current || !bookmark) return;
+            if (!manual.current) return;
             const block = blockAtReadingLine(pane);
-            if (block) {
-              const { lines, offset } = sourcePositionAt(block);
-              safeWrite(bookmark, JSON.stringify({ line: lines[0], sourceOffset: offset, fraction: fractionAtReadingLine(pane, block) }));
-            }
+            if (block) saveBookmark(pane, block);
           }}
           onClick={e => {
             const node = e.target as HTMLElement;

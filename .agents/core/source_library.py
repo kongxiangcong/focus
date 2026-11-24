@@ -581,6 +581,10 @@ class SourceLibrary:
         state['reading_requests'] = {k: v for k, v in state.get('reading_requests', {}).items() if v.get('input', {}).get('source_id') != source_id}
         state.get('pending_reading_resets', {}).pop(source_id, None)
         state.get('reading_plan_numbers', {}).pop(source_id, None)
+        state.get('reading_versions', {}).pop(source_id, None)
+        state.get('reading_view_bookmarks', {}).pop(source_id, None)
+        state['reading_version_resets'] = {key: value for key, value in state.get('reading_version_resets', {}).items()
+                                           if value['sourceId'] != source_id}
         state.setdefault('current_topic_id', None)
         state['sources'].pop(source_id, None)
         if state.get('current_source_id') == source_id:

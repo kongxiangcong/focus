@@ -26,6 +26,7 @@ from .source_blocks import source_lines
 from .source_translation import SourceTranslation
 from .reading_progress import enqueue
 from .reading_structure import validate_structure
+from .reading_versions import selected_version, version_metadata, version_reading_directory
 
 METHOD_VERSION = "focus-reading-v0.2"
 _LOCK = threading.RLock()
@@ -66,8 +67,9 @@ class ReadingCore:
         SourceLibrary(self.workspace).get(source_id)
         return self.workspace / "sources" / source_id
 
-    def _path(self, source_id: str) -> Path:
-        return self._root(source_id) / "reading" / "preparation.json"
+    def _path(self, source_id: str, reading_version=None) -> Path:
+        state = _read_document(self.workspace / 'state.json')
+        return version_reading_directory(self._root(source_id), state, source_id, reading_version) / 'preparation.json'
 
     def _bundle_version(self, source_id: str) -> str:
         bundle = self._root(source_id) / "parser-bundle"
@@ -76,8 +78,16 @@ class ReadingCore:
 
     def _reading_version(self, source_id: str, state=None) -> int:
         state = state if state is not None else _read_document(self.workspace / "state.json")
-        selected = state["sources"][source_id]
-        return int(selected.get("reading_version", 1))
+        return selected_version(state, source_id)
+
+    def plan_belongs_to_version(self, source_id, plan_id):
+        state = _read_document(self.workspace / 'state.json')
+        metadata = version_metadata(state, source_id)
+        if not metadata:
+            return True
+        run = self._read(source_id) or {}
+        return (plan_id == state['sources'][source_id].get('current_plan_id')
+                or plan_id in metadata.get('plan_ids', ()) or plan_id in run.get('ready_plans', {}))
 
     def source_language(self, source_id: str) -> str:
         metadata = _validate_parser_bundle(self._root(source_id) / "parser-bundle")
@@ -749,7 +759,7 @@ class ReadingCore:
 
     def interrupt_running(self) -> None:
         with _LOCK:
-            for path in (self.workspace / "sources").glob("*/reading/preparation.json"):
+            for path in (self.workspace / "sources").glob("*/reading/**/preparation.json"):
                 run = _read_document(path)
                 from .workspace_lifecycle import writer_authorized
                 if run.get("status") == "running" and writer_authorized(self.workspace, self.writer_id, run.get("writer_id")):

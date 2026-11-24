@@ -10,6 +10,7 @@ import uuid
 from pathlib import Path
 
 from .reading_workspace import WorkspaceError, _read_document, _write_document, validate_source_id
+from .reading_versions import selected_version
 
 
 def enqueue(state: dict, *, request_id: str, operation: str, source_id: str,
@@ -18,6 +19,7 @@ def enqueue(state: dict, *, request_id: str, operation: str, source_id: str,
         'progress_id': request_id, 'trigger_request_id': request_id,
         'source_id': source_id, 'bundle': bundle, 'plan_id': plan_id,
         'chunk_id': chunk_id, 'reading_pass': reading_pass,
+        'reading_version': selected_version(state, source_id),
         'operation': operation, 'status': 'pending', 'revision': 1,
         'fact': '已读本段', 'topic': None, 'user_understanding': None,
         'deleted': False, 'attempt': None, 'error': None,
@@ -45,8 +47,11 @@ class ReadingProgress:
         from .reading_application import _LOCK
         source_id = validate_source_id(source_id)
         with _LOCK:
-            return [dict(entry) for entry in self._state().get('reading_progress', {}).values()
-                    if entry['source_id'] == source_id and (plan_id is None or entry['plan_id'] == plan_id)]
+            state = self._state()
+            version = selected_version(state, source_id)
+            return [dict(entry) for entry in state.get('reading_progress', {}).values()
+                    if entry['source_id'] == source_id and entry.get('reading_version', version) == version
+                    and (plan_id is None or entry['plan_id'] == plan_id)]
 
     def interrupt_running(self) -> None:
         from .reading_application import _LOCK
