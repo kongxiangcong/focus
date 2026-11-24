@@ -4,8 +4,9 @@ import { useEvidenceNavigation, type EvidenceNavigation, type EvidenceNavigation
 import type { ReadingSession } from "./reading-session";
 import { MarkdownContent } from "./MarkdownContent";
 import { ActiveSourceCitation, SourceAnswerChooser } from "./SourceEvidenceMarkers";
-import { TranslatedPaper } from "./PaperViews";
-import { locatePaperEvidence, matchesTranslationChunk, overlapsSourceLines } from "./paper-evidence";
+import { TranslatedPaper } from "./TranslatedPaper";
+import { locatePaperEvidence, overlapsSourceLines } from "./paper-evidence";
+import { blockAtReadingLine, blockAtSourcePosition, fractionAtReadingLine, restoreReadingLine, sourceLinesAt, sourcePositionAt, type SourceLines, type SourcePosition } from "./source-position";
 import { citedMarkdown, messageEvidence, projectEvidence, type EvidenceProjection } from "./source-evidence";
 import type { RenderMark } from "./rehype-annotations";
 import { readingFontSizes } from "./typography";
@@ -24,26 +25,6 @@ function isScrollKey(event: ReactKeyboardEvent) {
   const target = event.target as HTMLElement;
   return !event.defaultPrevented && !event.ctrlKey && !event.altKey && !event.metaKey && scrollKeys.has(event.key) &&
     !target.closest("input, textarea, select, [contenteditable=true]") && (event.key !== " " || !target.closest("button, a"));
-}
-
-type SourceLines = readonly [number, number];
-
-function sourceLinesAt(block: HTMLElement): SourceLines {
-  return [Number(block.dataset.sourceLine), Number(block.dataset.sourceEnd ?? block.dataset.sourceLine)];
-}
-
-function blockAtReadingLine(pane: HTMLElement, fraction = .32) {
-  const viewport = pane.getBoundingClientRect();
-  const readingLine = viewport.top + pane.clientHeight * fraction;
-  const blocks = pane.querySelectorAll<HTMLElement>("[data-source-line]");
-  let start = 0, end = blocks.length;
-  while (start < end) {
-    const middle = Math.floor((start + end) / 2);
-    if (blocks[middle].getBoundingClientRect().bottom <= readingLine) start = middle + 1;
-    else end = middle;
-  }
-  const block = blocks[start];
-  if (block && block.getBoundingClientRect().top < viewport.bottom) return block;
 }
 
 function sourcePdfPage(pdf: ReadingDocument["pdf"], sourceLines: SourceLines, quoteOffsets?: SourceLines) {
@@ -231,6 +212,7 @@ function groupIntoTurns(messages: readonly ReaderMessage[]): TurnGroup[] {
 
 function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, onFullscreenChange, readingSession, evidenceNavigation, approvalManaged }: { host: ReaderHost; view: ReadingWindow; setView: (v: ReadingWindow) => void; visible: boolean; fontSize: string; readingSession?: ReadingSession; evidenceNavigation?: EvidenceNavigation; approvalManaged?: boolean } & FullscreenControls) {
   const sourceId = view.source.sourceId!;
+  const languagePreference = `focus.sourceLanguage:${view.workspace?.workspaceId ?? "local"}:${sourceId}`;
   const selectionGeneration = readingSession?.generation;
   const isCurrentSelection = readingSession?.isCurrent;
   const mounted = useRef(false);
@@ -254,10 +236,10 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       return next;
     });
   }, []);
-  const [translated, setTranslated] = useState(false);
+  const [paperLanguage, setPaperLanguage] = useState(() => safeRead(languagePreference));
   const [currentPage, setCurrentPage] = useState<number>();
   const locatedPage = useRef<{ top: number; page?: number } | null>(null);
-  const position = useRef<{ lines: SourceLines; fraction: number; chunk?: string } | null>(null);
+  const position = useRef<(SourcePosition & { fraction: number }) | null>(null);
   const restorePaperPosition = useRef(false);
   const scrollByLanguage = useRef({ original: 0, translation: 0 });
   const [selection, setSelection] = useState("");
@@ -370,9 +352,14 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const originalUrl = originalFormat ? host.sourceOriginalUrl?.(sourceId) : undefined;
   const originalHref = originalUrl && originalFormat === "pdf"
     ? pdfOriginalHref(originalUrl, document?.pdf?.pdfHash, currentPage) : originalUrl;
-  const translationState = document?.translation?.status;
-  const translationReady = translationState === "ready";
-  const showingTranslation = translated && translationReady;
+  const translation = document?.translation;
+  const translationState = translation?.status;
+  const modernDocument = document?.language !== undefined || translation?.segments !== undefined;
+  const chineseSource = /^zh(?:[-_]|$)/i.test(document?.language ?? "") || translationState === "not_applicable";
+  const translationReady = !chineseSource && translation?.status === "ready" &&
+    (!translation.bundleVersion || translation.bundleVersion === document?.bundleVersion) &&
+    !!(translation.segments ?? translation.chunks).length;
+  const showingTranslation = translationReady && (paperLanguage === "zh" || modernDocument && paperLanguage !== "source");
 
   const updateOriginalPage = useCallback((pane: HTMLElement | null = original.current) => {
     if (!document?.pdf || !pane?.clientHeight) return;
@@ -387,25 +374,30 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
 
   function switchPaper(next: boolean) {
     const pane = original.current;
-    if (!pane || !document || translated === next) return;
-    const line = pane.getBoundingClientRect().top + pane.clientHeight * .32;
-    const cited = !manual.current && activeEvidence ? target(activeEvidence) : undefined;
+    if (!pane || !document || showingTranslation === next) return;
+    const cited = activeEvidence ? target(activeEvidence) : undefined;
     const citedBounds = cited?.getBoundingClientRect();
-    const anchor = cited && citedBounds && citedBounds.top >= pane.getBoundingClientRect().top &&
-      citedBounds.bottom <= pane.getBoundingClientRect().bottom ? cited.closest<HTMLElement>("[data-source-line]") : blockAtReadingLine(pane);
-    const bounds = anchor?.getBoundingClientRect();
-    const lines = anchor && sourceLinesAt(anchor);
-    const ids = document.pdf?.blocks.filter(block => lines && overlapsSourceLines(lines, block.sourceLines)).map(block => block.blockId) ?? [];
-    const chunk = next && lines ? document.translation?.chunks.find(item => matchesTranslationChunk(item, lines, ids)) : undefined;
-    position.current = lines && bounds ? { lines, chunk: chunk?.id,
-      fraction: Math.max(0, Math.min(1, (line - bounds.top) / Math.max(1, bounds.height))) } : null;
+    const paneBounds = pane.getBoundingClientRect();
+    const citedBlock = citedBounds && citedBounds.top < paneBounds.bottom && citedBounds.bottom > paneBounds.top
+      ? cited?.closest<HTMLElement>("[data-source-line]") : undefined;
+    const anchor = citedBlock ?? blockAtReadingLine(pane);
+    const projection = citedBlock && active;
+    const prior = position.current;
+    if (citedBlock && projection && projection.kind !== "unavailable") {
+      position.current = { lines: projection.sourceLines, offset: projection.quoteOffsets?.[0],
+        fraction: fractionAtReadingLine(pane, citedBlock) };
+    } else if (!anchor || manual.current || anchor.dataset.translationGranularity !== "group" || !prior || blockAtSourcePosition(pane, prior) !== anchor) {
+      position.current = anchor ? { ...sourcePositionAt(anchor), fraction: fractionAtReadingLine(pane, anchor) } : null;
+    }
     scrollByLanguage.current[showingTranslation ? "translation" : "original"] = pane.scrollTop;
     stopNavigation();
     restorePaperPosition.current = true;
     locatedPage.current = null;
     manual.current = false;
     setSelection("");
-    setTranslated(next);
+    const language = next ? "zh" : "source";
+    safeWrite(languagePreference, language);
+    setPaperLanguage(language);
   }
 
   useLayoutEffect(() => {
@@ -413,12 +405,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     if (!pane || !restorePaperPosition.current) return;
     restorePaperPosition.current = false;
     manual.current = false;
-    const node = anchor && [...pane.querySelectorAll<HTMLElement>("[data-source-line]")].find(element =>
-      showingTranslation ? element.dataset.translationChunk === anchor.chunk : overlapsSourceLines(sourceLinesAt(element), anchor.lines));
+    const node = anchor && blockAtSourcePosition(pane, anchor);
     if (node && anchor) {
-      const rect = node.getBoundingClientRect();
-      pane.scrollTop += rect.top - pane.getBoundingClientRect().top +
-        (showingTranslation ? 0 : anchor.fraction * rect.height) - pane.clientHeight * .32;
+      restoreReadingLine(pane, node, anchor.fraction);
     } else pane.scrollTop = scrollByLanguage.current[showingTranslation ? "translation" : "original"];
   }, [showingTranslation]);
 
@@ -712,17 +701,19 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   }, []);
 
   useLayoutEffect(() => {
-    if (!document || !original.current || restored.current || intent) return;
+    const pane = original.current;
+    if (!document || !pane?.clientHeight || !visible || restored.current || intent) return;
     restored.current = true;
     try {
       const raw = safeRead(bookmark);
       const saved = raw ? JSON.parse(raw) : view.readingStarted && view.navigationCurrent?.bundleVersion === document.bundleVersion ? { line: view.navigationCurrent.sourceLines[0], offset: 0 } : null;
-      if (saved && Number.isSafeInteger(saved.line) && Number.isFinite(saved.offset)) {
-        const el = original.current.querySelector<HTMLElement>(`[data-source-line="${saved.line}"]`);
-        if (el) original.current.scrollTop += el.getBoundingClientRect().top - original.current.getBoundingClientRect().top + saved.offset;
+      if (saved && Number.isSafeInteger(saved.line)) {
+        const node = blockAtSourcePosition(pane, { lines: [saved.line, saved.line], offset: saved.sourceOffset });
+        if (node && Number.isFinite(saved.fraction)) restoreReadingLine(pane, node, saved.fraction);
+        else if (node && Number.isFinite(saved.offset)) pane.scrollTop += node.getBoundingClientRect().top - pane.getBoundingClientRect().top + saved.offset;
       }
     } catch { /* Ignore malformed display bookmarks, never mutate the Cursor. */ }
-  }, [document, bookmark, intent]);
+  }, [document, bookmark, intent, visible, mobile]);
 
   useLayoutEffect(() => {
     const pane = original.current;
@@ -842,7 +833,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setFocusedTurn(prev => (prev === best ? prev : best));
   }, [intent, isLatest, stopNavigation, turns.length]);
 
-  useEffect(() => { setRegionNumber(0); }, [activeEvidence, translated]);
+  useEffect(() => { setRegionNumber(0); }, [activeEvidence, showingTranslation]);
   function nextRegion() {
     if (!activeEvidence || !original.current) return;
     const regions = original.current.querySelectorAll<HTMLElement>(`[data-evidence-block~="${activeEvidence}"]`);
@@ -853,6 +844,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     setRegionNumber(next);
   }
   const translationInterrupted = ["failed", "cancelled", "interrupted"].includes(translationState ?? "");
+  const showLanguageControls = !chineseSource && (translationReady || !!translation && !modernDocument);
   const activeChunks = paperLocations.find(item => item.evidence.evidenceId === activeEvidence)?.translationChunks ?? [];
   const locationLabel = active?.kind === "unavailable" ? " · 历史引文" : showingTranslation ?
     activeChunks.length ? " · 译块定位" : " · 译块位置暂不可用" : active?.kind === "block" ? " · 段落定位" : "";
@@ -890,9 +882,10 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     <div className="source-reader-columns">
       <div className="source-original-pane">
         <button type="button" className="source-mobile-toggle source-mobile-return" onClick={() => { stopNavigation(); setMobile("chat"); }}>返回对话</button>
-        {(document?.translation || originalHref) && <div className="source-original-toolbar">
-          {document?.translation && <div className="paper-view-controls"><button aria-pressed={!showingTranslation} onClick={() => switchPaper(false)}>原文</button>
-            <button aria-pressed={showingTranslation} disabled={!translationReady} onClick={() => switchPaper(true)}>中文译文{translationReady ? "" : translationState === "running" ? " · 准备中" : translationInterrupted ? " · 未完成" : " · 未就绪"}</button>
+        {(showLanguageControls || originalHref) && <div className="source-original-toolbar">
+          {showLanguageControls && <div className="paper-view-controls" role="group" aria-label="正文语言">
+            <button aria-pressed={showingTranslation} disabled={!translationReady} onClick={() => switchPaper(true)}>{modernDocument ? "中文" : `中文译文${translationReady ? "" : translationState === "running" ? " · 准备中" : translationInterrupted ? " · 未完成" : " · 未就绪"}`}</button>
+            <button aria-pressed={!showingTranslation} onClick={() => switchPaper(false)}>原文</button>
             {translationInterrupted && host.resumePreparation && <button onClick={() => void apply("translation", host.resumePreparation!(sourceId, createReaderId()))}>重试译文</button>}</div>}
           {originalHref && <a className="source-original-link" href={originalHref} target="_blank" rel="noreferrer">打开原件 ↗</a>}
         </div>}
@@ -911,9 +904,11 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
               else manualBrowse();
             }
             if (!manual.current || !bookmark) return;
-            const block = blockAtReadingLine(pane, 0);
-            if (block) safeWrite(bookmark, JSON.stringify({ line: Number(block.dataset.sourceLine),
-              offset: pane.getBoundingClientRect().top - block.getBoundingClientRect().top }));
+            const block = blockAtReadingLine(pane);
+            if (block) {
+              const { lines, offset } = sourcePositionAt(block);
+              safeWrite(bookmark, JSON.stringify({ line: lines[0], sourceOffset: offset, fraction: fractionAtReadingLine(pane, block) }));
+            }
           }}
           onClick={e => {
             const node = e.target as HTMLElement;
