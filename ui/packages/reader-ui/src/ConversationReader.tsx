@@ -9,7 +9,7 @@ import { locatePaperEvidence, overlapsSourceLines } from "./paper-evidence";
 import { blockAtReadingLine, blockAtSourcePosition, fractionAtReadingLine, restoreReadingLine, sourceLinesAt, sourcePositionAt, type SourceLines, type SourcePosition } from "./source-position";
 import { citedMarkdown, messageEvidence, projectEvidence, type EvidenceProjection } from "./source-evidence";
 import type { RenderMark } from "./rehype-annotations";
-import { captureSourceText, documentNoteMarks } from "./selected-source-note";
+import { captureSourceText, captureTranslatedText, chunkNoteLinks, documentNoteMarks, sharedDocumentNotes } from "./selected-source-note";
 import { readingFontSizes } from "./typography";
 import { AgentControls } from "./AgentControls";
 import { AssetInstanceContext } from "./asset-context";
@@ -272,10 +272,13 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const [lastAnswerCitation, setLastAnswerCitation] = useState<DiscussionCitation | null>(null);
   const [mobile, setMobile] = useState("chat"), [guideOpen, setGuideOpen] = useState(false), [notesOpen, setNotesOpen] = useState(false);
   const notesButton = useRef<HTMLButtonElement>(null);
+  const notesDrawer = useRef<HTMLElement>(null);
   const noteInput = useRef<HTMLTextAreaElement>(null);
   const notesOpener = useRef<HTMLElement | null>(null);
-  function openNotes(opener: HTMLElement) {
+  const [activeNoteId, setActiveNoteId] = useState<string>();
+  function openNotes(opener: HTMLElement, noteId?: string) {
     if (!notesOpen) notesOpener.current = opener;
+    setActiveNoteId(noteId);
     setNotesOpen(true);
   }
   const closeNotes = useCallback(() => {
@@ -293,13 +296,20 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     return () => globalThis.document.removeEventListener("keydown", closeOnEscape);
   }, [notesOpen, visible, closeNotes]);
   useLayoutEffect(() => {
-    if (notesOpen && visible) noteInput.current?.focus({ preventScroll: true });
+    if (notesOpen && visible) {
+      const target = activeNoteId && [...(notesDrawer.current?.querySelectorAll<HTMLElement>("[data-note-id]") ?? [])]
+        .find(element => element.dataset.noteId === activeNoteId);
+      if (target) {
+        target.focus({ preventScroll: true });
+        target.scrollIntoView?.({ block: "nearest" });
+      } else noteInput.current?.focus({ preventScroll: true });
+    }
     else if (notesOpener.current) {
       const opener = notesOpener.current;
       notesOpener.current = null;
       if (visible) (opener.isConnected ? opener : notesButton.current)?.focus({ preventScroll: true });
     }
-  }, [notesOpen, visible]);
+  }, [notesOpen, visible, activeNoteId]);
   const [share, setShare] = useState(() => Math.max(40, Math.min(70, Number(safeRead("focus.sourceShare")) || 60)));
   const scope = `${view.workspace?.workspaceId ?? "local"}:${sourceId}:${view.sourceGeneration ?? view.resetVersion ?? 0}`;
   const draftKey = `focus.sourceDraft:${scope}:${view.discussionId ?? ""}`;
@@ -452,8 +462,11 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     [answers, document, view.discussionId, resettingDiscussion]);
   const evidenceKey = JSON.stringify(validated);
   const evidence = useMemo(() => validated, [evidenceKey]);
+  const annotationKey = JSON.stringify([view.sourceHighlights, view.sourceNotes]);
+  const sharedNotes = useMemo(() => document ? sharedDocumentNotes(document, view.sourceNotes ?? []) : [], [document, annotationKey]);
+  const noteLinks = useMemo(() => document ? chunkNoteLinks(document, sharedNotes) : [], [document, sharedNotes]);
   // Keep the parsed document stable when the active citation changes.
-  const sourceInput = useMemo(() => document ? { document, evidence } : undefined, [document, evidence]);
+  const sourceInput = useMemo(() => document ? { document, evidence, noteLinks } : undefined, [document, evidence, noteLinks]);
   const projections = useMemo(() => document ? projectEvidence(document, evidence) : [], [document, evidence]);
   const paperLocations = useMemo(() => document?.translation ? projections.map(projection => locatePaperEvidence(document, projection)) : [],
     [document, projections]);
@@ -464,7 +477,6 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   const paperFallback = showingTranslation
     ? requestedPaperEvidence ?? paperLocations.find(location => location.evidence.evidenceId === activeEvidence) : undefined;
 
-  const annotationKey = JSON.stringify([view.sourceHighlights, view.sourceNotes]);
   const permanentMarks = useMemo(() => {
     if (!document) return [];
     const annotations = [
@@ -475,8 +487,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       const projected = projectEvidence(document, [{ evidenceId: a.id, sourceId, bundleVersion: a.bundle, messageId: "", discussionId: "", answerRevision: "", displayNumber: 0, sourceLines: a.lines, quote: a.quote, relation: "context" }])[0];
       return projected.kind === "exact" ? [{ key: a.id, start: projected.start, end: projected.end, ...(a.highlight ? { highlightId: a.id } : { noteId: a.id }), ariaLabel: a.highlight ? "重点" : "备注" } satisfies RenderMark] : [];
     });
-    return [...legacy, ...documentNoteMarks(document, view.sourceNotes ?? [])];
-  }, [document, annotationKey, sourceId]);
+    return [...legacy, ...documentNoteMarks(document, sharedNotes)];
+  }, [document, annotationKey, sourceId, sharedNotes]);
 
   const active = projections.find(projection => projection.evidence.evidenceId === activeEvidence);
   const rememberedAnswer = !resettingDiscussion && lastAnswerCitation?.discussionId === view.discussionId ? lastAnswerCitation : null;
@@ -750,8 +762,10 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
   function beginSelectedNote(opener: HTMLElement) {
     if (!selection || savingNote) return;
     let locator: SourceTextSelectionInput | undefined;
-    if (!showingTranslation && document?.readingPlan) {
-      locator = sourceBody.current ? captureSourceText(sourceBody.current, selection.range, document) : undefined;
+    if (document?.readingPlan) {
+      locator = showingTranslation
+        ? original.current ? captureTranslatedText(original.current, selection.range, document) : undefined
+        : sourceBody.current ? captureSourceText(sourceBody.current, selection.range, document) : undefined;
       if (!locator) {
         showOperationError("note-save", "选文位置已失效，请重新选择。");
         return;
@@ -891,8 +905,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
           aria-label="文章原文" tabIndex={0} onWheel={e => { if (!e.ctrlKey) manualBrowse(); }} onTouchStart={manualBrowse}
           onPointerDown={e => { if (e.target === e.currentTarget) manualBrowse(); }}
           onKeyDown={e => {
-            if ((e.key === "Enter" || e.key === " ") && (e.target as HTMLElement).matches("[data-shared-note-ids][role=button]")) {
-              e.preventDefault(); openNotes(e.target as HTMLElement);
+            const mark = e.target as HTMLElement;
+            if ((e.key === "Enter" || e.key === " ") && mark.matches("[data-shared-note-ids][role=button]")) {
+              e.preventDefault(); openNotes(mark, mark.dataset.sharedNoteIds?.split(" ")[0]);
             } else if (isScrollKey(e)) {
               manualBrowse();
               pageByKeyboard(e);
@@ -910,20 +925,20 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
             const id = node.closest<HTMLElement>("[data-evidence]")?.dataset.evidence;
             if (id) backToAnswer(id);
             else {
-              const mark = node.closest<HTMLElement>("[data-anno-key], [data-anno-bulb]");
-              if (mark) openNotes(mark);
+              const mark = node.closest<HTMLElement>("[data-shared-note-link], [data-anno-key], [data-anno-bulb]");
+              if (mark) openNotes(mark, mark.dataset.sharedNoteLink ?? mark.dataset.sharedNoteIds?.split(" ")[0]);
             }
           }}>
           <ActiveSourceCitation.Provider value={markerSelection}>
             {document ? showingTranslation ? <TranslatedPaper document={document} evidence={paperLocations}
-              fallback={paperFallback} originalMarks={permanentMarks} /> :
+              fallback={paperFallback} originalMarks={permanentMarks} notes={sharedNotes} noteLinks={noteLinks} /> :
               <article><MarkdownContent text={document.markdown} sourceId={sourceId} marks={permanentMarks} sourceEvidence={sourceInput} bodyRef={sourceBody} /></article> :
               <span role="status" className="source-loading">加载中…</span>}
           </ActiveSourceCitation.Provider>
         </div>
         {selection && <div className="source-selection-actions">
           <button onClick={() => { composer.current?.insertQuote(selection.text); setSelection(null); setMobile("chat"); }}>引用</button>
-          {host.createSourceNote && (showingTranslation || document?.readingPlan !== null) && <button disabled={savingNote} onClick={e => beginSelectedNote(e.currentTarget)}>记笔记</button>}
+          {host.createSourceNote && document?.readingPlan !== null && <button disabled={savingNote} onClick={e => beginSelectedNote(e.currentTarget)}>记笔记</button>}
           <button aria-label="取消选择" onClick={() => { window.getSelection()?.removeAllRanges(); setSelection(null); }}>×</button>
         </div>}
       </div>
@@ -1006,14 +1021,29 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
         </div>
       </div>
     </div>
-    {notesOpen && <aside className="source-notes-drawer" aria-label="来源笔记">
+    {notesOpen && <aside ref={notesDrawer} className="source-notes-drawer" aria-label="来源笔记">
       <div className="source-notes-drawer__head">
         <h3>笔记</h3>
         <button type="button" className="source-icon-btn" onClick={closeNotes} aria-label="关闭笔记"><Close /></button>
       </div>
       <textarea ref={noteInput} aria-label="笔记内容" placeholder="记录想法或结论…" value={noteDraft} readOnly={savingNote} onChange={e => setNoteDraft(e.target.value)} />
       {host.createSourceNote && <button className="source-notes-save" disabled={savingNote || !noteDraft.trim()} onClick={() => void saveCurrentNote()}>保存笔记</button>}
-      {(view.sourceNotes ?? []).filter(n => !n.deleted || n.canUndo).map(n => <article key={n.noteId}>{n.sentence && <blockquote>{n.sentence.quote.exact}</blockquote>}<MarkdownContent text={n.content} />{host.changeSourceNote && <div className="source-note-actions">{!n.deleted && <button disabled={savingNote} onClick={() => { setNoteSelection(undefined); setNoteEdit({ id: n.noteId, revision: n.revision }); setNoteDraft(n.content); }}>编辑</button>}<button onClick={() => void apply(`note:${n.noteId}`, host.changeSourceNote!(sourceId, n.noteId, n.deleted ? "undo" : "delete", n.revision, createReaderId()))}>{n.deleted ? "撤销删除" : "删除"}</button></div>}</article>)}
+      {(view.sourceNotes ?? []).filter(note => !note.deleted || note.canUndo).map(note => <article key={note.noteId} data-note-id={note.noteId} tabIndex={-1}>
+        {note.deleted ? <p>已删除，可撤销</p> : <>
+          {note.sentence && <blockquote>{note.sentence.quote.exact}</blockquote>}
+          <MarkdownContent text={note.content} />
+        </>}
+        {host.changeSourceNote && <div className="source-note-actions">
+          {!note.deleted && <button disabled={savingNote} onClick={() => {
+            setNoteSelection(undefined);
+            setNoteEdit({ id: note.noteId, revision: note.revision });
+            setNoteDraft(note.content);
+            noteInput.current?.focus();
+          }}>编辑</button>}
+          <button onClick={() => void apply(`note:${note.noteId}`, host.changeSourceNote!(sourceId, note.noteId,
+            note.deleted ? "undo" : "delete", note.revision, createReaderId()))}>{note.deleted ? "撤销删除" : "删除"}</button>
+        </div>}
+      </article>)}
       {(view.sourceHighlights ?? []).filter(h => !h.deleted || h.canUndo).map(h => <article key={h.highlightId}><blockquote>{h.quote.exact}</blockquote>{host.changeHighlight && <div className="source-note-actions"><button onClick={() => void apply(`highlight:${h.highlightId}`, host.changeHighlight!(sourceId, h.highlightId, h.deleted ? "undo" : "delete", h.revision, createReaderId()))}>{h.deleted ? "撤销删除重点" : "取消重点"}</button></div>}</article>)}
     </aside>}
   </section>;

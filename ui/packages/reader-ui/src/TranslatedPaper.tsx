@@ -1,18 +1,30 @@
-import type { ReadingDocument, ReadingTranslationSegment } from "@focus/reader-contracts";
+import type { ReadingDocument, ReadingTranslationSegment, SourceNote } from "@focus/reader-contracts";
 import { Fragment } from "react";
 import { MarkdownContent } from "./MarkdownContent";
+import { ChunkNoteLinks } from "./ChunkNoteLinks";
 import { SourceEvidenceMarkers } from "./SourceEvidenceMarkers";
 import type { PaperEvidence } from "./paper-evidence";
 import type { RenderMark } from "./rehype-annotations";
+import { segmentNoteMarks, type ChunkNoteLink } from "./selected-source-note";
 
 type Passage = Omit<ReadingTranslationSegment, "sourceOffsets" | "granularity"> &
   Partial<Pick<ReadingTranslationSegment, "sourceOffsets" | "granularity">>;
 
-export function TranslatedPaper({ document, evidence, fallback, originalMarks }: {
+export function TranslatedPaper({ document, evidence, fallback, originalMarks, notes, noteLinks }: {
   document: ReadingDocument; evidence: readonly PaperEvidence[]; fallback?: PaperEvidence; originalMarks: readonly RenderMark[];
+  notes: readonly SourceNote[]; noteLinks: readonly ChunkNoteLink[];
 }) {
   const translation = document.translation;
   const passages: readonly Passage[] = translation?.segments ?? translation?.chunks ?? [];
+  const linksByPassage = new Map<string, ChunkNoteLink[]>();
+  for (const link of noteLinks) {
+    const [low, high] = link.sourceOffsets;
+    const passage = passages.find(({ sourceOffsets }) => sourceOffsets && sourceOffsets[0] < high && low < sourceOffsets[1]);
+    if (!passage) continue;
+    const links = linksByPassage.get(passage.id) ?? [];
+    links.push(link);
+    linksByPassage.set(passage.id, links);
+  }
   const lines = fallback?.fallbackLines;
   const nextPassage = lines ? passages.findIndex(passage => passage.sourceLines[0] > lines[1]) : -1;
   const excerpt = fallback && lines && <section aria-label="原文证据" lang={document.language}>
@@ -22,6 +34,8 @@ export function TranslatedPaper({ document, evidence, fallback, originalMarks }:
   </section>;
   return <article>{passages.map((passage, index) => {
     const items = evidence.filter(item => item.segmentIds.includes(passage.id)).map(item => item.evidence);
+    const marks = segmentNoteMarks(passage, notes);
+    const links = linksByPassage.get(passage.id);
     return <Fragment key={passage.id}>
       {index === nextPassage && excerpt}
       <section data-translation-chunk={passage.id} data-source-line={passage.sourceLines[0]}
@@ -29,7 +43,8 @@ export function TranslatedPaper({ document, evidence, fallback, originalMarks }:
         data-source-block-ids={passage.blockIds.join(" ") || undefined}
         data-translation-granularity={passage.granularity} lang={passage.granularity === "source" ? document.language : "zh"}
         data-evidence-block={items.map(item => item.evidenceId).join(" ") || undefined}>
-        <SourceEvidenceMarkers items={items} /><MarkdownContent text={passage.text} sourceId={document.sourceId} />
+        <SourceEvidenceMarkers items={items} /><MarkdownContent text={passage.text} sourceId={document.sourceId} marks={marks.length ? marks : undefined} />
+        {links && <ChunkNoteLinks links={links} />}
       </section>
     </Fragment>;
   })}{nextPassage === -1 && excerpt}</article>;

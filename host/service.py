@@ -913,8 +913,12 @@ class HostService:
 
     def _note_selection(self, source_id, bundle, selection):
         invalid = WorkspaceError('note_selection_invalid', '选文位置已失效，请重新选择。')
-        if (not isinstance(selection, dict) or set(selection) != {'layer', 'planId', 'bundleVersion', 'ranges'}
-                or selection['layer'] != 'source'):
+        if not isinstance(selection, dict) or selection.get('layer') not in ('source', 'translation'):
+            raise invalid
+        keys = {'layer', 'planId', 'bundleVersion', 'ranges'}
+        if selection['layer'] == 'translation':
+            keys.add('readingVersion')
+        if set(selection) != keys:
             raise invalid
         if selection['bundleVersion'] != bundle:
             raise WorkspaceError('note_bundle_changed', '这段原文已更新，请重新选文。')
@@ -925,6 +929,8 @@ class HostService:
         ranges = selection['ranges']
         if not isinstance(ranges, list) or not ranges:
             raise invalid
+        if selection['layer'] == 'translation':
+            return self._translated_note_selection(source_id, bundle, source, plan, selection, invalid)
         previous = 0
         for span in ranges:
             if (not isinstance(span, dict) or set(span) != {'start', 'end'}
@@ -944,6 +950,62 @@ class HostService:
         placement = {'sourceId': source_id, 'bundle': bundle,
                      'sourceLines': list(source.line_span(ranges[0]['start'], ranges[-1]['end']))}
         return {**selection, 'chunkIds': chunk_ids}, placement
+
+    def _translated_note_selection(self, source_id, bundle, source, plan, selection, invalid):
+        reading = self.reading_app.core
+        version = selection['readingVersion']
+        if type(version) is not int or version != reading._reading_version(source_id):
+            raise invalid
+        translation = reading.shared_translation(source_id, {'bundleVersion': bundle, 'markdown': source.markdown},
+                                                 source=source)
+        if translation['status'] != 'ready' or translation.get('planId') != plan['planId']:
+            raise invalid
+        segments = translation['segments']
+        by_id = {segment['id']: (index, segment) for index, segment in enumerate(segments)}
+        selected = {}
+        previous_index, previous_end = -1, 0
+        for span in selection['ranges']:
+            if (not isinstance(span, dict) or set(span) != {'segmentId', 'start', 'end'}
+                    or not isinstance(span['segmentId'], str)
+                    or any(type(span[key]) is not int for key in ('start', 'end'))):
+                raise invalid
+            segment_id = span['segmentId']
+            if segment_id not in by_id:
+                raise invalid
+            index, segment = by_id[segment_id]
+            start, end = span['start'], span['end']
+            if (index < previous_index or (index == previous_index and start < previous_end)
+                    or not 0 <= start < end <= len(segment['text']) or not segment['text'][start:end].strip()):
+                raise invalid
+            selected.setdefault(segment_id, []).append(span)
+            previous_index, previous_end = index, end
+
+        composer = reading._source_translation(source_id, bundle, version, source=source)
+        chunk_text = {chunk['id']: chunk['text'] for chunk in translation['chunks']}
+        chunk_ids, chunk_ranges = [], []
+        for chunk in plan['chunks']:
+            first, last = chunk['sourceOffsets']
+            covered = [segment_id for segment_id in selected
+                       if first <= by_id[segment_id][1]['sourceOffsets'][0]
+                       and by_id[segment_id][1]['sourceOffsets'][1] <= last]
+            if not covered:
+                continue
+            chunk_id = chunk['chunkId']
+            chunk_ids.append(chunk_id)
+            projection = composer.project(segments, first, last)
+            if projection is None or projection[0] != chunk_text.get(chunk_id):
+                continue
+            text, offsets = projection
+            ranges = [{'start': max(0, offsets[segment_id] + span['start']),
+                       'end': min(len(text), offsets[segment_id] + span['end'])}
+                      for segment_id in covered for span in selected[segment_id]]
+            chunk_ranges.append({'chunkId': chunk_id, 'ranges': ranges})
+        if not chunk_ids:
+            raise invalid
+        first = by_id[next(iter(selected))][1]['sourceOffsets'][0]
+        last = by_id[next(reversed(selected))][1]['sourceOffsets'][1]
+        placement = {'sourceId': source_id, 'bundle': bundle, 'sourceLines': list(source.line_span(first, last))}
+        return {**selection, 'chunkIds': chunk_ids, 'chunkRanges': chunk_ranges}, placement
 
     def source_note_create(self, source_id, payload):
         with self.lock:
