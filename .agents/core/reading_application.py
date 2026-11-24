@@ -211,8 +211,11 @@ class ReadingCore:
                         "candidate": False}
             progress = self._plan_status(source_id, run["plan_id"]) if run["plan_id"] else {
                 "total": 0, "completed": 0, "pending": []}
+            ready = run["status"] == "ready" and self._check_valid(source_id, run)
+            if run["status"] == "ready" and not ready:
+                run = {**run, "status": "commit_conflict", "error": "已准备的阅读内容发生变化，请重试。"}
             return {**run, **progress,
-                    "ready": run["status"] == "ready" and self._check_valid(source_id, run),
+                    "ready": ready,
                     "selected_plan_id": selected_id, "selected_ready": selected_ready,
                     "candidate": bool(selected_id and run["plan_id"] != selected_id)}
 
@@ -246,10 +249,24 @@ class ReadingCore:
             plan = run['selected_plan_id'] if run['selected_ready'] else run['plan_id'] if run['ready'] else None
             if not plan:
                 return {**(self._public_translation(asset) if asset else translation.result(run['status'])), 'chunks': []}
-            if asset:
-                return {**self._public_translation(asset), 'chunks': asset['segments']}
-            segments = self._document_segments(source_id, plan, translation, keep_original=True)
-            return {**translation.result('ready', segments), 'planId': plan, 'chunks': segments}
+            result = self._public_translation(asset) if asset else translation.result(
+                'ready', self._document_segments(source_id, plan, translation, keep_original=True))
+            return {**result, 'planId': plan, 'chunks': self._legacy_translation_chunks(source_id, plan, document)}
+
+    def _legacy_translation_chunks(self, source_id, plan, document):
+        root = self._root(source_id) / 'reading' / 'plans' / plan
+        lines = source_lines(document['markdown'])
+        blocks = (document.get('pdf') or {}).get('blocks', [])
+        chunks = []
+        for chunk in _read_chunk_records(root / 'chunks.jsonl'):
+            key = chunk['chunk_id']
+            record = _read_reading_record(root / 'records' / f'{key}.json', key)
+            start, end = chunk['source_lines']
+            chunks.append({'id': key, 'sourceLines': [start, end],
+                           'blockIds': list(dict.fromkeys(b['blockId'] for b in blocks
+                                                         if b['sourceLines'][0] <= end and start <= b['sourceLines'][1])),
+                           'text': record['translation'] or '\n'.join(lines[start - 1:end])})
+        return chunks
 
     @staticmethod
     def _public_translation(asset):
