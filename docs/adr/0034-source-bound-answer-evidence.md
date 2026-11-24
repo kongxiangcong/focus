@@ -20,6 +20,8 @@ Implementation uses canonical Markdown plus original line ranges as the document
 
 The v2 opening is one model candidate and one atomic Source/Bundle asset. A validated ready v1 overview is reused without rewriting it. Manual bookmarks are versioned, local display state with original-line anchors and offsets; completion is an explicit Core asset fenced by the Source clear generation. Neither touches the old Cursor.
 
+2026-11-24 补充：下一版统一阅读入口的准备条件见[设计文档 04 §1](../design/20261122-refactor/04-conversation-reading-bilingual-view.md#1-上传翻译与重新阅读)。首次准备和重新阅读均在本轮全部就绪后开放对话与精读，覆盖上文关于直接进入对话的旧约定。
+
 ## 2026-11-15 逐段精读保留修正
 
 用户明确要求统一阅读入口内保留「逐段精读」和「对话」两个 tab。逐段精读复用原阅读器、Plan、译文、批注及 Cursor 推进流程。对话 tab 使用全文与回答证据联动。切换 tab 不视为读完或推进一段，已有准备好的计划直接恢复。首次尚未准备好的文章会启动原准备流程，完成后再次打开逐段精读。
