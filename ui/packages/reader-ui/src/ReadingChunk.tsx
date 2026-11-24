@@ -32,7 +32,7 @@ export function ReadingChunk({ chunk, onReference, onFigure, onZoom, onLanguage,
   const layer: AnnotationLayer = translated ? "translation" : "source";
   const key = chunkKey(chunk);
   const annotation = useMemo(() => located || pending || onMarks ? { located: located ?? [], pending, fresh, layer } : undefined, [located, pending, fresh, layer, onMarks]);
-  const marks = useMemo(() => layer === "source" && sharedNotes ? chunkNoteMarks(chunk, sharedNotes) : [], [chunk, layer, sharedNotes]);
+  const marks = useMemo(() => sharedNotes ? chunkNoteMarks(chunk, layer, sharedNotes) : [], [chunk, layer, sharedNotes]);
   const reportMarks = useCallback((marks: readonly ResolvedMark[], lost: readonly Located[], text: string) => onMarks?.(key, marks, lost, layer, text), [key, layer, onMarks]);
   useEffect(() => { onLayerChange?.(chunk, layer); }, [chunk, layer, onLayerChange]);
   return <article className="focus-reading focus-reader__chunk" data-chunk-key={chunkKey(chunk)} data-annotation-layer={layer}>

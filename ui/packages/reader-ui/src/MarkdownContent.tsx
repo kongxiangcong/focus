@@ -1,6 +1,6 @@
 import { rehypeSourceEvidence } from "./source-evidence";
 import { SourceEvidenceMarkers } from "./SourceEvidenceMarkers";
-import type { ReadingDocument, ValidatedAnswerEvidence } from "@focus/reader-contracts";
+import { ChunkNoteLinks } from "./ChunkNoteLinks";
 import { useCallback, memo, useContext, useLayoutEffect, useMemo, useRef, type Ref } from "react";
 import Markdown, { type Components, defaultUrlTransform } from "react-markdown";
 import "katex/dist/katex.min.css";
@@ -47,7 +47,7 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
   bodyRef?: Ref<HTMLDivElement>;
   activeCitation?: string;
   onCitation?: (id: string, keyboard: boolean, origin: HTMLButtonElement) => void;
-  sourceEvidence?: { document: ReadingDocument; evidence: readonly ValidatedAnswerEvidence[]; active?: string; excerpt?: SourceLines };
+  sourceEvidence?: Parameters<typeof rehypeSourceEvidence>[0] & { excerpt?: SourceLines };
   marks?: readonly RenderMark[];
   annotation?: MarkdownAnnotationInput;
   onAnnotations?: (marks: readonly ResolvedMark[], lost: readonly Located[], text: string) => void;
@@ -76,6 +76,7 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
         sourceEvidence.document.bundleVersion,
         sourceEvidence.excerpt,
         sourceEvidence.evidence.map(e => [e.evidenceId, e.messageId, e.sourceLines, e.quote, e.displayNumber, e.renderGranularity]),
+        sourceEvidence.noteLinks,
       ])
     : "";
   const evidenceById = useMemo(() => new Map(sourceEvidence?.evidence.map(item => [item.evidenceId, item])), [evidenceKey]);
@@ -109,6 +110,11 @@ export const MarkdownContent = memo(function MarkdownContent({ text, sourceId, f
   // Parent handlers may change on each token; retain the parsed tree for stable content.
   const rendered = useMemo(() => <Markdown remarkPlugins={remarkPlugins} rehypePlugins={[...rehypePlugins, markFigures, ...evidencePlugins, ...annotationPlugins, ...(annotation ? [probe] : []), ...excerptPlugins]}
     components={{ ...components, a: renderLink, span: ({ node, ...props }) => {
+      const chunks = node?.properties.dataSourceChunkNotes;
+      if (typeof chunks === "string" && sourceEvidence?.noteLinks) {
+        const indices = chunks.split(" ").map(Number);
+        return <ChunkNoteLinks links={sourceEvidence.noteLinks.filter(link => indices.includes(link.index))} />;
+      }
       const ids = node?.properties.dataSourceEvidenceMarkers;
       if (typeof ids !== "string" || !sourceEvidence) return <span {...props} />;
       const items = ids.split(" ").flatMap(id => evidenceById.get(id) ?? []);

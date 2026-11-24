@@ -81,12 +81,7 @@ async function selectAnswer(message) {
 }
 
 async function browseToStart() {
-  const point = await source.evaluate(pane => {
-    const bounds = pane.getBoundingClientRect();
-    return { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2, distance: pane.scrollHeight };
-  });
-  await page.mouse.move(point.x, point.y);
-  await page.mouse.wheel(0, -point.distance);
+  await source.press('Home');
   await page.waitForFunction(() => document.querySelector('[aria-label="文章原文"]').scrollTop < 20);
 }
 
@@ -192,6 +187,9 @@ try {
   await b4.click();
   await assertLocated(b4, 'a scalable high-bandwidth');
   assert.ok((await originalLink.getAttribute('href')).endsWith('#page=8'));
+  const beforePageUp = await scrollTop();
+  await source.press('PageUp');
+  await page.waitForFunction(top => document.querySelector('[aria-label="文章原文"]').scrollTop < top, beforePageUp);
   await browseToStart();
   await b4.click();
   await assertLocated(b4, 'a scalable high-bandwidth');
@@ -220,6 +218,8 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   const narrowMode = page.getByRole('combobox', { name: '阅读方式' });
   if (await narrowMode.isVisible()) await narrowMode.selectOption('chat');
+  const mobileBack = page.getByRole('button', { name: '返回对话', exact: true });
+  if (await mobileBack.isVisible()) await mobileBack.click();
   const narrowCitation = citation(answer('当前回答 B'), 4);
   const narrowId = await narrowCitation.getAttribute('data-citation');
   await narrowCitation.press('Enter');
@@ -228,7 +228,7 @@ try {
   await atFocus(narrowCitation);
   await page.getByRole('button', { name: '查看正文', exact: true }).click();
   await source.waitFor();
-  await page.getByRole('button', { name: '返回对话', exact: true }).click();
+  await mobileBack.click();
   await conversation.waitFor();
   assert.deepEqual(await readingProgress(), before);
   assert.deepEqual(errors, []);
