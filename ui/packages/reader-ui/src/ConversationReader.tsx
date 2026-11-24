@@ -317,6 +317,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     }
   }, [notesOpen, visible, activeNoteId]);
   const [share, setShare] = useState(() => Math.max(40, Math.min(70, Number(safeRead("focus.sourceShare")) || 60)));
+  const readingVersion = view.readingVersion ?? undefined;
+  const versionArg: [] | [number] = readingVersion === undefined ? [] : [readingVersion];
   const scope = `${view.workspace?.workspaceId ?? "local"}:${sourceId}:${view.sourceGeneration ?? view.resetVersion ?? 0}`;
   const draftKey = `focus.sourceDraft:${scope}:${view.discussionId ?? ""}`;
   const original = useRef<HTMLDivElement>(null), chat = useRef<HTMLDivElement>(null), shell = useRef<HTMLDivElement>(null);
@@ -378,7 +380,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     let live = true, timer: ReturnType<typeof setTimeout>;
     async function loadOpening(prepare: boolean, prepareIfMissing = false) {
       try {
-        const result = await host.getSourceOpening?.(sourceId, prepare);
+        const result = await host.getSourceOpening?.(sourceId, prepare, ...versionArg);
         if (!live || !isCurrentSource() || !result) return;
         if (!result.ok) { setOpening(null); setOpeningError(result.error.message); return; }
         if (result.value.sourceId !== sourceId) return;
@@ -395,7 +397,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     lastOpeningRetry.current = reloadOpening;
     void loadOpening(retry, !openingWork);
     return () => { live = false; clearTimeout(timer); };
-  }, [host, sourceId, reloadOpening, isCurrentSource, openingWork?.id, openingWork?.phase]);
+  }, [host, sourceId, readingVersion, reloadOpening, isCurrentSource, openingWork?.id, openingWork?.phase]);
 
   const prep = view.preparations?.[sourceId];
   useEffect(() => {
@@ -861,7 +863,8 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
       const result = await operation;
       if (!current()) return false;
       if (!result.ok) showOperationError(key, result.error.message);
-      else if (result.value.source.sourceId === sourceId) {
+      else if (result.value.source.sourceId === sourceId &&
+               (readingVersion === undefined || result.value.readingVersion === readingVersion)) {
         if (selectionGeneration !== undefined) acceptSession?.(result.value, selectionGeneration);
         else setView(result.value);
         showOperationError(key, "");
@@ -871,7 +874,7 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     } catch (failure) { if (current()) showOperationError(key, String(failure)); }
     finally { if (attempts.current.get(key) === attempt) attempts.current.delete(key); }
     return false;
-  }, [setView, acceptSession, isCurrentSource, selectionGeneration, sourceId, showOperationError]);
+  }, [setView, acceptSession, isCurrentSource, readingVersion, selectionGeneration, sourceId, showOperationError]);
 
   function beginSelectedNote(opener: HTMLElement) {
     if (!selection || savingNote) return;
@@ -903,8 +906,9 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     request.busy = true;
     setSavingNote(true);
     const write = Promise.resolve().then(() => noteEdit && host.changeSourceNote
-      ? host.changeSourceNote(sourceId, noteEdit.id, "edit", noteEdit.revision, request.id, content)
-      : host.createSourceNote!({ sourceId, requestId: request.id, content, kind: "thought", origin: "user", ...(noteSelection ? { selection: noteSelection } : {}) }));
+      ? host.changeSourceNote(sourceId, noteEdit.id, "edit", noteEdit.revision, request.id, content, ...versionArg)
+      : host.createSourceNote!({ sourceId, requestId: request.id, content, kind: "thought", origin: "user",
+          ...(readingVersion === undefined ? {} : { readingVersion }), ...(noteSelection ? { selection: noteSelection } : {}) }));
     const ok = await apply("note-save", write, result => {
       if (noteRequest.current !== request) return;
       if (result.noteOperation?.status === "conflict") {
@@ -931,11 +935,12 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
     followChat.current = true; turn.current = { seen: new Set(messages.map(m => m.messageId)), cancelled: false, located: false };
     if (sendRequest.current?.content !== content) sendRequest.current = { content, id: createReaderId() };
     const ok = await apply("send", host.sendMessage({ sourceId, sessionId: view.sessionId,
-      discussionId: view.discussionId, receipt: null, content, requestId: sendRequest.current.id }));
+      discussionId: view.discussionId, receipt: null, content, requestId: sendRequest.current.id,
+      ...(readingVersion === undefined ? {} : { readingVersion }) }));
     if (ok) { sendRequest.current = null; } else turn.current = null;
     sendBusy.current = false; setSending(false);
     return ok;
-  }, [apply, draftKey, host, messages, run, running, sending, showOperationError, sourceId, stopNavigation, view.sessionId]);
+  }, [apply, draftKey, host, messages, readingVersion, run, running, sending, showOperationError, sourceId, stopNavigation, view.discussionId, view.sessionId]);
 
   const handleStop = useCallback(() => { if (host.stop) void apply("stop", host.stop()); }, [apply, host]);
   const handleApprove = useCallback((input: Parameters<NonNullable<ReaderHost["approve"]>>[0]) => host.approve ? apply("approval", host.approve(input)) : Promise.resolve(false), [apply, host]);
@@ -1161,10 +1166,10 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
             noteInput.current?.focus();
           }}>编辑</button>}
           <button onClick={() => void apply(`note:${note.noteId}`, host.changeSourceNote!(sourceId, note.noteId,
-            note.deleted ? "undo" : "delete", note.revision, createReaderId()))}>{note.deleted ? "撤销删除" : "删除"}</button>
+            note.deleted ? "undo" : "delete", note.revision, createReaderId(), undefined, ...versionArg))}>{note.deleted ? "撤销删除" : "删除"}</button>
         </div>}
       </article>)}
-      {(view.sourceHighlights ?? []).filter(h => !h.deleted || h.canUndo).map(h => <article key={h.highlightId}><blockquote>{h.quote.exact}</blockquote>{host.changeHighlight && <div className="source-note-actions"><button onClick={() => void apply(`highlight:${h.highlightId}`, host.changeHighlight!(sourceId, h.highlightId, h.deleted ? "undo" : "delete", h.revision, createReaderId()))}>{h.deleted ? "撤销删除重点" : "取消重点"}</button></div>}</article>)}
+      {(view.sourceHighlights ?? []).filter(h => !h.deleted || h.canUndo).map(h => <article key={h.highlightId}><blockquote>{h.quote.exact}</blockquote>{host.changeHighlight && <div className="source-note-actions"><button onClick={() => void apply(`highlight:${h.highlightId}`, host.changeHighlight!(sourceId, h.highlightId, h.deleted ? "undo" : "delete", h.revision, createReaderId(), ...versionArg))}>{h.deleted ? "撤销删除重点" : "取消重点"}</button></div>}</article>)}
     </aside>}
   </section>;
 }

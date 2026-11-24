@@ -24,6 +24,23 @@ def version_metadata(state, source_id, reading_version=None):
     return state.get('reading_versions', {}).get(source_id, {}).get(str(reading_version), {})
 
 
+def version_cursor(state, source_id, reading_version):
+    if selected_version(state, source_id) == reading_version:
+        return state['sources'][source_id]
+    return version_metadata(state, source_id, reading_version).get('cursor', {})
+
+
+def pending_reset(state, source_id, reading_version):
+    resets = state.get('pending_reading_resets', {})
+    request_id = resets.get(source_id)
+    receipt = state.get('reading_version_resets', {}).get(request_id)
+    if receipt and receipt['readingVersion'] == reading_version:
+        return request_id
+    if request_id and not receipt and selected_version(state, source_id) == reading_version:
+        return request_id
+    return version_metadata(state, source_id, reading_version).get('pending_reset')
+
+
 def version_directory(root, reading_version):
     return root / 'reading' / 'versions' / str(reading_version)
 
@@ -53,6 +70,60 @@ class ReadingVersions:
 
     def receipts(self):
         return _read_document(self.state_path).get('reading_version_resets', {})
+
+    def list(self, source_id):
+        from .reading_application import _LOCK
+
+        self.reading._root(source_id)
+        with _LOCK:
+            state = _read_document(self.state_path)
+            selected = selected_version(state, source_id)
+            versions = state.get('reading_versions', {}).get(source_id, {})
+            return [
+                {'readingVersion': version, 'selected': version == selected,
+                 'ready': self._ready(state, source_id, version),
+                 'backedUpAt': versions.get(str(version), {}).get('backed_up_at')}
+                for version in sorted({selected, *map(int, versions)})
+            ]
+
+    def _ready(self, state, source_id, reading_version):
+        cursor = version_cursor(state, source_id, reading_version)
+        plan = cursor.get('current_plan_id')
+        try:
+            if plan:
+                return self.reading._plan_ready(source_id, plan, reading_version=reading_version)
+            run = self.reading.status(source_id, reading_version=reading_version)
+        except (OSError, WorkspaceError):
+            return False
+        return bool(not cursor.get('reading_started') and run and run['ready'])
+
+    def switch(self, source_id, reading_version):
+        from .reading_application import _LOCK
+
+        self.check_version(reading_version)
+        self.reading._root(source_id)
+        with _LOCK:
+            state = _read_document(self.state_path)
+            current = selected_version(state, source_id)
+            if current == reading_version:
+                return
+            versions = state.get('reading_versions', {}).get(source_id, {})
+            if str(reading_version) not in versions:
+                raise WorkspaceError('reading_version_missing', '找不到此阅读轮次。')
+            if not self._ready(state, source_id, reading_version):
+                raise WorkspaceError('reading_not_ready', '此轮阅读尚未就绪。')
+            incoming = dict(version_cursor(state, source_id, reading_version))
+            if not incoming.get('current_plan_id'):
+                plan = self.reading.status(source_id, reading_version=reading_version)['plan_id']
+                chunks = _read_chunk_records(self.reading._root(source_id) / 'reading' / 'plans' / plan / 'chunks.jsonl')
+                incoming.update(current_plan_id=plan, current_chunk_id=chunks[0]['chunk_id'], reading_started=False)
+            versions[str(current)]['cursor'] = state['sources'][source_id]
+            state['sources'][source_id] = {**incoming, 'reading_version': reading_version}
+            state['current_source_id'] = source_id
+            state['reading_revision'] = state.get('reading_revision', 0) + 1
+            state['reading_version_switch'] = {'sourceId': source_id, 'readingVersion': reading_version,
+                                               'readingRevision': state['reading_revision']}
+            _write_document(self.state_path, state)
 
     def reset(self, source_id, request_id, *, expected, discussion_id, capture, clock):
         """Publish the verified backup and next round in a single Core commit."""
@@ -112,15 +183,16 @@ class ReadingVersions:
                 versions[str(current)] = {**bound, 'bundle_version': bundle, 'discussion_id': discussion_id,
                                           'cursor': dict(cursor), 'plan_ids': plan_ids, 'backup': token,
                                           'backed_up_at': backed_up_at, 'backup_sha256': manifest_hash}
+                if run.get('status') == 'running':
+                    versions[str(current)]['revoked_preparation'] = run['run_id']
                 versions[str(following)] = {'storage': 'versioned', 'bundle_version': self.reading._bundle_version(source_id),
-                                            'discussion_id': uuid.uuid4().hex, 'plan_ids': []}
+                                            'discussion_id': uuid.uuid4().hex, 'plan_ids': [], 'pending_reset': request_id}
                 for entry in state.get('reading_progress', {}).values():
                     if entry['source_id'] == source_id:
                         entry.setdefault('reading_version', current)
                 state['sources'][source_id] = dict(current_plan_id=None, current_chunk_id=None, reading_started=False,
                                                    reading_pass=1, reading_version=following)
                 state['reading_revision'] = state.get('reading_revision', 0) + 1
-                state.setdefault('pending_reading_resets', {})[source_id] = request_id
                 receipt = {'sourceId': source_id, 'status': 'completed', 'resetReading': True, 'restartReading': True,
                            'priorReadingVersion': current, 'readingVersion': following, 'backedUpAt': backed_up_at}
                 state.setdefault('reading_version_resets', {})[request_id] = receipt

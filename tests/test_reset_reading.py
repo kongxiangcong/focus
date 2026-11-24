@@ -43,6 +43,11 @@ class DiscussionRuntime(CandidateRuntime):
         self.events.put({'method': 'turn/completed', 'params': {'status': 'completed'}})
 
 
+class DelayedDiscussion(DiscussionRuntime):
+    def release(self):
+        self.entered.set()
+
+
 class DelayedPreparation(stage4.PlanningRuntime):
     def __init__(self, draft):
         super().__init__(draft)
@@ -63,6 +68,152 @@ class ResetReadingTests(unittest.TestCase):
     tearDown = stage4.Stage4NavigationTests.tearDown
     receipt = stage4.Stage4NavigationTests.receipt
     rebuild_draft = stage4.Stage4NavigationTests.rebuild_draft
+
+    def test_switch_restores_live_rounds_after_host_reopen(self):
+        source = 'fixture-paper'
+        self.host.continue_cached({'receipt': self.receipt(), 'requestId': 'first-round-advance'})
+        self.host.source_note_create(source, {'requestId': 'first-round-note',
+            'kind': 'thought', 'origin': 'user', 'content': 'Original note'})
+        original = self.host.snapshot()
+        original_document = self.host.source_document(source)
+        bookmark = {'readingVersion': 1, 'bundleVersion': original_document['bundleVersion'], 'line': 2, 'offset': 5}
+        self.host.reading_view_bookmark(source, payload=bookmark)
+        runtime = stage4.PlanningRuntime(self.rebuild_draft())
+        self.host.reading_app.runtime = runtime
+        reset = self.host.reset_source_reading(source, {'requestId': 'two-editable-rounds', 'confirmed': True})
+        self.host.reading_workers[source].join(3)
+        second = self.host.snapshot()
+
+        self.assertEqual([
+            {'readingVersion': 1, 'selected': False, 'ready': True, 'backedUpAt': reset['clearOperation']['backedUpAt']},
+            {'readingVersion': 2, 'selected': True, 'ready': True, 'backedUpAt': None},
+        ], self.host.list_reading_versions(source))
+        note = second['sourceNotes'][0]
+        self.host.source_note_change(source, note['noteId'], {'content': 'Updated copy',
+            'expectedRevision': note['revision'], 'requestId': 'second-round-edit'}, 'edit')
+
+        first = self.host.switch_reading_version(source, 1)
+        self.assertEqual(original['navigationCurrent'], first['navigationCurrent'])
+        self.assertEqual(original['readingProgress'], first['readingProgress'])
+        self.assertEqual(original['discussionId'], first['discussionId'])
+        self.assertEqual(['Original note'], [note['content'] for note in first['sourceNotes']])
+        self.assertEqual(original_document['translation'], self.host.source_document(source)['translation'])
+        self.assertEqual(bookmark, self.host.reading_view_bookmark(source))
+        delayed = self.host.source_note_create(source, {'readingVersion': 2, 'requestId': 'late-second-round-note',
+            'kind': 'thought', 'origin': 'user', 'content': 'Arrived after switching'})
+        self.assertIsNone(delayed['noteOperation'])
+        self.assertEqual(['Original note'], [note['content'] for note in delayed['sourceNotes']])
+        self.assertEqual('Arrived after switching', self.host.source_note_request(
+            source, 'late-second-round-note', reading_version=2)['note']['content'])
+        self.host.continue_cached({'receipt': self.receipt(), 'requestId': 'first-round-resumed'})
+        resumed = self.host.snapshot()
+        self.assertNotEqual(first['navigationCurrent'], resumed['navigationCurrent'])
+        self.host.close()
+        self.host = HostService(self.workspace, self.fixture.root / 'host', reading_runtime=runtime)
+        reopened = self.host.snapshot()
+        self.assertEqual(resumed['readingVersion'], reopened['readingVersion'])
+        self.assertEqual(resumed['navigationCurrent']['chunkId'], reopened['navigationCurrent']['chunkId'])
+        self.assertEqual(original['discussionId'], reopened['discussionId'])
+        switched = self.host.switch_reading_version(source, 2)
+        self.assertEqual(second['discussionId'], switched['discussionId'])
+        self.assertEqual(second['navigationCurrent']['chunkId'], switched['navigationCurrent']['chunkId'])
+        self.assertEqual(['Updated copy', 'Arrived after switching'], [note['content'] for note in switched['sourceNotes']])
+        self.assertEqual(1, runtime.calls.count('plan'))
+
+    def test_switch_while_new_round_is_translating_preserves_both_rounds(self):
+        source = 'fixture-paper'
+        before = self.host.snapshot()
+        original = self.host.source_document(source)['translation']
+        runtime = DelayedPreparation(self.rebuild_draft())
+        self.host.reading_app.runtime = runtime
+        self.host.reset_source_reading(source, {'requestId': 'reset-delayed-translation', 'confirmed': True})
+        worker = self.host.reading_workers[source]
+        try:
+            self.assertTrue(runtime.entered.wait(3))
+            first = self.host.switch_reading_version(source, 1)
+            self.assertEqual(before['discussionId'], first['discussionId'])
+            self.assertEqual(before['current'], first['current'])
+        finally:
+            runtime.release.set()
+            worker.join(3)
+        first = self.host.snapshot()
+        self.assertEqual(1, first['readingVersion'])
+        self.assertEqual(before['current'], first['current'])
+        self.assertEqual(original, self.host.source_document(source)['translation'])
+        self.assertTrue(self.host.list_reading_versions(source)[1]['ready'])
+        second = self.host.switch_reading_version(source, 2)
+        self.assertEqual('旧准备的译文', second['current']['translation'])
+        self.assertEqual(1, runtime.calls.count('plan'))
+
+    def test_ready_prior_round_can_be_selected_when_rereading_failed(self):
+        source = 'fixture-paper'
+        old = self.host.snapshot()
+        runtime = ResetPlanningRuntime(self.rebuild_draft())
+        self.host.reading_app.runtime = runtime
+        self.host.reset_source_reading(source, {'requestId': 'reset-failing-round', 'confirmed': True})
+        self.host.reading_workers[source].join(3)
+        versions = self.host.list_reading_versions(source)
+        self.assertFalse(versions[1]['ready'])
+        self.assertTrue(versions[1]['selected'])
+        restored = self.host.switch_reading_version(source, 1)
+        self.assertEqual(old['current'], restored['current'])
+        self.assertEqual(old['discussionId'], restored['discussionId'])
+        self.assertTrue(restored['preparations'][source]['ready'])
+        with self.assertRaises(WorkspaceError) as unavailable:
+            self.host.switch_reading_version(source, 2)
+        self.assertEqual('reading_not_ready', unavailable.exception.error_id)
+        self.assertEqual(1, self.host.snapshot()['readingVersion'])
+
+    def test_switch_while_answer_is_pending_preserves_original_discussion(self):
+        source = 'fixture-paper'
+        runtime = stage4.PlanningRuntime(self.rebuild_draft())
+        started = threading.Event()
+        discussions = []
+
+        def factory(workspace, **kwargs):
+            if len(discussions) == 1:
+                backend = DelayedDiscussion(workspace, answer='Archived answer', item_id='answer-delayed', **kwargs)
+                backend.entered = started
+            else:
+                backend = DiscussionRuntime(workspace, answer='Archived answer', item_id=f'answer-{len(discussions)}', **kwargs)
+            discussions.append(backend)
+            return backend
+
+        self.host.close()
+        self.host = HostService(self.workspace, self.fixture.root / 'host', reading_runtime=runtime, backend_factory=factory)
+        before = self.host.snapshot()
+
+        def send(view, content, request_id):
+            self.host.start({'sourceId': source, 'sessionId': view['sessionId'], 'discussionId': view['discussionId'],
+                             'requestId': request_id, 'content': content})
+
+        send(before, 'Original question', 'first-round-original-question')
+        self.host.worker.join(3)
+        archived = self.host.snapshot()
+        evidence = archived['conversation'][1]['evidence'][0]
+        self.host.reset_source_reading(source, {'requestId': 'reset-after-original-answer', 'confirmed': True})
+        self.host.reading_workers[source].join(3)
+        second = self.host.snapshot()
+        first = self.host.switch_reading_version(source, 1)
+        self.assertEqual(archived['conversation'], first['conversation'])
+        send(first, 'Follow-up question', 'first-round-follow-up')
+        self.assertTrue(started.wait(3))
+        self.assertIn('Original question', discussions[-1].prompt)
+        try:
+            alternate = self.host.switch_reading_version(source, 2)
+            self.assertEqual(second['discussionId'], alternate['discussionId'])
+            self.assertIsNone(alternate['agent']['run'])
+            self.assertEqual([], alternate['conversation'])
+        finally:
+            DiscussionRuntime.release(discussions[-1])
+            self.host.worker.join(3)
+        alternate = self.host.snapshot()
+        self.assertEqual([], alternate['conversation'])
+        first = self.host.switch_reading_version(source, 1)
+        self.assertEqual(['Original question', 'Follow-up question'],
+                         [message['content'] for message in first['conversation'] if message['role'] == 'user'])
+        self.assertEqual(evidence, first['conversation'][1]['evidence'][0])
+        self.assertEqual('alias address', first['conversation'][-1]['evidence'][0]['quote']['exact'])
 
     def test_reset_preserves_source_and_whole_notes_and_enters_a_new_plan(self):
         old = self.host.snapshot()

@@ -367,7 +367,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(201, {'ok': True, 'value': result})
                     return
                 if method == 'GET' and len(parts) == 4 and parts[2] == 'requests':
-                    self._send(200, {'ok': True, 'value': service.source_note_request(source_id, unquote(parts[3]))})
+                    version = parse_qs(urlsplit(self.path).query).get('readingVersion', [None])[0]
+                    self._send(200, {'ok': True, 'value': service.source_note_request(source_id, unquote(parts[3]),
+                        reading_version=int(version) if version else None)})
                     return
                 if method == 'POST' and len(parts) == 4 and parts[3] in ('edit', 'delete', 'undo'):
                     result = service.source_note_change(source_id, unquote(parts[2]), self._body(), parts[3])
@@ -380,7 +382,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(201, {'ok': True, 'value': result})
                     return
                 if method == 'GET' and len(parts) == 4 and parts[2] == 'requests':
-                    self._send(200, {'ok': True, 'value': service.source_highlight_request(source_id, unquote(parts[3]))})
+                    version = parse_qs(urlsplit(self.path).query).get('readingVersion', [None])[0]
+                    self._send(200, {'ok': True, 'value': service.source_highlight_request(source_id, unquote(parts[3]),
+                        reading_version=int(version) if version else None)})
                     return
                 if method == 'POST' and len(parts) == 4 and re.fullmatch(r'[0-9a-f]{32}', parts[2]) and parts[3] in ('delete', 'undo'):
                     result = service.source_highlight_change(source_id, parts[2], parts[3], self._body())
@@ -412,6 +416,13 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'document' and method == 'GET':
                 self._send(200, {'ok': True, 'value': service.source_document(source_id)})
                 return
+            if len(parts) == 2 and parts[1] == 'reading-versions' and method == 'GET':
+                self._send(200, {'ok': True, 'value': service.list_reading_versions(source_id)})
+                return
+            if len(parts) == 4 and parts[1] == 'reading-versions' and parts[3] == 'select' and method == 'POST':
+                self._body()
+                self._send(200, {'ok': True, 'value': service.switch_reading_version(source_id, int(parts[2]))})
+                return
             if len(parts) == 4 and parts[1] == 'reading-versions' and parts[3] == 'backup' and method == 'GET':
                 version = int(parts[2])
                 self._send(200, {'ok': True, 'value': service.reading_version_backup(source_id, version)})
@@ -424,7 +435,9 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'opening' and method in ('GET', 'POST'):
                 if method == 'POST':
                     self._body()
-                self._send(200, {'ok': True, 'value': service.source_opening(source_id, prepare=method == 'POST')})
+                version = parse_qs(urlsplit(self.path).query).get('readingVersion', [None])[0]
+                self._send(200, {'ok': True, 'value': service.source_opening(source_id, prepare=method == 'POST',
+                    reading_version=int(version) if version else None)})
                 return
             if len(parts) == 2 and parts[1] == 'overview' and method in ('GET', 'POST'):
                 with service.lock:

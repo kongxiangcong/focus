@@ -2,7 +2,7 @@ import { createPortal } from "react-dom";
 import { Fragment } from "react";
 import { NavigationResize } from "./NavigationResize";
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingWindow } from "@focus/reader-contracts";
+import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingVersion, type ReadingWindow } from "@focus/reader-contracts";
 import { FocusReader, AgentControls, readingFontSizes, preparationFailed as hasPreparationFailure, preparationStepText, preparationText, useEvidenceNavigation, BookOpen, ChatBubble, DocText, ReaderConfirmation, type ReaderConfirmationInput, type ReadingMode } from "@focus/reader-ui";
 import { BackendSetupPanel } from "./BackendSetupPanel";
 import { WorkspaceSelection } from './WorkspaceSelection';
@@ -111,7 +111,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     const newInstance = previous?.workspace?.instanceId && next.workspace?.instanceId && previous.workspace.instanceId !== next.workspace.instanceId;
     if (!newInstance && unifiedReading && selected && selected !== sourceId && !allowSourceChange) return false;
     if (!newInstance && previous?.revision !== undefined && next.revision !== undefined && previous.revision > next.revision) return false;
-    if (newInstance || (unifiedReading && sourceId !== selected)) changeSelection(sourceId);
+    const changedRound = previous && previous.source.sourceId === sourceId && previous.readingVersion !== next.readingVersion;
+    if (newInstance || (unifiedReading && (sourceId !== selected || changedRound))) changeSelection(sourceId);
     viewRef.current = next;
     setView(next);
     return true;
@@ -121,6 +122,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [inbox, setInbox] = useState<readonly IngestionItem[]>([]);
   const [topic, setTopic] = useState("");
   const [management, setManagement] = useState<{ kind: "create" | "rename" | "delete" | "source"; id?: string } | null>(null);
+  const [readingVersions, setReadingVersions] = useState<readonly ReadingVersion[] | null>(null);
+  const [readingVersionsError, setReadingVersionsError] = useState("");
   const [managementTitle, setManagementTitle] = useState("");
   const [managementDisplayTitle, setManagementDisplayTitle] = useState("");
   const [managementDisplayTitleEdited, setManagementDisplayTitleEdited] = useState(false);
@@ -310,6 +313,17 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }, [host, workPollKey, acceptView, isCurrentSelection, markConnectionHealthy]);
   useEffect(() => { if (blogViewer) blogDialog.current?.showModal(); else blogDialog.current?.close(); }, [blogViewer]);
   useEffect(() => { if (management) managementDialog.current?.showModal(); else managementDialog.current?.close(); }, [management]);
+  const managedSource = management?.kind === "source" ? management.id : undefined;
+  useEffect(() => {
+    if (!managedSource || !host.listReadingVersions) return;
+    let current = true;
+    void host.listReadingVersions(managedSource).then(result => {
+      if (!current) return;
+      if (result.ok) setReadingVersions(result.value);
+      else setReadingVersionsError(result.error.message);
+    }).catch(e => { if (current) setReadingVersionsError(String(e)); });
+    return () => { current = false; };
+  }, [host, managedSource, view?.readingVersion, view?.readingRevision]);
   useEffect(() => { if (deleteConfirmation) confirmation.current?.showModal(); else confirmation.current?.close(); }, [deleteConfirmation]);
   useEffect(() => { if (view?.blog) setBlogs(view.blog); }, [view?.blog]);
   useEffect(() => {
@@ -498,7 +512,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   function openManagement(kind: "create" | "rename" | "delete" | "source", id?: string, title = "") {
     const source = sources.find(s => s.sourceId === id);
     setManagement({ kind, id }); setManagementTitle(title);
-    setManagementDisplayTitle(source?.displayTitle || source?.title || "");
+    setReadingVersions(null); setReadingVersionsError("");
+    setManagementDisplayTitle(source?.displayTitle || source?.title || title);
     setManagementDisplayTitleEdited(Boolean(source?.displayTitle));
     setManagementTopics(source?.topicIds ?? []); setError("");
   }
@@ -520,6 +535,23 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     if (kind === "rename" && id && host.manageTopic) void manage(() => host.manageTopic!(id, "rename", { title: managementTitle }));
     if (kind === "delete" && id && host.manageTopic) void manage(() => host.manageTopic!(id, "delete", {}));
     if (kind === "source" && id && host.saveSourceDetails) { const requestId = createReaderId(); void manage(() => host.saveSourceDetails!(id, managementTitle, managementTopics, requestId, managementDisplayTitle)); }
+  }
+  async function switchReadingVersion(sourceId: string, readingVersion: number) {
+    if (locked.current || !host.switchReadingVersion) return;
+    locked.current = true;
+    const started = selection.current.generation;
+    setBusy("切换阅读版本"); setReadingVersionsError("");
+    try {
+      const result = await host.switchReadingVersion(sourceId, readingVersion);
+      if (!result.ok) { setReadingVersionsError(result.error.message); return; }
+      if (acceptView(result.value, started, true) || (
+        viewRef.current?.source.sourceId === sourceId && viewRef.current.readingVersion === readingVersion
+      )) {
+        setManagement(null);
+        if (route !== "/reading") navigate("/reading");
+      }
+    } catch (e) { setReadingVersionsError(String(e)); }
+    finally { locked.current = false; setBusy(""); }
   }
   function moveSource(sourceId: string, offset: number) {
     if (!selectedTopic || !host.manageTopic || sortingReason) return;
@@ -715,10 +747,13 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     return () => window.removeEventListener("keydown", exit);
   }, [readingFullscreen]);
   useEffect(() => { if (route !== "/reading") setReadingFullscreen(false); }, [route]);
-  const readingResetAction = route === "/reading" && view?.source.sourceId && host.resetSourceReading &&
-    <button type="button" className={`workspace-task-toggle${readingFullscreen ? " reading-reset-fullscreen" : ""}`}
+  const readingResetAction = route === "/reading" && view?.source.sourceId && <div className={`workspace-reading-actions${readingFullscreen ? " reading-reset-fullscreen" : ""}`}>
+    {host.listReadingVersions && <button type="button" className="workspace-task-toggle" disabled={!!busy}
+      onClick={() => openManagement("source", view.source.sourceId, view.source.title)}>管理来源</button>}
+    {host.resetSourceReading && <button type="button" className="workspace-task-toggle"
       disabled={!!busy || active || view.clearBusySources?.includes(view.source.sourceId)}
-      onClick={event => requestReadingReset(view.source.sourceId, event.currentTarget)}>重新阅读</button>;
+      onClick={event => requestReadingReset(view.source.sourceId, event.currentTarget)}>重新阅读</button>}
+  </div>;
   return <div className="workspace-app" data-route={route} data-nav-collapsed={navCollapsed} data-reading-fullscreen={route === "/reading" && readingFullscreen} style={{ "--reader-body-font": readingFontFamily(readingFont) } as CSSProperties}>
     <NavigationResize enabled={!navCollapsed && !(route === "/reading" && readingFullscreen)} />
     <aside id="workspace-navigation" className="workspace-nav" aria-label="工作台导航">
@@ -944,9 +979,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         </div>
       </div>
     </main>}
-    <dialog className="workspace-confirm" ref={managementDialog} onCancel={() => setManagement(null)}>
+    <dialog className="workspace-confirm" ref={managementDialog} aria-labelledby="workspace-management-title" onCancel={() => setManagement(null)}>
       <form onSubmit={e => { e.preventDefault(); saveManagement(); }}>
-        <h2>{management?.kind === "source" ? "管理来源" : management?.kind === "delete" ? "删除专题" : management?.kind === "rename" ? "重命名专题" : "新建专题"}</h2>
+        <h2 id="workspace-management-title">{management?.kind === "source" ? "管理来源" : management?.kind === "delete" ? "删除专题" : management?.kind === "rename" ? "重命名专题" : "新建专题"}</h2>
         {management?.kind === "delete" ? <p>删除“{managementTitle}”专题。全部来源、博客、笔记和阅读进度会保留。</p> : <>
           {management?.kind === "source" && <label>知识库显示标题<input aria-label="知识库显示标题" required maxLength={240}
             value={managementDisplayTitle} onChange={e => { setManagementDisplayTitle(e.target.value); setManagementDisplayTitleEdited(true); }} /></label>}
@@ -955,6 +990,22 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           </>}
         {management?.kind === "source" && <fieldset><legend>所属专题</legend>{topics.map(t => <label key={t.topicId}><input type="checkbox" checked={managementTopics.includes(t.topicId)} disabled={managementBusy || !host.saveSourceDetails} onChange={e => { const checked = e.target.checked; setManagementTopics(old => checked ? [...old, t.topicId] : old.filter(id => id !== t.topicId)); }} />{t.title}</label>)}</fieldset>}
         {management?.kind === 'source' && <button type="button" disabled={managementBusy || !managementTopics.length} onClick={() => setManagementTopics([])}>不关联专题</button>}
+        {managedSource && host.listReadingVersions && <section aria-label="阅读版本">
+          <h3>阅读版本</h3>
+          {readingVersionsError && <p role="alert">{readingVersionsError}</p>}
+          {!readingVersions && !readingVersionsError && <p role="status">正在读取阅读版本</p>}
+          {readingVersions && <ul className="workspace-reading-versions" aria-label="阅读版本">
+            {readingVersions.map(version => <li key={version.readingVersion} aria-current={version.selected ? "true" : undefined}>
+              <div>
+                <strong>第 {version.readingVersion} 轮</strong>
+                {version.backedUpAt !== null && <span>最近备份 <time dateTime={new Date(version.backedUpAt).toISOString()}>{new Date(version.backedUpAt).toLocaleString("zh-CN")}</time></span>}
+              </div>
+              {version.selected ? <span>当前轮次</span> : version.ready && host.switchReadingVersion ?
+                <button type="button" disabled={!!busy} aria-label={`切换到第 ${version.readingVersion} 轮`}
+                  onClick={() => void switchReadingVersion(managedSource, version.readingVersion)}>切换</button> : <span>未就绪</span>}
+            </li>)}
+          </ul>}
+        </section>}
         {error && <p role="alert">{error}</p>}
         <button type="button" disabled={!!busy} onClick={() => setManagement(null)}>取消</button>
         <button type="submit" className={management?.kind === "delete" ? "workspace-danger-action" : undefined} disabled={managementBusy || (management?.kind !== "delete" && (!managementTitle.trim() || (management?.kind === "source" && !managementDisplayTitle.trim())))}>{management?.kind === "delete" ? "确认删除专题" : "保存"}</button>

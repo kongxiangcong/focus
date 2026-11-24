@@ -165,15 +165,6 @@ async function contrast(locator, property = 'color', against = 'own', pseudo = n
     let background = [255, 255, 255];
     for (const ancestor of ancestors) {
       background = composite(rgba(getComputedStyle(ancestor).backgroundColor), background);
-      if (against === 'paper' && ancestor.matches('[data-pdf-page]')) {
-        const canvas = ancestor.querySelector('canvas');
-        const rect = canvas.getBoundingClientRect();
-        const target = element.getBoundingClientRect();
-        // The midpoint of the upper edge of the rotated paragraph is on the page itself.
-        const x = Math.floor((target.left + target.width / 2 - rect.left) * canvas.width / rect.width);
-        const y = Math.floor((target.top - rect.top) * canvas.height / rect.height);
-        background = composite([...canvas.getContext('2d').getImageData(x, y, 1, 1).data], background);
-      }
     }
     const foreground = composite(rgba(getComputedStyle(element, pseudo).getPropertyValue(property)), background);
     const [dark, light] = [luminance(foreground), luminance(background)].sort((a, b) => a - b);
@@ -311,33 +302,30 @@ async function checkStatus(status, glyph, tone) {
   return minimum(await contrast(status), 4.5, `${tone} status`);
 }
 
-async function checkPdf(pane, card) {
-  const target = pane.locator('[data-pdf-page="8"] .paper-region[data-active="true"]').first();
-  const marker = target.getByRole('button', { name: '返回回答证据 4', exact: true });
+async function checkSourceEvidence(pane, id, translated = false) {
+  const evidence = pane.locator(translated
+    ? `[data-evidence-block~="${id}"].is-active`
+    : `mark[data-evidence-ids~="${id}"].is-active`);
+  const target = evidence.first();
+  await target.waitFor();
+  await motionSettled(target);
+  const marker = pane.getByRole('button', { name: '返回回答证据 4', exact: true }).first();
   await marker.waitFor();
-  await card.getByText(quote, { exact: true }).waitFor();
-  await pane.locator('[data-pdf-page="8"] .paper-text span').first().waitFor({ state: 'attached' });
-  await motionSettled(card);
-  await target.evaluate(node => new Promise((resolve, reject) => {
-    const pane = node.closest('[aria-label="文章原文"]');
-    const deadline = performance.now() + 4000;
-    function inspect() {
-      const rect = node.getBoundingClientRect();
-      const scroll = pane.getBoundingClientRect();
-      if (rect.top >= scroll.top - 1 && rect.bottom <= scroll.bottom + 1) resolve();
-      else if (performance.now() >= deadline) reject(new Error(`page 8 highlight clipped: ${JSON.stringify({ rect, scroll })}`));
-      else requestAnimationFrame(inspect);
-    }
-    inspect();
-  }));
-  await hitTarget(marker);
-  await fullyVisible(target);
-  await fullyVisible(card);
-  await hitTarget(card.getByRole('button', { name: '关闭证据' }));
+  if (translated) {
+    await pane.page().waitForFunction(id => {
+      const pane = document.querySelector('[aria-label="文章原文"]');
+      const group = pane.querySelector(`[data-evidence-block~="${id}"].is-active`);
+      const y = group?.getBoundingClientRect().top;
+      const bounds = pane.getBoundingClientRect();
+      return y >= bounds.top && y < bounds.bottom && getComputedStyle(group).boxShadow !== 'none';
+    }, id);
+  } else {
+    assert.equal((await evidence.allTextContents()).join(''), quote);
+    await fullyVisible(target);
+  }
   return {
-    frame: minimum(await contrast(target, 'outline-color', 'paper'), 3, 'PDF highlight outline against the page'),
-    number: minimum(await contrast(marker), 4.5, 'PDF return number'),
-    quote: minimum(await contrast(card.getByText(quote, { exact: true })), 4.5, 'evidence quote'),
+    number: minimum(await contrast(marker), 4.5, 'source evidence return number'),
+    quote: minimum(await contrast(target), 4.5, 'source evidence text'),
   };
 }
 
@@ -364,13 +352,14 @@ async function run(theme, { width, kind, hasTouch, reducedMotion, appReducedMoti
   const before = await progress(host);
   const source = page.getByLabel('文章原文', { exact: true });
   const answer = citation(page);
-  const card = page.getByLabel('原文证据', { exact: true });
   const fullscreen = page.getByRole('button', { name: '对话全屏', exact: true });
   const exit = page.getByRole('button', { name: '关闭全屏模式', exact: true });
-  const mobileOriginal = page.getByRole('button', { name: '查看原文', exact: true });
+  const mobileOriginal = page.getByRole('button', { name: '查看正文', exact: true });
   const mobileReturn = page.getByRole('button', { name: '返回对话', exact: true });
-  const pdf = page.getByRole('button', { name: '原版 PDF', exact: true });
-  const translation = page.getByRole('button', { name: '中文译文', exact: true });
+  const original = page.getByRole('button', { name: '原文', exact: true });
+  const translation = page.getByRole('button', { name: '中文', exact: true });
+  const originalLink = page.getByRole('link', { name: '打开原件 ↗', exact: true });
+  const returnNumber = source.getByRole('button', { name: '返回回答证据 4', exact: true }).first();
   const stem = `${theme}-${width}-${kind}`;
   const result = { theme, width, kind, contrast: {}, screenshots: [] };
 
@@ -409,63 +398,51 @@ async function run(theme, { width, kind, hasTouch, reducedMotion, appReducedMoti
     result.contrast.activeTab = minimum(await contrast(activeTab), 4.5, 'active reading tab text');
     result.contrast.activeTabLine = minimum(await contrast(activeTab, 'border-bottom-color'), 3, 'active reading tab underline');
     assert.deepEqual(await progress(host), before, 'entering fullscreen must preserve close-reading progress');
-    // Open the citation as soon as it is available, while the PDF may still be painting.
+    const evidenceId = await answer.getAttribute('data-citation');
+    if (await mobileOriginal.isVisible()) await take(mobileOriginal);
+    await take(original);
+    if (await mobileReturn.isVisible()) await take(mobileReturn);
     await take(answer);
-    await checkPdf(source, card);
+    await checkSourceEvidence(source, evidenceId);
     await take(exit);
-    result.contrast.pdf = await checkPdf(source, card);
+    result.contrast.source = await checkSourceEvidence(source, evidenceId);
     assert.deepEqual(await progress(host), before, 'evidence navigation and exiting fullscreen must preserve progress');
-    assert.equal(await pdf.getAttribute('aria-pressed'), 'true');
+    assert.equal(await original.getAttribute('aria-pressed'), 'true');
+    assert.ok((await originalLink.getAttribute('href')).endsWith('#page=8'));
     if (kind === 'desktop' && width === 1440 || theme === 'green' && kind === 'app-reduced' || theme === 'blue' && hasTouch) {
-      await save('pdf');
+      await save('source');
     }
 
     if (theme === 'blue' && appReducedMotion) {
       await take(mobileReturn);
       await take(fullscreen);
       await take(answer);
-      await checkPdf(source, card);
+      await checkSourceEvidence(source, evidenceId);
       await source.press('Home');
       await page.waitForFunction(() => document.querySelector('[aria-label="文章原文"]').scrollTop === 0);
       await take(exit);
-      await source.locator('[data-pdf-page="1"] .paper-text span').first().waitFor({ state: 'attached' });
       assert.equal(await source.evaluate(node => node.scrollTop), 0, 'exiting fullscreen must respect manual browsing');
       await take(mobileReturn);
       await take(answer);
-      await checkPdf(source, card);
+      await checkSourceEvidence(source, evidenceId);
     }
-    const pdfReturn = source.locator('[data-pdf-page="8"]').getByRole('button', { name: '返回回答证据 4', exact: true }).first();
-    await take(pdfReturn);
-    assert.ok(await answer.evaluate(node => node === document.activeElement), 'the PDF marker returns to citation 4');
+    await take(returnNumber);
+    assert.ok(await answer.evaluate(node => node === document.activeElement), 'the source marker returns to citation 4');
     if (await mobileOriginal.isVisible()) await take(mobileOriginal);
     await take(translation);
-    await source.locator('[data-translation-chunk]').first().waitFor();
     if (await mobileReturn.isVisible()) await take(mobileReturn);
     await take(answer);
-    const translated = source.locator('section.is-active[data-evidence-block]').first();
-    const translatedReturn = translated.getByRole('button', { name: '返回回答证据 4', exact: true });
-    await card.getByRole('button', { name: /证据 4.*译块定位/ }).waitFor();
+    result.contrast.translation = await checkSourceEvidence(source, evidenceId, true);
     assert.equal(await translation.getAttribute('aria-pressed'), 'true');
-    await motionSettled(card);
-    await hitTarget(translated.locator('p').first());
-    await hitTarget(translatedReturn);
-    result.contrast.translation = {
-      frame: minimum(await contrast(translated, 'outline-color', 'parent'), 3, 'translation highlight outline'),
-      number: minimum(await contrast(translatedReturn), 4.5, 'translation return number'),
-    };
-    if (reducedMotion || appReducedMotion) {
-      assert.equal(await card.evaluate(node => getComputedStyle(node).animationName), 'none');
-    }
     if (theme === 'dark' && hasTouch) await save('translation');
-    await take(translatedReturn);
+    await take(returnNumber);
     assert.ok(await answer.evaluate(node => node === document.activeElement), 'the translation marker returns to citation 4');
     assert.deepEqual(await progress(host), before);
 
-    if (await card.isVisible()) await take(card.getByRole('button', { name: '关闭证据' }));
     await composer.focus();
     result.sse = await reconnect(page);
     assert.ok(await composer.evaluate(node => node === document.activeElement), 'the fresh SSE snapshot preserves the current focus');
-    assert.equal(await card.isVisible(), false);
+    assert.equal(await page.getByLabel('原文证据', { exact: true }).count(), 0);
     assert.deepEqual(await progress(host), before, 'SSE reconnection must preserve the Reading Cursor and read count');
     result.progress = before;
 

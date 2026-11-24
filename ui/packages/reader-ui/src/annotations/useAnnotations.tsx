@@ -26,7 +26,9 @@ export function useAnnotations({ host, view, accept, stream, groups, onReference
   host: ReaderHost; view: ReadingWindow | null; accept: (view: ReadingWindow) => void;
   stream: RefObject<HTMLElement | null>; groups: readonly Group[]; onReference: (chunk: ReaderChunk, text?: string) => void; attached: boolean; notesLayout?: string;
 }) {
-  const scope = `${view?.source.sourceId ?? ""}:${view?.resetVersion ?? 0}:${view?.noteClearVersion ?? 0}`;
+  const readingVersion = view?.readingVersion;
+  const round = readingVersion == null ? view?.resetVersion ?? 0 : `round-${readingVersion}`;
+  const scope = `${view?.source.sourceId ?? ""}:${round}:${view?.noteClearVersion ?? 0}`;
   const [float, setFloat] = useState<Float | null>(null), [text, setText] = useState("");
   const [linkedKey, setLinkedKey] = useState<string | null>(null), [registryVersion, setRegistryVersion] = useState(0);
   const [localToast, setLocalToast] = useState<AnnotationToastValue | null>(null);
