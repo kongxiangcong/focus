@@ -16,11 +16,12 @@ async function openSource(page, format) {
   await library.click();
   const row = page.getByRole('listitem').filter({ has: page.getByRole('button', { name: `Single column ${format}`, exact: true }) });
   await row.getByRole('button', { name: '阅读', exact: true }).click();
-  const picker = page.getByRole('combobox', { name: '阅读方式', exact: true });
-  if (await picker.isVisible()) await picker.selectOption('chat');
-  else await page.getByRole('group', { name: '阅读方式', exact: true }).getByRole('button', { name: '对话', exact: true }).click();
-  const show = page.getByRole('button', { name: /^查看(正文|原文)$/ });
-  if (await show.isVisible()) await show.click();
+  if (page.viewportSize().width === 390) {
+    await page.getByRole('combobox', { name: '阅读方式', exact: true }).selectOption('chat');
+    await page.getByRole('button', { name: /^查看(正文|原文)$/ }).click();
+  } else {
+    await page.getByRole('group', { name: '阅读方式', exact: true }).getByRole('button', { name: '对话', exact: true }).click();
+  }
   const source = page.getByLabel('文章原文', { exact: true });
   await source.getByRole('heading', { name: title }).waitFor();
   return source;
