@@ -74,8 +74,16 @@ class ResetReadingTests(unittest.TestCase):
         self.host.continue_cached({'receipt': self.receipt(), 'requestId': 'first-round-advance'})
         self.host.source_note_create(source, {'requestId': 'first-round-note',
             'kind': 'thought', 'origin': 'user', 'content': 'Original note'})
-        original = self.host.snapshot()
         original_document = self.host.source_document(source)
+        markdown = original_document['markdown']
+        self.host.source_note_create(source, {'requestId': 'first-round-cross-chunk-note', 'kind': 'thought',
+            'origin': 'user', 'content': 'Shared between chunks', 'selection': {'layer': 'source', 'planId': 'plan-001',
+                'bundleVersion': original_document['bundleVersion'],
+                'ranges': [{'start': markdown.index('Figure 1:'), 'end': markdown.index('Relocation') + len('Relocation')}]}})
+        self.host.source_highlight_create(source, {'requestId': 'first-round-highlight',
+            'chunk': {'planId': 'plan-001', 'chunkId': 'chunk-001'}, 'layer': 'source',
+            'range': {'start': 0, 'end': 5}, 'quote': {'exact': 'Alias', 'prefix': '', 'suffix': ''}})
+        original = self.host.snapshot()
         bookmark = {'readingVersion': 1, 'bundleVersion': original_document['bundleVersion'], 'line': 2, 'offset': 5}
         self.host.reading_view_bookmark(source, payload=bookmark)
         runtime = stage4.PlanningRuntime(self.rebuild_draft())
@@ -96,13 +104,16 @@ class ResetReadingTests(unittest.TestCase):
         self.assertEqual(original['navigationCurrent'], first['navigationCurrent'])
         self.assertEqual(original['readingProgress'], first['readingProgress'])
         self.assertEqual(original['discussionId'], first['discussionId'])
-        self.assertEqual(['Original note'], [note['content'] for note in first['sourceNotes']])
+        self.assertEqual(original['sourceNotes'], first['sourceNotes'])
+        self.assertEqual(['chunk-001', 'chunk-002'], first['sourceNotes'][1]['selection']['chunkIds'])
+        self.assertEqual(original['sourceHighlights'], first['sourceHighlights'])
+        self.assertEqual(original['timeline'], first['timeline'])
         self.assertEqual(original_document['translation'], self.host.source_document(source)['translation'])
         self.assertEqual(bookmark, self.host.reading_view_bookmark(source))
         delayed = self.host.source_note_create(source, {'readingVersion': 2, 'requestId': 'late-second-round-note',
             'kind': 'thought', 'origin': 'user', 'content': 'Arrived after switching'})
         self.assertIsNone(delayed['noteOperation'])
-        self.assertEqual(['Original note'], [note['content'] for note in delayed['sourceNotes']])
+        self.assertEqual(original['sourceNotes'], delayed['sourceNotes'])
         self.assertEqual('Arrived after switching', self.host.source_note_request(
             source, 'late-second-round-note', reading_version=2)['note']['content'])
         self.host.continue_cached({'receipt': self.receipt(), 'requestId': 'first-round-resumed'})
