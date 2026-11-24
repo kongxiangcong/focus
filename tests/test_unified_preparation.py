@@ -174,3 +174,37 @@ class UnifiedPreparationTests(unittest.TestCase):
             self.assertIn('document', runtime.calls)
         finally:
             runtime.continue_context.set()
+
+
+class HistoricalPreparationTests(unittest.TestCase):
+    def test_a_legacy_translation_is_reused_as_a_source_line_group(self):
+        import test_source_reading_http as reader
+
+        host = reader.SourceReadingHTTPTests()
+        host.setUp()
+        self.addCleanup(host.doCleanups)
+        fixture = host.fixture
+        fixture.core(host.workspace).save_prepared_translation(
+            source_id='fixture-paper', plan_id='plan-001', chunk_id='chunk-001',
+            translation='# 论文\n\n## 方法\n\n旧的译文保留在这里。')
+        runtime = PausedReading()
+        runtime.continue_check.set()
+        runtime.continue_context.set()
+        route = '/library/sources/fixture-paper'
+        with host.serve(reading_runtime=runtime) as port:
+            host.value(port, route + '/discuss', {'selection': {'workbenchId': 'legacy-workbench', 'generation': 1}})
+            deadline = time.monotonic() + 8
+            while time.monotonic() < deadline:
+                preparation = host.value(port, route + '/preparation')
+                if preparation['status'] != 'running':
+                    break
+                time.sleep(.01)
+            self.assertTrue(preparation['ready'], preparation)
+            self.assertEqual('plan-001', preparation['plan_id'])
+            document = host.value(port, route + '/document')
+            first, second, *_ = document['translation']['segments']
+            self.assertEqual('group', first['granularity'])
+            self.assertEqual([1, 6], first['sourceLines'])
+            self.assertIn('旧的译文保留在这里。', first['text'])
+            self.assertEqual('block', second['granularity'])
+            self.assertEqual(['context', 'document', 'check'], runtime.calls)
