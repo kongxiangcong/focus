@@ -48,6 +48,8 @@ def main():
             source = 'fixture-paper'
             host.prepare_reading(source, request_id='browser-first-round')
             host.reading_workers[source].join(15)
+            initial_batches = runtime.calls.count('document')
+            assert initial_batches > 0, runtime.calls
             host.open_prepared_reading(source, request_id='browser-open-first-round')
             view = enter_body(host)
             host.continue_cached({'receipt': {'sourceId': source, 'planId': 'plan-001', 'chunkId': 'chunk-001',
@@ -62,7 +64,7 @@ def main():
                         env={**os.environ, 'FOCUS_BROWSER_PORT': str(server.server_port)}).returncode
                     if result == 0:
                         assert runtime.calls.count('plan') == 1, runtime.calls
-                        assert runtime.calls.count('document') == 2, runtime.calls
+                        assert runtime.calls.count('document') == initial_batches * 2, runtime.calls
                     return result
                 finally:
                     server.shutdown()
