@@ -46,9 +46,12 @@ def main():
     try:
         workspace = configure(fixture)
         runtime = RoundRuntime(workspace)
+        quote = 'Reading passage 17'
+        markdown = workspace / 'sources/fixture-paper/parser-bundle/content.md'
+        line = next(index for index, text in enumerate(markdown.read_text().splitlines(), 1) if quote in text)
         with closing(Workbench(workspace=workspace, settings_path=fixture.root / 'settings.json',
                                reading_runtime=runtime, backend_factory=partial(CitationRuntime, requests={
-                                   '第二轮的问题': [{'lines': [39, 39], 'quote': 'Reading passage 17'}],
+                                   '第二轮的问题': [{'lines': [line, line], 'quote': quote}],
                                }))) as workbench:
             host = workbench.host
             source = 'fixture-paper'

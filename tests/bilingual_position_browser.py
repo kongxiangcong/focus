@@ -45,8 +45,8 @@ def configure_source(source, source_id, title, *, chinese=False, headings=True, 
     plan = source / 'reading/plans/plan-001'
     passages = ['# ' + title] if headings else []
     chunks = []
+    start = 1
     for number in range(1, 4):
-        start = len(passages) * 2 + 1 if number > 1 else 1
         section = f'原文小节 {number}' if chinese else ['1. Introduction', 'Methods', 'Appendix'][number - 1]
         if headings:
             passages.append('Appendix\n--------' if not chinese and number == 3 else '## ' + section)
@@ -54,9 +54,10 @@ def configure_source(source, source_id, title, *, chinese=False, headings=True, 
             if not chinese and index == 14:
                 passages.append('### Data sources')
             passages.append(f'中文原文第 {index} 段。' if chinese else f'Reading passage {index} with context to read.')
+        end = sum(len(passage.splitlines()) + 1 for passage in passages)
         chunks.append({'chunk_id': f'chunk-00{number}', 'index': number,
-                       'section_path': [title, section],
-                       'source_lines': [start, len(passages) * 2], 'images': []})
+                       'section_path': [title, section], 'source_lines': [start, end], 'images': []})
+        start = end + 1
     markdown = '\n\n'.join(passages) + '\n\n'
     bundle = source / 'parser-bundle'
     (bundle / 'source.pdf').unlink()
