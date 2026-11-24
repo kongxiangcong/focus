@@ -218,6 +218,8 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   const narrowMode = page.getByRole('combobox', { name: '阅读方式' });
   if (await narrowMode.isVisible()) await narrowMode.selectOption('chat');
+  const mobileBack = page.getByRole('button', { name: '返回对话', exact: true });
+  if (await mobileBack.isVisible()) await mobileBack.click();
   const narrowCitation = citation(answer('当前回答 B'), 4);
   const narrowId = await narrowCitation.getAttribute('data-citation');
   await narrowCitation.press('Enter');
@@ -226,7 +228,7 @@ try {
   await atFocus(narrowCitation);
   await page.getByRole('button', { name: '查看正文', exact: true }).click();
   await source.waitFor();
-  await page.getByRole('button', { name: '返回对话', exact: true }).click();
+  await mobileBack.click();
   await conversation.waitFor();
   assert.deepEqual(await readingProgress(), before);
   assert.deepEqual(errors, []);
