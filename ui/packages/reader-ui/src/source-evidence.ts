@@ -32,7 +32,8 @@ export type EvidenceProjection = { evidence: ValidatedAnswerEvidence } & (
 );
 
 function findCanonicalQuote(markdown: string, starts: readonly number[], evidence: ValidatedAnswerEvidence): (SourceRange & { quoteOffsets: readonly [number, number]; canonicalStart: number }) | undefined {
-  const [first, last] = evidence.sourceLines ?? [];
+  if (!Array.isArray(evidence.sourceLines) || evidence.sourceLines.length !== 2) return undefined;
+  const [first, last] = evidence.sourceLines;
   if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last)) return undefined;
   const lower = starts[first - 1], upper = starts[last] === undefined ? markdown.length : starts[last] - 1;
   if (lower === undefined || first < 1 || last < first || last > starts.length) return undefined;
@@ -95,7 +96,8 @@ function resolve(tree: HastNode, document: ReadingDocument, evidence: readonly V
   return evidence.map(e => {
     const no = { evidence: e, kind: "unavailable" as const };
     if (e.sourceId !== document.sourceId || e.bundleVersion !== document.bundleVersion) return no;
-    const [first, last] = e.sourceLines ?? [];
+    if (!Array.isArray(e.sourceLines) || e.sourceLines.length !== 2) return no;
+    const [first, last] = e.sourceLines;
     if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last) || first < 1 || last < first || last > document.lineCount) return no;
     if (!e.quote.exact.trim()) return no;
     const verified = locate(e);

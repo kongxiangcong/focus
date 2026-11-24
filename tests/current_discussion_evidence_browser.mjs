@@ -16,6 +16,7 @@ const navigation = page.getByRole('group', { name: '阅读方式', exact: true }
 const conversation = page.getByLabel('文章对话', { exact: true });
 const source = page.getByLabel('文章原文', { exact: true });
 const original = page.getByRole('button', { name: '原文', exact: true });
+const chinese = page.getByRole('button', { name: '中文', exact: true });
 const chatTab = navigation.getByRole('button', { name: '对话', exact: true });
 const readingTab = navigation.getByRole('button', { name: '精读', exact: true });
 const referencedParagraph = source.locator('[data-source-line="266"]');
@@ -199,6 +200,23 @@ try {
   await originalLink.waitFor();
   assert.ok(await scrollTop() < 20, 'A manual bookmark survives a later citation jump and reopening');
 
+  await chinese.click();
+  await b4.click();
+  const groupId = await b4.getAttribute('data-citation');
+  const activeGroup = source.locator(`[data-translation-granularity="group"].is-active[data-evidence-block~="${groupId}"]`);
+  await activeGroup.waitFor();
+  assert.equal(await activeGroup.count(), 1);
+  assert.ok(await activeGroup.locator('p').count() > 1);
+  assert.ok(await activeGroup.evaluate(group => {
+    const pane = group.closest('[aria-label="文章原文"]').getBoundingClientRect();
+    const top = group.getBoundingClientRect().top;
+    return top >= pane.top && top < pane.bottom && getComputedStyle(group).boxShadow !== 'none';
+  }), 'the whole verified group is highlighted from its start');
+  assert.equal(await chinese.getAttribute('aria-pressed'), 'true');
+  assert.ok((await originalLink.getAttribute('href')).endsWith('#page=8'));
+  await original.click();
+  await assertLocated(b4, 'a scalable high-bandwidth');
+
   await page.setViewportSize({ width: 390, height: 844 });
   const narrowMode = page.getByRole('combobox', { name: '阅读方式' });
   if (await narrowMode.isVisible()) await narrowMode.selectOption('chat');
@@ -214,7 +232,7 @@ try {
   await conversation.waitFor();
   assert.deepEqual(await readingProgress(), before);
   assert.deepEqual(errors, []);
-  console.log('PASS exact source jumps, selected answer return, manual bookmark, mobile navigation and unchanged Reading Cursor');
+  console.log('PASS exact source jumps, historical translated group, selected answer return, manual bookmark, mobile navigation and unchanged Reading Cursor');
 } catch (error) {
   console.error((await page.getByRole('alert').allTextContents()).join('\n'));
   console.error((await page.locator('body').innerText()).slice(-1500));
