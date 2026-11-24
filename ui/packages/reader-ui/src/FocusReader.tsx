@@ -1074,6 +1074,7 @@ function UnifiedReader(props: FocusReaderProps) {
   const preparation = view?.preparations?.[sourceId];
   const hasPlan = !!(view?.navigationCurrent ?? view?.current) || view?.status === "completed";
   const readyToOpen = !!(preparation?.selected_ready || (preparation?.ready && !preparation.candidate));
+  const waiting = !!view?.unifiedPreparation && !!sourceId && !readyToOpen;
   const acceptSession = props.readingSession?.accept;
   const isCurrentSelection = props.readingSession?.isCurrent;
   const seenReset = useRef<{ sourceId: string; version: number } | null>(null);
@@ -1195,8 +1196,15 @@ function UnifiedReader(props: FocusReaderProps) {
               }
             }}>{value === "chunks" ? "逐段精读" : modeLabel(value)}</button>)}
         </div>}
-    <div id="reading-mode-panel" className="reading-mode-panel" role={props.renderModeNavigation ? "region" : "tabpanel"} aria-label={modeLabel(mode)} aria-busy={mode === "chunks" && busy}>
-      {mounted.chunks && <div className="reading-mode-layer" hidden={mode !== "chunks"}>
+    <div id="reading-mode-panel" className="reading-mode-panel" role={props.renderModeNavigation ? "region" : "tabpanel"} aria-label={modeLabel(mode)} aria-busy={busy || (waiting && preparing)}>
+      {waiting && mode !== "blog" && <section className="reading-preparation" aria-label="阅读准备">
+        <p role={prepFailed ? "alert" : "status"}>{preparation ? preparationText(preparation, "阅读") : "等待准备阅读"}</p>
+        {failure && <p role="alert">{failure.message}</p>}
+        {!preparing && prepare && <button type="button" disabled={busy} onClick={
+          () => void run("重试准备", requestId => prepare.call(props.host, sourceId, requestId))
+        }>{prepFailed || failure ? "重试准备" : "准备阅读"}</button>}
+      </section>}
+      {mounted.chunks && !waiting && <div className="reading-mode-layer" hidden={mode !== "chunks"}>
         {failure && <div className="source-reader-error" role="alert">{failure.message}<button type="button" onClick={failure.retry}>{failure.label}</button><button type="button" aria-label="关闭错误" onClick={() => setFailure(null)}>×</button></div>}
         {canActivate && <div className="reading-plan-action"><button type="button" disabled={busy} onClick={
           () => void run("重试打开新计划", requestId => props.host.activateReadingCandidate!(sourceId, candidatePlan, view.readingRevision!, requestId))
@@ -1209,7 +1217,7 @@ function UnifiedReader(props: FocusReaderProps) {
             }>{prepFailed ? "重试准备" : "准备精读"}</button>}
           </section>}
       </div>}
-      {mounted.chat && <div className="reading-mode-layer" hidden={mode !== "chat"}>
+      {mounted.chat && !waiting && <div className="reading-mode-layer" hidden={mode !== "chat"}>
         <ConversationReader {...props} evidenceNavigation={evidenceNavigation} visible={props.visible !== false && mode === "chat"} />
       </div>}
       {hasBlog && mounted.blog && sourceId && <div className="reading-mode-layer" hidden={mode !== "blog"}>

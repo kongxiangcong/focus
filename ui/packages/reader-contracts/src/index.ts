@@ -215,6 +215,7 @@ export interface ReadingWindow {
   readingOperation?: { operation: string; source_id: string; run_id?: string; status?: string;
     plan_id?: string; previous_chunk_id?: string | null; chunk_id?: string | null; reading_revision?: number } | null;
   preparations?: Readonly<Record<string, ReadingPreparation>>;
+  unifiedPreparation?: boolean;
   outline?: readonly { chunkId: string; index: number; sectionPath: readonly string[]; nodeId?: string }[];
   revision?: number;
   sessionId?: string;

@@ -374,7 +374,10 @@ def _reading_plan_records(bundle: Path, draft: dict[str, Any], *,
 
 def _needs_translation(metadata: dict, chunk: dict) -> bool:
     # Existing plans inherit bundle language; new mixed sources specify it per chunk.
-    return chunk.get("language", metadata["language"]).lower().replace("_", "-").split("-")[0] not in ("zh", "ch")
+    if metadata.get("source_language") == "zh":
+        return False
+    language = chunk.get("language", metadata.get("source_language", metadata["language"]))
+    return language.lower().replace("_", "-").split("-")[0] not in ("zh", "ch")
 
 
 def _source_bundle_at_version(source_root: Path, bundle_version: str | None) -> Path:
