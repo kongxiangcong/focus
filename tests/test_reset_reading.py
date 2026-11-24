@@ -313,6 +313,89 @@ class ResetReadingTests(unittest.TestCase):
         self.assertEqual(result['current'], replay['current'])
         self.assertEqual(1, runtime.calls.count('plan'))
 
+    def test_rereading_the_first_round_replaces_its_backup_only_after_success(self):
+        source = 'fixture-paper'
+        runtime = stage4.PlanningRuntime(self.rebuild_draft())
+        self.host.reading_app.runtime = runtime
+        monday = 1795392000
+        friday = 1795737600
+        self.host.clock = lambda: monday
+        self.host.source_note_create(source, {'requestId': 'monday-note', 'kind': 'thought',
+            'origin': 'user', 'content': 'Monday interpretation'})
+        first = self.host.snapshot()
+        first_request = {'requestId': 'monday-reread', 'confirmed': True, 'readingVersion': 1}
+        self.host.reset_source_reading(source, first_request)
+        self.host.reading_workers[source].join(3)
+        monday_backup = self.host.reading_version_backup(source, 1)
+        self.assertEqual(monday * 1000, monday_backup['backedUpAt'])
+        self.assertEqual(['Monday interpretation'], [note['content'] for note in monday_backup['sourceNotes']])
+
+        self.host.source_note_create(source, {'requestId': 'second-round-only-note', 'kind': 'thought',
+            'origin': 'user', 'content': 'Second round only'})
+        self.host.continue_cached({'receipt': self.receipt(), 'requestId': 'second-round-progress'})
+        second = self.host.snapshot()
+        self.host.switch_reading_version(source, 1)
+        note = first['sourceNotes'][0]
+        self.host.source_note_change(source, note['noteId'], {'content': 'Friday interpretation',
+            'expectedRevision': note['revision'], 'requestId': 'friday-edit'}, 'edit')
+        friday_state = self.host.snapshot()
+        self.host.clock = lambda: friday
+        request = {'requestId': 'friday-reread', 'confirmed': True, 'readingVersion': 1}
+        replace = Path.replace
+        state = self.workspace / 'state.json'
+
+        def interrupt_replacement(path, target):
+            if target == state:
+                raise OSError('Stop before publishing the replacement backup')
+            return replace(path, target)
+
+        with patch.object(Path, 'replace', interrupt_replacement):
+            with self.assertRaises(WorkspaceError) as failure:
+                self.host.reset_source_reading(source, request)
+            self.assertEqual('clear_incomplete', failure.exception.error_id)
+        self.host.close()
+        self.host = HostService(self.workspace, self.fixture.root / 'host', reading_runtime=runtime, clock=lambda: friday)
+        self.assertEqual(1, self.host.snapshot()['readingVersion'])
+        self.assertEqual(friday_state['navigationCurrent']['planId'], self.receipt()['planId'])
+        self.assertEqual(friday_state['navigationCurrent']['chunkId'], self.receipt()['chunkId'])
+        self.assertEqual(friday_state['sourceNotes'], self.host.snapshot()['sourceNotes'])
+        preserved_backup = self.host.reading_version_backup(source, 1)
+        for field in ('sourceId', 'readingVersion', 'bundleVersion', 'backedUpAt', 'sourceNotes', 'cursor', 'conversation'):
+            self.assertEqual(monday_backup[field], preserved_backup[field])
+        self.assertEqual([monday * 1000, None], [item['backedUpAt'] for item in self.host.list_reading_versions(source)])
+
+        reset = self.host.reset_source_reading(source, request)
+        self.host.reading_workers[source].join(3)
+        third = self.host.snapshot()
+        self.assertEqual(3, third['readingVersion'])
+        self.assertEqual([], third['readingProgress'])
+        self.assertEqual([], third['conversation'])
+        self.assertEqual('chunk-001', third['navigationCurrent']['chunkId'])
+        self.assertEqual(['Friday interpretation'], [note['content'] for note in third['sourceNotes']])
+        self.assertNotEqual(note['noteId'], third['sourceNotes'][0]['noteId'])
+        friday_backup = self.host.reading_version_backup(source, 1)
+        self.assertEqual(friday * 1000, friday_backup['backedUpAt'])
+        self.assertEqual(friday_state['sourceNotes'], friday_backup['sourceNotes'])
+        self.assertEqual(first['discussionId'], friday_backup['discussionId'])
+        self.assertEqual([
+            {'readingVersion': 1, 'ready': True, 'selected': False, 'backedUpAt': friday * 1000},
+            {'readingVersion': 2, 'ready': True, 'selected': False, 'backedUpAt': None},
+            {'readingVersion': 3, 'ready': True, 'selected': True, 'backedUpAt': None},
+        ], self.host.list_reading_versions(source))
+
+        self.host.switch_reading_version(source, 2)
+        replay = self.host.reset_source_reading(source, request)
+        self.assertEqual(reset['clearOperation'], replay['clearOperation'])
+        self.assertEqual(2, replay['readingVersion'])
+        for field in ('discussionId', 'navigationCurrent', 'readingProgress', 'sourceNotes'):
+            self.assertEqual(second[field], replay[field])
+        original_replay = self.host.reset_source_reading(source, first_request)
+        self.assertEqual(2, original_replay['clearOperation']['readingVersion'])
+        self.assertEqual(2, original_replay['readingVersion'])
+        self.assertEqual(friday_backup, self.host.reading_version_backup(source, 1))
+        self.assertEqual([1, 2, 3], [item['readingVersion'] for item in self.host.list_reading_versions(source)])
+        self.assertEqual(2, runtime.calls.count('plan'))
+
     def test_interrupted_reset_recovers_on_restart_and_retry_keeps_the_new_discussion(self):
         runtimes = []
         old_summary = 'Archived compact discussion context'
@@ -408,6 +491,18 @@ class ResetReadingTests(unittest.TestCase):
         self.assertIn('"earlierSummary": "", "recentMessages": []', fresh_prompt)
         self.assertNotIn(old_summary, fresh_prompt)
         self.assertNotIn('Archived question', fresh_prompt)
+
+        # An updated parser must not change the recovered text or evidence ranges of the saved round.
+        source = 'fixture-paper'
+        content = self.workspace / 'sources' / source / 'parser-bundle' / 'content.md'
+        content.write_text('Updated source text.\n' + content.read_text(encoding='utf-8'), encoding='utf-8')
+        self.assertNotEqual(backup['bundleVersion'], self.host.source_document(source)['bundleVersion'])
+        recovery = self.host.reading_version_backup(source, 1)
+        self.assertEqual(backup['document'], recovery['document'])
+        self.assertEqual(evidence, recovery['conversation'][1]['evidence'][0])
+        start, end = evidence['sourceLines']
+        restored_lines = recovery['document']['markdown'].splitlines()[start - 1:end]
+        self.assertEqual(1, '\n'.join(restored_lines).count(evidence['quote']['exact']))
 
     def test_running_preparation_cannot_commit_after_confirmed_reset(self):
         runtime = DelayedPreparation(self.rebuild_draft())

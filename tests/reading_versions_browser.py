@@ -1,5 +1,6 @@
 """Switch editable Reading Versions from the built Workbench against its Host."""
 from contextlib import closing
+from functools import partial
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from bilingual_position_browser import BilingualRuntime, configure
+from pdf_evidence_browser import CitationRuntime
 from reading_fixture import ReadingFixture
 from test_stage4_reading import enter_body, with_structure
 from host.server import Server
@@ -31,8 +33,10 @@ class RoundRuntime(BilingualRuntime):
 
     def translate_document(self, **kwargs):
         segments = super().translate_document(**kwargs)
-        if 'plan' in self.calls:
-            return [{**segment, 'text': segment['text'].replace('阅读段落', '重读段落')} for segment in segments]
+        rounds = self.calls.count('plan')
+        if rounds:
+            prefix = {1: '重读段落', 2: '第三轮段落'}[rounds]
+            return [{**segment, 'text': segment['text'].replace('阅读段落', prefix)} for segment in segments]
         return segments
 
 
@@ -43,7 +47,9 @@ def main():
         workspace = configure(fixture)
         runtime = RoundRuntime(workspace)
         with closing(Workbench(workspace=workspace, settings_path=fixture.root / 'settings.json',
-                               reading_runtime=runtime)) as workbench:
+                               reading_runtime=runtime, backend_factory=partial(CitationRuntime, requests={
+                                   '第二轮的问题': [{'lines': [39, 39], 'quote': 'Reading passage 17'}],
+                               }))) as workbench:
             host = workbench.host
             source = 'fixture-paper'
             host.prepare_reading(source, request_id='browser-first-round')
@@ -63,8 +69,8 @@ def main():
                     result = subprocess.run(['node', str(Path(__file__).with_suffix('.mjs'))],
                         env={**os.environ, 'FOCUS_BROWSER_PORT': str(server.server_port)}).returncode
                     if result == 0:
-                        assert runtime.calls.count('plan') == 1, runtime.calls
-                        assert runtime.calls.count('document') == initial_batches * 2, runtime.calls
+                        assert runtime.calls.count('plan') == 2, runtime.calls
+                        assert runtime.calls.count('document') == initial_batches * 3, runtime.calls
                     return result
                 finally:
                     server.shutdown()
