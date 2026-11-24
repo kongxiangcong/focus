@@ -69,7 +69,7 @@ async function setup(missingSecondTarget = false, reading = snapshot) {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     const line = this.closest<HTMLElement>("[data-source-line]")?.dataset.sourceLine;
     const anchor = this.closest<HTMLElement>(".source-original")?.scrollTop ?? 0;
-    const top = line === "3" ? 900 - anchor : line === "1" ? 100 - anchor : 0;
+    const top = line === "3" ? 900 - anchor : line === "1" ? 480 - anchor : 0;
     return new DOMRect(0, top, 100, line ? 20 : 400);
   });
   await act(async () => { render(<WorkspaceApp host={host} />); });
@@ -87,11 +87,11 @@ it("keeps the latest citation after reconnect and resumes a bookmark set with a 
   const secondNumber = answer.getByRole("button", { name: "2" });
 
   fireEvent.keyDown(pane, { key: "PageDown" });
-  pane.scrollTop = 90;
+  expect(pane).toHaveProperty("scrollTop", 360);
   fireEvent.scroll(pane);
   const bookmark = "focus.sourceBookmark:local:paper:0:bundle";
-  const before = JSON.stringify({ line: 1, offset: -10 });
-  expect(localStorage.getItem(bookmark)).toBe(before);
+  const before = localStorage.getItem(bookmark);
+  expect(JSON.parse(before!)).toEqual({ line: 1, sourceOffset: 0, fraction: 0.4 });
 
   fireEvent.click(firstNumber);
   fireEvent.click(secondNumber);
