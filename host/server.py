@@ -435,7 +435,9 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'opening' and method in ('GET', 'POST'):
                 if method == 'POST':
                     self._body()
-                self._send(200, {'ok': True, 'value': service.source_opening(source_id, prepare=method == 'POST')})
+                version = parse_qs(urlsplit(self.path).query).get('readingVersion', [None])[0]
+                self._send(200, {'ok': True, 'value': service.source_opening(source_id, prepare=method == 'POST',
+                    reading_version=int(version) if version else None)})
                 return
             if len(parts) == 2 and parts[1] == 'overview' and method in ('GET', 'POST'):
                 with service.lock:

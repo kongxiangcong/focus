@@ -89,9 +89,12 @@ class ReadingVersions:
     def _ready(self, state, source_id, reading_version):
         cursor = version_cursor(state, source_id, reading_version)
         plan = cursor.get('current_plan_id')
-        if plan:
-            return self.reading._plan_ready(source_id, plan, reading_version=reading_version)
-        run = self.reading.status(source_id, reading_version=reading_version)
+        try:
+            if plan:
+                return self.reading._plan_ready(source_id, plan, reading_version=reading_version)
+            run = self.reading.status(source_id, reading_version=reading_version)
+        except (OSError, WorkspaceError):
+            return False
         return bool(not cursor.get('reading_started') and run and run['ready'])
 
     def switch(self, source_id, reading_version):

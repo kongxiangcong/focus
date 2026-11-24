@@ -9,7 +9,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .reading_workspace import WorkspaceCore, WorkspaceError
+from .reading_workspace import WorkspaceCore, WorkspaceError, _read_document
+from .reading_versions import selected_version
 from .source_notes import SourceNotes
 from .source_highlights import SourceHighlights
 
@@ -32,7 +33,7 @@ class DiscussionApplication:
         return (Path(__file__).resolve().parents[2] / "methods" / "source-discussion" / "METHOD.md").read_text(encoding="utf-8")
 
     def bind(self, *, source_id: str, request_id: str, content: str,
-             bundle_version: str | None = None) -> dict:
+             bundle_version: str | None = None, reading_version=None) -> dict:
         SourceNotes._check_request(request_id)
         if not isinstance(content, str) or not content.strip():
             raise WorkspaceError("source_question_invalid", "A question is required")
@@ -40,8 +41,10 @@ class DiscussionApplication:
         bundle = bundle_version or current
         if bundle != current:
             self.core.read_source_range(start=1, end=1, source_id=source_id, bundle_version=bundle)
+        if reading_version is None:
+            reading_version = selected_version(_read_document(self.notes.workspace / 'state.json'), source_id)
         return {"sourceId": source_id, "bundle": bundle, "currentBundleAtBind": current,
-                "generation": self.notes.generation(source_id),
+                "readingVersion": reading_version, "generation": self.notes.generation(source_id, reading_version),
                 "requestId": request_id, "requestContent": content,
                 "saveIntent": bool(_SAVE.search(content) and not _NEGATIVE.search(content))}
 
@@ -49,7 +52,8 @@ class DiscussionApplication:
         if not isinstance(arguments, dict):
             raise WorkspaceError("source_scope_invalid", "Tool arguments must be an object")
         source_id, bundle = scope["sourceId"], scope["bundle"]
-        if scope.get('generation', 0) != self.notes.generation(source_id):
+        reading_version = scope.get('readingVersion')
+        if scope.get('generation', 0) != self.notes.generation(source_id, reading_version):
             raise WorkspaceError("discussion_cleared", "This discussion was cleared")
         if scope["currentBundleAtBind"] == bundle and self.notes.bundle_version(source_id) != bundle:
             raise WorkspaceError("source_bundle_changed", "Source Bundle changed during discussion")
@@ -78,15 +82,15 @@ class DiscussionApplication:
                 placement = {"sourceId": source_id, "bundle": bundle,
                              "sourceLines": list(reference["sourceLines"])}
             return self.notes.save(source_id, bundle=bundle, request_id=scope["requestId"],
-                                   expected_generation=scope.get('generation', 0),
+                                   expected_generation=scope.get('generation', 0), reading_version=reading_version,
                                    intent_id=scope["requestId"], placement=placement, **arguments)
         raise WorkspaceError("source_scope_invalid", "This discussion cannot call that tool")
 
     def cancel(self, scope: dict) -> dict:
-        return self.notes.cancel(scope["sourceId"], scope["requestId"])
+        return self.notes.cancel(scope["sourceId"], scope["requestId"], reading_version=scope.get('readingVersion'))
 
     def result(self, scope: dict) -> dict | None:
-        return self.notes.result(scope["sourceId"], scope["requestId"])
+        return self.notes.result(scope["sourceId"], scope["requestId"], reading_version=scope.get('readingVersion'))
 
 
 from .workspace_lifecycle import guard_workspace_class
