@@ -406,6 +406,15 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'document' and method == 'GET':
                 self._send(200, {'ok': True, 'value': service.source_document(source_id)})
                 return
+            if len(parts) == 4 and parts[1] == 'reading-versions' and parts[3] == 'backup' and method == 'GET':
+                version = int(parts[2])
+                self._send(200, {'ok': True, 'value': service.reading_version_backup(source_id, version)})
+                return
+            if len(parts) == 2 and parts[1] == 'reading-bookmark' and method in ('GET', 'POST'):
+                value = parse_qs(urlsplit(self.path).query).get('readingVersion', [None])[0]
+                self._send(200, {'ok': True, 'value': service.reading_view_bookmark(source_id,
+                    reading_version=int(value) if value else None, payload=self._body() if method == 'POST' else None)})
+                return
             if len(parts) == 2 and parts[1] == 'opening' and method in ('GET', 'POST'):
                 if method == 'POST':
                     self._body()

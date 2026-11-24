@@ -37,6 +37,8 @@ from core.workspace_lifecycle import WorkspaceLease, create_workspace
 from core.source_management import SourceManagement
 from core.source_blocks import SourceBlocks
 from core.source_notes import check_sentence
+from core.reading_versions import ReadingVersions, selected_version, version_metadata, version_reading_directory
+from core.reading_workspace import _read_document
 
 #: The Workbench offers one retry entry per artifact, named by granularity.
 BLOG_ARTIFACT_LABELS = {'reading_blog': '重新生成带读博客', 'html': '重新生成 HTML'}
@@ -119,6 +121,8 @@ class HostService:
         self.reading_app = ReadingApplication(self.workspace, runtime=reading_runtime, writer_id=writer_id)
         self.source_clear = SourceClear(self.store, self.source_notes, self.reading_app.core)
         self.source_clear.recover()
+        self.reading_versions = ReadingVersions(self.reading_app.core, self.source_notes)
+        self._reconcile_reading_version_resets()
         self.reading_app.core.interrupt_running()
         self.reading_workers = {}
         self.opening_workers = {}
@@ -275,10 +279,11 @@ class HostService:
         state_path = self.workspace / 'state.json'
         state_stamp = self._path_stamp(state_path)
         selected_state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
+        window['readingVersion'] = selected_version(selected_state, note_source) if note_source else None
         window['readingStarted'] = has_started_reading(selected_state.get('sources', {}).get(note_source, {}))
         window['structureIntro'] = bool(window.get('structure') and window['navigationCurrent'] and not window['readingStarted'])
         if note_source and window.get('structure'):
-            reading_dir = self.workspace / 'sources' / note_source / 'reading'
+            reading_dir = version_reading_directory(self.workspace / 'sources' / note_source, selected_state, note_source)
             overview_stamp = (
                 state_stamp,
                 self._path_stamp(reading_dir / 'overview.json'),
@@ -299,7 +304,8 @@ class HostService:
         except (OSError, ValueError, WorkspaceError):
             window['sourceBundleVersion'] = None
         window['sourceGeneration'] = self.source_notes.generation(note_source) if note_source else 0
-        window['resetVersion'] = sum(1 for source in selected_state.get('source_resets', {}).values() if source == note_source)
+        window['resetVersion'] = sum(1 for source in selected_state.get('source_resets', {}).values() if source == note_source) + sum(
+            1 for reset in selected_state.get('reading_version_resets', {}).values() if reset['sourceId'] == note_source)
         if not self.state['displayReading'] or (window['navigationCurrent'] and not window['readingStarted']):
             window['sessionFresh'] = True
             window['current'] = None
@@ -360,12 +366,15 @@ class HostService:
         sources_overview = SourceLibrary(self.workspace).overview()
         window['blog'] = self._blog_summary(overview=sources_overview)
         preparations = {}
-        for path in (self.workspace / 'sources').glob('*/reading/preparation.json'):
-            source_id = path.parent.parent.name
+        for source_id in selected_state.get('sources', {}):
+            root = self.workspace / 'sources' / source_id
+            path = version_reading_directory(root, selected_state, source_id) / 'preparation.json'
+            if not path.is_file():
+                continue
             prep_stamp = (
                 state_stamp,
                 self._path_stamp(path),
-                self._path_stamp(path.parent.parent / 'source.json'),
+                self._path_stamp(root / 'source.json'),
                 bool(self.reading_workers.get(source_id) and self.reading_workers[source_id].is_alive()),
             )
             preparation = self._memo_disk(
@@ -952,6 +961,8 @@ class HostService:
                     raise ValueError('笔记段落引用不正确。')
                 if self.core.plan_bundle(source_id, chunk['planId']) != bundle:
                     raise WorkspaceError('note_bundle_changed', '这段原文已更新，可改存为整篇笔记')
+                if not self.reading_app.core.plan_belongs_to_version(source_id, chunk['planId']):
+                    raise WorkspaceError('reading_version_changed', '小段属于另一阅读轮次。')
                 reference = self.core.reference({'sourceId': source_id, **chunk})
                 anchor = {'sourceId': source_id, 'bundle': bundle, 'sourceLines': reference['sourceLines']}
                 if sentence is not None:
@@ -1000,6 +1011,8 @@ class HostService:
             plan_bundle = self.core.plan_bundle(source_id, chunk['planId'])
             if plan_bundle != self.source_notes.bundle_version(source_id):
                 raise WorkspaceError('highlight_bundle_changed', '这段原文已更新，标注未保存')
+            if not self.reading_app.core.plan_belongs_to_version(source_id, chunk['planId']):
+                raise WorkspaceError('reading_version_changed', '小段属于另一阅读轮次。')
             reference = self.core.reference({'sourceId': source_id, **chunk})
             locator = check_sentence({key: payload[key] for key in ('layer', 'range', 'quote')},
                 plan_id=chunk['planId'], chunk_id=chunk['chunkId'],
@@ -1719,18 +1732,34 @@ class HostService:
 
     def reset_source_reading(self, source_id, payload):
         with self.lock:
-            self.source_notes.bundle_version(source_id)
             request_id = payload.get('requestId')
             self.source_notes._check_request(request_id)
-            prior = (self.store.get('sourceClears') or {}).get(request_id)
-            result = self.source_clear.execute(source_id, payload, restart_reading=True,
-                busy=self.source_clear_busy(source_id, restart_reading=True))
-            if not prior or prior['status'] == 'pending':
+            if payload.get('confirmed') is not True:
+                raise WorkspaceError('clear_confirmation_required', '请确认备份并重新阅读。')
+            expected = payload.get('readingVersion')
+            if expected is not None:
+                self.reading_versions.check_version(expected)
+            self.source_clear.recover()
+            result = self.reading_versions.receipts().get(request_id)
+            legacy = (self.store.get('sourceClears') or {}).get(request_id)
+            if legacy:
+                if not legacy.get('restartReading') or legacy['sourceId'] != source_id:
+                    raise WorkspaceError('clear_request_conflict', '请求已用于另一操作。')
+                result = legacy
+            if result:
+                if result['sourceId'] != source_id or (expected is not None and expected != result.get('priorReadingVersion')):
+                    raise WorkspaceError('clear_request_conflict', '请求已用于另一阅读轮次。')
+            else:
+                if self.source_clear_busy(source_id, restart_reading=True):
+                    raise WorkspaceError('source_busy', '该材料有活动任务，请等待任务结束后再重新阅读。')
+                state = _read_document(self.workspace / 'state.json')
+                versions = version_metadata(state, source_id)
+                discussion_id = versions.get('discussion_id') or discussions.select(self.state, source_id)
+                result = self.reading_versions.reset(source_id, request_id, expected=expected, discussion_id=discussion_id,
+                    capture=lambda plan, bundle: self._capture_reading_version(source_id, discussion_id, plan, bundle), clock=self.clock)
                 self._cancel_early_summary_locked()
                 worker = self.reading_workers.get(source_id)
                 if worker and worker.is_alive():
-                    # The journal has revoked this worker's commits already.
-                    # Cancelling the runtime lets the fresh run take its slot.
                     try:
                         self.reading_app.runtime.cancel(source_id)
                     except Exception:
@@ -1738,6 +1767,70 @@ class HostService:
             self._recover_pending_reading_resets()
             self.changed()
             return {**self.snapshot(), 'clearOperation': result}
+
+    def _capture_reading_version(self, source_id, discussion_id, plan_id, bundle):
+        history = discussions.plan(self.state, discussion_id)
+        messages = [message for message in self.state['conversation'] if message.get('discussionId') == discussion_id]
+        message_ids = {message['messageId'] for message in messages}
+        timeline = [entry for entry in self.state['timeline'] if entry.get('messageId') in message_ids
+                    or entry.get('discussionId') == discussion_id
+                    or (not entry.get('discussionId') and (entry.get('receipt') or {}).get('sourceId') == source_id)]
+        window = self.core.window()
+        current = window['current'] if window['source']['sourceId'] == source_id else None
+        if not current and plan_id:
+            selected = _read_document(self.workspace / 'state.json')['sources'][source_id]
+            if selected.get('current_chunk_id'):
+                current = self.core.reference({'sourceId': source_id, 'planId': plan_id, 'chunkId': selected['current_chunk_id']})
+        document = self.source_document(source_id)
+        if document['bundleVersion'] != bundle:
+            raise WorkspaceError('source_bundle_changed', '备份正文与精读计划的原文版本不一致。')
+        return {'document': document, 'current': current, 'readingProgress': self.progress_core.list(source_id),
+                'structure': window['structure'] if window['source']['sourceId'] == source_id else [],
+                'opening': self.source_opening(source_id), 'articleOverview': self.article_overview(source_id),
+                'discussionId': discussion_id, 'discussion': {**self.state['discussions'][discussion_id],
+                    'summary': history['summary'], 'summaryThrough': history['summaryThrough']},
+                'conversation': messages, 'timeline': timeline}
+
+    def _reconcile_reading_version_resets(self):
+        path = self.workspace / 'state.json'
+        if not path.is_file():
+            return
+        state = _read_document(path)
+        applied = self.state.setdefault('readingVersionResetReceipts', {})
+        changed = False
+        for request_id, reset in state.get('reading_version_resets', {}).items():
+            if request_id in applied:
+                continue
+            source_id, version = reset['sourceId'], reset['readingVersion']
+            if source_id not in state.get('sources', {}):
+                continue
+            discussion_id = version_metadata(state, source_id, version)['discussion_id']
+            self.state.setdefault('discussions', {}).setdefault(discussion_id,
+                {'sourceId': source_id, 'summary': '', 'summaryThrough': None})
+            if selected_version(state, source_id) == version:
+                discussions.select(self.state, source_id, discussion_id=discussion_id)
+                self.state.get('failedChatRuns', {}).pop(source_id, None)
+                for key in ('noteFeedback', 'noteOperation', 'highlightOperation', 'run'):
+                    if (self.state.get(key) or {}).get('sourceId') == source_id:
+                        self.state[key] = None
+                if (self.state.get('discussionSourceId') or state.get('current_source_id')) == source_id:
+                    self.state.update(sessionId=discussion_id, threadId=None, resumeBackend=None,
+                                      discussionSourceId=source_id, displayReading=True, readingMarker=None)
+            applied[request_id] = source_id
+            changed = True
+        if changed:
+            self.store.save()
+
+    def reading_version_backup(self, source_id, reading_version):
+        with self.lock:
+            return self.reading_versions.recover(source_id, reading_version)
+
+    def reading_view_bookmark(self, source_id, *, reading_version=None, payload=None):
+        with self.lock:
+            if payload is not None:
+                reading_version = payload.get('readingVersion')
+                self.reading_versions.check_version(reading_version)
+            return self.reading_versions.bookmark(source_id, reading_version, payload)
 
     def _enter_reset_reading(self, source_id, run_id):
         path = self.workspace / 'state.json'
@@ -1754,6 +1847,7 @@ class HostService:
         path = self.workspace / 'state.json'
         if not path.is_file() or self.shutting_down or self.resetting:
             return
+        self._reconcile_reading_version_resets()
         resets = json.loads(path.read_text(encoding='utf-8')).get('pending_reading_resets', {})
         for source_id, request_id in resets.items():
             run = self.reading_app.status(source_id)
@@ -1854,6 +1948,9 @@ class HostService:
                 discussion_id = discussions.select(self.state, source_id)
                 if payload.get('discussionId', discussion_id) != discussion_id:
                     raise WorkspaceError('discussion_cleared', '讨论已更新，请刷新后重试。')
+                state = _read_document(self.workspace / 'state.json')
+                if source_id in state.get('pending_reading_resets', {}):
+                    raise WorkspaceError('reading_not_ready', '当前轮次仍在准备，请完成后再开始对话。')
                 reference_snapshot = self.core.reference(receipt) if receipt is not None else None
                 if receipt is not None and receipt.get('sourceId') != source_id:
                     raise ValueError('引用段落不属于当前讨论材料。')
@@ -1864,7 +1961,6 @@ class HostService:
                 discussion['discussionId'] = discussion_id
                 discussion['reference'] = reference_snapshot
                 if receipt is not None:
-                    state = json.loads((self.workspace / 'state.json').read_text(encoding='utf-8'))
                     selected = state['sources'].get(source_id, {})
                     discussion['readingPass'] = selected.get('reading_pass', 1) if selected.get('current_plan_id') == receipt.get('planId') else None
             if self.resetting or self.shutting_down or (self.worker and self.worker.is_alive()) or (self.state['run'] and self.state['run']['status'] in ACTIVE):
