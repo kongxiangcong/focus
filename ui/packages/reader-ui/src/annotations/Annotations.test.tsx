@@ -44,6 +44,42 @@ it("offers highlight, note, and reference for an in-block selection and persists
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ layer: "source", range: { start: 0, end: 15 },
     quote: expect.objectContaining({ exact: "First sentence." }), chunk: { planId: "plan-001", chunkId: "chunk-001" } }));
 });
+
+it("edits and deletes one selected note from either covered chunk while preserving independent highlights", async () => {
+  const first = { ...chunk, sourceMarkdown: "同词以及**同词😀**", sourceLines: [1, 1] as const, sourceOffset: 0, total: 2 };
+  const second = { ...first, chunkId: "chunk-002", index: 2, sourceMarkdown: "然后继续。", sourceOffset: 12, sourceLines: [2, 2] as const };
+  const host = new FixtureReaderHost({ source: { sourceId: chunk.sourceId, title: "Demo", topicId: null }, chunks: [first, second] });
+  await host.continueReading({ receipt: first, requestId: "continue-reader-test" });
+  await host.createHighlight({ sourceId: first.sourceId, requestId: "highlight-reader-test", chunk: { planId: first.planId, chunkId: first.chunkId },
+    layer: "source", range: { start: 4, end: 6 }, quote: { exact: "同词", prefix: "同词以及", suffix: "😀" } });
+  const saved = await host.createSourceNote({ sourceId: first.sourceId, requestId: "create-reader-test", content: "共享笔记", kind: "thought", origin: "user",
+    selection: { layer: "source", planId: first.planId, bundleVersion: first.bundleVersion!, ranges: [{ start: 6, end: 9 }, { start: 12, end: 14 }] } });
+  if (!saved.ok || !saved.value.noteOperation?.note) throw Error("Expected the selected note to save");
+  render(<FocusReader host={host} appearance="mist" />);
+  const groups = await waitFor(() => {
+    const result = [...document.querySelectorAll<HTMLElement>("[data-reading-group]")];
+    expect(result).toHaveLength(2);
+    return result;
+  });
+  function marked(group: HTMLElement, kind: string) {
+    return [...group.querySelectorAll(`.reader-anno--${kind}`)].map(mark => mark.textContent).join("");
+  }
+  expect(groups.map(group => marked(group, "shared-note"))).toEqual(["同词😀", "然后"]);
+  expect(groups.map(group => group.querySelector(".focus-markdown")?.textContent)).toEqual(["同词以及同词😀", "然后继续。"]);
+  expect(groups.map(group => within(group).getByText("共享笔记").closest("li")?.dataset.chunkNoteId)).toEqual([
+    saved.value.noteOperation.note.noteId,
+    saved.value.noteOperation.note.noteId,
+  ]);
+  fireEvent.click(within(groups[0]).getByRole("button", { name: "编辑" }));
+  const editor = within(groups[0]).getByRole("textbox", { name: "小段笔记" });
+  fireEvent.change(editor, { target: { value: "编辑后的笔记" } });
+  fireEvent.keyDown(editor, { key: "Enter" });
+  await within(groups[1]).findByText("编辑后的笔记");
+  fireEvent.click(within(groups[1]).getByRole("button", { name: "删除" }));
+  await waitFor(() => expect(groups.map(group => marked(group, "shared-note"))).toEqual(["", ""]));
+  expect(screen.queryByText("编辑后的笔记")).not.toBeInTheDocument();
+  expect(marked(groups[0], "hl")).toBe("同词");
+});
 it("keeps cross-block selections available only for reference questions", async () => {
   await setup(); selectText(0, 15, true);
   const toolbar = await screen.findByRole("toolbar", { name: "选区操作" });

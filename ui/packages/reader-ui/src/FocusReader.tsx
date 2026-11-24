@@ -903,6 +903,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
           const e = entries[index];
           const message = e.kind === "message" ? view?.conversation.find(m => m.messageId === e.messageId) : null;
           const content = e.kind === "reading" ? <ReadingChunk chunk={e.chunk} evidence={chunkEvidence(e.chunk)} onEvidence={openEvidenceAnswer} located={annotations.located.get(group.id)}
+            sharedNotes={projectedNotes.get(group.id)}
             bodyRef={finishGroup?.id === group.id ? completion.body : undefined}
             afterBody={finishGroup?.id === group.id && completion.inline &&
               <button type="button" className="focus-finish-chunk" disabled={finishPaused} onClick={finish}>读完</button>}

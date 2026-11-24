@@ -56,6 +56,21 @@ class DirectSourceNoteTests(unittest.TestCase):
         result=self.save(chunk=None, quote=None, kind='question', origin='dialogue')
         note=result['noteOperation']['note']
         self.assertIsNone(note['anchor']);self.assertEqual('unresolved_question',note['evidenceRole'])
+    def test_selected_source_text_saves_one_note_bound_to_each_covered_chunk(self):
+        document = self.host.source_document(self.source)
+        markdown = document['markdown']
+        start = markdown.index('等待数据')
+        end = markdown.index('提前搬运') + len('提前搬运')
+        selection = {'planId': self.chunk['planId'], 'bundleVersion': document['bundleVersion'],
+                     'layer': 'source', 'ranges': [{'start': start, 'end': end}]}
+        operation = self.save(chunk=None, quote=None, selection=selection)
+        note = operation['noteOperation']['note']
+        second_id = self.window['outline'][1]['chunkId']
+        self.assertEqual({**selection, 'chunkIds': [self.chunk['chunkId'], second_id]}, note['selection'])
+        self.assertEqual([note['noteId']], [saved['noteId'] for saved in operation['sourceNotes']])
+        self.assertEqual(note, self.save(chunk=None, quote=None, selection=selection)['noteOperation']['note'])
+        with self.assertRaises(WorkspaceError):
+            self.save(chunk=None, quote=None, selection={**selection, 'ranges': [{'start': start, 'end': end - 1}]})
     def test_invalid_candidate_and_source_are_rejected(self):
         for changes in ({'kind':'concept'},{'origin':'system'},{'content':''},{'quote':'不存在的引文'}, {'chunk':{'planId':'../../bad','chunkId':'chunk-001'}}):
             with self.subTest(changes=changes), self.assertRaises((ValueError,WorkspaceError)): self.save(**changes)
@@ -114,6 +129,18 @@ class DirectSourceNoteTests(unittest.TestCase):
             self.assertEqual(401,post(self.payload,False)[0])
             self.assertEqual(400,post(self.payload,bound=False)[0])
             status,body=post(self.payload);self.assertEqual(201,status);self.assertTrue(body['ok'])
+            document = self.host.source_document(self.source)
+            start = document['markdown'].index('等待数据')
+            selected = {**self.payload, 'requestId': uuid.uuid4().hex, 'chunk': None, 'quote': None,
+                        'selection': {'planId': self.chunk['planId'], 'bundleVersion': document['bundleVersion'],
+                                      'layer': 'source', 'ranges': [{'start': start, 'end': start + 4}]}}
+            status, body = post(selected)
+            self.assertEqual(201, status)
+            self.assertEqual([self.chunk['chunkId']], body['value']['noteOperation']['note']['selection']['chunkIds'])
+            selected['selection']['ranges'][0]['end'] += len(document['markdown'])
+            status, body = post(selected)
+            self.assertEqual(400, status)
+            self.assertEqual('note_selection_invalid', body['error']['code'])
             path=self.host.workspace/'sources'/self.source/'parser-bundle/content.md';path.write_text(path.read_text(encoding="utf-8")+'\n变化。\n', encoding="utf-8")
             status,body=post({**self.payload,'requestId':uuid.uuid4().hex})
             self.assertEqual(409,status);self.assertEqual('note_bundle_changed',body['error']['code'])

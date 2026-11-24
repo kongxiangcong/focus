@@ -72,7 +72,7 @@ class SourceNotes:
 
     @staticmethod
     def _ensure_column(db: sqlite3.Connection, name: str) -> None:
-        if name not in {"placement", "sentence"}:
+        if name not in {"placement", "sentence", "selection"}:
             raise ValueError("Unsupported note column")
         if name not in {row["name"] for row in db.execute("PRAGMA table_info(notes)")}:
             db.execute(f"ALTER TABLE notes ADD COLUMN {name} TEXT")
@@ -92,6 +92,7 @@ class SourceNotes:
                    "result TEXT, cancelled INTEGER NOT NULL DEFAULT 0)")
         db.execute("CREATE TABLE IF NOT EXISTS clears (id TEXT PRIMARY KEY)")
         self._ensure_column(db, "sentence")
+        self._ensure_column(db, "selection")
         db.execute("CREATE TABLE IF NOT EXISTS highlights (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, "
                    "bundle TEXT NOT NULL, plan_id TEXT NOT NULL, chunk_id TEXT NOT NULL, "
                    "source_start INTEGER NOT NULL, source_end INTEGER NOT NULL, layer TEXT NOT NULL, "
@@ -142,7 +143,7 @@ class SourceNotes:
             if db.execute("SELECT 1 FROM clears WHERE id=?", (request_id,)).fetchone():
                 return
             if local_only:
-                db.execute("DELETE FROM notes WHERE anchor IS NOT NULL OR placement IS NOT NULL OR sentence IS NOT NULL")
+                db.execute("DELETE FROM notes WHERE anchor IS NOT NULL OR placement IS NOT NULL OR sentence IS NOT NULL OR selection IS NOT NULL")
                 db.execute("UPDATE requests SET digest=NULL, result=NULL, cancelled=1 WHERE "
                            "NOT EXISTS (SELECT 1 FROM notes WHERE id=json_extract(requests.result, '$.note.noteId'))")
             else:
@@ -193,6 +194,7 @@ class SourceNotes:
                 "bundle": row["bundle"], "anchor": anchor, "placement": placement,
                 "evidenceRole": row["evidence_role"],
                 "sentence": json.loads(row["sentence"]) if row["sentence"] else None,
+                **({"selection": json.loads(row["selection"])} if row["selection"] else {}),
                 "deleted": bool(row["deleted"]),
                 "canUndo": row["undo"] is not None,
                 "sourceUpdated": updated,
@@ -229,7 +231,7 @@ class SourceNotes:
     def save(self, source_id: str, *, bundle: str, request_id: str, intent_id: str,
              content: str, kind: str, origin: str, evidence_role: str,
              anchor: dict | None = None, placement: dict | None = None,
-             sentence: dict | None = None,
+             sentence: dict | None = None, selection: dict | None = None,
              expected_generation: int | None = None) -> dict:
         """Commit a candidate only with the Host's bound explicit user intent."""
         self._check_request(request_id)
@@ -248,6 +250,8 @@ class SourceNotes:
             payload["placement"] = placement
         if sentence is not None:
             payload["sentence"] = sentence
+        if selection is not None:
+            payload["selection"] = selection
         digest = _payload_identity(payload)
         with _LOCK, closing(self._connect(source_id)) as db, db:
             db.execute("BEGIN IMMEDIATE")
@@ -269,11 +273,11 @@ class SourceNotes:
                 self._check_annotation_overlap(db, bundle, sentence, "note")
             note_id = uuid.uuid4().hex
             db.execute("INSERT INTO notes(id, revision, content, kind, origin, bundle, anchor, "
-                       "evidence_role, deleted, undo, sentence, placement) VALUES(?, 1, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)",
+                       "evidence_role, deleted, undo, sentence, placement, selection) VALUES(?, 1, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)",
                        (note_id, content.strip(), kind, origin, bundle, encoded_anchor, evidence_role,
                         json.dumps({"operation": "create"}),
                         json.dumps(sentence, ensure_ascii=False, sort_keys=True) if sentence is not None else None,
-                        encoded_placement))
+                        encoded_placement, json.dumps(selection, ensure_ascii=False, sort_keys=True) if selection is not None else None))
             row = db.execute("SELECT * FROM notes WHERE id=?", (note_id,)).fetchone()
             result = {"status": "saved", "note": self._public(row, source_id, current)}
             db.execute("INSERT INTO requests VALUES(?, ?, ?, 0)", (request_id, digest, json.dumps(result, ensure_ascii=False)))
