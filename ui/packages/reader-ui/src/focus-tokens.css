@@ -53,10 +53,6 @@
   --reader-mark-soft:rgba(232,178,62,.14);
   --reader-mark-strong:#9a6b0a;
   --reader-mark-ink:#79520a;
-  --reader-pdf-mark:#eaac3833;
-  --reader-pdf-mark-line:#926124;
-  --reader-pdf-marker-bg:#fff4d8;
-  --reader-pdf-marker-ink:#79520a;
   /* Reading Highlight and sentence Reading Note presentation (ADR 0033). */
   --reader-anno-highlight:rgba(247,206,70,.50);
   --reader-anno-highlight-strong:#d6a514;
@@ -159,7 +155,6 @@
   --reader-nav-collapsed:56px;
   --reader-drawer:420px;
   --reader-inspector:400px;
-  --reader-answer-chooser-max-height:min(320px,55%);
   --reader-library-content:1080px;
   /* Compatibility aliases for pre-existing consumers; not a second table. */
   --reader-control-height:var(--reader-control-h);

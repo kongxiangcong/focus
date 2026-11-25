@@ -2,6 +2,7 @@ import type { ReaderMessage, ReadingDocument, ValidatedAnswerEvidence } from "@f
 import { hastTextNodes, type HastNode } from "./annotatable-text";
 import { normalizeMathWithLines } from "./math-markdown";
 import { markdownTree } from "./markdown-pipeline";
+import type { ChunkNoteLink } from "./selected-source-note";
 
 export function messageEvidence(message: ReaderMessage, scope: { sourceId: string }, discussionId?: string | null) {
   return (message.evidence ?? []).filter(e => e.sourceId === scope.sourceId &&
@@ -21,16 +22,20 @@ export function citedMarkdown(message: ReaderMessage, evidence: readonly Validat
   }).replace(/\[\[e:[^\]]*$/, "");
 }
 
-type Positioned = HastNode & { position?: { start: { line: number }; end: { line: number } } };
+type Point = { line: number; offset?: number };
+type Positioned = HastNode & { position?: { start: Point; end: Point } };
 type SourceRange = { sourceLines: readonly [number, number]; quoteOffsets?: readonly [number, number] };
+const codePointLength = (value: string) => value.length - (value.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g)?.length ?? 0);
 export type EvidenceProjection = { evidence: ValidatedAnswerEvidence } & (
   | { kind: "unavailable" }
   | ({ kind: "block" } & SourceRange)
   | ({ kind: "exact"; start: number; end: number } & SourceRange)
 );
 
-function findCanonicalQuote(markdown: string, starts: readonly number[], evidence: ValidatedAnswerEvidence): (SourceRange & { quoteOffsets: readonly [number, number] }) | undefined {
+function findCanonicalQuote(markdown: string, starts: readonly number[], evidence: ValidatedAnswerEvidence): (SourceRange & { quoteOffsets: readonly [number, number]; canonicalStart: number }) | undefined {
+  if (!Array.isArray(evidence.sourceLines) || evidence.sourceLines.length !== 2) return undefined;
   const [first, last] = evidence.sourceLines;
+  if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last)) return undefined;
   const lower = starts[first - 1], upper = starts[last] === undefined ? markdown.length : starts[last] - 1;
   if (lower === undefined || first < 1 || last < first || last > starts.length) return undefined;
   const normalize = (value: string) => value.replace(/\r\n?/g, "\n");
@@ -44,9 +49,8 @@ function findCanonicalQuote(markdown: string, starts: readonly number[], evidenc
   }
   if (matched === undefined) return undefined;
   const line = first + (markdown.slice(lower, matched).match(/\n/g)?.length ?? 0);
-  const codePointLength = (value: string) => value.length - (value.match(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g)?.length ?? 0);
   const start = codePointLength(markdown.slice(0, matched));
-  return { sourceLines: [line, line + (exact.match(/\n/g)?.length ?? 0)], quoteOffsets: [start, start + codePointLength(exact)] };
+  return { sourceLines: [line, line + (exact.match(/\n/g)?.length ?? 0)], quoteOffsets: [start, start + codePointLength(exact)], canonicalStart: matched };
 }
 
 function canonicalQuoteLocator(document: ReadingDocument) {
@@ -76,51 +80,107 @@ export function evidenceBySourceBlock(document: ReadingDocument, evidence: reado
   return byBlock;
 }
 
-function resolve(tree: HastNode, document: ReadingDocument, evidence: readonly ValidatedAnswerEvidence[]): EvidenceProjection[] {
-  if (!evidence.length) return [];
+function renderedSource(tree: HastNode, markdown: string) {
   const lines = new Map<HastNode, readonly [number, number]>();
-  const canonical = normalizeMathWithLines(document.markdown).lines;
-  function visit(node: Positioned, inherited?: readonly [number, number]) {
-    const span = node.position ? [canonical[node.position.start.line - 1]?.[0] ?? 0, canonical[node.position.end.line - 1]?.[1] ?? 0] as const : inherited;
+  const offsets = new Map<HastNode, readonly [number, number]>();
+  const normalized = normalizeMathWithLines(markdown);
+  const canonical = normalized.lines;
+  function visit(node: Positioned, inherited?: readonly [number, number], bounds?: readonly [number, number] | null) {
+    const position = node.position;
+    const span = position ? [canonical[position.start.line - 1]?.[0] ?? 0, canonical[position.end.line - 1]?.[1] ?? 0] as const : inherited;
     if (span) lines.set(node, span);
-    node.children?.forEach(child => visit(child, span));
+
+    const start = position?.start.offset, end = position?.end.offset;
+    let nextBounds = bounds;
+    if (node.type !== "root" && bounds !== null && start !== undefined && end !== undefined) {
+      // Embedded Markdown reparsed inside a node can have fragment-relative positions.
+      nextBounds = bounds && (start < bounds[0] || end > bounds[1]) ? null : [start, end];
+      if (nextBounds) offsets.set(node, nextBounds);
+    }
+    node.children?.forEach(child => visit(child, span, nextBounds));
   }
   visit(tree);
   const nodes = hastTextNodes(tree), text = nodes.map(n => n.node.value ?? "").join("");
+  function* matches(quote: string, [first, last]: readonly [number, number]) {
+    if (!quote.trim()) return;
+    for (let at = text.indexOf(quote); at !== -1; at = text.indexOf(quote, at + 1)) {
+      const touched = nodes.filter(n => n.start < at + quote.length && n.start + (n.node.value?.length ?? 0) > at);
+      if (touched.length && touched.every(({ node }) => {
+        const span = lines.get(node);
+        return span && span[0] >= first && span[1] <= last;
+      })) yield { at, touched };
+    }
+  }
+  return { lines, offsets, normalized, text, matches };
+}
+
+function resolve(tree: HastNode, document: ReadingDocument, evidence: readonly ValidatedAnswerEvidence[]): EvidenceProjection[] {
+  if (!evidence.length) return [];
+  const original = document.markdown;
+  const { lines, offsets, normalized, matches } = renderedSource(tree, original);
   const locate = canonicalQuoteLocator(document);
   return evidence.map(e => {
     const no = { evidence: e, kind: "unavailable" as const };
     if (e.sourceId !== document.sourceId || e.bundleVersion !== document.bundleVersion) return no;
+    if (!Array.isArray(e.sourceLines) || e.sourceLines.length !== 2) return no;
     const [first, last] = e.sourceLines;
+    if (!Number.isSafeInteger(first) || !Number.isSafeInteger(last) || first < 1 || last < first || last > document.lineCount) return no;
     if (!e.quote.exact.trim()) return no;
     const verified = locate(e);
     const block = verified && tree.children?.some(n => {
       const span = lines.get(n);
       return span && span[0] <= verified.sourceLines[1] && span[1] >= verified.sourceLines[0];
     });
-    if (e.renderGranularity || e.blockIds || e.layoutVersion || e.pdfRegions) {
-      if (!verified) return no;
-      if (e.renderGranularity === "block") return { evidence: e, kind: "block", ...verified };
-    }
+    if (!verified) return no;
     const candidates: number[] = [];
-    for (let at = text.indexOf(e.quote.exact); at !== -1; at = text.indexOf(e.quote.exact, at + 1)) {
-      const touched = nodes.filter(n => n.start < at + e.quote.exact.length && n.start + (n.node.value?.length ?? 0) > at);
-      if (touched.length && touched.every(n => { const span = lines.get(n.node); return span && span[0] >= first && span[1] <= last; }) &&
-        text.slice(0, at).endsWith(e.quote.prefix) && text.slice(at + e.quote.exact.length).startsWith(e.quote.suffix)) candidates.push(at);
+    for (const { at, touched } of matches(e.quote.exact, e.sourceLines)) {
+      // Rendered text can resemble a signed quotation at a different source offset.
+      // Require each visible piece to map to its own matching canonical span.
+      const mapsToQuote = touched.length && touched.every(({ node, start }) => {
+        const bounds = offsets.get(node);
+        if (!bounds) return false;
+        const rawStart = normalized.sourceOffsetAt(bounds[0]), rawEnd = normalized.sourceOffsetAt(bounds[1]);
+        if (rawStart === null || rawEnd === null || original.slice(rawStart, rawEnd) !== node.value) return false;
+        const pieceStart = Math.max(at, start);
+        const rawOffset = rawStart + pieceStart - start;
+        const canonicalOffset = rawOffset - (original.slice(0, rawOffset).match(/\r\n/g)?.length ?? 0);
+        return canonicalOffset === verified.canonicalStart + pieceStart - at;
+      });
+      if (mapsToQuote) candidates.push(at);
     }
-    if (candidates.length === 1) return { evidence: e, kind: "exact", start: candidates[0], end: candidates[0] + e.quote.exact.length, ...(verified ?? { sourceLines: e.sourceLines }) };
-    return verified && block ? { evidence: e, kind: "block", ...verified } : no;
+    if (candidates.length === 1) return { evidence: e, kind: "exact", start: candidates[0], end: candidates[0] + e.quote.exact.length, ...verified };
+    return block ? { evidence: e, kind: "block", ...verified } : no;
   });
 }
 
 let cached: { markdown: string; tree: HastNode } | undefined;
-export function projectEvidence(document: ReadingDocument, evidence: readonly ValidatedAnswerEvidence[]) {
-  if (!evidence.length) return [];
-  if (cached?.markdown !== document.markdown) cached = { markdown: document.markdown, tree: markdownTree(document.markdown) };
-  return resolve(cached.tree, document, evidence);
+function originalTree(markdown: string) {
+  if (cached?.markdown !== markdown) cached = { markdown, tree: markdownTree(markdown) };
+  return cached.tree;
 }
 
-export function rehypeSourceEvidence(options: { document: ReadingDocument; evidence: readonly ValidatedAnswerEvidence[]; active?: string }) {
+export function projectEvidence(document: ReadingDocument, evidence: readonly ValidatedAnswerEvidence[]) {
+  return evidence.length ? resolve(originalTree(document.markdown), document, evidence) : [];
+}
+
+export function projectSourceAnnotation(document: ReadingDocument, annotation: {
+  bundle: string; lines: readonly [number, number]; quote: ValidatedAnswerEvidence["quote"];
+}) {
+  if (annotation.bundle !== document.bundleVersion) return;
+  const { quote, lines } = annotation;
+  const { text, matches } = renderedSource(originalTree(document.markdown), document.markdown);
+  let range: { start: number; end: number } | undefined;
+  for (const { at } of matches(quote.exact, lines)) {
+    const end = at + quote.exact.length;
+    if (!text.slice(0, at).endsWith(quote.prefix) || !text.startsWith(quote.suffix, end)) continue;
+    if (range) return;
+    range = { start: at, end };
+  }
+  return range;
+}
+
+export function rehypeSourceEvidence(options: { document: ReadingDocument; evidence: readonly ValidatedAnswerEvidence[];
+  active?: string; noteLinks?: readonly ChunkNoteLink[] }) {
   return (tree: HastNode) => {
     const projections = resolve(tree, options.document, options.evidence);
     const exact = projections.filter(p => p.kind === "exact");
@@ -150,25 +210,45 @@ export function rehypeSourceEvidence(options: { document: ReadingDocument; evide
       node.children?.forEach(child => findMarkedEvidence(child, ids));
     }
     const canonical = normalizeMathWithLines(options.document.markdown).lines;
+    const starts = [0];
+    for (const line of options.document.markdown.replace(/\r\n?/g, "\n").split("\n")) {
+      starts.push(starts[starts.length - 1] + codePointLength(line) + 1);
+    }
+    const blocks = options.document.blocks ?? [];
+    const remainingNoteLinks = new Set(options.noteLinks);
+    let blockIndex = 0;
     tree.children = tree.children?.flatMap(child => {
       const span = (child as Positioned).position;
       if (child.type !== "element" || !span) return [child];
       const first = canonical[span.start.line - 1]?.[0] ?? 0, last = canonical[span.end.line - 1]?.[1] ?? 0;
-      child.properties = { ...child.properties, dataSourceLine: first };
+      if (!first || !last) return [child];
+      const start = starts[first - 1], end = starts[last] - 1;
+      while (blockIndex < blocks.length && blocks[blockIndex].offsets[1] <= start) blockIndex++;
+      const blockIds = [];
+      for (let index = blockIndex; index < blocks.length && blocks[index].offsets[0] < end; index++) {
+        blockIds.push(blocks[index].blockId);
+      }
+      child.properties = { ...child.properties, dataSourceLine: first, dataSourceEnd: last,
+        dataSourceOffsetStart: start, dataSourceOffsetEnd: end, dataSourceBlockIds: blockIds.join(" ") || undefined };
+      const notes = [...remainingNoteLinks].filter(({ sourceOffsets: [low, high] }) => start < high && low < end);
+      for (const note of notes) remainingNoteLinks.delete(note);
+      const after: HastNode[] = notes.length ? [{ type: "element", tagName: "span", properties: {
+        dataAnnoUi: "", dataSourceChunkNotes: notes.map(note => note.index).join(" "),
+      }, children: [] }] : [];
       const fallback = projections.filter(p => p.kind === "block" && first <= p.sourceLines[1] && last >= p.sourceLines[0]);
       if (fallback.length) child.properties.dataEvidenceBlock = fallback.map(p => p.evidence.evidenceId).join(" ");
       const marked = new Set<string>();
       if (exact.length) findMarkedEvidence(child, marked);
       const items = projections.filter(p => marked.has(p.evidence.evidenceId) || fallback.includes(p));
-      if (!items.length) return [child];
+      if (!items.length) return [child, ...after];
       const marker: HastNode = { type: "element", tagName: "span", properties: {
         dataAnnoUi: "", dataSourceEvidenceMarkers: items.map(p => p.evidence.evidenceId).join(" "),
       }, children: [] };
       if (child.tagName && /^(?:p|h[1-6])$/.test(child.tagName)) {
         child.children?.push(marker);
-        return [child];
+        return [child, ...after];
       }
-      return [child, marker];
+      return [child, marker, ...after];
     });
   };
 }

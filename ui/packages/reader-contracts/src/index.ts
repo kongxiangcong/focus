@@ -1,4 +1,4 @@
-import type { ReadingDocument, ReadingOpening, ValidatedAnswerEvidence } from "./source-document";
+import type { ReadingDocument, ReadingOpening, ReadingViewBookmark, ValidatedAnswerEvidence } from "./source-document";
 export * from "./source-document";
 export type ReaderStatus = "empty" | "reading" | "completed";
 
@@ -38,6 +38,8 @@ export interface ReaderChunk {
   total: number;
   sectionPath: readonly string[];
   sourceLines: readonly [number, number];
+  /** Start of sourceMarkdown in canonical Markdown code points. */
+  sourceOffset?: number;
   blockIds?: readonly string[];
   sourceMarkdown: string;
   translation: string | null;
@@ -98,12 +100,34 @@ export interface SentenceInput {
   quote: SentenceQuote;
 }
 export interface SentenceLocator extends SentenceInput { planId: string; chunkId: string }
+interface SelectedTextScope {
+  planId: string;
+  bundleVersion: string;
+}
+/** A half-open range of Unicode code points in the corresponding Markdown. */
+export interface MarkdownTextRange { start: number; end: number }
+interface OriginalTextSelection extends SelectedTextScope {
+  layer: "source";
+  ranges: readonly MarkdownTextRange[];
+}
+interface TranslatedTextSelection extends SelectedTextScope {
+  layer: "translation";
+  readingVersion: number;
+  ranges: readonly (MarkdownTextRange & { segmentId: string })[];
+}
+export type SourceTextSelectionInput = OriginalTextSelection | TranslatedTextSelection;
+export type SourceTextSelection = { chunkIds: readonly string[] } & (
+  OriginalTextSelection | (TranslatedTextSelection & {
+    chunkRanges: readonly { chunkId: string; ranges: readonly MarkdownTextRange[] }[];
+  })
+);
 export interface ReadingHighlight extends SentenceLocator {
   highlightId: string; sourceId: string; revision: number; bundle: string;
   sourceLines: readonly [number, number]; deleted: boolean; canUndo: boolean; sourceUpdated: boolean;
 }
 export interface CreateHighlightInput extends SentenceInput {
   sourceId: string; requestId: string; chunk: { planId: string; chunkId: string };
+  readingVersion?: number;
 }
 export interface HighlightOperation {
   sourceId: string; status: "saved" | "changed" | "conflict";
@@ -122,6 +146,7 @@ export interface SourceNote {
   anchor: { sourceId: string; bundle: string; sourceLines: readonly [number, number]; quote?: string } | null;
   placement?: NotePlacement | null;
   sentence?: SentenceLocator | null;
+  selection?: SourceTextSelection;
   referenceStatus: "current" | "historical" | "unavailable";
   sourceUpdated: boolean;
   deleted: boolean;
@@ -196,6 +221,7 @@ export interface ActiveStatusItem {
 }
 
 export interface ReadingWindow {
+  readingVersion?: number | null;
   sourceBundleVersion?: string | null;
   sourceGeneration?: number;
   articleOverview?: ArticleOverview;
@@ -215,10 +241,12 @@ export interface ReadingWindow {
   readingOperation?: { operation: string; source_id: string; run_id?: string; status?: string;
     plan_id?: string; previous_chunk_id?: string | null; chunk_id?: string | null; reading_revision?: number } | null;
   preparations?: Readonly<Record<string, ReadingPreparation>>;
+  unifiedPreparation?: boolean;
   outline?: readonly { chunkId: string; index: number; sectionPath: readonly string[]; nodeId?: string }[];
   revision?: number;
   sessionId?: string;
   discussionId?: string;
+  discussionReadingVersion?: number;
   discussions?: readonly { discussionId: string; sourceId: string }[];
   sessionFresh?: boolean;
   readingStarted?: boolean;
@@ -341,6 +369,7 @@ export interface RereadReadingInput {
 }
 
 export interface SendReaderMessageInput {
+  readingVersion?: number;
   sessionId?: string;
   discussionId?: string;
   receipt: CursorReceipt | null;
@@ -358,6 +387,7 @@ export type ReaderFailureCode =
   | "highlight_request_conflict"
   | "highlight_not_found"
   | "note_sentence_invalid"
+  | "note_selection_invalid"
   | "note_bundle_changed"
   | "cursor-changed"
   | "invalid-request"
@@ -478,6 +508,7 @@ export interface LibrarySource {
 
 export interface CreateSourceNoteInput {
   sourceId: string;
+  readingVersion?: number;
   requestId: string;
   content: string;
   kind: "thought" | "conclusion" | "question";
@@ -485,17 +516,26 @@ export interface CreateSourceNoteInput {
   chunk?: { planId: string; chunkId: string };
   quote?: string;
   sentence?: SentenceInput;
+  selection?: SourceTextSelectionInput;
 }
 
 export type WorkbenchSourceSelection = { workbenchId: string; generation: number };
 
+export interface ReadingVersion {
+  readingVersion: number;
+  selected: boolean;
+  ready: boolean;
+  backedUpAt: number | null;
+}
+
 export interface ReaderHost {
   getSourceDocument?(sourceId: string): Promise<ReaderHostResult<ReadingDocument>>;
-  getSourceOpening?(sourceId: string, prepare?: boolean): Promise<ReaderHostResult<ReadingOpening>>;
+  saveReadingViewBookmark?(sourceId: string, bookmark: ReadingViewBookmark): void;
+  getSourceOpening?(sourceId: string, prepare?: boolean, readingVersion?: number): Promise<ReaderHostResult<ReadingOpening>>;
   createHighlight?(input: CreateHighlightInput): Promise<ReaderHostResult<ReadingWindow>>;
   changeHighlight?(sourceId: string, highlightId: string, operation: "delete" | "undo", expectedRevision: number,
-    requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
-  highlightRequestResult?(sourceId: string, requestId: string): Promise<ReaderHostResult<HighlightOperation | { status: "cancelled" } | null>>;
+    requestId: string, readingVersion?: number): Promise<ReaderHostResult<ReadingWindow>>;
+  highlightRequestResult?(sourceId: string, requestId: string, readingVersion?: number): Promise<ReaderHostResult<HighlightOperation | { status: "cancelled" } | null>>;
   createSourceNote?(input: CreateSourceNoteInput): Promise<ReaderHostResult<ReadingWindow>>;
   clearFinishedStatuses?(requestId: string, clearableStatusTokens: readonly string[]): Promise<ReaderHostResult<ReadingWindow>>;
   listTopics?(): Promise<ReaderHostResult<readonly LibraryTopic[]>>;
@@ -522,12 +562,14 @@ export interface ReaderHost {
   /** Explicit resubmission after the user accepted the duplicate-parsing risk. */
   resubmitIngestion?(itemId: string, requestId: string, riskChoiceId: string): Promise<ReaderHostResult<IngestionItem>>;
   cancelIngestion?(itemId: string): Promise<ReaderHostResult<IngestionItem>>;
-  sourceOriginalUrl?(sourceId: string): string;
+  sourceOriginalUrl?(sourceId: string, bundleVersion?: string): string;
   sourceContentUrl?(sourceId: string): string;
   deleteSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   saveSourceDetails?(sourceId: string, title: string, topicIds: readonly string[], requestId: string, displayTitle?: string): Promise<ReaderHostResult<ReadingWindow>>;
   clearSource?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
-  resetSourceReading?(sourceId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
+  resetSourceReading?(sourceId: string, requestId: string, readingVersion?: number): Promise<ReaderHostResult<ReadingWindow>>;
+  listReadingVersions?(sourceId: string): Promise<ReaderHostResult<readonly ReadingVersion[]>>;
+  switchReadingVersion?(sourceId: string, readingVersion: number): Promise<ReaderHostResult<ReadingWindow>>;
   replanSource?(sourceId: string, requestId?: string): Promise<ReaderHostResult<ReadingWindow>>;
   rereadSource?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   getArticleOverview?(sourceId: string): Promise<ReaderHostResult<ArticleOverview>>;
@@ -540,8 +582,8 @@ export interface ReaderHost {
   cancelPreparation?(sourceId: string): Promise<ReaderHostResult<ReadingWindow>>;
   selectDiscussionSource?(sourceId: string, discussionId?: string, selection?: WorkbenchSourceSelection): Promise<ReaderHostResult<ReadingWindow>>;
   changeSourceNote?(sourceId: string, noteId: string, operation: "edit" | "delete" | "undo",
-    expectedRevision: number, requestId: string, content?: string): Promise<ReaderHostResult<ReadingWindow>>;
-  sourceNoteRequestResult?(sourceId: string, requestId: string): Promise<ReaderHostResult<SourceNoteRequestResult | null>>;
+    expectedRevision: number, requestId: string, content?: string, readingVersion?: number): Promise<ReaderHostResult<ReadingWindow>>;
+  sourceNoteRequestResult?(sourceId: string, requestId: string, readingVersion?: number): Promise<ReaderHostResult<SourceNoteRequestResult | null>>;
   retryReadingProgress?(progressId: string, requestId: string): Promise<ReaderHostResult<ReadingWindow>>;
   cancelReadingProgress?(progressId: string): Promise<ReaderHostResult<ReadingWindow>>;
   changeReadingProgress?(progressId: string, operation: "edit" | "delete", expectedRevision: number,

@@ -7,7 +7,7 @@ type EvidenceNavigationRequest = {
   evidenceId: string;
   selectionGeneration?: number;
 } & (
-  | { destination?: "source"; discussionId?: string; preferredView: "pdf" | "translation" | "source"; keyboard?: boolean }
+  | { destination?: "source"; discussionId?: string; keyboard?: boolean }
   | { destination: "answer"; discussionId: string; bundleVersion?: string | null; sourceGeneration?: number }
 );
 

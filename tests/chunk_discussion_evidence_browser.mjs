@@ -18,7 +18,11 @@ const chat = nav.getByRole('button', { name: '对话', exact: true });
 const stream = page.getByRole('main', { name: '阅读与对话', exact: true });
 const conversation = page.getByLabel('文章对话', { exact: true });
 const source = page.getByLabel('文章原文', { exact: true });
-const evidenceCard = page.getByLabel('原文证据', { exact: true });
+const original = page.getByRole('button', { name: '原文', exact: true });
+const originalLink = page.getByRole('link', { name: '打开原件 ↗' });
+const history = page.getByRole('combobox', { name: '对话记录', exact: true });
+const manage = page.getByRole('button', { name: '管理来源', exact: true });
+const management = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: '管理来源', exact: true }) });
 const chunk = number => stream.locator(`[data-chunk-key$="/chunk-00${number}"]`).last();
 const capsule = (section, count) => section.getByRole('button', { name: `对话证据 · ${count} 条`, exact: true });
 const answer = name => conversation.locator('[data-role="assistant"]').filter({ hasText: name });
@@ -52,19 +56,34 @@ async function readingProgress() {
   };
 }
 
+async function switchReadingVersion(version) {
+  await manage.click();
+  const rounds = management.getByRole('list', { name: '阅读版本' });
+  await rounds.getByRole('button', { name: `切换到第 ${version} 轮`, exact: true }).click();
+  await management.waitFor({ state: 'hidden' });
+  await chat.click();
+  assert.equal(await history.count(), 0);
+  const view = await snapshot();
+  assert.equal(view.readingVersion, version);
+  assert.equal(view.discussionReadingVersion, version);
+  return view;
+}
+
+const savedProgress = ({ cursor, plan, completed }) => ({ cursor, plan, completed });
+
 async function enterSecondChunk() {
   await closeReading.click();
-  await page.waitForFunction(async instanceId => {
+  const ready = await page.waitForFunction(async instanceId => {
     const response = await fetch('/reader/window', { headers: { 'X-FOCUS-Instance': instanceId } });
-    return (await response.json()).value?.navigationCurrent?.index === 1;
+    const { value } = await response.json();
+    return value?.navigationCurrent?.index === 1 && value?.preparations?.[value.source.sourceId]?.ready && value;
   }, instance, { polling: 250 });
-  const view = await snapshot();
+  const view = await ready.jsonValue();
   if (!view.readingStarted) {
     const { sourceId, planId, chunkId } = view.navigationCurrent;
     await host('/reader/continue', { requestId: randomUUID(), beginBody: true,
       receipt: { sourceId, planId, chunkId, readingRevision: view.readingRevision } });
   }
-  await chunk(1).waitFor();
   await page.getByRole('button', { name: '继续', exact: true }).click();
   await chunk(2).waitFor();
 }
@@ -97,14 +116,19 @@ async function followEvidence(list, name, number, quote) {
   await page.waitForFunction(() => document.activeElement?.getAttribute('data-answer-target') === 'true');
   assert.equal(await target.evaluate(node => document.activeElement === node), true);
   assert.equal(await chat.getAttribute('aria-pressed'), 'true');
-  assert.equal(await evidenceCard.count(), 0);
+  assert.equal(await source.locator('.is-active[data-evidence-ids], .is-active[data-evidence-block]').count(), 0);
+  await original.click();
   await target.click();
-  await evidenceCard.getByText(quote, { exact: true }).waitFor();
-  await source.locator('[data-pdf-page="4"] [data-active="true"]').first().waitFor();
+  const id = await target.getAttribute('data-citation');
+  await source.locator(`.is-active:is([data-evidence-ids~="${id}"], [data-evidence-block~="${id}"])`).first().waitFor();
+  assert.ok((await originalLink.getAttribute('href')).endsWith('#page=4'));
 }
 
 try {
   await page.goto(new URL('/reading', base).href);
+  await nav.waitFor();
+  const initial = await snapshot();
+  await host('/reader/session', { sessionId: initial.sessionId });
   await enterSecondChunk();
   const b = '精读证据四条引文';
   const newAnswer = '新讨论单条引文';
@@ -157,16 +181,21 @@ try {
   await followEvidence(bothAnswers, otherAnswer, 1, quote3);
   assert.deepEqual(await readingProgress(), afterReset);
 
-  const discussionHistory = page.getByRole('combobox', { name: '对话记录', exact: true });
-  await discussionHistory.selectOption(original.discussionId);
+  assert.equal(await history.count(), 0);
+  const archive = await switchReadingVersion(original.readingVersion);
   await citation(b, 4).waitFor();
-  const archive = await snapshot();
+  assert.equal(archive.discussionId, original.discussionId);
   assert.deepEqual(archive.conversation.find(item => item.messageId === message.messageId), message);
-  await discussionHistory.selectOption(fresh.discussionId);
+  assert.deepEqual(savedProgress(await readingProgress()), savedProgress(before));
+  await followEvidence(await openCapsule(2), b, 4, quote4);
+  assert.deepEqual(savedProgress(await readingProgress()), savedProgress(before));
+
+  const restored = await switchReadingVersion(fresh.readingVersion);
   await answer(otherAnswer).waitFor({ state: 'visible' });
-  assert.deepEqual(await readingProgress(), afterReset);
+  assert.equal(restored.discussionId, fresh.discussionId);
+  assert.deepEqual(savedProgress(await readingProgress()), savedProgress(afterReset));
   assert.deepEqual(errors, []);
-  console.log('PASS chunk evidence counts and numbered navigation in the current discussion, old answers archived, and unchanged reading progress');
+  console.log('PASS chunk evidence navigation and focus across reading versions with unchanged progress');
 } catch (error) {
   console.error((await page.locator('body').innerText()).slice(-1500));
   throw error;

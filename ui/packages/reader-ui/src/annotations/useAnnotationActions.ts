@@ -12,6 +12,7 @@ export interface AnnotationActionOptions {
 interface Write {
   entity: "highlight" | "note"; operation: "create" | "edit" | "delete" | "undo";
   requestId: string; sourceId: string; highlightInput?: CreateHighlightInput; noteInput?: CreateSourceNoteInput;
+  readingVersion?: number;
   highlight?: ReadingHighlight; note?: SourceNote; content?: string;
 }
 interface Overlay { epoch: number; write: Write; highlight?: ReadingHighlight; note?: SourceNote }
@@ -114,11 +115,13 @@ export function useAnnotationActions(options: AnnotationActionOptions) {
   }
   async function dispatch(write: Write): Promise<ReaderHostResult<ReadingWindow>> {
     const host = optionsRef.current.host;
+    const versionArg: [] | [number] = write.readingVersion === undefined ? [] : [write.readingVersion];
+    const scope = write.readingVersion === undefined ? {} : { readingVersion: write.readingVersion };
     try {
-      if (write.highlightInput && host.createHighlight) return await host.createHighlight(write.highlightInput);
-      if (write.noteInput && host.createSourceNote) return await host.createSourceNote(write.noteInput);
-      if (write.highlight && host.changeHighlight) return await host.changeHighlight(write.sourceId, write.highlight.highlightId, write.operation as "delete" | "undo", write.highlight.revision, write.requestId);
-      if (write.note && host.changeSourceNote) return await host.changeSourceNote(write.sourceId, write.note.noteId, write.operation as "edit" | "delete" | "undo", write.note.revision, write.requestId, write.content);
+      if (write.highlightInput && host.createHighlight) return await host.createHighlight({ ...write.highlightInput, ...scope });
+      if (write.noteInput && host.createSourceNote) return await host.createSourceNote({ ...write.noteInput, ...scope });
+      if (write.highlight && host.changeHighlight) return await host.changeHighlight(write.sourceId, write.highlight.highlightId, write.operation as "delete" | "undo", write.highlight.revision, write.requestId, ...versionArg);
+      if (write.note && host.changeSourceNote) return await host.changeSourceNote(write.sourceId, write.note.noteId, write.operation as "edit" | "delete" | "undo", write.note.revision, write.requestId, write.content, ...versionArg);
       return readerFailure("unavailable", "宿主不支持此标注操作");
     } catch (error) { return readerFailure("unavailable", error instanceof Error ? error.message : "保存失败，请重试", true); }
   }
@@ -156,6 +159,9 @@ export function useAnnotationActions(options: AnnotationActionOptions) {
   }
   function run(write: Write, epoch = epochRef.current, quiet = false): Promise<ReaderHostResult<ReadingWindow>> {
     if (!active(epoch) || write.sourceId !== optionsRef.current.view.source.sourceId) return Promise.resolve(readerFailure("unavailable", "阅读上下文已改变"));
+    const version = optionsRef.current.view.readingVersion ?? undefined;
+    if (write.readingVersion !== undefined && write.readingVersion !== version) return Promise.resolve(readerFailure("cursor-changed", "阅读轮次已改变"));
+    if (version !== undefined) write = { ...write, readingVersion: version };
     write = structuredClone(write);
     const identity = JSON.stringify(write), existing = flights.current.get(write.requestId);
     if (existing?.epoch === epoch) return existing.identity === identity ? existing.promise : Promise.resolve(readerFailure("invalid-request", "请求已用于不同内容"));
@@ -206,10 +212,11 @@ export function useAnnotationActions(options: AnnotationActionOptions) {
     setRecovering({ epoch, count: entries.length });
     for (const { write } of entries) void (async () => {
       const host = optionsRef.current.host;
+      const versionArg: [] | [number] = write.readingVersion === undefined ? [] : [write.readingVersion];
       let result: ReaderHostResult<HighlightOperation | SourceNoteRequestResult | null>;
       try {
-        result = write.entity === "highlight" && host.highlightRequestResult ? await host.highlightRequestResult(write.sourceId, write.requestId)
-          : write.entity === "note" && host.sourceNoteRequestResult ? await host.sourceNoteRequestResult(write.sourceId, write.requestId)
+        result = write.entity === "highlight" && host.highlightRequestResult ? await host.highlightRequestResult(write.sourceId, write.requestId, ...versionArg)
+          : write.entity === "note" && host.sourceNoteRequestResult ? await host.sourceNoteRequestResult(write.sourceId, write.requestId, ...versionArg)
           : readerFailure("unavailable", "标注请求结果不可用");
       } catch { result = readerFailure("unavailable", "标注请求结果不可用", true); }
       if (!active(epoch)) return;

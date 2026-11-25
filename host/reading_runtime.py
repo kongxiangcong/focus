@@ -105,6 +105,15 @@ class AgentReadingRuntime:
             '不把目标当成果，不宣称所有模型受益或普遍胜出。只依据原文，不凭标题编造。根据 feedback 修订。',
             {'source_id': source_id, 'ranges': ranges, 'structure': structure, 'feedback': feedback})
 
+    def translate_document(self, *, source_id, segments, context, glossary, feedback=None):
+        return self._candidate('Translate every supplied segment of the Source Document into fluent Chinese. '
+            'Return a JSON array [{id, text}], exactly one entry per segment and in its supplied order. '
+            'Copy each id verbatim. Keep each segment’s meaning within its own translated text. '
+            'Use whole-source context and glossary for terminology and references. Preserve Markdown syntax, '
+            'heading depth, list markers, math, code, links, image paths, and Chinese text. '
+            'Correct any validation error described in feedback.',
+            {'source_id': source_id, 'segments': segments, 'context': context, 'glossary': glossary, 'feedback': feedback})
+
     def translate(self, *, source_id, chunk, context, glossary, neighbors, issue):
         value = self._candidate('Translate foreign text in this chunk into fluent Chinese using the full-source '
             'context and glossary. Preserve Chinese passages, formulas, images and captions. '

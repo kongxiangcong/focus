@@ -6,9 +6,11 @@ import time
 from pathlib import Path
 from .source_notes import SourceNotes, _LOCK
 from .source_library import SourceLibrary
-from .reading_workspace import WorkspaceError, _read_document, _write_document
+from .reading_workspace import WorkspaceError, _read_document, _source_bundle_at_version, _write_document
 from .article_overview import validate_guide
 from .source_blocks import SourceBlocks, source_lines
+from .source_provenance import SOURCE_ORIGINALS
+from .reading_versions import selected_version, version_reading_directory
 
 
 
@@ -18,28 +20,40 @@ class SourceReading:
         self.workspace = Path(workspace)
         self.notes = SourceNotes(workspace)
 
-    def document(self, source_id):
+    def document(self, source_id, *, reading_version=None):
         with _LOCK:
-            version = self.notes.bundle_version(source_id)
+            version = self.notes.bundle_version(source_id, reading_version)
             source = SourceLibrary(self.workspace).get(source_id)
-            markdown = (self.notes._root(source_id) / 'parser-bundle' / 'content.md').read_text(encoding='utf-8', errors='replace')
-            if self.notes.bundle_version(source_id) != version:
+            bundle = _source_bundle_at_version(self.notes._root(source_id), version).resolve()
+            markdown = (bundle / 'content.md').read_text(encoding='utf-8', errors='replace')
+            original_name = SOURCE_ORIGINALS[source['source_kind']]
+            original = (bundle / original_name).resolve()
+            original_format = {'source.pdf': 'pdf', 'source.html': 'html', 'source.md': 'markdown'}[original_name]
+            original_resource = {'format': original_format} if original.is_relative_to(bundle) and original.is_file() else None
+            if self.notes.bundle_version(source_id, reading_version) != version:
                 raise WorkspaceError('source_bundle_changed', '原文版本已改变，请重新打开。')
-            return {'sourceId': source_id, 'bundleVersion': version, 'title': source['title'],
-                    'markdown': markdown, 'lineCount': len(source_lines(markdown)), 'generation': self.notes.generation(source_id)}
+            return {'sourceId': source_id, 'bundleVersion': version, 'title': source['title'], 'original': original_resource,
+                    'markdown': markdown, 'lineCount': len(source_lines(markdown)), 'generation': self.notes.generation(source_id, reading_version)}
 
-    def opening(self, source_id):
-        doc = {'bundleVersion': self.notes.bundle_version(source_id)}
-        path = self.notes._root(source_id) / 'reading' / 'opening-v2.json'
+    def _opening_path(self, source_id, reading_version=None):
+        state = _read_document(self.workspace / 'state.json')
+        return version_reading_directory(self.notes._root(source_id), state, source_id, reading_version) / 'opening-v2.json'
+
+    def opening(self, source_id, *, reading_version=None):
+        doc = {'bundleVersion': self.notes.bundle_version(source_id, reading_version)}
+        path = self._opening_path(source_id, reading_version)
         saved = _read_document(path) if path.exists() else {}
         if saved.get('bundleVersion') == doc['bundleVersion']:
             return saved
         return {'sourceId': source_id, 'bundleVersion': doc['bundleVersion'], 'status': 'missing'}
 
-    def generate(self, source_id, runtime, *, stopped=lambda: False):
-        doc = self.document(source_id)
-        generation = self.notes.generation(source_id)
-        existing = self.opening(source_id)
+    def generate(self, source_id, runtime, *, reading_version=None, stopped=lambda: False):
+        with _LOCK:
+            if reading_version is None:
+                reading_version = selected_version(_read_document(self.workspace / 'state.json'), source_id)
+            doc = self.document(source_id, reading_version=reading_version)
+            generation = self.notes.generation(source_id, reading_version)
+            existing = self.opening(source_id, reading_version=reading_version)
         if existing['status'] == 'ready':
             return existing
         value = runtime.opening(source_id=source_id,
@@ -70,11 +84,11 @@ class SourceReading:
             siblings[parent] = lines[1]
             seen[key] = lines
         with _LOCK:
-            if stopped() or generation != self.notes.generation(source_id) or self.notes.bundle_version(source_id) != doc['bundleVersion']:
+            if stopped() or generation != self.notes.generation(source_id, reading_version) or self.notes.bundle_version(source_id, reading_version) != doc['bundleVersion']:
                 raise WorkspaceError('source_bundle_changed', '导读生成期间原文或会话已改变')
             result = {k: doc[k] for k in ('sourceId', 'bundleVersion')}
             result.update(status='ready', methodVersion='article-overview-v2', revision=hashlib.sha256(repr(value).encode()).hexdigest(), structure=nodes, guide=guide)
-            _write_document(self.notes._root(source_id) / 'reading' / 'opening-v2.json', result)
+            _write_document(self._opening_path(source_id, reading_version), result)
             return result
 
     def completion(self, source_id, payload=None):
@@ -104,9 +118,9 @@ class SourceReading:
         with _LOCK:
             if not isinstance(arguments, dict) or set(arguments) - {'start', 'end', 'block_ids', 'quote', 'prefix', 'suffix', 'relation'}:
                 raise ValueError('Unexpected citation fields')
-            if scope.get('generation', 0) != self.notes.generation(scope['sourceId']):
+            if scope.get('generation', 0) != self.notes.generation(scope['sourceId'], scope.get('readingVersion')):
                 raise WorkspaceError('discussion_cleared', '会话已清除')
-            doc = self.document(scope['sourceId'])
+            doc = self.document(scope['sourceId'], reading_version=scope.get('readingVersion'))
             if doc['bundleVersion'] != scope['bundle']:
                 raise WorkspaceError('source_bundle_changed', '原文版本已改变')
             start, end, quote = (arguments.get(k) for k in ('start', 'end', 'quote'))
@@ -116,7 +130,7 @@ class SourceReading:
             if any(not isinstance(s, str) or len(s) > 128 for s in (prefix, suffix)):
                 raise ValueError('Invalid citation context')
             quote, prefix, suffix = (s.replace('\r\n', '\n') for s in (quote, prefix, suffix))
-            bundle = self.notes._root(scope['sourceId']) / 'parser-bundle'
+            bundle = _source_bundle_at_version(self.notes._root(scope['sourceId']), doc['bundleVersion'])
             source = SourceBlocks(bundle, doc['markdown'])
             block_ids = arguments.get('block_ids')
             ranges = source.ranges(start, end, block_ids, limit=101)

@@ -462,12 +462,12 @@ it("offers querying the original task first when a remote reference exists", asy
 });
 
 it("confirms a fresh reading and discussion before changing the source", async () => {
-  const { host } = setup();
+  const { host } = setup([], { ...empty, readingVersion: 2, source: { sourceId: "a-paper", title: "A Paper", topicId: null } });
   fireEvent.click(await screen.findByRole("button", { name: "A Paper" }));
   fireEvent.click(screen.getByRole("button", { name: "更多" }));
   fireEvent.click(within(screen.getByRole("group", { name: "更多操作" })).getByRole("button", { name: "重新阅读" }));
   expect(screen.getByRole("dialog", { name: "重新阅读本篇？" })).toHaveAccessibleDescription(
-    /清除精读进度、旧计划、小段笔记、句子备注和重点。整篇笔记会保留，旧对话归档，并开启新对话。/,
+    /会先备份本轮进度、译文、批注和对话。你可以在管理来源中切回本轮。新一轮从头准备，只复制整篇笔记，并开启空白对话。/,
   );
   expect(screen.getByRole("button", { name: "取消" })).toHaveFocus();
   fireEvent.click(screen.getByRole("button", { name: "取消" }));
@@ -476,7 +476,7 @@ it("confirms a fresh reading and discussion before changing the source", async (
   fireEvent.click(screen.getByRole("button", { name: "更多" }));
   fireEvent.click(within(screen.getByRole("group", { name: "更多操作" })).getByRole("button", { name: "重新阅读" }));
   fireEvent.click(screen.getByRole("button", { name: "确认重新阅读" }));
-  await waitFor(() => expect(host.resetSourceReading).toHaveBeenCalledWith("a-paper", expect.any(String)));
+  await waitFor(() => expect(host.resetSourceReading).toHaveBeenCalledWith("a-paper", expect.any(String), 2));
   expect(host.deleteSource).not.toHaveBeenCalled();
 });
 

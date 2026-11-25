@@ -124,7 +124,7 @@ def _current_source_state(
         raise WorkspaceError("source_missing", "No current Reading Source is selected")
     source_id = validate_source_id(source_id)
     source_state = source_states.get(source_id)
-    if not isinstance(source_state, dict) or (set(source_state) - {"reading_started", "reading_pass"}) != {
+    if not isinstance(source_state, dict) or (set(source_state) - {"reading_started", "reading_pass", "reading_version"}) != {
         "current_plan_id",
         "current_chunk_id",
     }:
@@ -133,6 +133,8 @@ def _current_source_state(
         raise WorkspaceError("workspace_state_invalid", "Reading start marker must be boolean")
     if "reading_pass" in source_state and (type(source_state["reading_pass"]) is not int or source_state["reading_pass"] < 1):
         raise WorkspaceError("workspace_state_invalid", "Reading pass must be positive")
+    if "reading_version" in source_state and (type(source_state["reading_version"]) is not int or source_state["reading_version"] < 1):
+        raise WorkspaceError("workspace_state_invalid", "Reading Version must be positive")
     return state_path, state, source_state, source_id, workspace / "sources" / source_id
 
 
@@ -374,7 +376,10 @@ def _reading_plan_records(bundle: Path, draft: dict[str, Any], *,
 
 def _needs_translation(metadata: dict, chunk: dict) -> bool:
     # Existing plans inherit bundle language; new mixed sources specify it per chunk.
-    return chunk.get("language", metadata["language"]).lower().replace("_", "-").split("-")[0] not in ("zh", "ch")
+    if metadata.get("source_language") == "zh":
+        return False
+    language = chunk.get("language", metadata.get("source_language", metadata["language"]))
+    return language.lower().replace("_", "-").split("-")[0] not in ("zh", "ch")
 
 
 def _source_bundle_at_version(source_root: Path, bundle_version: str | None) -> Path:
@@ -575,6 +580,7 @@ def _chunk_presentation(
         "total": total,
         "section_path": section_path,
         "source_lines": source_range,
+        "source_offset": source.starts[start - 1],
         "block_ids": source.chunk_block_ids(start, end),
         "source_text": source_text,
         "translation": reading_record["translation"],
@@ -853,7 +859,7 @@ class WorkspaceCore:
         if not isinstance(source_states, dict) or not isinstance(source_states.get(source_id), dict):
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         source_state = source_states[source_id]
-        if (set(source_state) - {"reading_started", "reading_pass"}) != {"current_plan_id", "current_chunk_id"}:
+        if (set(source_state) - {"reading_started", "reading_pass", "reading_version"}) != {"current_plan_id", "current_chunk_id"}:
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         current_plan_id = source_state.get("current_plan_id")
         current_chunk_id = source_state.get("current_chunk_id")
@@ -992,15 +998,16 @@ class WorkspaceCore:
         }
 
     def get_current_chunk(self) -> dict[str, Any]:
+        from .reading_versions import version_bundle
+
         try:
-            _, _, _, source_id, plan_id, chunk_id, plan_root, chunks, index = self._current_chunk_context()
+            _, cursor_state, _, source_id, plan_id, chunk_id, plan_root, chunks, index = self._current_chunk_context()
         except WorkspaceError as exc:
             if exc.error_id == "reading_completed":
                 return self.get_reading_state()
             raise
-        bundle = self.workspace / "sources" / source_id / "parser-bundle"
-        if not bundle.is_dir():
-            raise WorkspaceError("parser_bundle_missing", f"Parser Bundle does not exist: {source_id}")
+        source_root = self.workspace / "sources" / source_id
+        bundle, _ = version_bundle(source_root, cursor_state, source_id)
         metadata = _validate_parser_bundle(bundle)
         reading_record = _read_reading_record(plan_root / "records" / f"{chunk_id}.json", chunk_id)
         direct_chinese = not _needs_translation(metadata, chunks[index])
@@ -1032,12 +1039,14 @@ class WorkspaceCore:
         """Read the authoritative window without advancing or loading Notes."""
         from .source_library import SourceLibrary
         from .source_blocks import SourceBlocks
+        from .reading_versions import version_bundle
 
         state = self.get_reading_state()
         source_id, plan_id = state["source_id"], state["plan_id"]
-        bundle = self.workspace / "sources" / source_id / "parser-bundle"
+        source_root = self.workspace / "sources" / source_id
+        bundle, _ = version_bundle(source_root, _read_document(self.workspace / "state.json"), source_id)
         metadata = _validate_parser_bundle(bundle)
-        root = bundle.parent / "reading" / "plans" / plan_id
+        root = source_root / "reading" / "plans" / plan_id
         chunks = _read_chunk_records(root / "chunks.jsonl")
         source = SourceBlocks(bundle)
         history = []
@@ -1171,16 +1180,17 @@ class WorkspaceCore:
             "term": {"source": source, "translation": translation},
         }
 
-    def preparation_chunk(self, *, source_id: str, plan_id: str, chunk_id: str) -> dict:
+    def preparation_chunk(self, *, source_id: str, plan_id: str, chunk_id: str, bundle_version=None) -> dict:
         """Read any planned chunk without selecting/starting/advancing reading."""
         from .source_library import SourceLibrary
         SourceLibrary(self.workspace).get(source_id)
         source_id = validate_source_id(source_id)
         plan_id = _identifier(plan_id, 'plan_id')
         chunk_id = _identifier(chunk_id, 'chunk_id')
-        bundle = self.workspace / 'sources' / source_id / 'parser-bundle'
+        source_root = self.workspace / 'sources' / source_id
+        bundle = _source_bundle_at_version(source_root, bundle_version)
         metadata = _validate_parser_bundle(bundle)
-        root = bundle.parent / 'reading/plans' / plan_id
+        root = source_root / 'reading/plans' / plan_id
         chunks = _read_chunk_records(root / 'chunks.jsonl')
         chunk = next((c for c in chunks if c['chunk_id'] == chunk_id), None)
         if chunk is None:
@@ -1438,7 +1448,7 @@ class WorkspaceCore:
         if not isinstance(source_states, dict) or not isinstance(source_states.get(source_id), dict):
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         source_state = source_states[source_id]
-        if (set(source_state) - {"reading_started", "reading_pass"}) != {"current_plan_id", "current_chunk_id"}:
+        if (set(source_state) - {"reading_started", "reading_pass", "reading_version"}) != {"current_plan_id", "current_chunk_id"}:
             raise WorkspaceError("workspace_state_invalid", "Workspace state is invalid")
         state["current_source_id"] = source_id
         try:
@@ -1498,7 +1508,7 @@ class WorkspaceCore:
                     found_after = True
                 continue
             source_state = source_states.get(source_id)
-            if not isinstance(source_state, dict) or (set(source_state) - {"reading_started", "reading_pass"}) != {"current_plan_id", "current_chunk_id"}:
+            if not isinstance(source_state, dict) or (set(source_state) - {"reading_started", "reading_pass", "reading_version"}) != {"current_plan_id", "current_chunk_id"}:
                 raise WorkspaceError("workspace_state_invalid", f"Workspace state is invalid for Source: {source_id}")
             if source_state["current_plan_id"] is None:
                 raise WorkspaceError("reading_plan_missing", f"Topic Source has no Reading Plan: {source_id}")
