@@ -8,16 +8,22 @@ import json
 import re
 import shutil
 import subprocess
+from collections import Counter
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
+from uuid import uuid4
 
 from .reading_workspace import WorkspaceError, _write_document
+from .source_ir import build_source_ir, publish_source_ir
+from .source_provenance import file_fingerprint
 
 
 MODEL_VERSION = "local-html-v1"
 MAX_HTML_BYTES = 200 * 1024 * 1024
 MAX_IMAGE_BYTES = 30 * 1024 * 1024
 NOISE = re.compile(r"(?:^|[-_\s])(?:comments?|replies|advertisement|advert|ads?|recommendations?|related|sidebar|share|social|toolbar|popup|modal|paywall|login|cookie|avatar)(?:$|[-_\s])", re.I)
+ATOMIC_BLOCKS = frozenset("a p h1 h2 h3 h4 h5 h6 ol ul dl pre table blockquote figcaption img hr".split())
+BLOCK_CONTAINERS = frozenset("article body div figure header main section".split())
 
 
 def _clean(soup):
@@ -37,7 +43,27 @@ def _clean(soup):
             node.decompose()
 
 
-def extract_article(source: Path):
+def _element_positions(soup):
+    # Selectors use the archived document's lxml tree before cleaning removes siblings.
+    positions = {}
+    siblings = Counter()
+    for node in soup.find_all(True):
+        parent = id(node.parent)
+        siblings[parent] += 1
+        positions[id(node)] = (parent, siblings[parent])
+    return positions
+
+
+def _original_selector(node, positions):
+    parts = []
+    key = id(node)
+    while key in positions:
+        key, index = positions[key]
+        parts.append(f":nth-child({index})")
+    return " > ".join([":root", *reversed(parts[:-1])])
+
+
+def extract_article(source: Path, *, include_selectors=False):
     from bs4 import BeautifulSoup
 
     if not source.is_file() or source.stat().st_size > MAX_HTML_BYTES:
@@ -62,6 +88,7 @@ def extract_article(source: Path):
     if url and urlsplit(url).scheme not in {"http", "https"}:
         raise WorkspaceError("source_url_invalid", "Saved article URL must be HTTP or HTTPS")
     author = meta("author")
+    positions = _element_positions(soup) if include_selectors else {}
     _clean(soup)
     nodes = {}
     for index, node in enumerate(soup.find_all(True)):
@@ -88,16 +115,71 @@ def extract_article(source: Path):
         raise WorkspaceError("article_boundary_ambiguous", "Article boundary or title needs review; no Bundle was published")
     body = copy.deepcopy(selected)
     _clean(body)
-    return body, {"title": title, "source_url": url, "author": author}
+    selectors = {}
+    if include_selectors:
+        for node in [body, *body.find_all(ATOMIC_BLOCKS | BLOCK_CONTAINERS)]:
+            marker = node["data-focus-node"]
+            selectors[marker] = _original_selector(nodes[marker], positions)
+    return body, {"title": title, "source_url": url, "author": author}, selectors
+
+
+def _article_markdown(body, title, selectors):
+    from markdownify import MarkdownConverter
+
+    marker_namespace = f"\ue000{uuid4().hex}:"
+
+    class AnchoredConverter(MarkdownConverter):
+        def process_tag(self, node, parent_tags=None):
+            text = super().process_tag(node, parent_tags)
+            marker = node.get("data-focus-node")
+            if marker not in selectors or ATOMIC_BLOCKS.intersection(parent_tags or ()) or not text.strip():
+                return text
+            # Put provenance markers inside surrounding whitespace so Markdownify
+            # still sees the same whitespace at sibling and parent boundaries.
+            start = len(text) - len(text.lstrip())
+            end = len(text.rstrip())
+            return (text[:start] + f"{marker_namespace}{marker}+\ue001" + text[start:end]
+                    + f"{marker_namespace}{marker}-\ue001" + text[end:])
+
+    options = dict(heading_style="ATX", bullets="-", wrap=False,
+                   keep_inline_images_in=["td", "th"], table_infer_header=True)
+    html = str(body)
+    canonical = MarkdownConverter(**options).convert(html).replace("\r\n", "\n").replace("\r", "\n").strip()
+    marked = AnchoredConverter(**options).convert(html).replace("\r\n", "\n").replace("\r", "\n").strip()
+    tokens = re.compile(re.escape(marker_namespace) + r"(\d+)([+-])\ue001")
+    fragments, spans, stack = [], [], []
+    offset = previous = 0
+    for match in tokens.finditer(marked):
+        text = marked[previous:match.start()]
+        fragments.append(text)
+        if stack and text.strip():
+            spans.append((offset, offset + len(text), selectors[stack[-1]]))
+        offset += len(text)
+        previous = match.end()
+        marker, operation = match.groups()
+        if operation == "+":
+            stack.append(marker)
+        elif not stack or stack.pop() != marker:
+            spans.clear()
+            break
+    # If a formatter rewrite consumed a marker, preserve the established
+    # Markdown and leave the corresponding DOM provenance unavailable.
+    if stack or "".join(fragments) + marked[previous:] != canonical:
+        spans.clear()
+    heading = "# " + title
+    if not canonical.startswith(heading):
+        prefix = heading + "\n\n"
+        canonical = prefix + canonical
+        spans = [(start + len(prefix), end + len(prefix), selector) for start, end, selector in spans]
+    return canonical.rstrip() + "\n", spans
 
 
 def article_identity(source: Path) -> str:
     """Same canonical URL reuses the Source; URL-less snapshots use original bytes."""
     from .source_library import canonical_article_url
-    from .ingestion import _file_fingerprint
-    _, info = extract_article(source)
+    _, info, _ = extract_article(source)
     return ("url:" + canonical_article_url(info["source_url"]) if info["source_url"]
-            else "article-original:" + _file_fingerprint(source))
+            else "article-original:" + file_fingerprint(source))
 
 
 class LocalHTMLParser:
@@ -106,10 +188,9 @@ class LocalHTMLParser:
 
     def parse(self, source: Path, candidate: Path, *, checkpoint=None) -> dict:
         from PIL import Image, UnidentifiedImageError
-        from markdownify import markdownify
         from .ingestion import persist_candidate_result
 
-        body, info = extract_article(source)
+        body, info, selectors = extract_article(source, include_selectors=True)
         if candidate.exists() and any(candidate.iterdir()):
             raise WorkspaceError("parser_candidate_exists", "HTML candidate directory is not empty")
         candidate.mkdir(parents=True, exist_ok=True)
@@ -147,11 +228,11 @@ class LocalHTMLParser:
             (candidate / "images").mkdir(exist_ok=True)
             (candidate / name).write_bytes(payload)
             alt = str(img.get("alt", "")).replace("[", "").replace("]", "").replace("\n", " ")
-            img.attrs = {"src": name, "alt": alt}
+            img.attrs = {"src": name, "alt": alt, "data-focus-node": img["data-focus-node"]}
         for anchor in body.select("a"):
             href = urljoin(info["source_url"], anchor.get("href", ""))
             if urlsplit(href).scheme in {"http", "https", "mailto"}:
-                anchor.attrs = {"href": href}
+                anchor.attrs = {"href": href, "data-focus-node": anchor["data-focus-node"]}
             else:
                 anchor.unwrap()
         for node in body.select("[style]"):
@@ -160,14 +241,11 @@ class LocalHTMLParser:
         tables = len(body.select("table"))
         code_blocks = len(body.select("pre"))
         headings = len(body.select("h1,h2,h3,h4,h5,h6"))
-        text = markdownify(str(body), heading_style="ATX", bullets="-", wrap=False,
-                           keep_inline_images_in=["td", "th"], table_infer_header=True)
         title = info["title"]
-        if not text.lstrip().startswith("# " + title):
-            text = "# " + title + "\n\n" + text.strip()
-        text = text.strip() + "\n"
+        text, spans = _article_markdown(body, title, selectors)
         shutil.copy2(source, candidate / "source.html")
-        (candidate / "content.md").write_text(text, encoding="utf-8")
+        ir = build_source_ir(candidate, text, source_kind="article_html", html_spans=spans)
+        publish_source_ir(candidate, ir)
         metadata = {"source_kind": "article_html", "parser": "article-parser", "model_version": self.model,
                     "extractor": "@mozilla/readability@0.6.0",
                     "language": "zh" if re.search(r"[\u4e00-\u9fff]", title) else "en",

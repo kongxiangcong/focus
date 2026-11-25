@@ -11,11 +11,23 @@ import urllib.parse
 import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+from .source_markdown import (
+    MARKDOWN_IMAGE_DETAIL_RE,
+    MARKDOWN_IMAGE_RE,
+    looks_like_caption as _looks_like_caption,
+    protected_source_ranges as _protected_source_ranges,
+    source_heading_paths as _source_heading_paths,
+)
+from .source_provenance import SOURCE_ORIGINALS, bundle_fingerprint
+from .workspace_documents import replace_text as _replace_text, write_document as _write_document
+from .workspace_errors import WorkspaceError
+
+if TYPE_CHECKING:
+    from .source_blocks import SourceBlocks
 
 
-MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]\n]*\]\(([^)]+)\)")
-MARKDOWN_IMAGE_DETAIL_RE = re.compile(r"!\[([^\]\n]*)\]\(([^)]+)\)")
 SEQUENTIAL_IMAGE_RE = re.compile(r"^image-(\d{3})(\.[a-z0-9]+)$")
 CHUNK_KEYS = {
     "chunk_id",
@@ -27,12 +39,6 @@ CHUNK_KEYS = {
 READING_RECORD_KEYS = {"chunk_id", "translation", "notes"}
 NOTE_KINDS = {"thought", "emphasis", "question", "clarification"}
 NOTE_ORIGINS = {"user", "dialogue"}
-
-
-class WorkspaceError(RuntimeError):
-    def __init__(self, error_id: str, message: str):
-        super().__init__(message)
-        self.error_id = error_id
 
 
 @dataclass(frozen=True)
@@ -90,25 +96,6 @@ def _read_document(path: Path, default: dict[str, Any] | None = None) -> dict[st
     return value
 
 
-def _write_document(path: Path, value: dict[str, Any]) -> None:
-    from .workspace_lifecycle import require_write
-    require_write(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        for attempt in range(5):
-            try:
-                temporary.replace(path)
-                break
-            except PermissionError:
-                if attempt == 4:
-                    raise
-                time.sleep(0.02)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
 def _restore(path: Path, snapshot: bytes | None) -> None:
     if snapshot is None:
         path.unlink(missing_ok=True)
@@ -117,15 +104,6 @@ def _restore(path: Path, snapshot: bytes | None) -> None:
     temporary.parent.mkdir(parents=True, exist_ok=True)
     temporary.write_bytes(snapshot)
     temporary.replace(path)
-
-
-def _replace_text(path: Path, value: str) -> None:
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        temporary.write_text(value, encoding="utf-8")
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
 
 
 def _current_source_state(
@@ -222,15 +200,15 @@ def _validate_parser_bundle(bundle: Path) -> dict[str, Any]:
     errors: list[str] = []
     metadata = _read_document(bundle / "metadata.json", {})
     source_kind = metadata.get("source_kind")
-    original_name = {"paper_pdf": "source.pdf", "article_html": "source.html", "article_markdown": "source.md"}.get(source_kind)
+    original_name = SOURCE_ORIGINALS.get(source_kind)
     original = bundle / original_name if original_name else None
     content = bundle / "content.md"
     images = bundle / "images"
-    if source_kind not in {"paper_pdf", "article_html", "article_markdown"}:
+    if original_name is None:
         errors.append("metadata source kind is invalid")
     elif original is None or not original.is_file():
         errors.append(f"{original_name} is missing")
-    originals = {'source.pdf', 'source.html', 'source.md'}
+    originals = set(SOURCE_ORIGINALS.values())
     if any((bundle / name).exists() for name in originals - {original_name}):
         errors.append("Parser Bundle must contain exactly one source representation")
     if not content.is_file() or not content.read_text(encoding="utf-8", errors="replace").strip():
@@ -306,79 +284,19 @@ def _validate_parser_bundle(bundle: Path) -> dict[str, Any]:
     return metadata
 
 
-def _protected_source_ranges(lines: list[str]) -> list[tuple[int, int]]:
-    ranges: list[tuple[int, int]] = []
-    table_start: int | None = None
-    for number, line in enumerate(lines, 1):
-        if "|" in line:
-            table_start = table_start or number
-        elif table_start is not None:
-            table = lines[table_start - 1 : number - 1]
-            if len(table) >= 2 and any(re.fullmatch(r"\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*", row) for row in table):
-                ranges.append((table_start, number - 1))
-            table_start = None
-    if table_start is not None:
-        table = lines[table_start - 1 :]
-        if len(table) >= 2 and any(re.fullmatch(r"\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*", row) for row in table):
-            ranges.append((table_start, len(lines)))
-
-    opening: tuple[str, int] | None = None
-    for number, line in enumerate(lines, 1):
-        marker = line.strip()
-        if opening is None and (marker.startswith("```") or marker in {"$$", "\\["}):
-            opening = ("```" if marker.startswith("```") else marker, number)
-        elif opening is not None:
-            token, start = opening
-            closes = (token == "```" and marker.startswith("```")) or (token == "$$" and marker == "$$") or (token == "\\[" and marker == "\\]")
-            if closes:
-                ranges.append((start, number))
-                opening = None
-    if opening is not None:
-        raise WorkspaceError("reading_plan_invalid", "Source Markdown contains an unterminated protected block")
-
-    for number, line in enumerate(lines, 1):
-        if not MARKDOWN_IMAGE_RE.search(line):
-            continue
-        if number < len(lines) and _looks_like_caption(lines[number]):
-            ranges.append((number, number + 1))
-        if number > 1 and _looks_like_caption(lines[number - 2]):
-            ranges.append((number - 1, number))
-    return ranges
-
-
-def _source_heading_paths(lines: list[str]) -> list[tuple[str, ...]]:
-    headings: dict[int, str] = {}
-    paths: list[tuple[str, ...]] = []
-    fence: str | None = None
-    for line in lines:
-        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
-        in_code = fence is not None
-        if marker:
-            token, suffix = marker.groups()
-            if fence is None:
-                fence = token
-                in_code = True
-            elif token[0] == fence[0] and len(token) >= len(fence) and not suffix.strip():
-                fence = None
-        match = None if in_code else re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
-        if match:
-            level = len(match.group(1))
-            headings = {key: value for key, value in headings.items() if key < level}
-            headings[level] = match.group(2).strip()
-        paths.append(tuple(headings[key] for key in sorted(headings)))
-    return paths
-
-
 def _reading_plan_records(bundle: Path, draft: dict[str, Any], *,
                           excluded_ranges: list[list[int]] | None = None) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
     chunks = draft.get("chunks")
     glossary = draft.get("glossary", [])
     if not isinstance(chunks, list) or not chunks or not isinstance(glossary, list):
         raise WorkspaceError("reading_plan_invalid", "Reading Plan draft is invalid")
-    lines = (bundle / "content.md").read_text(encoding="utf-8", errors="replace").splitlines()
+    from .source_blocks import SourceBlocks
+
+    source = SourceBlocks(bundle)
+    lines = source.lines
     bundle_language = _read_document(bundle / "metadata.json")["language"]
     protected = _protected_source_ranges(lines)
-    heading_paths = _source_heading_paths(lines)
+    heading_paths = source.section_paths
     records: list[dict[str, Any]] = []
     previous_end: int | None = None
     for index, chunk in enumerate(chunks, 1):
@@ -425,6 +343,7 @@ def _reading_plan_records(bundle: Path, draft: dict[str, Any], *,
                 "index": index,
                 "section_path": section_path,
                 "source_lines": [start, end],
+                "block_ids": source.chunk_block_ids(start, end),
                 "images": images,
                 **({"language": chunk["language"]} if "language" in chunk else {}),
             }
@@ -458,7 +377,6 @@ def _source_bundle_at_version(source_root: Path, bundle_version: str | None) -> 
         return bundle
     if not isinstance(bundle_version, str) or not re.fullmatch(r"[0-9a-f]{64}", bundle_version):
         raise WorkspaceError("source_bundle_invalid", "Source Bundle version is invalid")
-    from .article_blog import bundle_fingerprint
     if bundle_fingerprint(bundle) == bundle_version:
         return bundle
     historical = source_root / "reading" / "bundles" / bundle_version
@@ -473,13 +391,17 @@ def _read_chunk_records(path: Path) -> list[dict[str, Any]]:
         raise WorkspaceError("reading_plan_missing", f"Reading Plan does not exist: {path.parent.name}")
     records: list[dict[str, Any]] = []
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        lines = path.read_text(encoding="utf-8").removesuffix("\n").split("\n")
         for line in lines:
             value = json.loads(line)
-            if not isinstance(value, dict) or (set(value) - {"language"}) != CHUNK_KEYS:
+            if not isinstance(value, dict) or (set(value) - {"language", "block_ids"}) != CHUNK_KEYS:
                 raise ValueError
             if "language" in value and value["language"] not in ("zh", "en", "mixed"):
                 raise ValueError
+            if "block_ids" in value:
+                block_ids = value["block_ids"]
+                if not isinstance(block_ids, list) or any(not isinstance(key, str) or not key for key in block_ids):
+                    raise ValueError
             records.append(value)
     except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise WorkspaceError("reading_plan_invalid", f"Reading Plan is invalid: {path.parent.name}") from exc
@@ -561,16 +483,6 @@ def _read_glossary(path: Path) -> list[dict[str, str]]:
     return rows
 
 
-def _looks_like_caption(value: str) -> bool:
-    return bool(
-        re.match(
-            r"^\s*(?:figure|fig\.?|table|algorithm|scheme|图|表|算法)\s*[-.:：]?[\s\d一二三四五六七八九十]+",
-            value,
-            flags=re.IGNORECASE,
-        )
-    )
-
-
 def _bound_image_presentations(bundle: Path, source_lines: list[str], image_paths: list[str]) -> list[dict[str, str]]:
     presentations: list[dict[str, str]] = []
     for image_path in image_paths:
@@ -607,7 +519,10 @@ def _chunk_presentation(
     chunk: dict[str, Any],
     reading_record: dict[str, Any],
     total: int,
+    source: SourceBlocks | None = None,
 ) -> dict[str, Any]:
+    from .source_blocks import SourceBlocks
+
     chunk_id = chunk.get("chunk_id")
     source_range = chunk.get("source_lines")
     images = chunk.get("images")
@@ -624,7 +539,9 @@ def _chunk_presentation(
         or not all(isinstance(value, str) and value for value in section_path)
     ):
         raise WorkspaceError("reading_chunk_invalid", f"Reading Chunk is invalid: {chunk_id}")
-    content_lines = (bundle / "content.md").read_text(encoding="utf-8", errors="replace").splitlines()
+    if source is None:
+        source = SourceBlocks(bundle)
+    content_lines = source.lines
     start, end = source_range
     if start < 1 or end < start or end > len(content_lines):
         raise WorkspaceError("reading_chunk_invalid", f"Reading Chunk is invalid: {chunk_id}")
@@ -643,6 +560,7 @@ def _chunk_presentation(
         "total": total,
         "section_path": section_path,
         "source_lines": source_range,
+        "block_ids": source.chunk_block_ids(start, end),
         "source_text": source_text,
         "translation": reading_record["translation"],
         "images": _bound_image_presentations(bundle, selected_lines, images),
@@ -860,6 +778,9 @@ class WorkspaceCore:
         if task.source_kind == "paper_pdf" and "deepstack" in title.casefold():
             short_name = task.short_name.strip() if task.short_name else "DeepStack"
         short_name = normalize_short_name(short_name)
+        if task.source_kind == "paper_pdf":
+            from .source_ir import publish_pdf_source_ir
+            publish_pdf_source_ir(staging)
         result = SourceLibrary(self.workspace).register(
             staging,
             source_kind=task.source_kind,
@@ -1100,6 +1021,7 @@ class WorkspaceCore:
     def reading_window(self) -> dict[str, Any]:
         """Read the authoritative window without advancing or loading Notes."""
         from .source_library import SourceLibrary
+        from .source_blocks import SourceBlocks
 
         state = self.get_reading_state()
         source_id, plan_id = state["source_id"], state["plan_id"]
@@ -1107,6 +1029,7 @@ class WorkspaceCore:
         metadata = _validate_parser_bundle(bundle)
         root = bundle.parent / "reading" / "plans" / plan_id
         chunks = _read_chunk_records(root / "chunks.jsonl")
+        source = SourceBlocks(bundle)
         history = []
         current = None
         for chunk in chunks:
@@ -1115,7 +1038,7 @@ class WorkspaceCore:
             if direct and record["translation"] is not None:
                 raise WorkspaceError("reading_record_invalid", "Chinese source translation must remain null")
             item = _chunk_presentation(bundle, root, source_id=source_id, plan_id=plan_id,
-                                       chunk=chunk, reading_record=record, total=len(chunks))
+                                       chunk=chunk, reading_record=record, total=len(chunks), source=source)
             item["status"] = "source_ready" if direct else "presented" if record["translation"] else "translation_required"
             if chunk["chunk_id"] == state["chunk_id"]:
                 current = item
@@ -1409,8 +1332,9 @@ class WorkspaceCore:
             SourceLibrary(self.workspace).get(source_id)
             source_root = self.workspace / "sources" / source_id
         bundle = _source_bundle_at_version(source_root, bundle_version)
-        lines = (bundle / "content.md").read_text(encoding="utf-8", errors="replace").splitlines()
-        paths = _source_heading_paths(lines)
+        from .source_blocks import SourceBlocks
+        source = SourceBlocks(bundle)
+        lines = source.lines
         terms = [term.casefold() for term in re.findall(r"[\w]+", query) if len(term) > 1]
         terms = terms or [query.strip().casefold()]
         matches: list[dict[str, Any]] = []
@@ -1419,12 +1343,19 @@ class WorkspaceCore:
                 continue
             start = max(0, index - 1)
             end = min(len(lines), index + 2)
+            if not lines[start].strip():
+                start += 1
+            if not lines[end - 1].strip():
+                end -= 1
             snippet = " ".join(part.strip() for part in lines[start:end] if part.strip())
             matches.append(
                 {
-                    "section_path": list(paths[index]),
+                    "section_path": list(source.section_paths[index]),
                     "source_lines": [start + 1, end],
+                    "match_line": index + 1,
                     "snippet": snippet[:320],
+                    "source_text": source.text(start + 1, end),
+                    "blocks": source.headers(start + 1, end),
                 }
             )
             if len(matches) == limit:
@@ -1437,10 +1368,9 @@ class WorkspaceCore:
             "matches": matches,
         }
 
-    def read_source_range(self, *, start: int, end: int, source_id: str | None = None,
-                          bundle_version: str | None = None) -> dict[str, Any]:
-        if any(not isinstance(value, int) or isinstance(value, bool) for value in (start, end)):
-            raise WorkspaceError("source_range_invalid", "Source range is invalid")
+    def read_source_range(self, *, start: int | None = None, end: int | None = None,
+                          source_id: str | None = None, bundle_version: str | None = None,
+                          block_ids: list[str] | None = None, line_limit: int | None = None) -> dict[str, Any]:
         if source_id is None:
             _, _, _, source_id, source_root = _current_source_state(self.workspace)
         else:
@@ -1450,10 +1380,14 @@ class WorkspaceCore:
 
             SourceLibrary(self.workspace).get(source_id)
         bundle = _source_bundle_at_version(source_root, bundle_version)
-        lines = (bundle / "content.md").read_text(encoding="utf-8", errors="replace").splitlines()
-        if start < 1 or end < start or end > len(lines):
-            raise WorkspaceError("source_range_invalid", "Source range is invalid")
-        selected = lines[start - 1 : end]
+        from .source_blocks import SourceBlocks
+        source = SourceBlocks(bundle)
+        requested = [start, end]
+        ranges = [{"source_lines": requested if block_ids is None else source.line_span(first, last),
+                   "source_text": source.markdown[first:last]}
+                  for first, last in source.ranges(start, end, block_ids, limit=line_limit)]
+        start, end = ranges[0]["source_lines"][0], ranges[-1]["source_lines"][1]
+        selected = [line for span in ranges for line in span["source_text"].split("\n")]
         image_paths = [
             PurePosixPath(_split_image_target(match.group(2)).replace("\\", "/")).as_posix()
             for line in selected
@@ -1463,9 +1397,12 @@ class WorkspaceCore:
             "ok": True,
             "status": "source_range_read",
             "source_id": source_id,
-            "section_path": list(_source_heading_paths(lines)[start - 1]),
+            "section_path": list(source.section_paths[start - 1]),
             "source_lines": [start, end],
-            "source_text": "\n".join(selected),
+            "source_text": ranges[0]["source_text"] if len(ranges) == 1 else "",
+            "ranges": ranges,
+            "blocks": [block for block in source.headers(start, end)
+                       if block_ids is None or block["block_id"] in block_ids],
             "images": _bound_image_presentations(bundle, selected, image_paths),
         }
 

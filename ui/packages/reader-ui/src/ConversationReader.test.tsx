@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { readerSuccess, type ReaderHost, type ReadingWindow, type ValidatedAnswerEvidence } from "@focus/reader-contracts";
+import { readerSuccess, type ReaderHost, type ReadingDocument, type ReadingWindow, type ValidatedAnswerEvidence } from "@focus/reader-contracts";
 import { ConversationReader } from "./ConversationReader";
 
 const initial: ReadingWindow = { status: "empty", source: { sourceId: "paper", title: "Paper", topicId: null },
@@ -73,7 +73,7 @@ it("manual reading cancels pending automatic source navigation", async () => {
 
 it("restores saved answers without replaying an automatic jump", async () => {
   setup(answer([first]));
-  await screen.findByRole("button", { name: "返回回答证据 1" });
+  await screen.findByRole("button", { name: "返回回答证据 1" }, { timeout: 5000 });
   expect(scrolling).not.toHaveBeenCalled();
   expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
 });
@@ -102,21 +102,148 @@ it("does not replay evidence when a reply arrives after leaving chat", async () 
   expect(scrolling).not.toHaveBeenCalled();
 });
 
-it("opens the saved PDF and projects a citation into the shared translated chunk", async () => {
-  const cited = { ...first, layoutVersion: "old-layout", blockIds: ["0-1"] };
+it.each([
+  { scenario: "the evidence layout has changed", layoutVersion: "old-layout", page: 1 },
+  { scenario: "no PDF page is known", layoutVersion: "new-layout", page: 0 },
+])("opens the corresponding translated paragraph when $scenario", async ({ layoutVersion, page }) => {
+  const cited = { ...first, layoutVersion, blockIds: [page ? "0-1" : "new-5"], renderGranularity: "block" as const,
+    quote: { ...first.quote, suffix: "\n\nNext paragraph." } };
+  setup(answer([cited]), {
+    sourceOriginalUrl: () => "/paper.pdf",
+    getSourceDocument: async () => readerSuccess({
+      sourceId: "paper", bundleVersion: "v1", title: "Paper", markdown: "# Paper\r\n\r\nFirst evidence.\r\n\r\nNext paragraph.", lineCount: 5,
+      pdf: { version: "new-layout", pdfHash: "abc", blocks: [{ blockId: "new-5", page, sourceLines: [3, 3], bbox: null }] },
+      translation: { status: "ready", chunks: [{ id: "chunk-1", text: "已检查的译文。", blockIds: ["new-5"], sourceLines: [3, 3] }] },
+    }),
+  });
+  expect(await screen.findByRole("button", { name: "原版 PDF" }, { timeout: 8500 })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(window.document.querySelector<HTMLElement>("[data-citation]")!);
+  expect(await screen.findByText("已检查的译文。", {}, { timeout: 5000 })).toBeVisible();
+  expect(screen.getByRole("button", { name: "中文译文" })).toHaveAttribute("aria-pressed", "true");
+  fireEvent.click(screen.getByRole("button", { name: "返回回答证据 1" }));
+  await waitFor(() => expect(window.document.querySelector("[data-citation]")).toHaveFocus());
+});
+
+it.each([
+  { scenario: "a changed bundle", bundleVersion: "older", suffix: "" },
+  { scenario: "a missing context match", bundleVersion: "v1", suffix: " different context" },
+])("keeps the translated reading position and displays the saved quote after $scenario", async ({ bundleVersion, suffix }) => {
+  const cited = { ...first, bundleVersion, layoutVersion: "layout", blockIds: ["current"], renderGranularity: "block" as const,
+    quote: { ...first.quote, suffix } };
   setup(answer([cited]), {
     sourceOriginalUrl: () => "/paper.pdf",
     getSourceDocument: async () => readerSuccess({
       sourceId: "paper", bundleVersion: "v1", title: "Paper", markdown: "# Paper\n\nFirst evidence.", lineCount: 3,
-      pdf: { version: "new-layout", pdfHash: "abc", blocks: [] },
-      translation: { status: "ready", chunks: [{ id: "chunk-1", text: "已检查的译文。", blockIds: [], sourceLines: [1, 3] }] },
+      pdf: { version: "layout", pdfHash: "abc", blocks: [{ blockId: "current", page: 1, sourceLines: [3, 3], bbox: null }] },
+      translation: { status: "ready", chunks: [{ id: "chunk-1", text: "正在阅读的译文。", blockIds: ["current"], sourceLines: [3, 3] }] },
     }),
   });
-  expect(await screen.findByRole("button", { name: "原版 PDF" })).toHaveAttribute("aria-pressed", "true");
+  const translation = await screen.findByRole("button", { name: "中文译文" }, { timeout: 8500 });
+  fireEvent.click(translation);
+  const source = screen.getByLabelText("文章原文");
+  source.scrollTop = 120;
+  scrolling.mockClear();
   fireEvent.click(window.document.querySelector<HTMLElement>("[data-citation]")!);
-  expect(await screen.findByText(/版面位置暂不可用/)).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "中文译文" }));
-  expect(screen.getByText("已检查的译文。")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "返回回答证据 1" }));
-  await waitFor(() => expect(window.document.querySelector("[data-citation]")).toHaveFocus());
+  expect(await screen.findByLabelText("原文证据", {}, { timeout: 8500 })).toHaveTextContent("历史引文First evidence.");
+  expect(screen.getByRole("button", { name: "中文译文" })).toHaveAttribute("aria-pressed", "true");
+  expect(source).toHaveProperty("scrollTop", 120);
+  expect(scrolling).not.toHaveBeenCalled();
+  expect(screen.queryByRole("button", { name: "返回回答证据 1" })).toBeNull();
+});
+
+it.each([
+  { layoutVersion: "old-layout", page: 1, outcome: "ready" },
+  { layoutVersion: "new-layout", page: 0, outcome: "ready" },
+  { layoutVersion: "new-layout", page: 0, outcome: "cancelled" },
+  { layoutVersion: "old-layout", page: 1, outcome: "failed" },
+] as const)("settles a waiting translation citation with $layoutVersion, page $page, $outcome", async ({ layoutVersion, page, outcome }) => {
+  const cited = { ...first, layoutVersion, blockIds: ["current"], renderGranularity: "block" as const };
+  const start = answer([cited]);
+  const preparation = { source_id: "paper", status: "running" as const, step: "translation",
+    total: 1, completed: 0, ready: false, error: null, plan_id: "plan" };
+  let translation: ReadingDocument["translation"] = { status: "running", chunks: [] };
+  const app = setup({ ...start, preparations: { paper: preparation } }, {
+    sourceOriginalUrl: () => "/paper.pdf",
+    getSourceDocument: async () => readerSuccess({
+      sourceId: "paper", bundleVersion: "v1", title: "Paper", markdown: "# Paper\n\nFirst evidence.", lineCount: 3,
+      pdf: { version: "new-layout", pdfHash: "abc", blocks: [{ blockId: "current", page, sourceLines: [3, 3], bbox: null }] },
+      translation,
+    }),
+  });
+  await screen.findByRole("button", { name: "中文译文 · 准备中" }, { timeout: 8500 });
+  fireEvent.click(window.document.querySelector<HTMLElement>("[data-citation]")!);
+  expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
+  if (outcome === "cancelled") fireEvent.wheel(screen.getByLabelText("文章原文"));
+  const status = outcome === "failed" ? "failed" : "ready";
+  translation = { status, chunks: status === "ready" ?
+    [{ id: "chunk-1", text: "已准备好的译文。", blockIds: ["current"], sourceLines: [3, 3] }] : [] };
+  app.emit({ ...start, revision: 4, preparations: { paper: { ...preparation, status, ready: status === "ready" } } });
+  if (outcome === "ready") {
+    expect(await screen.findByText("已准备好的译文。", {}, { timeout: 8500 })).toBeVisible();
+    expect(await screen.findByLabelText("原文证据")).toHaveTextContent("First evidence.");
+  } else if (outcome === "cancelled") {
+    await screen.findByRole("button", { name: "中文译文" }, { timeout: 8500 });
+    expect(screen.getByRole("button", { name: "原版 PDF" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByLabelText("原文证据")).not.toBeInTheDocument();
+  } else {
+    expect(await screen.findByLabelText("原文证据", {}, { timeout: 8500 })).toHaveTextContent("First evidence.");
+    expect(screen.getByRole("button", { name: "原版 PDF" })).toHaveAttribute("aria-pressed", "true");
+  }
+});
+
+it("preserves the current translated paragraph when a verified quote has no matching chunk", async () => {
+  setup(answer([{ ...first, layoutVersion: "layout", blockIds: ["current"], renderGranularity: "block" }]), {
+    sourceOriginalUrl: () => "/paper.pdf",
+    getSourceDocument: async () => readerSuccess({
+      sourceId: "paper", bundleVersion: "v1", title: "Paper", markdown: "# Paper\n\nFirst evidence.", lineCount: 3,
+      pdf: { version: "layout", pdfHash: "abc", blocks: [{ blockId: "current", page: 1, sourceLines: [3, 3], bbox: null }] },
+      translation: { status: "ready", chunks: [{ id: "chunk-1", text: "文章标题。", blockIds: ["title"], sourceLines: [1, 1] }] },
+    }),
+  });
+  const translation = await screen.findByRole("button", { name: "中文译文" }, { timeout: 8500 });
+  fireEvent.click(translation);
+  const source = screen.getByLabelText("文章原文");
+  source.scrollTop = 120;
+  scrolling.mockClear();
+  fireEvent.click(window.document.querySelector<HTMLElement>("[data-citation]")!);
+  expect(await screen.findByLabelText("原文证据", {}, { timeout: 8500 })).toHaveTextContent("译块位置暂不可用First evidence.");
+  expect(screen.getByRole("button", { name: "中文译文" })).toHaveAttribute("aria-pressed", "true");
+  expect(source).toHaveProperty("scrollTop", 120);
+  expect(scrolling).not.toHaveBeenCalled();
+});
+
+it("returns from a block to its only linked answer even when a newer answer is selected", async () => {
+  const cited = { ...first, renderGranularity: "block" as const };
+  const start = answer([cited]);
+  setup({ ...start, conversation: [...start.conversation, {
+    ...start.conversation[0], messageId: "uncited-answer", answerRevision: "r2", content: "There's nothing to verify here.", evidence: [],
+  }] });
+  const source = await screen.findByLabelText("文章原文");
+  fireEvent.click(await within(source).findByRole("button", { name: "返回回答证据 1" }));
+  await waitFor(() => expect(within(screen.getByLabelText("文章对话")).getByRole("button", { name: "1" })).toHaveFocus());
+  expect(screen.queryByLabelText("选择回答")).not.toBeInTheDocument();
+});
+
+it("offers answer excerpts for a shared block and returns an active number to its exact origin", async () => {
+  const cited = { ...first, renderGranularity: "block" as const };
+  const other = { ...cited, evidenceId: "c".repeat(24), messageId: "second-answer", answerRevision: "r2" };
+  const start = answer([cited]);
+  setup({ ...start, conversation: [
+    { ...start.conversation[0], content: `The original result held [[e:${cited.evidenceId}]].` },
+    { ...start.conversation[0], messageId: other.messageId, answerRevision: other.answerRevision,
+      content: `The replication differed [[e:${other.evidenceId}]].\n\nThe same source supports that conclusion [[e:${other.evidenceId}]].`, evidence: [other] },
+  ] });
+  const source = within(await screen.findByLabelText("文章原文"));
+  const conversation = within(screen.getByLabelText("文章对话"));
+  const [firstNumber, , secondNumber] = await conversation.findAllByRole("button", { name: "1" });
+  fireEvent.click(await source.findByRole("button", { name: "查看 2 条相关回答" }));
+  const chooser = within(screen.getByRole("dialog", { name: "选择回答" }));
+  expect(chooser.getByRole("button", { name: /The replication differed/ })).toBeVisible();
+  fireEvent.click(chooser.getByRole("button", { name: /The original result held/ }));
+  expect(firstNumber).toHaveFocus();
+
+  fireEvent.click(secondNumber);
+  fireEvent.click(await source.findByRole("button", { name: "返回回答证据 1" }));
+  expect(secondNumber).toHaveFocus();
+  expect(screen.queryByRole("dialog", { name: "选择回答" })).not.toBeInTheDocument();
 });

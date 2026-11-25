@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -121,6 +122,25 @@ class ArticleParserTests(unittest.TestCase):
             {"current_plan_id": None, "current_chunk_id": None},
             state["sources"]["Unified-paper"],
         )
+
+    def test_default_pdf_cli_publishes_the_parser_ir_and_its_lf_markdown(self):
+        from core.source_ir import IRSerializer
+        from test_pdf_reading import ArchivedParser, page
+
+        source = self.root / "selected.pdf"
+        source.write_bytes(b"%PDF-1.4\nselected bytes\n")
+        authored = "# Unified Paper\n\nExact result.\n"
+        pages = [page(0, ("Exact result.", [0.1, 0.1, 0.2, 0.2]))]
+        parser = ArchivedParser("paper_middle.json", {"pages": pages}, authored.replace("\n", "\r\n"))
+        with patch.object(ARTICLE, "AutoMinerUParser", return_value=parser):
+            code, output, error = self.run_parser(
+                ["parse-file", str(source), "--workspace", str(self.workspace), "--short-name", "Unified"], None)
+        self.assertEqual((0, None), (code, error))
+        bundle = self.workspace / "sources" / output[-1]["source_id"] / "parser-bundle"
+        ir = json.loads((bundle / "source-ir.json").read_text(encoding="utf-8"))
+        self.assertEqual(authored.encode(), (bundle / "content.md").read_bytes())
+        self.assertEqual(authored, IRSerializer.markdown(ir))
+        self.assertEqual("0-0", ir["blocks"][-1]["anchors"]["pdf"]["regions"][0]["raw_block_ref"])
 
     def test_identical_pdf_reuses_the_bundle_without_resubmission(self):
         source = self.root / "selected.pdf"

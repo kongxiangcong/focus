@@ -1,21 +1,26 @@
 import { AssetInstanceContext } from "./asset-context";
 import { withAssetInstance } from "./figures";
-import type { AnnotationLayer, ReaderChunk, ReaderImage, ReaderMessage } from "@focus/reader-contracts";
-import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import type { AnnotationLayer, ReaderChunk, ReaderImage, ReaderMessage, ValidatedAnswerEvidence } from "@focus/reader-contracts";
+import { useCallback, useContext, useEffect, useId, useMemo, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent";
+import { citedMarkdown, messageEvidence } from "./source-evidence";
 import type { Located, PendingAnnotation, ResolvedMark } from "./annotation-projection";
 import { chunkFigures, imageIdentity, type Figure } from "./figures";
 
 export const chunkKey = (c: { sourceId: string; planId: string; chunkId: string }) => `${c.sourceId}/${c.planId}/${c.chunkId}`;
 
-export function ReadingChunk({ chunk, onReference, onFigure, onZoom, onLanguage, located, pending, fresh, onLayerChange, onMarks }: { chunk: ReaderChunk; onReference: (chunk: ReaderChunk) => void;
+export function ReadingChunk({ chunk, onReference, onFigure, onZoom, onLanguage, located, pending, fresh, onLayerChange, onMarks, evidence = [], onEvidence }: { chunk: ReaderChunk; onReference: (chunk: ReaderChunk) => void;
   onZoom?: (figure: Figure, origin: HTMLElement) => void; onFigure?: (figure: Figure) => void; onLanguage?: (chunk: ReaderChunk, original: boolean) => void;
   located?: readonly Located[]; pending?: PendingAnnotation | null; fresh?: Record<string, ("hl" | "note")[]>;
+  evidence?: readonly ValidatedAnswerEvidence[];
+  onEvidence?: (item: ValidatedAnswerEvidence) => void;
   onLayerChange?: (chunk: ReaderChunk, layer: AnnotationLayer) => void;
   onMarks?: (key: string, marks: readonly ResolvedMark[], lost: readonly Located[], layer: AnnotationLayer, text: string) => void;
 }) {
   const instanceId = useContext(AssetInstanceContext);
   const [original, setOriginal] = useState(false);
+  const [showEvidence, setShowEvidence] = useState(false);
+  const evidenceListId = useId();
   const translated = chunk.translation !== null && !original;
   const preparing = !original && chunk.presentationStatus === "translation-required" && chunk.translation === null;
   const text = preparing ? "" : translated ? chunk.translation! : chunk.sourceMarkdown;
@@ -37,7 +42,18 @@ export function ReadingChunk({ chunk, onReference, onFigure, onZoom, onLanguage,
     </div>)}</div>}
     {!preparing && !onFigure && chunk.images.filter(i => !text.includes(i.src) && !text.includes(decodeURIComponent(i.src.split('/').at(-1)!))).map(i =>
       <figure key={i.src}><img src={withAssetInstance(i.src, instanceId)} alt={i.caption} loading="lazy" /><figcaption>{i.caption}</figcaption></figure>)}
-    <footer><button onClick={() => onReference(chunk)}>引用提问</button></footer>
+    <footer><button onClick={() => onReference(chunk)}>引用提问</button>
+      {!!evidence.length && onEvidence && <div className="reading-chunk-evidence">
+        <button type="button" aria-expanded={showEvidence} aria-controls={evidenceListId} onClick={() => setShowEvidence(open => !open)}>
+          对话证据 · {evidence.length} 条
+        </button>
+        <ul id={evidenceListId} hidden={!showEvidence}>{evidence.map(item => <li key={item.evidenceId}>
+          <button type="button" onClick={() => onEvidence(item)}>
+            <span>证据 {item.displayNumber}</span><span>{item.quote.exact}</span>
+          </button>
+        </li>)}</ul>
+      </div>}
+    </footer>
   </article>;
 }
 
@@ -58,23 +74,30 @@ function referencedFigures(message: ReaderMessage, chunks: readonly ReaderChunk[
   });
 }
 
-export function ReaderConversation({ messages, chunks = [], figures = [], figureSourceId, sourceFigures = [], onFigure, onZoom, streaming, onJump, onHighlight, onClearHighlight, onSaveNote }: {
+export function ReaderConversation({ messages, chunks = [], figures = [], figureSourceId, sourceFigures = [], onFigure, onZoom, streaming, onJump, onHighlight, onClearHighlight, onSaveNote, discussionId, onEvidence }: {
   messages: readonly ReaderMessage[]; chunks?: readonly ReaderChunk[]; figures?: readonly ReaderImage[]; figureSourceId?: string;
   onZoom?: (figure: Figure, origin: HTMLElement) => void;
   streaming?: boolean;
   onJump?: (chunk: ReaderChunk, excerpt?: string) => void;
   onHighlight?: (chunk: ReaderChunk, excerpt: string) => void; onClearHighlight?: () => void;
   onSaveNote?: (message: ReaderMessage, chunk?: ReaderChunk) => void;
+  discussionId?: string;
+  onEvidence?: (item: ValidatedAnswerEvidence) => void;
   sourceFigures?: readonly Figure[]; onFigure?: (figure: Figure) => void;
 }) {
   const instanceId = useContext(AssetInstanceContext);
   return <>{messages.map(message => {
     const reference = chunks.find(c => c.sourceId === (message.reference?.sourceId ?? message.sourceId) && c.chunkId === (message.reference?.chunkId ?? message.chunkId));
+    const sourceId = message.sourceId ?? message.reference?.sourceId;
+    const refs = message.role === "assistant" && sourceId && !message.sourceDeleted
+      ? messageEvidence(message, { sourceId }, discussionId ?? message.discussionId) : [];
+    const markdown = message.role === "assistant" ? citedMarkdown(message, refs) : message.content;
     const excerpt = message.content.startsWith("> ") ? message.content.split("\n\n")[0].replace(/^> /gm, "") : (reference?.translation ?? reference?.sourceMarkdown ?? "").replace(/[#*`]/g, "").split(/[。！？\n]/).find(s => s.trim() && !s.includes("!["))?.slice(0, 100) ?? "";
     return <article className={`focus-message${message.role === "assistant" ? " focus-reader__chunk" : ""}`} data-message-id={message.messageId} data-role={message.role} key={message.messageId}>
     <header>{message.role === "user" ? "你" : "FOCUS"}{message.sourceDeleted && <small> · 来源已删除</small>}</header>
     {message.role === "user" && reference && <button className="reader-quote-bar" onClick={() => onJump?.(reference, excerpt)} onMouseEnter={() => onHighlight?.(reference, excerpt)} onMouseLeave={onClearHighlight} onFocus={() => onHighlight?.(reference, excerpt)} onBlur={onClearHighlight}><strong>第 {reference.index} 段</strong><span>{excerpt}</span></button>}
-    <MarkdownContent text={message.content} sourceId={message.sourceDeleted ? undefined : message.sourceId ?? message.reference?.sourceId}
+    <MarkdownContent text={markdown} sourceId={message.sourceDeleted ? undefined : sourceId}
+      onCitation={refs.length && onEvidence ? id => { const evidence = refs.find(item => item.evidenceId === id); if (evidence) onEvidence(evidence); } : undefined}
       figures={sourceFigures} onFigure={onZoom ? f => onZoom(f, document.activeElement as HTMLElement) : onFigure} inlineFigures />
     {referencedFigures(message, chunks, figures, figureSourceId).map(image => {
       const figure = sourceFigures.find(f => f.id === imageIdentity(image.src, message.sourceId ?? message.reference?.sourceId ?? ""));

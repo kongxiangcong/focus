@@ -49,6 +49,7 @@ function isReaderChunk(value: unknown): value is NonNullable<ReadingWindow["curr
     typeof chunk.index === "number" &&
     typeof chunk.total === "number" &&
     isStringArray(chunk.sectionPath) &&
+    (chunk.blockIds === undefined || isStringArray(chunk.blockIds)) &&
     Array.isArray(chunk.sourceLines) &&
     chunk.sourceLines.length === 2 &&
     chunk.sourceLines.every((line) => typeof line === "number") &&
@@ -671,7 +672,10 @@ export class HttpReaderHost implements ReaderHost {
           stream.close(); connect();
         }
       });
-      stream.onerror = () => listener({ ok: false, error: { code: "unavailable", message: "连接中断，正在恢复；后台任务可能仍在运行。", retryable: true } });
+      stream.onerror = () => {
+        if (closed || stream !== connection) return;
+        listener({ ok: false, error: { code: "unavailable", message: "连接中断，正在恢复；后台任务可能仍在运行。", retryable: true } });
+      };
     };
     connect();
     return () => { closed = true; stream.close(); };

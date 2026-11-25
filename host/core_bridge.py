@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT / '.agents'))
 from core.reading_workspace import (WorkspaceCore, WorkspaceError, validate_source_id, _identifier, _read_chunk_records,
     _read_reading_record, _chunk_presentation, _validate_parser_bundle, _needs_translation)
 from core.source_library import SourceLibrary
+from core.source_provenance import SOURCE_ORIGINALS, bundle_fingerprint
 from core.source_notes import SourceNotes
 from core.discussion_application import DiscussionApplication
 from core.reading_structure import read_structure
@@ -17,7 +18,7 @@ from .figure_catalog import source_figures
 
 ACTIONS = {
     'search': ('search_source', {'query': 'string', 'limit': 'integer', 'source_id': 'string|null', 'bundle_version': 'string|null'}),
-    'read_range': ('read_source_range', {'start': 'integer', 'end': 'integer', 'source_id': 'string|null', 'bundle_version': 'string|null'}),
+    'read_range': ('read_source_range', {'start': 'integer|optional', 'end': 'integer|optional', 'block_ids': 'string[]|optional', 'source_id': 'string|null', 'bundle_version': 'string|null'}),
     'topic_search': ('search_topic', {'topic_id': 'string', 'query': 'string', 'limit': 'integer'}),
     'topic_range': ('read_topic_range', {'topic_id': 'string', 'source_id': 'string', 'start': 'integer', 'end': 'integer'}),
     'topic_notes': ('topic_notes', {'topic_id': 'string'}),
@@ -29,7 +30,8 @@ TOOL = {
                    'with explicit user save intent; Host/Core owns validation and persistence. Reading preparation and navigation use ReaderHost operations. '
                    'Arguments is a JSON object encoded as a string. Fields: ' + json.dumps({k: ACTIONS[k][1] for k in
                        ('search', 'read_range', 'topic_search', 'topic_range', 'topic_notes')}) +
-                   ' cite fields: {start:integer,end:integer,quote:string,prefix?:string,suffix?:string,relation?:supports|contradicts|context}. Use exact original text from read_range; cite returns a validated marker to insert after a claim. source_note fields: {content:string, kind:example|conclusion|question|thought|concept, '
+                   ' search and read_range return separate block headers [block_id | p.3 | L88-93] (page when known) and canonical Markdown in source_text. For disjoint reads, use each entry in ranges separately. '
+                   ' cite fields: {start?:integer,end?:integer,block_ids?:string[],quote:string,prefix?:string,suffix?:string,relation?:supports|contradicts|context}. For read_range and cite supply start and end, block_ids, or both to intersect them. Copy exact Markdown, including syntax and paragraph breaks, from one continuous range. cite returns a validated marker to insert after a claim. source_note fields: {content:string, kind:example|conclusion|question|thought|concept, '
                    'origin:user|dialogue, evidence_role:source_claim|explanation|unresolved_question, '
                    'anchor?:{sourceId:string,bundle:string,sourceLines:[start,end],quote?:string}}. '
                    'source_claim requires an anchor matching the bound scope. Use search/read_range to verify exact lines first. '
@@ -87,11 +89,13 @@ class CoreBridge:
             raise ValueError('Unsupported FOCUS operation')
         if action in ('search', 'topic_search'):
             args['limit'] = min(max(int(args.get('limit', 5)), 1), 20)
-        if action in ('read_range', 'topic_range') and args['end'] - args['start'] > 500:
+        if action == 'topic_range' and args['end'] - args['start'] > 500:
             raise ValueError('Read at most 501 lines per request')
         method, fields = ACTIONS[action]
         if set(args) - set(fields):
             raise ValueError('Unexpected Core arguments')
+        if action == 'read_range':
+            args['line_limit'] = 501
         return getattr(self.core, method)(**args)
 
     def window(self):
@@ -104,7 +108,6 @@ class CoreBridge:
             if source_id and plan_id:
                 provenance = self.workspace / 'sources' / source_id / 'reading' / 'plans' / plan_id / 'provenance.json'
                 if provenance.is_file():
-                    from core.article_blog import bundle_fingerprint
                     expected = json.loads(provenance.read_text(encoding='utf-8')).get('bundle')
                     current = bundle_fingerprint(self.workspace / 'sources' / source_id / 'parser-bundle')
                     if expected != current:
@@ -155,7 +158,6 @@ class CoreBridge:
         root = (self.workspace / 'sources' / source_id / 'reading' / 'bundles' / bundle_version).resolve()
         if not root.is_relative_to(self.workspace) or not root.is_dir():
             raise ValueError('Original Bundle is unavailable')
-        from core.article_blog import bundle_fingerprint
         if bundle_fingerprint(root) != bundle_version:
             raise ValueError('Original Bundle is unavailable')
         target = (root / relative).resolve()
@@ -168,7 +170,6 @@ class CoreBridge:
         if not isinstance(bundle_version, str) or not re.fullmatch(r'[0-9a-f]{64}', bundle_version):
             raise ValueError('Invalid Bundle version')
         root = (self.workspace / 'sources' / source_id / 'reading' / 'bundles' / bundle_version).resolve()
-        from core.article_blog import bundle_fingerprint
         if not root.is_relative_to(self.workspace) or not root.is_dir() or bundle_fingerprint(root) != bundle_version:
             raise ValueError('Original Bundle is unavailable')
         target = root / 'content.md'
@@ -182,8 +183,7 @@ class CoreBridge:
         if resource == 'content':
             target = root / 'content.md'
         elif resource == 'original':
-            name = {'paper_pdf': 'source.pdf', 'article_html': 'source.html',
-                    'article_markdown': 'source.md'}.get(source['source_kind'])
+            name = SOURCE_ORIGINALS.get(source['source_kind'])
             if name is None:
                 raise ValueError('Unsupported Source original')
             target = root / name
@@ -225,7 +225,8 @@ class CoreBridge:
         return {'sourceId': c['source_id'], 'planId': c['plan_id'], 'chunkId': c['chunk_id'],
                 'index': c['index'], 'total': c['total'], 'sectionPath': c['section_path'],
                 **({'bundleVersion': version} if (version := self.plan_bundle(c['source_id'], c['plan_id'])) is not None else {}),
-                'sourceLines': c['source_lines'], 'sourceMarkdown': c['source_text'], 'translation': c['translation'],
+                'sourceLines': c['source_lines'], 'blockIds': c['block_ids'],
+                'sourceMarkdown': c['source_text'], 'translation': c['translation'],
                 'images': [{'src': self._image_url(c['source_id'], i['path']),
                             'caption': i['caption']} for i in c['images']],
                 'relevantGlossary': c['relevant_glossary'], 'presentationStatus': c['status'].replace('_', '-')}
@@ -242,7 +243,6 @@ class CoreBridge:
             raise ValueError('引用段落不存在')
         provenance_path = root / 'provenance.json'
         current = source_root / 'parser-bundle'
-        from core.article_blog import bundle_fingerprint
         if provenance_path.is_file():
             expected_bundle = json.loads(provenance_path.read_text(encoding='utf-8')).get('bundle')
             bundle = current if expected_bundle == bundle_fingerprint(current) else source_root / 'reading' / 'bundles' / str(expected_bundle)

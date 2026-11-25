@@ -1,4 +1,5 @@
 """Source-level reading assets and exact evidence; independent of Plan/Cursor."""
+from bisect import bisect_right
 import hashlib
 import re
 import time
@@ -7,6 +8,7 @@ from .source_notes import SourceNotes, _LOCK
 from .source_library import SourceLibrary
 from .reading_workspace import WorkspaceError, _read_document, _write_document
 from .article_overview import validate_guide
+from .source_blocks import SourceBlocks, source_lines
 
 
 
@@ -24,7 +26,7 @@ class SourceReading:
             if self.notes.bundle_version(source_id) != version:
                 raise WorkspaceError('source_bundle_changed', '原文版本已改变，请重新打开。')
             return {'sourceId': source_id, 'bundleVersion': version, 'title': source['title'],
-                    'markdown': markdown, 'lineCount': len(markdown.splitlines()), 'generation': self.notes.generation(source_id)}
+                    'markdown': markdown, 'lineCount': len(source_lines(markdown)), 'generation': self.notes.generation(source_id)}
 
     def opening(self, source_id):
         doc = {'bundleVersion': self.notes.bundle_version(source_id)}
@@ -100,7 +102,7 @@ class SourceReading:
     def cite(self, scope, arguments):
         """Only exact, unique quotes in the frozen Source range become citations."""
         with _LOCK:
-            if set(arguments) - {'start', 'end', 'quote', 'prefix', 'suffix', 'relation'}:
+            if not isinstance(arguments, dict) or set(arguments) - {'start', 'end', 'block_ids', 'quote', 'prefix', 'suffix', 'relation'}:
                 raise ValueError('Unexpected citation fields')
             if scope.get('generation', 0) != self.notes.generation(scope['sourceId']):
                 raise WorkspaceError('discussion_cleared', '会话已清除')
@@ -108,36 +110,60 @@ class SourceReading:
             if doc['bundleVersion'] != scope['bundle']:
                 raise WorkspaceError('source_bundle_changed', '原文版本已改变')
             start, end, quote = (arguments.get(k) for k in ('start', 'end', 'quote'))
-            if type(start) is not int or type(end) is not int or not 1 <= start <= end <= doc['lineCount'] or end-start > 100:
-                raise ValueError('Invalid citation range')
             if not isinstance(quote, str) or not quote.strip() or len(quote) > 4000:
                 raise ValueError('Exact quote required')
             prefix, suffix = arguments.get('prefix', ''), arguments.get('suffix', '')
             if any(not isinstance(s, str) or len(s) > 128 for s in (prefix, suffix)):
                 raise ValueError('Invalid citation context')
-            text = '\n'.join(doc['markdown'].splitlines()[start-1:end])
-            positions = [m.start() for m in re.finditer('(?=' + re.escape(quote) + ')', text)
-                         if text[:m.start()].endswith(prefix) and text[m.start()+len(quote):].startswith(suffix)]
+            quote, prefix, suffix = (s.replace('\r\n', '\n') for s in (quote, prefix, suffix))
+            bundle = self.notes._root(scope['sourceId']) / 'parser-bundle'
+            source = SourceBlocks(bundle, doc['markdown'])
+            block_ids = arguments.get('block_ids')
+            ranges = source.ranges(start, end, block_ids, limit=101)
+            first, last = source.line_range(start, end, block_ids, limit=None)
+            lower, upper = source.starts[first - 1], source.starts[last] - 1
+            positions = []
+            for first, last in ranges:
+                for match in re.finditer('(?=' + re.escape(quote) + ')', source.markdown[first:last]):
+                    at = first + match.start()
+                    stop = at + len(quote)
+                    if (at - len(prefix) >= lower and stop + len(suffix) <= upper
+                            and source.markdown.startswith(prefix, at - len(prefix))
+                            and source.markdown.startswith(suffix, stop)):
+                        positions.append(at)
             if len(positions) != 1:
                 raise ValueError('Quote is missing or ambiguous; narrow the source range or supply exact context')
-            quote_start = start + text[:positions[0]].count('\n')
+            at = positions[0]
+            stop = at + len(quote)
+            if not source.has_readable_text(at, stop):
+                raise ValueError('Quote needs readable source text, such as a caption or an image label')
+            quote_start = bisect_right(source.starts, at)
             quote_end = quote_start + quote.count('\n')
+            prefix = prefix or source.markdown[max(0, at - 128):at]
+            suffix = suffix or source.markdown[stop:stop + 128]
             relation = arguments.get('relation', 'supports')
             if relation not in ('supports', 'contradicts', 'context'):
                 raise ValueError('Invalid evidence relation')
             # ID is run-bound; the model cannot mint a valid ID by writing a marker.
-            identity = f"{scope['requestId']}:{start}:{end}:{quote}:{prefix}:{suffix}"
+            identity = repr((scope['requestId'], at, stop, quote, prefix, suffix, relation))
             key = hashlib.sha256(identity.encode()).hexdigest()[:24]
             pdf_anchor = {}
-            bundle = self.notes._root(scope['sourceId']) / 'parser-bundle'
-            if (bundle / 'source.pdf').is_file():
-                from .pdf_layout import layout
-                index = layout(bundle)
-                offset = sum(len(line) + 1 for line in doc['markdown'].split('\n')[:start - 1]) + positions[0]
-                pdf_anchor = {'layoutVersion': index['version'], 'blockIds': list(dict.fromkeys(
-                    block['blockId'] for block in index['blocks']
-                    if block['offsets'][0] < offset + len(quote) and offset < block['offsets'][1]))}
-            return {**pdf_anchor, 'evidenceId': key, 'sourceId': doc['sourceId'], 'bundleVersion': doc['bundleVersion'],
+            if source.pdf is not None:
+                pages = {}
+                for fragment in source.pdf['blocks']:
+                    if fragment['offsets'][0] >= stop or fragment['offsets'][1] <= at:
+                        continue
+                    boxes = pages.setdefault(fragment['page'], [])
+                    for box in fragment.get('bboxes', [fragment.get('bbox')]):
+                        if box is not None and box not in boxes:
+                            boxes.append(box)
+                pdf_anchor = {'layoutVersion': source.pdf['version'],
+                              'pdfRegions': [{'pageIndex': page - 1, 'pageNumber': page, 'bboxes': boxes,
+                                              'granularity': 'block' if boxes else 'page'} for page, boxes in pages.items()]}
+            blocks = source.block_ids_at(at, stop)
+            sections = list(dict.fromkeys(section for path in source.section_ids[quote_start - 1:quote_end] for section in path))
+            return {'blockIds': blocks, **pdf_anchor, 'sectionIds': sections, 'renderGranularity': 'block',
+                    'evidenceId': key, 'sourceId': doc['sourceId'], 'bundleVersion': doc['bundleVersion'],
                     'sourceLines': [quote_start, quote_end], 'quote': {'exact': quote, 'prefix': prefix, 'suffix': suffix},
                     'relation': relation, 'marker': '[[e:' + key + ']]'}
 

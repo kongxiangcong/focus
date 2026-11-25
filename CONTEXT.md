@@ -75,7 +75,7 @@ _Avoid_: Source Title, source hash, mutable display name
 
 **Source Identity**:
 用于识别相同规范 URL、相同 Paper 原件或没有 URL 的相同 HTML 原件并复用已注册 Reading Source 的稳定输入身份；它独立于 MinerU Parser Task ID 与 Source ID。
-相同 PDF 内容即为相同 Paper 原件，改名或加入另一 Topic 不产生新 Source 或 Parser Bundle。
+相同 PDF 内容即为相同 Paper 原件，改名或加入另一 Topic 不产生新 Source 或 Parser Bundle。普通导入时，重新排版的另一份 PDF 构成新的 Reading Source，即使解析出的正文与图片相同。
 _Avoid_: Source ID, directory name, display title
 
 **Parser Bundle**:

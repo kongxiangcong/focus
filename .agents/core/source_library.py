@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .source_provenance import SOURCE_ORIGINALS
 from .reading_workspace import (
     WorkspaceError,
     _read_document,
@@ -130,7 +131,7 @@ class SourceLibrary:
             not required.issubset(source)
             or not set(source).issubset(required | optional)
             or source.get("source_id") != expected_source_id
-            or source.get("source_kind") not in {"paper_pdf", "article_html", "article_markdown"}
+            or source.get("source_kind") not in SOURCE_ORIGINALS
             or any(not isinstance(source.get(key), str) or not source[key].strip() for key in required - {"source_id", "source_kind"})
         ):
             raise WorkspaceError("source_invalid", f"Reading Source is invalid: {expected_source_id}")
@@ -168,7 +169,7 @@ class SourceLibrary:
         return matches[0] if matches else None
 
     def find_original(self, source: Path, *, source_kind: str) -> dict[str, Any] | None:
-        original_name = {"paper_pdf": "source.pdf", "article_html": "source.html", "article_markdown": "source.md"}.get(source_kind)
+        original_name = SOURCE_ORIGINALS.get(source_kind)
         if original_name is None or not source.is_file():
             raise WorkspaceError("source_identity_invalid", "Source identity is invalid")
         for registered in self.sources():
@@ -214,7 +215,7 @@ class SourceLibrary:
     ) -> dict[str, Any]:
         parser_bundle = parser_bundle.resolve()
         metadata = _validate_parser_bundle(parser_bundle)
-        if source_kind not in {"paper_pdf", "article_html", "article_markdown"} or metadata.get("source_kind") != source_kind:
+        if source_kind not in SOURCE_ORIGINALS or metadata.get("source_kind") != source_kind:
             raise WorkspaceError("parser_bundle_invalid", "Parser Bundle source kind does not match registration")
         if not isinstance(title, str) or not title.strip():
             raise WorkspaceError("source_title_missing", "A trustworthy Source Title is required")

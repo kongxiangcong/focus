@@ -189,6 +189,8 @@ def _finish_auto_pdf(workspace, task_root, task, timeout, interval, *, model="vl
     if not isinstance(parsed.get("title"), str) or not isinstance(parsed.get("short_name"), str):
         raise WorkspaceError("parser_result_invalid", "Candidate result is invalid")
     identity = "paper-original:" + __import__("hashlib").sha256(source.read_bytes()).hexdigest()
+    from core.source_ir import publish_pdf_source_ir
+    publish_pdf_source_ir(candidate)
     result = SourceLibrary(workspace).register(candidate, source_kind="paper_pdf", identity=identity,
         title=task.get("title") or parsed["title"], short_name=task.get("short_name") or parsed["short_name"],
         topic_title=task.get("topic"), topic_id=task.get("topic_id"), published_at=task.get("published_at"))

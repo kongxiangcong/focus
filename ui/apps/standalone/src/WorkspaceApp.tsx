@@ -1,9 +1,9 @@
 import { createPortal } from "react-dom";
 import { Fragment } from "react";
 import { NavigationResize } from "./NavigationResize";
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
+import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createReaderId, type BlogArtifactName, type BlogArtifactStatus, type BlogRegenerationTarget, type BlogStatus, type IngestionItem, type ProcessingBatch, type SourceDeletionImpact, type LibrarySource, type LibraryTopic, type ReaderHost, type ReaderHostResult, type ReadingPreparation, type ReadingWindow } from "@focus/reader-contracts";
-import { FocusReader, AgentControls, TaskProgress, readingFontSizes, BookOpen, ChatBubble, DocText, type ReadingMode } from "@focus/reader-ui";
+import { FocusReader, AgentControls, TaskProgress, readingFontSizes, useEvidenceNavigation, BookOpen, ChatBubble, DocText, type ReadingMode } from "@focus/reader-ui";
 import { BackendSetupPanel } from "./BackendSetupPanel";
 import { WorkspaceSelection } from './WorkspaceSelection';
 import { UploadTopicPicker } from "./UploadTopicPicker";
@@ -12,6 +12,7 @@ import { applyAppearance, readPreference, type Theme, type Density } from "./app
 
 import { LibraryToolbar } from "./library/LibraryToolbar";
 import { LibraryPage } from "./library/LibraryPage";
+import { ingestionFormat } from "./library/ingestion-format";
 import { matchesStatus, sourceStatus, type StatusFilter } from "./library/source-status";
 import { UNFILED, sortingDisabledReason } from "./library/topic-view";
 
@@ -82,9 +83,35 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const blogRefreshing = useRef(new Set<string>());
   const [dragging, setDragging] = useState(false);
   const [view, setView] = useState<ReadingWindow | null>(null);
-  function acceptView(next: ReadingWindow) {
-    setView(old => old?.revision !== undefined && next.revision !== undefined && old.revision > next.revision ? old : next);
-  }
+  const viewRef = useRef<ReadingWindow | null>(null);
+  const selection = useRef<{ sourceId: string | undefined; generation: number }>({ sourceId: undefined, generation: 0 });
+  const [generation, setGeneration] = useState(0);
+  const mounted = useRef(false);
+  useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const unifiedReading = !!host.getSourceDocument;
+  const evidenceNavigation = useEvidenceNavigation();
+  const cancelEvidenceNavigation = evidenceNavigation.cancel;
+  const changeSelection = useCallback((sourceId: string | undefined) => {
+    const next = { sourceId, generation: selection.current.generation + 1 };
+    selection.current = next;
+    cancelEvidenceNavigation();
+    setGeneration(next.generation);
+    return next.generation;
+  }, [cancelEvidenceNavigation]);
+  const isCurrentSelection = useCallback((started: number, sourceId?: string) =>
+    mounted.current && started === selection.current.generation && (sourceId === undefined || sourceId === selection.current.sourceId), []);
+  const acceptView = useCallback((next: ReadingWindow, started = selection.current.generation, allowSourceChange = false) => {
+    if (!isCurrentSelection(started)) return false;
+    const previous = viewRef.current;
+    const sourceId = next.source.sourceId;
+    const selected = selection.current.sourceId;
+    if (unifiedReading && selected && selected !== sourceId && !allowSourceChange) return false;
+    if (previous?.revision !== undefined && next.revision !== undefined && previous.revision > next.revision) return false;
+    if (unifiedReading && sourceId !== selected) changeSelection(sourceId);
+    viewRef.current = next;
+    setView(next);
+    return true;
+  }, [changeSelection, isCurrentSelection, unifiedReading]);
   const [sources, setSources] = useState<readonly LibrarySource[]>([]);
   const [topics, setTopics] = useState<readonly LibraryTopic[]>([]);
   const [inbox, setInbox] = useState<readonly IngestionItem[]>([]);
@@ -159,7 +186,11 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     const timer = setTimeout(() => setAppearanceFeedback(""), 1800);
     return () => clearTimeout(timer);
   }, [fontSize, readingFont, theme, density, reducedMotion]);
-  function navigate(next: Route) { history.pushState(null, "", next); setRoute(next); setError(""); setRetryAction(null); }
+  function navigate(next: Route) {
+    if (next !== "/reading") cancelEvidenceNavigation();
+    history.pushState(null, "", next);
+    setRoute(next); setError(""); setRetryAction(null);
+  }
   async function refresh(afterCurrent = false): Promise<void> {
     if (!host.listSources || !host.listTopics) { setLoading(false); return; }
     if (refreshing.current) {
@@ -188,17 +219,23 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   useEffect(() => {
     if (location.pathname !== routeFromLocation()) history.replaceState(null, "", "/library");
-    const pop = () => setRoute(routeFromLocation()); window.addEventListener("popstate", pop);
+    const pop = () => {
+      const next = routeFromLocation();
+      if (next !== "/reading") cancelEvidenceNavigation();
+      setRoute(next);
+    };
+    window.addEventListener("popstate", pop);
     let alive = true;
-    const accept = (result: ReaderHostResult<ReadingWindow>) => {
-      if (!alive) return;
-      if (result.ok) { acceptView(result.value); setConnectionLost(false); }
+    const accept = (result: ReaderHostResult<ReadingWindow>, started = selection.current.generation) => {
+      if (!alive || !isCurrentSelection(started)) return;
+      if (result.ok) { if (acceptView(result.value, started)) setConnectionLost(false); }
       else { setConnectionLost(true); setError(result.error.message); }
     };
-    void (host.refreshBackendConfiguration ? host.refreshBackendConfiguration() : host.getReadingWindow()).then(accept);
-    const unsubscribe = host.subscribe?.(accept);
+    const started = selection.current.generation;
+    void (host.refreshBackendConfiguration ? host.refreshBackendConfiguration() : host.getReadingWindow()).then(result => accept(result, started));
+    const unsubscribe = host.subscribe?.(result => accept(result));
     return () => { alive = false; unsubscribe?.(); window.removeEventListener("popstate", pop); requestVersion.current++; };
-  }, [host]);
+  }, [host, acceptView, isCurrentSelection, cancelEvidenceNavigation]);
   useEffect(() => { if (route !== "/settings") void refresh(); }, [route, view?.agent?.run?.status, host]);
   useEffect(() => {
     if (!inbox.some(item => item.status === "processing") && !batches.some(b => b.executing || ["confirmed", "running"].includes(b.status))) return;
@@ -210,14 +247,18 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     let cancelled = false;
     let timer: number;
     async function poll() {
+      const started = selection.current.generation;
       try { const result = await host.getReadingWindow();
-        if (!cancelled) { if (result.ok) { acceptView(result.value); setConnectionLost(false); } else setConnectionLost(true); }
-      } catch { if (!cancelled) setConnectionLost(true); }
+        if (!cancelled && isCurrentSelection(started)) {
+          if (result.ok) { if (acceptView(result.value, started)) setConnectionLost(false); }
+          else setConnectionLost(true);
+        }
+      } catch { if (!cancelled && isCurrentSelection(started)) setConnectionLost(true); }
       if (!cancelled) timer = window.setTimeout(() => void poll(), 1500);
     }
     timer = window.setTimeout(() => void poll(), 1500);
     return () => { cancelled = true; window.clearTimeout(timer); };
-  }, [host, workPollKey]);
+  }, [host, workPollKey, acceptView, isCurrentSelection]);
   useEffect(() => { if (blogViewer) blogDialog.current?.showModal(); else blogDialog.current?.close(); }, [blogViewer]);
   useEffect(() => { if (management) managementDialog.current?.showModal(); else managementDialog.current?.close(); }, [management]);
   useEffect(() => { if (confirm) confirmation.current?.showModal(); else confirmation.current?.close(); }, [confirm]);
@@ -244,23 +285,36 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   async function operate(label: string, operation: () => Promise<ReaderHostResult<ReadingWindow>>, read = false) {
     if (locked.current || (active && !label.startsWith("停止") && label !== '全部清空')) return;
     locked.current = true; setBusy(label); setError(""); setRetryAction(null);
+    const started = selection.current.generation;
     try {
       const result = await operation();
+      if (!isCurrentSelection(started)) return;
       if (!result.ok) { setError(result.error.message); setRetryAction(() => () => void operate(label, operation, read)); return; }
-      setRetryAction(null); acceptView(result.value); setConfirm(null);
+      setRetryAction(null); acceptView(result.value, started, read || label === "删除"); setConfirm(null);
       if (label === '全部清空') { setNotice(''); setReadyNotice(''); }
       if (read) navigate("/reading");
       if (label === "上传") { setUploadOpen(false); setSelectedFiles([]); }
       await refresh();
-    } catch (e) { setError(String(e)); setRetryAction(() => () => void operate(label, operation, read)); }
+    } catch (e) { if (isCurrentSelection(started)) { setError(String(e)); setRetryAction(() => () => void operate(label, operation, read)); } }
     finally { locked.current = false; setBusy(""); }
   }
   async function discuss(sourceId: string) {
-    if (!host.selectDiscussionSource) return;
-    const result = await host.selectDiscussionSource(sourceId);
-    if (!result.ok) { setError(result.error.message); return; }
-    acceptView(result.value);
-    navigate("/reading");
+    if (!host.selectDiscussionSource || locked.current || active) return;
+    const started = changeSelection(sourceId);
+    setError(""); setRetryAction(null);
+    function failed(message: string) {
+      if (!isCurrentSelection(started, sourceId)) return;
+      if (viewRef.current?.source.sourceId !== sourceId) changeSelection(viewRef.current?.source.sourceId);
+      setError(message);
+      setRetryAction(() => () => void discuss(sourceId));
+    }
+    try {
+      const result = await host.selectDiscussionSource(sourceId);
+      if (!isCurrentSelection(started, sourceId)) return;
+      if (!result.ok) { failed(result.error.message); return; }
+      acceptView(result.value, started);
+      if (viewRef.current?.source.sourceId === sourceId) navigate("/reading");
+    } catch (failure) { failed(String(failure)); }
   }
   function preparationHidden(sourceId: string) {
     const prepared = view?.preparations?.[sourceId];
@@ -273,12 +327,13 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     const attempt = view?.preparations?.[sourceId]?.attempt;
     if (!attempt || !host.dismissPreparation) return;
     setClosingPreparations(old => ({ ...old, [sourceId]: attempt }));
+    const started = selection.current.generation;
     const restore = () => setClosingPreparations(old => { if (old[sourceId] !== attempt) return old; const next = { ...old }; delete next[sourceId]; return next; });
     try {
       const result = await host.dismissPreparation(sourceId, attempt);
-      if (result.ok) acceptView(result.value);
-      else { restore(); setError(result.error.message); }
-    } catch { restore(); setError("关闭提示未保存，请检查连接后再次关闭。"); }
+      if (result.ok) acceptView(result.value, started);
+      else { restore(); if (isCurrentSelection(started)) setError(result.error.message); }
+    } catch { restore(); if (isCurrentSelection(started)) setError("关闭提示未保存，请检查连接后再次关闭。"); }
   }
   async function retryPreparation(sourceId: string) {
     const prepared = view?.preparations?.[sourceId];
@@ -301,7 +356,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   async function enterReading(sourceId: string) {
     if (host.getSourceDocument && host.selectDiscussionSource) {
-      await operate("阅读", () => host.selectDiscussionSource!(sourceId), true);
+      await discuss(sourceId);
       return;
     }
     if (!host.openSource) return;
@@ -381,7 +436,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     if (!host.startBatch || locked.current) return;
     locked.current = true; setBusy("确认"); setError(""); setNotice("");
     try {
-      const started = await identified(`start:${item.itemId}`, id => host.startBatch!([item.itemId], id));
+      const started = await identified(`start:${item.itemId}`, id => ingestionFormat(item.fileName) === "Markdown"
+        ? host.startBatch!([item.itemId], id, false)
+        : host.startBatch!([item.itemId], id));
       if (!started.ok) { setError(started.error.message); return; }
       await refresh();
     } catch (e) { setError(String(e)); }
@@ -462,7 +519,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     } catch (e) { setError(String(e)); setRetryAction(() => () => void controlBatch(batchId, action, itemId, riskChoiceId)); }
     finally { locked.current = false; setBusy(""); }
   }
-  const includesPdf = selectedFiles.some(file => /\.pdf$/i.test(file.name));
+  const includesPdf = selectedFiles.some(file => ingestionFormat(file.name) === "PDF");
+  const markdownOnly = selectedFiles.length > 0 && selectedFiles.every(file => ingestionFormat(file.name) === "Markdown");
+  const generateUploadBlog = !markdownOnly && (includesPdf || generateOnUpload);
   async function uploadAndStart() {
     if (locked.current || !selectedFiles.length || !host.stageIngestion || !host.startBatch) return;
     const files = [...selectedFiles], topicTitle = uploadTopic.trim();
@@ -484,7 +543,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         if (!ids.includes(staged.value.itemId)) ids.push(staged.value.itemId);
       }
       if (ids.length) {
-        const started = await identified(`upload:${ids.join(",")}`, id => host.startBatch!(ids, id, includesPdf || generateOnUpload));
+        const started = await identified(`upload:${ids.join(",")}`, id => host.startBatch!(ids, id, generateUploadBlog));
         if (!started.ok) { setError(started.error.message); return; }
       }
       if (failures.length) {
@@ -499,11 +558,19 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     } catch (e) { setError(String(e)); }
     finally { locked.current = false; setBusy(""); }
   }
-  function chooseUpload(selected: readonly File[] = []) {
-    if (selected.some(f => !/\.(pdf|html)$/i.test(f.name))) { setError("请选择 PDF 或 SingleFile HTML"); return; }
+  function selectUploadFiles(selected: readonly File[]) {
+    if (selected.some(file => !ingestionFormat(file.name))) {
+      setError("请选择 PDF、SingleFile HTML 或 Markdown");
+      return false;
+    }
     setSelectedFiles(selected);
+    setError("");
+    return true;
+  }
+  function chooseUpload(selected: readonly File[] = []) {
+    if (!selectUploadFiles(selected)) return;
     setUploadTopic(selectedTopic?.title ?? "");
-    setGenerateOnUpload(true); setError(""); setUploadOpen(true);
+    setGenerateOnUpload(true); setUploadOpen(true);
   }
   const uploadDisabled = !!busy || active || !host.stageIngestion || !host.startBatch;
   const batchStatusText = { confirmed: "待处理", running: "处理中", paused: "已暂停", completed: "完成", partial: "部分完成" };
@@ -642,8 +709,8 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       {taskInbox.length > 0 && <section className="library-inbox" aria-label="Inbox"><div className="library-inbox-heading"><h2>单项上传</h2><button disabled={!!busy} onClick={() => void refresh()}>刷新状态</button></div>{taskInbox.map(item => <article key={item.itemId} className="library-inbox-item" data-task-item-id={item.itemId} tabIndex={-1} data-status={item.status}>
         <div><strong>{item.fileName}</strong><span>{statusText[item.status]}</span><small>{item.topicTitle ?? topics.find(t => t.topicId === item.topicId)?.title ?? "不关联专题"}</small></div>
         {item.parserBackend && <p role="status">{item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"}{item.selectionReason ? ` · ${item.selectionReason}` : ""}{item.parserProgress?.status ? ` · ${item.parserProgress.status === "queued" ? "排队中" : item.parserProgress.status === "running" ? "解析中" : item.parserProgress.status}` : ""}{typeof item.parserProgress?.percent === "number" ? ` · ${Math.round(item.parserProgress.percent)}%` : ""}</p>}
-        {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>PDF 由运行 FOCUS 后端的服务器自动选择本地 MinerU 或远端 MinerU API；HTML 使用本地解析。解析仅用于建立 Source 并关联专题，不会自动进入阅读。</p>
-          <button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>开始解析并生成博客</button></div>}
+        {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>PDF 由服务器自动选择本地 MinerU 或远端 MinerU API。HTML 和 Markdown 在本地解析。</p>
+          <button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>{ingestionFormat(item.fileName) === "Markdown" ? "仅解析入库" : "开始解析并生成博客"}</button></div>}
         {item.status === "processing" && <button disabled={!!busy || !host.cancelIngestion} onClick={() => host.cancelIngestion && void ingest("取消", () => host.cancelIngestion!(item.itemId))}>取消</button>}
         {(item.status === "status_check_required" || (item.status === "cancelled" && item.resubmitRisk)) && <div className="inbox-confirmation inbox-resubmission">
           <p>上次提交结果未知，重新提交可能重复解析。</p>
@@ -714,7 +781,12 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
             </div>
           </div>;
         } : undefined}
-        host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
+        host={host} appearance="mist" fontSize={fontSize} visible={route === "/reading"}
+        evidenceNavigation={unifiedReading ? evidenceNavigation : undefined}
+        readingSession={unifiedReading ? {
+          view: view?.source.sourceId === selection.current.sourceId ? view : null,
+          generation, isCurrent: isCurrentSelection, accept: acceptView,
+        } : undefined} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
     {route === "/library" && <LibraryPage {...{ scoped, statusFilter, setStatusFilter, sourcesFailed, refresh, taskInbox, taskBatches, statusText, itemStatusText, continueInbox, controlBatch, sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, setConfirm, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} onTasks={() => setTaskDetails(true)} />}
     {route === "/settings" && <main className="settings-page">
       <div className="settings-shell">
@@ -783,10 +855,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <form onSubmit={e => { e.preventDefault(); void uploadAndStart(); }}>
         <h2>上传材料</h2>
         <UploadTopicPicker topics={topics} value={uploadTopic} onChange={setUploadTopic} disabled={!!busy} />
-        {!includesPdf && <label className="upload-parse-only"><input type="checkbox" disabled={!!busy} checked={!generateOnUpload} onChange={e => setGenerateOnUpload(!e.target.checked)} />仅解析入库</label>}
-        <label className="upload-file">{selectedFiles.map(f => f.name).join("、") || "PDF / HTML"}<input aria-label="上传材料" type="file" multiple disabled={!!busy} accept=".pdf,.html,application/pdf,text/html" onChange={e => setSelectedFiles(Array.from(e.target.files ?? []))} /></label>
+        {!includesPdf && !markdownOnly && <label className="upload-parse-only"><input type="checkbox" disabled={!!busy} checked={!generateOnUpload} onChange={e => setGenerateOnUpload(!e.target.checked)} />仅解析入库</label>}
+        <label className="upload-file">{selectedFiles.map(f => f.name).join("、") || "PDF / HTML / Markdown"}<input aria-label="上传材料" type="file" multiple disabled={!!busy} accept=".pdf,.html,.md,.markdown,application/pdf,text/html,text/markdown" onChange={e => selectUploadFiles(Array.from(e.target.files ?? []))} /></label>
         {error && <p role="alert">{error}</p>}
-        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length}>{busy ? "开始中…" : includesPdf ? "上传并准备阅读" : generateOnUpload ? "开始解析并生成博客" : "仅解析入库"}</button></div>
+        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length}>{busy ? "开始中…" : includesPdf ? "上传并准备阅读" : generateUploadBlog ? "开始解析并生成博客" : "仅解析入库"}</button></div>
       </form>
     </dialog>
     {blogViewer && host.blogUrl && <dialog className="workspace-blog-viewer" ref={blogDialog} aria-labelledby="blog-viewer-title" onCancel={e => { e.preventDefault(); closeBlogViewer(); }}>

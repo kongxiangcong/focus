@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Shared MinerU precision transport and PDF bundle normalization.
 
-Uses only the Python standard library. Credentials are read from MINERU_API_TOKEN
-and are never serialized. MinerU's ZIP is normalized into one compact bundle and
+Credentials are read from MINERU_API_TOKEN and are never serialized. MinerU's ZIP is normalized into one compact bundle and
 discarded after extraction.
 """
 
@@ -26,6 +25,8 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+from .mineru_artifacts import mineru_artifact_name
 
 BASE_URL = "https://mineru.net"
 TOKEN_ENV = "MINERU_API_TOKEN"
@@ -308,10 +309,15 @@ def _normalize(source: Path, archive: Path, output: Path, batch_id: str, model: 
         _safe_extract(archive, raw_root)
         markdown = _select_full_markdown(raw_root)
         paper, images = _rewrite_and_copy_images(markdown, raw_root, output)
-        (output / "content.md").write_text(paper, encoding="utf-8")
         evidence = {}
-        for name in ("middle_json.json", "model_output.json", "structured_content.json"):
-            matches = [path for path in raw_root.rglob(name) if path.is_file() and path.stat().st_size <= 64 * 1024 * 1024]
+        artifacts = {}
+        for path in raw_root.rglob("*.json"):
+            name = mineru_artifact_name(path.name)
+            if name and path.is_file() and path.stat().st_size <= 64 * 1024 * 1024:
+                artifacts.setdefault(name, []).append(path)
+        for name, matches in artifacts.items():
+            siblings = [path for path in matches if path.parent == markdown.parent]
+            matches = siblings or matches
             if len(matches) == 1:
                 raw = matches[0].read_bytes()
                 try:
@@ -326,6 +332,8 @@ def _normalize(source: Path, archive: Path, output: Path, batch_id: str, model: 
     finally:
         shutil.rmtree(raw_root, ignore_errors=True)
     shutil.copy2(source, output / "source.pdf")
+    from .source_ir import build_source_ir, publish_source_ir
+    publish_source_ir(output, build_source_ir(output, paper, source_kind="paper_pdf"))
     metadata = {
         "source_kind": "paper_pdf",
         "source_file": source.name,

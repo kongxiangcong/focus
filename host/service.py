@@ -24,7 +24,7 @@ from .progress import CORE_LABELS, activity_label
 from core import INGESTION_SERVICES, BlogApplication, IngestionApplication, AutoMinerUParser
 from core.reading_application import ReadingApplication
 from core.reading_progress import ReadingProgress, ProgressApplication
-from core.processing_application import ProcessingApplication
+from core.processing_application import ProcessingApplication, supports_ingestion_blog
 from core.batch_application import BatchApplication
 from .reading_runtime import AgentReadingRuntime
 from core.article_overview import ArticleOverview
@@ -510,9 +510,12 @@ class HostService:
             self.source_clear.recover()
             document = SourceReading(self.workspace).document(source_id)
             bundle = self.workspace / 'sources' / source_id / 'parser-bundle'
-            if (bundle / 'source.pdf').is_file():
-                from core.pdf_layout import layout
-                document['pdf'] = layout(bundle)
+            from core.source_blocks import SourceBlocks
+            from core.source_provenance import SOURCE_ORIGINALS
+            source = SourceBlocks(bundle, document['markdown'])
+            document['blocks'] = [{'blockId': block['block_id'], 'offsets': block['offsets']} for block in source.blocks]
+            if (bundle / SOURCE_ORIGINALS['paper_pdf']).is_file():
+                document['pdf'] = source.pdf
                 document['translation'] = self.reading_app.core.shared_translation(source_id, document)
             return document
 
@@ -976,7 +979,10 @@ class HostService:
         if type(generate_blog) is not bool:
             raise ValueError('生成博客选项无效。')
         app = self._batch_app()
-        with self._batch_admission(requires_backend=generate_blog), app.lock:
+        with app.lock, self._batch_admission(requires_backend=(
+            generate_blog and isinstance(item_ids, list)
+            and any(supports_ingestion_blog(self.ingestion.get(i)) for i in item_ids if isinstance(i, str))
+        )):
             with self.lock:
                 if isinstance(item_ids, list) and any(self.ingestion_workers.get(i) and self.ingestion_workers[i].is_alive() for i in item_ids if isinstance(i, str)):
                     raise WorkspaceError('batch_item_busy', '材料正在处理中，请等待原任务结束。')
@@ -1002,8 +1008,9 @@ class HostService:
 
     def batch_control(self, batch_id, action, *, request_id, item_id=None, risk_choice_id=None):
         app = self._batch_app()
-        requires_backend = action in ('continue', 'retry-item', 'resubmit-item')
-        with self._batch_admission(requires_backend=requires_backend), app.lock:
+        with app.lock, self._batch_admission(requires_backend=(
+            action in ('continue', 'retry-item', 'resubmit-item') and app.requires_backend(batch_id, item_id=item_id)
+        )):
             with self.lock:
                 worker = self.batch_workers.get(batch_id)
                 if action in ('continue', 'retry-item', 'resubmit-item') and worker and worker.is_alive() and batch_id not in app.running:
@@ -1014,8 +1021,7 @@ class HostService:
 
     @contextmanager
     def _batch_admission(self, *, requires_backend):
-        # Reserve configuration before taking the Application lock; never hold
-        # the Host lock while waiting for batch cancellation or dispatch.
+        # Reserve configuration while dispatching without holding the Host lock.
         with self.lock:
             if requires_backend:
                 self._require_backend_admission()
@@ -1072,7 +1078,7 @@ class HostService:
                 raise WorkspaceError('batch_item_busy', '请在原批次中管理此材料。')
             self._library_idle()
             processing = self._processing_app()
-            if processing.authorized(item_id):
+            if processing.wants_blog(item_id):
                 self._require_backend_admission()
             if item_id in self.ingestion_workers and self.ingestion_workers[item_id].is_alive():
                 raise ValueError('该材料正在处理中。')
@@ -1942,7 +1948,7 @@ class HostService:
             instructions = ("You are the FOCUS Source discussion assistant. Reply in the reader's language. "
                             "Use the focus dynamic tool for bound Source evidence and Source Note candidates. "
                             "Use runtime web tools for external supplementary evidence when needed. "
-                            "For every source-backed claim, call focus cite with exact original quote and line range. "
+                            "For every source-backed claim, call focus cite with an exact canonical Markdown quote and a line range or block IDs. "
                             "Insert its returned [[e:ID]] marker immediately after the supported claim. Never invent markers. "
                             "Cite validates location, not interpretation: distinguish assumptions and limitations. "
                             "External web evidence uses normal linked citations, never source markers.\n" +

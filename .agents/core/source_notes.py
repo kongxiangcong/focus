@@ -14,7 +14,7 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any
 
-from .article_blog import bundle_fingerprint
+from .source_provenance import bundle_fingerprint
 from .reading_workspace import WorkspaceError, _validate_parser_bundle, validate_source_id
 from .source_library import SourceLibrary
 

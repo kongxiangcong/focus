@@ -5,6 +5,7 @@ Formerly exercised through the retired `focus-map` skill CLI; the same
 """
 from __future__ import annotations
 
+import copy
 import json
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ from unittest import mock
 
 import reading_fixture
 from core import reading_workspace
+from core.source_ir import build_source_ir, publish_source_ir, quote_fingerprint
 
 
 class ReadingPlanTests(reading_fixture.ReadingFixture, unittest.TestCase):
@@ -94,7 +96,9 @@ class ReadingPlanTests(reading_fixture.ReadingFixture, unittest.TestCase):
         self.assertEqual(("plan-001", "chunk-001"), (response["plan_id"], response["chunk_id"]))
         plan = source_root / "reading" / "plans" / "plan-001"
         chunks = [json.loads(line) for line in (plan / "chunks.jsonl").read_text(encoding="utf-8").splitlines()]
-        self.assertEqual({"chunk_id", "index", "section_path", "source_lines", "images"}, set(chunks[0]))
+        self.assertEqual({"chunk_id", "index", "section_path", "source_lines", "images", "block_ids"}, set(chunks[0]))
+        self.assertEqual(["md-1", "md-3", "md-4"], chunks[0]["block_ids"])
+        self.assertEqual(["md-6"], chunks[1]["block_ids"])
         self.assertEqual([1, 2, 3, 4, 5], [chunk["index"] for chunk in chunks])
         self.assertEqual("array\t阵列\nsource order\t源顺序\n", (plan / "glossary.tsv").read_text(encoding="utf-8"))
         for chunk in chunks:
@@ -105,6 +109,52 @@ class ReadingPlanTests(reading_fixture.ReadingFixture, unittest.TestCase):
             {"current_plan_id": "plan-001", "current_chunk_id": "chunk-001", "reading_started": False},
             state["sources"]["Fixture-paper"],
         )
+
+    def test_projects_current_block_membership_for_saved_and_older_plans(self):
+        workspace, source_root = self._workspace()
+        bundle = source_root / "parser-bundle"
+        markdown = (bundle / "content.md").read_text(encoding="utf-8")
+        ir = build_source_ir(bundle, markdown, source_kind="paper_pdf")
+        publish_source_ir(bundle, ir)
+        self._map(workspace, draft=self._draft())
+        path = source_root / "reading" / "plans" / "plan-001" / "chunks.jsonl"
+        saved = path.read_bytes()
+
+        index = next(i for i, block in enumerate(ir["blocks"]) if block["block_id"] == "md-4")
+        original = ir["blocks"][index]
+        start = original["anchors"]["markdown"]["char_span"]["start"]
+        replacement = []
+        for key, text, separator in (
+            ("rechunked-method-start", "The array keeps", original["separator_before"]),
+            ("rechunked-method-end", "source order.", " "),
+        ):
+            block = copy.deepcopy(original)
+            block.update(block_id=key, markdown=text, plain_text=text, separator_before=separator,
+                         quote_hash=quote_fingerprint(text))
+            block["anchors"]["markdown"]["char_span"] = {"start": start, "end": start + len(text)}
+            replacement.append(block)
+            start += len(text) + 1
+        ir["blocks"][index:index + 1] = replacement
+        for index, block in enumerate(ir["blocks"], 1):
+            block["order"] = index
+        for section in ir["sections"]:
+            section["block_ids"] = [
+                identifier for key in section["block_ids"]
+                for identifier in (["rechunked-method-start", "rechunked-method-end"] if key == "md-4" else [key])
+            ]
+        publish_source_ir(bundle, ir)
+        self.assertEqual(markdown, (bundle / "content.md").read_text(encoding="utf-8"))
+        current = self.core(workspace).reading_window()["current"]
+        self.assertEqual(["md-1", "md-3", "rechunked-method-start", "rechunked-method-end"], current["block_ids"])
+        self.assertEqual(saved, path.read_bytes())
+
+        legacy = [json.loads(line) for line in saved.splitlines()]
+        for chunk in legacy:
+            del chunk["block_ids"]
+        older = "".join(json.dumps(chunk) + "\n" for chunk in legacy).encode()
+        path.write_bytes(older)
+        self.assertEqual(current, self.core(workspace).reading_window()["current"])
+        self.assertEqual(older, path.read_bytes())
 
     def test_repeated_map_reuses_current_plan_without_resetting_cursor(self):
         workspace, source_root = self._workspace()
