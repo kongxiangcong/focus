@@ -2962,6 +2962,8 @@ class HostService:
         runtime = self.runtime_paths.get(payload.get('backend'))
         if 'runtimePath' not in payload and runtime:
             payload = {**payload, 'runtimePath': runtime}
+        else:
+            payload = self.settings.setup_payload(payload)
         try:
             if action == 'check':
                 with self._foreground_ai_operation():

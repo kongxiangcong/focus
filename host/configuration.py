@@ -122,7 +122,19 @@ class UserSettings:
         return config
 
     def normalize(self, value, *, allow_missing=False):
-        return normalize(value, self.registry, allow_missing=allow_missing)
+        normalized = normalize(value, self.registry, allow_missing=allow_missing)
+        path = self.document().get('discoveredRuntimes', {}).get(normalized['backend'])
+        if path and not normalized['runtimePath']:
+            normalized['runtimePath'] = path
+        return normalized
+
+    def setup_payload(self, payload):
+        if 'runtimePath' in payload:
+            return payload
+        backend = payload.get('backend')
+        path = self.preferences().get(backend, {}).get('runtimePath')
+        path = path or self.document().get('discoveredRuntimes', {}).get(backend)
+        return {**payload, 'runtimePath': path} if path else payload
 
     def preferences(self):
         value = self.document()
@@ -140,6 +152,8 @@ class UserSettings:
         preferences = self.preferences()
         runtime_paths = {backend: preference.get('runtimePath') for backend, preference in preferences.items()
                          if isinstance(preference, dict)}
+        runtime_paths = {**self.document().get('discoveredRuntimes', {}),
+                         **{key: path for key, path in runtime_paths.items() if path}}
         if effective and effective.get('runtimePath'):
             runtime_paths[effective['backend']] = effective['runtimePath']
         return {'saved': saved, 'effective': effective, 'preferences': preferences,

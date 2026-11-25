@@ -112,7 +112,7 @@ class Backend:
                 self.cleanup['receipt'] = 'persistence_failed'
 
     def discover_models(self):
-        raise BackendConfigurationError('此 Backend 不提供模型清单，可手动输入模型。')
+        raise BackendConfigurationError('此 Backend 不提供模型清单。')
 
     def account(self):
         raise BackendConfigurationError('请通过本机 CLI 完成此 Backend 的登录。')

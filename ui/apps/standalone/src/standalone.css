@@ -472,7 +472,6 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
 .workspace-reading-versions li > div { display:grid; gap:var(--reader-gap-xs); }
 .workspace-reading-versions li span { font-size:var(--reader-label-size, 12px); color:var(--reader-secondary); }
 .workspace-reading-versions li button { flex:none; }
-.workspace-upload .upload-parse-only { display:flex; flex-direction:row; align-items:center; gap:8px; }
 .upload-file { padding:14px; border:1px dashed var(--reader-line-strong); border-radius:var(--reader-radius); overflow-wrap:anywhere; }
 .upload-file input { margin-top:8px; }
 .upload-topic-picker { position:relative; display:grid; gap:6px; }
@@ -684,3 +683,5 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
   .reading-branch-collapse, .workspace-nav .reading-branch-toggle { transition:none; }
 }
 :root[data-reduced-motion=true] :is(.reading-branch-collapse, .workspace-nav .reading-branch-toggle) { transition:none; }
+
+.upload-progress progress { display:block; width:100%; height:var(--reader-gap-xs); accent-color:var(--reader-accent); }

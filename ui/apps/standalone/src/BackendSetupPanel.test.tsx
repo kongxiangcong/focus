@@ -53,7 +53,7 @@ it("requires a choice when multiple Backends are found and preselects a sole can
   expect(backendSetup.mock.calls).toEqual([["rescan", { backend: "" }]]);
 });
 
-it("loads custom Backend models independently and accepts a manual model ID", async () => {
+it("automatically loads the selected backend catalog and saves a listed model", async () => {
   const config = { backend: "external-custom", model: null, runtimePath: null, credentialFile: null };
   const backendSetup = vi.fn(async () => readerSuccess({
     backend: config.backend, runtimePath: "/runtime", status: "success",
@@ -70,17 +70,17 @@ it("loads custom Backend models independently and accepts a manual model ID", as
   }} />);
   expect(screen.getByText("请在终端登录 External。")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /浏览器登录|登录 Codex/ })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "加载模型清单" }));
   await screen.findByRole("option", { name: "catalogued" });
   expect(screen.getByText("当前模型尚未验证。")).toBeInTheDocument();
-  fireEvent.click(screen.getByText("手动设置模型"));
-  fireEvent.change(screen.getByRole("textbox", { name: "手动输入模型" }), { target: { value: "manual-model" } });
+  expect(screen.queryByText("手动设置模型")).toBeNull();
+  fireEvent.change(screen.getByRole("combobox", { name: "模型" }), { target: { value: "catalogued" } });
   fireEvent.change(screen.getByRole("textbox", { name: "凭据文件路径" }), { target: { value: "/runtime/.env" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: "保存并应用" })).toBeEnabled());
   fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
   await waitFor(() => expect(saveBackendConfiguration).toHaveBeenCalledWith(expect.objectContaining({
-    backend: "external-custom", model: "manual-model", credentialFile: "/runtime/.env",
+    backend: "external-custom", model: "catalogued", credentialFile: "/runtime/.env",
   })));
-  expect(backendSetup).toHaveBeenCalledOnce();
+  expect(backendSetup).toHaveBeenCalledTimes(2);
 });
 
 it("checks without applying, then saves and applies only on explicit confirmation", async () => {

@@ -11,9 +11,7 @@ git clone https://github.com/kongxiangcong/focus.git
 cd focus
 python -m venv .venv
 source .venv/bin/activate       # Windows PowerShell 用 .\.venv\Scripts\Activate.ps1
-python -m pip install -r host/requirements.txt
-pnpm install --frozen-lockfile
-pnpm reader:build
+python deploy.py
 ```
 
 在仓库根目录按需新建 **`.env`**：
@@ -23,8 +21,8 @@ MINERU_API_TOKEN=
 DEEPSEEK_API_KEY=
 ```
 
-- **PDF 解析**：后端默认先检查它所在机器的本地 MinerU（`http://127.0.0.1:18765`，4.2.3 Standard Tasks V1）。本地服务可用时，`MINERU_API_TOKEN` 留空；没有本地 MinerU 时，填入 mineru.net 的 Token，使用远端精准解析 API。浏览器所在电脑的 MinerU 不参与选择。
-  在后端机器的独立 Python 3.11–3.14 环境运行 `python -m pip install "mineru==4.2.3"`，再用 `mineru-api --host 127.0.0.1 --port 18765 --tier standard` 启动服务。首次解析需准备 Standard 模型。升级前先完成旧服务中尚在运行的任务；已提交的任务绑定原服务和协议。
+- **PDF 解析**：后端默认先检查它所在机器的本地 MinerU（`http://127.0.0.1:18333`，4.2.3 Standard Tasks V1）。本地服务可用时，`MINERU_API_TOKEN` 留空；没有本地 MinerU 时，填入 mineru.net 的 Token，使用远端精准解析 API。浏览器所在电脑的 MinerU 不参与选择。
+  在后端机器的独立 Python 3.11–3.14 环境运行 `python -m pip install "mineru==4.2.3"`，再用 `mineru-api --host 127.0.0.1 --port 18333 --tier standard` 启动服务。首次解析需准备 Standard 模型。升级前先完成旧服务中尚在运行的任务；已提交的任务绑定原服务和协议。
 - **模型**使用运行 Host 的电脑上已经安装的 CLI。Codex 复用本机 ChatGPT 登录，可在网页设置页发起或取消授权。DeepSeek 使用 `dsh --profile acp`。已有 DeepSeek 凭据文件路径和模型偏好会保留，也可在设置中指定包含 `DEEPSEEK_API_KEY` 的文件。`.env` 保存在本机，已被 Git 忽略。
 
 启动网页后端：
@@ -33,9 +31,9 @@ DEEPSEEK_API_KEY=
 python -m host --network
 ```
 
-浏览器打开 <http://127.0.0.1:8765>。首次进入选择运行 Host 这台电脑上的父目录，新建可改名的 `knowledge-base`；已有新格式工作区可原地导入。路径手动输入与本机目录选择器均可使用。没有保存位置时不会自动建库；正常重启直接打开已选工作区，位置失效时可重新定位原库。设置页可在任务结束后更换工作区。Host 默认只允许本机访问。
+浏览器打开 <http://127.0.0.1:8333>。首次进入选择运行 Host 这台电脑上的父目录，新建可改名的 `knowledge-base`；已有新格式工作区可原地导入。路径手动输入与本机目录选择器均可使用。没有保存位置时不会自动建库；正常重启直接打开已选工作区，位置失效时可重新定位原库。设置页可在任务结束后更换工作区。Host 默认只允许本机访问。
 
-首次可直接进入知识库，在需要 AI 时从设置选择 Backend。内置预置包括 Codex、DeepSeek、Antigravity CLI 和 Cursor CLI。扫描只读取配置并查找本机可执行文件。设置支持重新扫描、填写已安装程序的路径、加载模型清单和手动输入模型。连接检查会让实际选中的模型通过 FOCUS 工具读取一段临时原文，模型清单加载与这项验证分别运行。首次发送时，如配置尚未通过验证，FOCUS 先检测，通过后自动继续原请求。
+首次可直接进入知识库，在需要 AI 时从设置选择 Backend。内置预置包括 Codex、DeepSeek、Antigravity CLI 和 Cursor CLI。扫描只读取配置并查找本机可执行文件。部署脚本记录 CLI 的绝对入口。服务使用同一用户设置文件即可复用这些路径。安装或更新 CLI 后可运行 `python deploy.py --discover-only`。在设置中选择后端，再从模型清单选择并保存。连接检查会让实际选中的模型通过 FOCUS 工具读取一段临时原文，模型清单加载与这项验证分别运行。首次发送时，如配置尚未通过验证，FOCUS 先检测，通过后自动继续原请求。
 
 “保存并应用”会复用匹配的检测回执，或先检测再切换。前台任务运行时暂缓切换。Backend 和模型偏好在同一个 Host 的工作区之间共用。Windows 默认设置位置为 `%LOCALAPPDATA%/FOCUS/settings.json`，可用 `FOCUS_SETTINGS_FILE` 指定独立配置。自定义 Backend 的 JSON Manifest 放在实际设置文件同级的 `backends/` 目录，也可指定其他目录。
 

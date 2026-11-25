@@ -89,7 +89,7 @@ export function BackendSetupPanel({ host, configuration, onSaved }: {
     const version = action === "login-start" ? ++revision.current : revision.current;
     setLoginBusy(true); setFeedback(""); setError("");
     try {
-      const selection = action === "login-start" ? input : loginInput.current ?? input;
+      const selection = action === "login-start" ? { ...input, runtimePath: input.runtimePath ?? selectedBackend?.runtimePath } : loginInput.current ?? input;
       const payload = { ...selection, loginId: login?.loginId };
       if (action === "login-start") {
         const prepared = await host.backendSetup("prepare", payload);
@@ -124,7 +124,7 @@ export function BackendSetupPanel({ host, configuration, onSaved }: {
     setChecking(true); setFeedback(""); setError(""); setChecked(null);
     try {
       // Reuse a previously configured runtime for the same backend, without exposing its path.
-      const runtimePath = input.runtimePath;
+      const runtimePath = input.runtimePath ?? selectedBackend?.runtimePath;
       const payload = { ...input, runtimePath };
       const prepared = await host.backendSetup("prepare", payload);
       if (!alive.current || version !== revision.current) return;
@@ -146,7 +146,7 @@ export function BackendSetupPanel({ host, configuration, onSaved }: {
     const version = ++revision.current;
     setChecking(true); setError(""); setFeedback("");
     try {
-      const result = await host.backendSetup("models", input);
+      const result = await host.backendSetup("models", { ...input, runtimePath: input.runtimePath ?? selectedBackend?.runtimePath });
       if (!alive.current || version !== revision.current) return;
       if (result.ok) {
         setCatalog(previous => ({ ...previous, [catalogKey(input)]: result.value }));
@@ -180,49 +180,47 @@ export function BackendSetupPanel({ host, configuration, onSaved }: {
     finally { if (alive.current && version === revision.current) setChecking(false); }
   }
 
+  const discovery = selectedBackend?.capabilities?.modelDiscovery;
+  const selectedPath = selectedBackend?.runtimePath;
+  const installed = selectedBackend?.available;
+  useEffect(() => {
+    if (discovered && installed !== false && discovery && discovery !== "none") void loadModels();
+  }, [input.backend, input.credentialFile, input.runtimePath, selectedPath, installed, discovery, scan]);
+
   const currentCatalog = catalog[catalogKey(input)];
   const options = [...new Set([...(currentCatalog?.models ?? []), input.model ?? ""])].filter(Boolean);
   const manifestErrors = scan?.backendErrors ?? configuration?.backendErrors ?? [];
   return <section className="backend-setup focus-reader__appearance-panel" aria-label="模型与后端">
     <h2>模型与后端</h2>
     {configuration?.startupError && <p role="alert">{configuration.startupError}</p>}
-    {discovered && available.length === 0 && <p>未找到可用的 Backend。请安装，或选择一项后指定可执行文件。</p>}
+    {discovered && available.length === 0 && <p>未发现 CLI。请安装所需 CLI 后重新运行部署脚本 python deploy.py --discover-only。</p>}
     {!!manifestErrors.length && <ul aria-label="Backend 配置错误">{manifestErrors.map(({ file, message }) =>
       <li key={file}>{file} · {message}</li>)}</ul>}
     <fieldset disabled={loginBusy || !!login}>
       <legend>选择后端</legend>
       {backends.map(({ id, label, available: installed, installHint }) => <label key={id}
         title={installed === undefined ? undefined : installed ? "已找到可执行文件" : installHint}>
-        <input type="radio" name="setup-backend" checked={input.backend === id}
+        <input type="radio" name="setup-backend" disabled={installed === false} checked={input.backend === id}
           onChange={() => change((Object.hasOwn(drafts.current, id) && drafts.current[id]) || { backend: id })} />
         {label}
       </label>)}
       <label>模型<select disabled={!input.backend} value={input.model ?? ''} onChange={event => change({ ...input, model: event.target.value || undefined })}>
-        <option value="">{selectedBackend?.defaultModel === null ? "请选择或手动输入模型" : "使用默认模型"}</option>
+        <option value="">{selectedBackend?.defaultModel === null ? "请选择模型" : "使用默认模型"}</option>
         {options.map(model => <option key={model} value={model}>{model}</option>)}
       </select></label>
-      <details>
-        <summary>手动设置模型</summary>
-        <label>手动输入模型<input disabled={!input.backend} value={input.model ?? ""} onChange={event => change({ ...input, model: event.target.value || undefined })} /></label>
-      </details>
       {!!selectedBackend?.credentialEnv?.length && <label>凭据文件路径<input value={input.credentialFile ?? ""}
         onChange={event => change({ ...input, credentialFile: event.target.value || undefined })} /></label>}
-      {discovered && input.backend && <details open={selectedBackend?.available === false || undefined}>
-        <summary>可执行文件</summary>
-        <label>可执行文件路径<input value={input.runtimePath ?? ""} placeholder={selectedBackend?.runtimePath ?? "输入本机安装路径"}
-          onChange={event => change({ ...input, runtimePath: event.target.value || null })} /></label>
-      </details>}
     </fieldset>
     {selectedBackend?.available === false && <p>{selectedBackend.unavailableReason ?? selectedBackend.installHint}</p>}
     {selectedBackend?.capabilities?.authMode === "external-cli" && selectedBackend.loginHint && <p>{selectedBackend.loginHint}</p>}
     <div className="backend-setup__actions">
     {discovered && <button type="button" disabled={scanning || checking || loginBusy || !!login || !host.backendSetup}
       onClick={() => void rescan()}>{scanning ? "正在扫描…" : "重新扫描 Backend"}</button>}
-    <button type="button" disabled={!selectedBackend || needsModel || scanning || checking || loginBusy || !!login || !host.backendSetup}
+    <button type="button" disabled={!selectedBackend || selectedBackend.available === false || needsModel || scanning || checking || loginBusy || !!login || !host.backendSetup}
       onClick={() => void check()}>{checking ? "检查中…" : "连接检查"}</button>
     {selectedBackend?.capabilities?.modelDiscovery && selectedBackend.capabilities.modelDiscovery !== "none" &&
       <button type="button" disabled={scanning || checking || loginBusy || !!login || !host.backendSetup} onClick={() => void loadModels()}>
-        {currentCatalog?.catalogStatus === "failed" ? "重试模型清单" : "加载模型清单"}
+        {error || currentCatalog?.catalogStatus === "failed" ? "重试模型清单" : "加载模型清单"}
       </button>}
     {selectedBackend?.capabilities?.authMode === "interactive-oauth" &&
       <button type="button" disabled={scanning || checking || loginBusy || !!login || !host.backendSetup}
@@ -233,7 +231,7 @@ export function BackendSetupPanel({ host, configuration, onSaved }: {
     {login?.authUrl && <p><a href={login.authUrl} target="_blank" rel="noopener noreferrer">打开浏览器授权</a>
       <button type="button" disabled={loginBusy} onClick={() => void loginOperation("login-cancel")}>取消登录</button></p>}
     <div className="backend-setup__actions backend-setup__save-actions">
-    <button type="button" className="workspace-primary" disabled={!selectedBackend || needsModel || scanning || checking || loginBusy || !!login || configuration?.busy }
+    <button type="button" className="workspace-primary" disabled={!selectedBackend || selectedBackend.available === false || needsModel || scanning || checking || loginBusy || !!login || configuration?.busy }
       onClick={() => void save()}>保存并应用</button>
     <button type="button" disabled={checking || loginBusy || !!login} onClick={() => {
       const backend = saved?.backend ?? suggested;

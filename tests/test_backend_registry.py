@@ -6,6 +6,8 @@ import time
 import unittest
 from unittest.mock import patch
 
+from deploy import discover
+from host.configuration import UserSettings
 import reading_fixture
 from host.workbench import Workbench
 from workspace_fixture import publish_workspace
@@ -13,6 +15,36 @@ from test_workspace_portability import test_directory as fixture_directory
 
 
 class BackendRegistryTests(unittest.TestCase):
+    @unittest.skipIf(os.name == 'nt', 'POSIX symlink entry points')
+    def test_deployed_entry_survives_service_path_and_cli_upgrade(self):
+        with fixture_directory() as root:
+            bins = root / 'bin'
+            bins.mkdir()
+            for name in ('codex', 'cursor-v1', 'agy', 'dsh'):
+                binary = bins / name
+                binary.touch(mode=0o700)
+            entry = bins / 'agent'
+            entry.symlink_to('cursor-v1')
+            settings = UserSettings(root / 'settings.json')
+            settings.save({'backend': 'cursor', 'model': 'my-model'})
+            with patch.dict(os.environ, {'PATH': str(bins)}):
+                discover(settings)
+                discover(settings)
+            entry.unlink()
+            (bins / 'cursor-v1').rename(bins / 'cursor-v2')
+            entry.symlink_to('cursor-v2')
+            with patch.dict(os.environ, {'PATH': ''}):
+                app = Workbench(settings_path=settings.path)
+                try:
+                    for backend, command in [('codex', 'codex'), ('cursor', 'agent'), ('agy', 'agy'), ('deepseek', 'dsh')]:
+                        inspected = app.backend_setup('inspect', {'backend': backend})
+                        self.assertEqual('installed', inspected['status'])
+                        self.assertTrue((bins / command).samefile(inspected['runtimePath']))
+                        self.assertEqual(str(bins / command), app.settings.document()['discoveredRuntimes'][backend])
+                    self.assertEqual('my-model', app.configuration_status()['saved']['model'])
+                finally:
+                    app.close()
+
     def test_first_workspace_binding_does_not_launch_or_select_a_backend(self):
         with fixture_directory() as root, patch('host.backends.registry.shutil.which', return_value=None), \
                 patch('host.backends.registry._codex_bundled', side_effect=FileNotFoundError), \

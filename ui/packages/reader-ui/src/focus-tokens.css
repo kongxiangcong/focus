@@ -88,8 +88,8 @@
   --reader-success-bg:#f0fdf4;
   --reader-warning-bg:#fbf5ea;
   /* Boundaries */
-  --reader-line:#e5e7eb;
-  --reader-line-strong:#d1d5db;
+  --reader-line:#b9bfc8;
+  --reader-line-strong:#868e9a;
   --reader-hover:rgba(17,24,39,.055);
   --reader-backdrop:rgba(17,24,39,.42);
   --reader-selected:var(--reader-accent-soft);
@@ -98,7 +98,7 @@
   --reader-serif:"FOCUS Source Han Serif","Iowan Old Style","Palatino Linotype","Noto Serif CJK SC","Songti SC","SimSun",Georgia,serif;
   --reader-ui:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;
   --reader-mono:ui-monospace,SFMono-Regular,Consolas,monospace;
-  --reader-ui-size:13px;
+  --reader-ui-size:14px;
   --reader-prose-size:18px;
   --reader-prose-leading:1.86;
   --reader-conversation-size:15px;
@@ -122,29 +122,29 @@
   --reader-shadow:0 0 0 1px rgba(29,33,37,.07),0 1px 2px rgba(29,33,37,.04),0 12px 32px -18px rgba(29,33,37,.22);
   --reader-shadow-hover:0 4px 24px rgba(0,0,0,.06),inset 0 0 0 1px var(--reader-line-strong);
   --reader-shadow-popover:0 0 0 1px rgba(29,33,37,.08),0 4px 10px -4px rgba(29,33,37,.10),0 18px 44px -18px rgba(29,33,37,.30);
-  /* Geometry: compact density (§6.3) */
-  --reader-control-h:24px;
-  --reader-action-h:32px;
+  /* Geometry: comfortable spacing (§6.3) */
+  --reader-control-h:32px;
+  --reader-action-h:36px;
   --reader-pill:999px;
-  --reader-control-h-sm:18px;
-  --reader-radius:6px;
-  --reader-card-radius:10px;
-  --reader-composer-radius:26px;
-  --reader-composer-send:36px;
+  --reader-control-h-sm:22px;
+  --reader-radius:8px;
+  --reader-card-radius:12px;
+  --reader-composer-radius:28px;
+  --reader-composer-send:40px;
   --reader-composer-inset:7px;
   --reader-composer-reference-radius:10px;
   --reader-composer-draft-dot:6px;
   --reader-dialog-radius:16px;
   --reader-bubble-radius:18px;
-  --reader-icon:16px;
+  --reader-icon:20px;
   --reader-border-width:1px;
   --reader-gap-3xs:2px;
   --reader-gap-2xs:4px;
-  --reader-gap-xs:6px;
-  --reader-gap-sm:8px;
-  --reader-gap:12px;
-  --reader-gap-lg:20px;
-  --reader-gap-xl:32px;
+  --reader-gap-xs:8px;
+  --reader-gap-sm:12px;
+  --reader-gap:16px;
+  --reader-gap-lg:28px;
+  --reader-gap-xl:40px;
   --reader-column:1040px;
   --reader-nav:288px;
   --reader-nav-min:240px;
@@ -243,8 +243,8 @@
   --reader-error-bg:#2c1618;
   --reader-success-bg:#132a1e;
   --reader-warning-bg:#2b2212;
-  --reader-line:rgba(255,255,255,.08);
-  --reader-line-strong:rgba(255,255,255,.17);
+  --reader-line:#535961;
+  --reader-line-strong:#737c88;
   --reader-hover:rgba(255,255,255,.06);
   --reader-backdrop:rgba(0,0,0,.65);
   --reader-measure-panel-shadow:0 8px 24px #0007;
@@ -253,25 +253,9 @@
   --reader-shadow-hover:0 4px 24px rgba(0,0,0,.45),inset 0 0 0 1px var(--reader-line-strong);
   --reader-shadow-popover:0 0 0 1px rgba(232,230,225,.10),0 18px 44px -16px rgba(0,0,0,.75);
 }
-:root[data-density=comfortable] {
-  --reader-control-h:32px;
-  --reader-action-h:36px;
-  --reader-control-h-sm:22px;
-  --reader-radius:8px;
-  --reader-card-radius:12px;
-  --reader-composer-radius:28px;
-  --reader-composer-send:40px;
-  --reader-icon:20px;
-  --reader-gap-xs:8px;
-  --reader-gap-sm:12px;
-  --reader-gap:16px;
-  --reader-gap-lg:28px;
-  --reader-gap-xl:40px;
-  --reader-ui-size:14px;
-}
 @media(prefers-contrast:more) {
   :root { --reader-line:var(--reader-line-strong); --reader-faint:var(--reader-secondary); }
 }
 
-@media(max-width:599px) { :root, :root[data-density] { --reader-action-h:40px; } }
-@media(pointer:coarse) { :root, :root[data-density] { --reader-action-h:44px; --reader-composer-send:44px; --reader-composer-inset:6px; } }
+@media(max-width:599px) { :root { --reader-action-h:40px; } }
+@media(pointer:coarse) { :root { --reader-action-h:44px; --reader-composer-send:44px; --reader-composer-inset:6px; } }

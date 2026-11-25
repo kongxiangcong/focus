@@ -107,7 +107,7 @@ it("accepts saved HTML and defaults to parsing with blog generation", async () =
   fireEvent.change(screen.getByRole("combobox", { name: "专题" }), { target: { value: "编译" } });
   const file = new File(["<html>article</html>"], "article.html", { type: "text/html" });
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [file] } });
-  expect(screen.getByRole("checkbox", { name: "仅解析入库" })).not.toBeChecked();
+  expect(screen.queryByRole("checkbox", { name: "仅解析入库" })).toBeNull();
   expect(screen.queryByText(/本地 HTML 解析器（不上传原件）/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["html-1"], expect.any(String), true));
@@ -122,7 +122,7 @@ it("offers Markdown in the file picker and starts a dropped Markdown-only batch 
   const file = new File(["# Notes"], staged.fileName, { type: "text/markdown" });
   fireEvent.drop(screen.getByRole("main"), { dataTransfer: { files: [file] } });
   expect(screen.getByLabelText("上传材料")).toHaveAttribute("accept", expect.stringContaining(".md,.markdown"));
-  fireEvent.click(screen.getByRole("button", { name: "仅解析入库" }));
+  fireEvent.click(screen.getByRole("button", { name: "导入 Markdown" }));
   await waitFor(() => expect(host.stageIngestion).toHaveBeenCalledWith(file, {}));
   await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["md-1"], expect.any(String), false));
 });
@@ -563,7 +563,7 @@ it.each([
   await waitFor(() => expect(screen.getByRole("heading", { name: "A Paper" }).closest("article")).toHaveAttribute("data-status", expected));
 });
 
-it("T23/T24 allows unclassified parse-only upload with an explicit immutable scope", async () => {
+it("T23/T24 uploads unclassified HTML and generates its blog", async () => {
   const { host } = setup();
   await screen.findByRole("heading", { name: "A Paper" });
   fireEvent.click(screen.getByRole('button', { name: /^编译/ }));
@@ -572,11 +572,10 @@ it("T23/T24 allows unclassified parse-only upload with an explicit immutable sco
   fireEvent.click(screen.getByRole('button', { name: '展开已有专题' }));
   fireEvent.click(within(screen.getByRole('listbox', { name: '已有专题' })).getByRole('option', { name: '不关联专题' }));
   expect(screen.getByRole('combobox', { name: '专题' })).toHaveValue('');
-  fireEvent.click(screen.getByRole("checkbox", { name: "仅解析入库" }));
   const file = new File(["<html>test</html>"], "unclassified.html");
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [file] } });
-  fireEvent.click(screen.getByRole("button", { name: "仅解析入库" }));
-  await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String), false));
+  fireEvent.click(screen.getByRole("button", { name: "开始解析并生成博客" }));
+  await waitFor(() => expect(host.startBatch).toHaveBeenCalledWith(["item-1"], expect.any(String), true));
   expect(host.stageIngestion).toHaveBeenCalledWith(file, {});
 });
 
@@ -600,11 +599,6 @@ it.each(["existing", "new", "unclassified"] as const)("uploads with a %s topic f
     fireEvent.keyDown(topic, { key: "Enter" });
     expect(topic).toHaveValue("");
   }
-  const parseOnly = screen.getByRole("checkbox", { name: "仅解析入库" });
-  fireEvent.click(parseOnly);
-  expect(parseOnly).toBeChecked();
-  fireEvent.click(parseOnly);
-  expect(parseOnly).not.toBeChecked();
   const file = new File(["%PDF test"], "topic.pdf");
   fireEvent.change(screen.getByLabelText("上传材料"), { target: { files: [file] } });
   fireEvent.click(screen.getByRole("button", { name: "上传并准备阅读" }));

@@ -1,4 +1,4 @@
-import { LibraryProgress } from "./LibraryProgress";
+import { UploadProgress } from "./UploadProgress";
 import type { IngestionItem, LibrarySource, LibraryTopic, ProcessingBatch } from "@focus/reader-contracts";
 import { UNFILED } from "./topic-view";
 import { ingestionFormat } from "./ingestion-format";
@@ -17,20 +17,19 @@ export function IngestionRows({ sources, topics, topic, taskInbox, taskBatches, 
   const rows = [
     ...taskInbox.filter(item => pending(item) && matchesTopic(item.topicId, item.topicTitle)).map(item => {
       const recoverable = !item.resubmitRisk && ["retry_waiting", "failed", "commit_conflict", "topic_attachment_pending", "interrupted", "cancelled"].includes(item.status);
-      return { key: `inbox:${item.itemId}`, item, status: statusText[item.status], parser: item.parserProgress?.status === "queued" ? "排队中" : item.parserProgress?.status === "running" ? "解析中" : item.parserProgress?.status, target: target(item.topicId, item.topicTitle), label: "继续", disabled: !!busy || !canContinue, recover: recoverable ? () => continueInbox(item) : undefined };
+      return { key: `inbox:${item.itemId}`, item, status: statusText[item.status], target: target(item.topicId, item.topicTitle), label: "继续", disabled: !!busy || !canContinue, recover: recoverable ? () => continueInbox(item) : undefined };
     }),
     ...taskBatches.flatMap(batch => batch.items.filter(item => pending(item) && matchesTopic(batch.topicId)).map(item => {
       const recoverable = !item.resubmitRisk && ["failed", "partial", "cancelled"].includes(item.status);
-      return { key: `batch:${batch.batchId}:${item.itemId}`, item, status: `${itemStatusText[item.status]} · ${item.ingestionStatus === "completed" ? "解析完成" : "解析：" + (statusText[item.ingestionStatus as IngestionItem["status"]] ?? "待处理")}`, parser: item.parserProgress?.status ? item.parserProgress.status === "queued" ? "排队中" : "解析中" : undefined, target: target(batch.topicId), label: "重试未完成步骤", disabled: !!busy || !!batch.executing || !canControl, recover: recoverable ? () => void controlBatch(batch.batchId, "retry-item", item.itemId) : undefined };
+      return { key: `batch:${batch.batchId}:${item.itemId}`, item, status: `${itemStatusText[item.status]} · ${item.ingestionStatus === "completed" ? "解析完成" : "解析：" + (statusText[item.ingestionStatus as IngestionItem["status"]] ?? "待处理")}`, target: target(batch.topicId), label: "重试未完成步骤", disabled: !!busy || !!batch.executing || !canControl, recover: recoverable ? () => void controlBatch(batch.batchId, "retry-item", item.itemId) : undefined };
     })),
   ];
   if (!rows.length) return null;
-  return <section className="library-ingestions" aria-label="入库中">{rows.map(({ key, item, status, parser, target, label, disabled, recover }) => {
-    const percent = typeof item.parserProgress?.percent === "number" && Number.isFinite(item.parserProgress.percent) ? item.parserProgress.percent : undefined;
+  return <section className="library-ingestions" aria-label="入库中">{rows.map(({ key, item, status, target, label, disabled, recover }) => {
     return <article className="library-ingestion" key={key} data-item-id={item.itemId}>
       <span className="source-badge">{ingestionFormat(item.fileName)}</span>
-      <div className="library-source-main"><strong>{item.fileName}</strong><div className="library-source-meta"><span role="status">{item.parserBackend ? `${item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"} · ` : ""}{status}{item.selectionReason ? ` · ${item.selectionReason}` : ""}{parser ? ` · ${parser}` : ""}</span>{percent !== undefined && <span>{Math.round(percent)}%</span>}</div><small>{target ? `将加入 #${target}` : "不关联专题"}</small></div>
-      {percent !== undefined && <LibraryProgress label={`${item.fileName} 解析进度`} max={100} value={Math.max(0, Math.min(100, percent))} />}
+      <div className="library-source-main"><strong>{item.fileName}</strong><div className="library-source-meta"><span role="status">{item.parserBackend ? `${item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"} · ` : ""}{status}{item.selectionReason ? ` · ${item.selectionReason}` : ""}</span></div><small>{target ? `将加入 #${target}` : "不关联专题"}</small></div>
+      <UploadProgress item={item} blog={("blog" in item && item.blog) || undefined} />
       {recover && <button disabled={disabled} onClick={recover}>{label}</button>}
       <button aria-label={`${item.fileName} 任务详情`} onClick={onTasks}>任务详情</button>
     </article>;

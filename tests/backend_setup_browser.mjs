@@ -51,7 +51,6 @@ try {
   assert.equal(fs.existsSync(fixtureLog), false);
 
   await radio(page, 'Fixture Alpha').check();
-  await page.getByRole('button', { name: '加载模型清单', exact: true }).click();
   await page.getByRole('option', { name: '["fixture-provider","selected-model"]' }).waitFor({ state: 'attached' });
   await page.getByText('当前模型尚未验证。', { exact: true }).waitFor();
   await page.getByRole('button', { name: '连接检查', exact: true }).click();

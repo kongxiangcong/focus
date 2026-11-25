@@ -32,7 +32,7 @@ class BackendStartupTests(unittest.TestCase):
                     FOCUS_BACKEND_BIN=str(root / 'missing.exe')), capture_output=True, text=True, timeout=15)
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertIn('example:', result.stdout)
-            self.assertIn(str(Path(sys.executable).resolve()), result.stdout)
+            self.assertIn(str(Path(sys.executable).absolute()), result.stdout)
 
     def test_overrides_survive_workspace_changes_and_restart_restores_saved_values(self):
         with fixture_directory() as root:

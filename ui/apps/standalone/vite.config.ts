@@ -7,11 +7,11 @@ export default defineConfig({
   build: { assetsInlineLimit: 0 },
   server: {
     proxy: Object.fromEntries(["/reader", "/library/topics", "/library/sources", "/library/inbox", "/library/batches"].map(path => [path, {
-      target: "http://127.0.0.1:8765", changeOrigin: true,
+      target: "http://127.0.0.1:8333", changeOrigin: true,
       configure(proxy) {
         proxy.on("proxyReq", (req, incoming) => {
           const origin = incoming.headers.origin;
-          if (origin === "http://localhost:5173" || origin === "http://127.0.0.1:5173") req.setHeader("Origin", "http://127.0.0.1:8765");
+          if (origin === "http://localhost:5173" || origin === "http://127.0.0.1:5173") req.setHeader("Origin", "http://127.0.0.1:8333");
         });
       },
     } satisfies ProxyOptions])),

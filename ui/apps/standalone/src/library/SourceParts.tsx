@@ -1,9 +1,10 @@
 import { BatteryProgress } from "./BatteryProgress";
 import type { ReactNode } from "react";
-import type { BlogStatus, LibrarySource, LibraryTopic } from "@focus/reader-contracts";
+import type { BlogStatus, ProcessingBatch, LibrarySource, LibraryTopic } from "@focus/reader-contracts";
 import { blogSummary, type SourceStatus, type primaryAction } from "./source-status";
 
 export type SourceViewProps = {
+  uploadItem?: ProcessingBatch["items"][number];
   source: LibrarySource; status: SourceStatus; action: ReturnType<typeof primaryAction>; blog: BlogStatus | undefined;
   topics: readonly LibraryTopic[]; selected: boolean; expanded: boolean; candidate: boolean; menu: ReactNode;
   unified?: boolean; onOverview?: () => void; onBlog?: () => void;
