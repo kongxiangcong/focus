@@ -39,14 +39,18 @@ class AcpDiscussionTests(unittest.TestCase):
 
     def start(self, request, content):
         selected = self.host.select_discussion_source('fixture-paper')
-        self.host.start({'requestId': request, 'sourceId': 'fixture-paper',
-                         'sessionId': selected['sessionId'], 'content': content})
+        started = self.host.start({'requestId': request, 'sourceId': 'fixture-paper',
+                                   'sessionId': selected['sessionId'], 'content': content})
+        self.latest_run_id = started['agent']['run']['runId']
 
     def finished(self, status):
         self.host.worker.join(12)
         self.assertFalse(self.host.worker.is_alive(), 'discussion did not finish')
         snapshot = self.host.snapshot()
-        self.assertEqual(status, snapshot['agent']['run']['status'], snapshot['agent']['run'])
+        run = self.host.execution_log(self.latest_run_id)
+        self.assertEqual(status, run['status'], run)
+        if status == 'completed':
+            self.assertIsNone(snapshot['agent']['run'])
         return snapshot
 
     def turn(self, number):
@@ -58,20 +62,22 @@ class AcpDiscussionTests(unittest.TestCase):
             return []
         return [json.loads(line) for line in self.log_path.read_text(encoding='utf-8').splitlines()]
 
-    def approval(self, *, expired=False, timeout=5):
+    def approval(self, *, timeout=5):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             run = self.host.snapshot()['agent']['run']
-            matched = [item for item in run['approvals'] if (item.get('status') == 'expired') == expired]
+            matched = run['approvals'] if run else []
             if matched:
                 return matched[0]
             time.sleep(.03)
-        self.fail(f'Expected {"expired" if expired else "active"} approval: {run}')
+        self.fail(f'Expected active approval: {run}')
 
     def test_fresh_sessions_use_host_history_and_both_mcp_transports(self):
         first = self.turn(1)
+        first_run = self.latest_run_id
         self.assertEqual('Evidence: The alias address keeps source order.', first['conversation'][-1]['content'])
         second = self.turn(2)
+        second_run = self.latest_run_id
         # Exercise loading an already-compacted prefix without another summary request.
         discussion_id = first['conversation'][0]['discussionId']
         with self.host.lock:
@@ -85,8 +91,8 @@ class AcpDiscussionTests(unittest.TestCase):
         self.assertEqual(6, len(third['conversation']))
         self.assertEqual(first['conversation'][-1]['content'], third['conversation'][-1]['content'])
         self.assertEqual([], third['sourceNotes'])
-        for snapshot in (first, second, third):
-            run = snapshot['agent']['run']
+        for run_id in (first_run, second_run, self.latest_run_id):
+            run = self.host.execution_log(run_id)
             self.assertEqual('process_closed', run['runtimeCleanup']['release'])
             self.assertTrue(any(activity['title'] == 'mcpToolCall' and activity['status'] == 'completed'
                                 for activity in run['activity']))
@@ -115,7 +121,8 @@ class AcpDiscussionTests(unittest.TestCase):
         self.assertIn('Inspect selected fixture', old['detail'])
         self.log_path.with_suffix('.release').touch()
         failed = self.finished('failed')
-        self.assertEqual(old['id'], self.approval(expired=True)['id'])
+        self.assertEqual([], failed['agent']['run']['approvals'])
+        self.assertEqual(old['id'], self.host.execution_log(self.latest_run_id)['approvals'][0]['id'])
         with self.assertRaisesRegex(ValueError, '本次请求已过期，请重试'):
             self.host.approve({'approvalId': old['id'], 'decision': 'accept'})
         disconnected = next(event for event in self.events() if event['kind'] == 'expiry-disconnect')
@@ -154,7 +161,8 @@ class AcpDiscussionTests(unittest.TestCase):
         approval = self.approval()
         self.host.stop()
         snapshot = self.finished('interrupted')
-        self.assertEqual(approval['id'], self.approval(expired=True)['id'])
+        self.assertEqual([], snapshot['agent']['run']['approvals'])
+        self.assertEqual(approval['id'], self.host.execution_log(self.latest_run_id)['approvals'][0]['id'])
         self.assertEqual('process_closed', snapshot['agent']['run']['runtimeCleanup']['release'])
         events = self.events()
         self.assertIn({'outcome': 'cancelled'}, [event.get('decision') for event in events])
@@ -204,8 +212,13 @@ class AcpDiscussionTests(unittest.TestCase):
     def test_mcp_timeout_expires_confirmation_while_the_acp_turn_is_still_alive(self):
         self.start('fixture-acp-mcp-expiry', 'mcp-disconnect')
         approval = self.approval()
-        self.assertEqual(approval['id'], self.approval(expired=True)['id'])
-        self.assertEqual('running', self.host.snapshot()['agent']['run']['status'])
+        deadline = time.monotonic() + 5
+        run = self.host.snapshot()['agent']['run']
+        while run['approvals'] and time.monotonic() < deadline:
+            time.sleep(.03)
+            run = self.host.snapshot()['agent']['run']
+        self.assertEqual([], run['approvals'])
+        self.assertEqual('running', run['status'])
         with self.assertRaisesRegex(ValueError, '本次请求已过期，请重试'):
             self.host.approve({'approvalId': approval['id'], 'decision': 'accept'})
         self.log_path.with_suffix('.release').touch()

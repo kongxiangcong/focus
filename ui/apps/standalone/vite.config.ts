@@ -1,11 +1,8 @@
-import { viteStaticCopy } from "vite-plugin-static-copy";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type ProxyOptions } from "vite";
 
 export default defineConfig({
-  plugins: [react(), viteStaticCopy({ targets: ["cmaps", "standard_fonts", "wasm", "iccs"].map(folder => ({
-    src: `../../packages/reader-ui/node_modules/pdfjs-dist/${folder}`, dest: "pdfjs",
-  })) })],
+  plugins: [react()],
   // Host CSP permits same-origin fonts; keep small KaTeX fonts out of data URLs.
   build: { assetsInlineLimit: 0 },
   server: {

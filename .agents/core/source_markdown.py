@@ -19,6 +19,24 @@ def source_lines(markdown):
     return markdown.removesuffix('\n').split('\n') if markdown else []
 
 
+def document_language(markdown):
+    """Classify the document’s prose independently of parser/OCR settings."""
+    prose = []
+    cursor = 0
+    for start, end in sorted(verbatim_ranges(markdown)):
+        prose.append(markdown[cursor:start])
+        cursor = max(cursor, end)
+    prose.append(markdown[cursor:])
+    markdown = re.sub(r'\]\([^\n)]+\)|https?://\S+|\$[^\n$]+\$', '', ' '.join(prose))
+    han = len(re.findall(r'[\u3400-\u9fff\U00020000-\U000323af]', markdown))
+    letters = sum(character.isalpha() for character in markdown)
+    if han and han * 4 >= letters:
+        return 'zh'
+    if han >= 12 and han * 12 >= letters:
+        return 'mixed'
+    return 'en'
+
+
 def has_readable_text(markdown, start, end):
     """Count image alt and surrounding text, skipping image and reference storage syntax."""
     def label_key(label):

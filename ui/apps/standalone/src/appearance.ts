@@ -1,20 +1,40 @@
 export type Theme = "light" | "dark" | "system";
 export type Density = "compact" | "comfortable";
+export const accents = ["blue", "green", "red", "neutral"] as const;
+export type Accent = typeof accents[number];
+
+declare global {
+  interface Window {
+    focusTheme?: {
+      preference: Theme;
+      accent: Accent;
+      systemColorScheme?: MediaQueryList;
+      resolve: (theme: Theme) => Exclude<Theme, "system">;
+    };
+  }
+}
 
 export function readPreference<T extends string>(key: string, values: readonly T[], fallback: T): T {
   try { const value = localStorage.getItem(key); return values.includes(value as T) ? value as T : fallback; }
   catch { return fallback; }
 }
 
+export const readTheme = (): Theme => window.focusTheme?.preference ?? "light";
+export const readAccent = (): Accent => window.focusTheme?.accent ?? "blue";
+export const systemColorScheme = () => window.focusTheme?.systemColorScheme;
+
 /** Presentation only: never invokes Host configuration or connectivity. */
-export function applyAppearance(theme: Theme, density: Density, reducedMotion = false) {
-  const resolved = theme === "system" ? (globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light") : theme;
+export function applyAppearance(theme: Theme, accent: Accent, density: Density, reducedMotion = false) {
+  const settings = window.focusTheme;
+  if (settings) { settings.preference = theme; settings.accent = accent; }
+  const resolved = settings?.resolve(theme) ?? (theme === "dark" ? "dark" : "light");
   document.documentElement.dataset.reducedMotion = String(reducedMotion);
   document.documentElement.dataset.theme = resolved;
+  document.documentElement.dataset.accent = accent;
   document.documentElement.dataset.density = density;
 }
 
 export function initializeAppearance() {
-  applyAppearance(readPreference("focus.theme", ["light", "dark", "system"], "system"),
+  applyAppearance(readTheme(), readAccent(),
     readPreference("focus.density", ["compact", "comfortable"], "compact"), readPreference("focus.reducedMotion", ["true", "false"], "false") === "true");
 }

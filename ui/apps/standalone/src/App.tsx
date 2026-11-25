@@ -50,7 +50,7 @@ export function App() {
   }, []);
   if (checking) return <main className="focus-login"><h1>FOCUS</h1><p role="status">正在打开…</p></main>;
   if (expired) return <main className="focus-login"><h1>工作区已更换</h1><p>旧操作已暂停，旧草稿不会提交到新工作区。</p><button onClick={() => location.reload()}>重新载入</button></main>;
-  if (ready && binding && !binding.bound) return <main className="focus-entry"><WorkspaceSelection status={binding} onOpened={setBinding} /></main>;
+  if (ready && binding && !binding.bound) return <main className="focus-entry"><WorkspaceSelection status={binding} onOpened={setBinding} autoFocus /></main>;
   if (ready) return <WorkspaceApp key={binding?.workspace?.instanceId} host={readerHost} />;
   return <main className="focus-login"><h1>focus.</h1><p>输入 FOCUS 后台启动时显示的访问口令。</p>
     <form onSubmit={async e => {

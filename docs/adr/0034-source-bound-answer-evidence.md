@@ -4,6 +4,8 @@ status: accepted
 
 # Source-bound answer evidence and unified reading
 
+[ADR 0035](0035-close-reading-completion-and-reset.md) 将来源完成统一到精读计划。
+
 2026-11-15: the user approved the simplified conversation-reading prototype and authorized implementation. Full original text and continuous Source discussion become the intended reading surface; the opening combines Chinese structure and guide without a preparation gate. Implemented in the local production reader and Host; no remote deployment is implied. Validation is recorded in `.scratch/conversation-reading/production-acceptance.md`.
 
 Answer Evidence belongs to a specific discussion message revision, bound to Source and Parser Bundle version. It is not a Reading Highlight, Reading Note, Placement or proof that the model's claim is true. Host validation and display projection are distinct. Display projection must reject wrong versions, ambiguous quotations and missing ranges; it must never choose the nearest occurrence as evidence. Existing user annotation relocation remains unchanged.
@@ -17,6 +19,8 @@ UI contains original content, structure, guide and essential controls/status onl
 Implementation uses canonical Markdown plus original line ranges as the document boundary. The existing sanitized Markdown/KaTeX pipeline retains a normalization-to-original line map. A Host `cite` result binds an exact quote to the current Source, Bundle, discussion, message and answer revision; its marker is rendered as a number. Exact visible-text projection is preferred. Complex objects or formatting that cannot be projected exactly use an explicitly labelled source-block location, never an invented exact span. External Markdown links are never projected into source text.
 
 The v2 opening is one model candidate and one atomic Source/Bundle asset. A validated ready v1 overview is reused without rewriting it. Manual bookmarks are versioned, local display state with original-line anchors and offsets; completion is an explicit Core asset fenced by the Source clear generation. Neither touches the old Cursor.
+
+2026-11-24 补充：下一版统一阅读入口的准备条件见[设计文档 04 §1](../design/20261122-refactor/04-conversation-reading-bilingual-view.md#1-上传翻译与重新阅读)。首次准备和重新阅读均在本轮全部就绪后开放对话与精读，覆盖上文关于直接进入对话的旧约定。
 
 ## 2026-11-15 逐段精读保留修正
 

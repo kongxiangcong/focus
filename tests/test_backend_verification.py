@@ -95,7 +95,7 @@ class BackendVerificationTests(unittest.TestCase):
 
         Protocol.source_read = True
         _, accepted = self.send('fixture-first', 'PRIVATE-QUESTION')
-        self.assertEqual('completed', accepted['agent']['run']['status'], accepted['agent']['run'])
+        self.assertIsNone(accepted['agent']['run'])
         self.assertEqual([True, True, False], [runtime.probe for runtime in Protocol.instances])
         self.assertEqual(['PRIVATE-QUESTION'], [m['content'] for m in accepted['conversation'] if m['role'] == 'user'])
         self.assertIn('PRIVATE-QUESTION', Protocol.instances[-1].prompt)
@@ -137,7 +137,7 @@ class BackendVerificationTests(unittest.TestCase):
                                    settings_path=settings, verification=receipt_cache)
                 try:
                     _, view = self.send(f'fixture-receipt-{index}', 'Question after settings check', host=host)
-                    self.assertEqual('completed', view['agent']['run']['status'])
+                    self.assertIsNone(view['agent']['run'])
                     self.assertEqual([False] if index in (0, 5) else [True, False],
                                      [runtime.probe for runtime in Protocol.instances[runtime_count:]])
                 finally:

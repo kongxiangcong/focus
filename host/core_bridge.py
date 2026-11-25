@@ -8,12 +8,13 @@ from urllib.parse import quote
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / '.agents'))
 from core.reading_workspace import (WorkspaceCore, WorkspaceError, validate_source_id, _identifier, _read_chunk_records,
-    _read_reading_record, _chunk_presentation, _validate_parser_bundle, _needs_translation)
+    _read_reading_record, _chunk_presentation, _source_bundle_at_version, _validate_parser_bundle, _needs_translation)
 from core.source_library import SourceLibrary
 from core.source_provenance import SOURCE_ORIGINALS, bundle_fingerprint
 from core.source_notes import SourceNotes
 from core.discussion_application import DiscussionApplication
 from core.reading_structure import read_structure
+from core.reading_versions import version_bundle
 from .figure_catalog import source_figures
 
 ACTIONS = {
@@ -50,9 +51,13 @@ class CoreBridge:
         self._plan_bundle_cache = {}
 
     def figure_catalog(self, source_id):
-        """Expose only images bound to this Source's current Parser Bundle."""
-        content = self.workspace / 'sources' / validate_source_id(source_id) / 'parser-bundle' / 'content.md'
-        signature = (content.stat().st_mtime_ns, content.stat().st_size)
+        """Expose figures from the selected round's Parser Bundle."""
+        root = self.workspace / 'sources' / validate_source_id(source_id)
+        state = json.loads((self.workspace / 'state.json').read_text(encoding='utf-8'))
+        bundle, version = version_bundle(root, state, source_id)
+        content = bundle / 'content.md'
+        stat = content.stat()
+        signature = (version, stat.st_mtime_ns, stat.st_size)
         cached = self._figures_cache.get(source_id)
         if cached and cached[0] == signature:
             return cached[1]
@@ -109,8 +114,9 @@ class CoreBridge:
                 provenance = self.workspace / 'sources' / source_id / 'reading' / 'plans' / plan_id / 'provenance.json'
                 if provenance.is_file():
                     expected = json.loads(provenance.read_text(encoding='utf-8')).get('bundle')
-                    current = bundle_fingerprint(self.workspace / 'sources' / source_id / 'parser-bundle')
-                    if expected != current:
+                    root = self.workspace / 'sources' / source_id
+                    _, active_bundle = version_bundle(root, state, source_id)
+                    if expected != active_bundle:
                         source = SourceLibrary(self.workspace).get(source_id)
                         return {'status': 'empty', 'source': {'sourceId': source_id,
                             'title': source['title'], 'topicId': None}, 'current': None,
@@ -127,13 +133,7 @@ class CoreBridge:
             return {'status': 'empty', 'source': {'sourceId': '', 'title': '选择论文，开始阅读', 'topicId': None},
                     'current': None, 'history': [], 'conversation': []}
         state = result['state']
-        plan_root = self.workspace / 'sources' / result['source']['source_id'] / 'reading/plans' / state['plan_id']
-        chunks = _read_chunk_records(plan_root / 'chunks.jsonl')
-        structure = read_structure(plan_root, chunks)
-        outline = [{'chunkId': c['chunk_id'], 'index': c['index'], 'sectionPath': c['section_path'], 'nodeId': node}
-                   for c, node in zip(chunks, structure['chunk_nodes'])]
-        nodes = [{'id': n['id'], 'parentId': n['parent_id'], 'title': n['title'],
-                  'description': n['description'], 'sourceLines': n['source_lines']} for n in structure['nodes']]
+        nodes, outline = self.plan_structure(result['source']['source_id'], state['plan_id'])
         return {'structure': nodes, 'outline': outline, 'status': 'reading' if result['current'] else 'completed',
                 'readingRevision': int(json.loads((self.workspace / 'state.json').read_text(encoding='utf-8')).get('reading_revision', 0)),
                 'source': {'sourceId': result['source']['source_id'], 'title': result['source']['title'],
@@ -141,9 +141,19 @@ class CoreBridge:
                 'current': self.project_chunk(result['current']) if result['current'] else None,
                 'history': [self.project_chunk(c) for c in result['history']], 'conversation': []}
 
-    def image(self, source_id, relative):
+    def plan_structure(self, source_id, plan_id):
+        plan_root = self.workspace / 'sources' / source_id / 'reading/plans' / plan_id
+        chunks = _read_chunk_records(plan_root / 'chunks.jsonl')
+        structure = read_structure(plan_root, chunks)
+        outline = [{'chunkId': c['chunk_id'], 'index': c['index'], 'sectionPath': c['section_path'], 'nodeId': node}
+                   for c, node in zip(chunks, structure['chunk_nodes'])]
+        nodes = [{'id': n['id'], 'parentId': n['parent_id'], 'title': n['title'],
+                  'description': n['description'], 'sourceLines': n['source_lines']} for n in structure['nodes']]
+        return nodes, outline
+
+    def image(self, source_id, relative, *, bundle_version=None):
         SourceLibrary(self.workspace).get(source_id)
-        root = (self.workspace / 'sources' / source_id / 'parser-bundle').resolve()
+        root = _source_bundle_at_version(self.workspace / 'sources' / source_id, bundle_version).resolve()
         if not root.is_relative_to(self.workspace):
             raise ValueError('Image source is outside the Workspace')
         target = (root / relative).resolve()
@@ -177,9 +187,9 @@ class CoreBridge:
             raise ValueError('Original Bundle is unavailable')
         return target
 
-    def source_resource(self, source_id, resource):
+    def source_resource(self, source_id, resource, *, bundle_version=None):
         source = SourceLibrary(self.workspace).get(source_id)
-        root = (self.workspace / 'sources' / source_id / 'parser-bundle').resolve()
+        root = _source_bundle_at_version(self.workspace / 'sources' / source_id, bundle_version).resolve()
         if resource == 'content':
             target = root / 'content.md'
         elif resource == 'original':
@@ -225,7 +235,7 @@ class CoreBridge:
         return {'sourceId': c['source_id'], 'planId': c['plan_id'], 'chunkId': c['chunk_id'],
                 'index': c['index'], 'total': c['total'], 'sectionPath': c['section_path'],
                 **({'bundleVersion': version} if (version := self.plan_bundle(c['source_id'], c['plan_id'])) is not None else {}),
-                'sourceLines': c['source_lines'], 'blockIds': c['block_ids'],
+                'sourceLines': c['source_lines'], 'sourceOffset': c['source_offset'], 'blockIds': c['block_ids'],
                 'sourceMarkdown': c['source_text'], 'translation': c['translation'],
                 'images': [{'src': self._image_url(c['source_id'], i['path']),
                             'caption': i['caption']} for i in c['images']],
@@ -242,14 +252,15 @@ class CoreBridge:
         if chunk is None:
             raise ValueError('引用段落不存在')
         provenance_path = root / 'provenance.json'
-        current = source_root / 'parser-bundle'
-        if provenance_path.is_file():
-            expected_bundle = json.loads(provenance_path.read_text(encoding='utf-8')).get('bundle')
-            bundle = current if expected_bundle == bundle_fingerprint(current) else source_root / 'reading' / 'bundles' / str(expected_bundle)
-            if not bundle.is_dir() or bundle_fingerprint(bundle) != expected_bundle:
-                raise ValueError('原版本引用不可定位')
-        else:
+        if not provenance_path.is_file():
             raise ValueError('原版本引用不可定位')
+        expected_bundle = json.loads(provenance_path.read_text(encoding='utf-8')).get('bundle')
+        if expected_bundle is None:
+            raise ValueError('原版本引用不可定位')
+        try:
+            bundle = _source_bundle_at_version(source_root, expected_bundle)
+        except WorkspaceError as exc:
+            raise ValueError('原版本引用不可定位') from exc
         metadata = _validate_parser_bundle(bundle)
         record = _read_reading_record(root / 'records' / f'{chunk_id}.json', chunk_id)
         item = _chunk_presentation(bundle, root, source_id=source, plan_id=plan,

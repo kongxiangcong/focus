@@ -3,6 +3,7 @@ import re
 import uuid
 from .reading_structure import validate_structure, read_structure
 from .reading_workspace import _read_document, _write_document, _read_chunk_records, WorkspaceError
+from .reading_versions import selected_version, version_cursor
 
 VERSION = 'article-overview-v1'
 
@@ -31,13 +32,14 @@ class ArticleOverview:
         self.core = app.core
         self.lease = app.core._workspace_lease
 
-    def target(self, source_id):
+    def target(self, source_id, *, reading_version=None):
         if self.lease:
             self.lease.require_current()
         self.core._root(source_id)
         state = _read_document(self.core.workspace / 'state.json')
-        selected = state['sources'][source_id].get('current_plan_id')
-        run = self.core.status(source_id)
+        reading_version = selected_version(state, source_id) if reading_version is None else reading_version
+        selected = version_cursor(state, source_id, reading_version).get('current_plan_id')
+        run = self.core.status(source_id, reading_version=reading_version)
         # A selected plan always wins over an unactivated replacement candidate.
         plan = selected or (run or {}).get('plan_id')
         if not plan:
@@ -45,18 +47,18 @@ class ArticleOverview:
         root = self.core._root(source_id) / 'reading' / 'plans' / plan
         chunks = _read_chunk_records(root / 'chunks.jsonl')
         from .reading_application import _digest
-        bundle = self.core._bundle_version(source_id)
+        bundle = self.core._bundle_version(source_id, reading_version)
         provenance = root / 'provenance.json'
         if provenance.exists() and _read_document(provenance).get('bundle') != bundle:
             raise WorkspaceError('overview_stale_plan', '原文已更新，请先准备并启用新版阅读计划。')
         return root, chunks, {'sourceId': source_id, 'planId': plan, 'bundle': bundle,
                               'chunksRevision': _digest(chunks), 'version': VERSION}
 
-    def status(self, source_id):
+    def status(self, source_id, *, reading_version=None):
         title = self.core._root(source_id) / 'source.yaml'
         result = {'sourceId': source_id, 'title': _read_document(title)['title'], 'status': 'missing'}
         try:
-            target = self.target(source_id)
+            target = self.target(source_id, reading_version=reading_version)
         except WorkspaceError as exc:
             return {**result, 'status': 'stale', 'error': str(exc)}
         if target is None:
@@ -84,23 +86,31 @@ class ArticleOverview:
                                'description': n['description'], 'sourceLines': n['source_lines']} for n in tree['nodes']],
                 'chunkNodes': tree['chunk_nodes']}
 
-    def generate(self, source_id, *, stopped=lambda: False, on_progress=lambda: None):
-        if self.status(source_id)['status'] == 'ready':
-            return
-        root, chunks, identity = self.target(source_id)
-        path = root / 'overview.json'
-        attempt = uuid.uuid4().hex
-        run = {**identity, 'revision': attempt, 'status': 'running'}
-        if self.lease:
-            self.lease.require_current()
-        _write_document(path, run)
+    def generate(self, source_id, *, reading_version=None, stopped=lambda: False, on_progress=lambda: None):
+        from .reading_application import _LOCK
+
+        with _LOCK:
+            if reading_version is None:
+                reading_version = self.core._reading_version(source_id)
+            if self.status(source_id, reading_version=reading_version)['status'] == 'ready':
+                return
+            target = self.target(source_id, reading_version=reading_version)
+            if target is None:
+                return
+            root, chunks, identity = target
+            path = root / 'overview.json'
+            attempt = uuid.uuid4().hex
+            run = {**identity, 'revision': attempt, 'status': 'running'}
+            if self.lease:
+                self.lease.require_current()
+            _write_document(path, run)
         on_progress()
         def guard():
-            target = self.target(source_id)
+            target = self.target(source_id, reading_version=reading_version)
             if stopped() or target is None or target[2] != identity or _read_document(path).get('revision') != attempt:
                 raise WorkspaceError('overview_changed', '准备已停止或原文版本已变化，请重试。')
         try:
-            ranges = self.app._ranges(source_id)
+            ranges = self.app._ranges(source_id, reading_version=reading_version)
             try:
                 tree = validate_chinese_structure(read_structure(root, chunks), chunks)
             except WorkspaceError:
@@ -130,12 +140,15 @@ class ArticleOverview:
                     feedback = str(exc)
             if guide is None:
                 raise WorkspaceError('overview_invalid', feedback)
-            guard()
-            _write_document(path, {**run, 'status': 'ready', 'structure': tree, 'guide': guide,
-                                   'runtime': getattr(self.app.runtime, 'provenance', None)})
+            runtime = getattr(self.app.runtime, 'provenance', None)
+            with _LOCK:
+                guard()
+                _write_document(path, {**run, 'status': 'ready', 'structure': tree, 'guide': guide,
+                                       'runtime': runtime})
         except Exception as exc:
-            if path.exists() and _read_document(path).get('revision') == attempt:
-                _write_document(path, {**run, 'status': 'failed', 'error': str(exc)})
+            with _LOCK:
+                if path.exists() and _read_document(path).get('revision') == attempt:
+                    _write_document(path, {**run, 'status': 'failed', 'error': str(exc)})
             raise
         finally:
             on_progress()

@@ -2,7 +2,7 @@ import { ArticleOverviewPanel } from "@focus/reader-ui";
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import type { BlogArtifactName, BlogArtifactStatus, BlogRegenerationTarget, BlogStatus, LibrarySource, LibraryTopic, ReaderHost, ReadingWindow } from "@focus/reader-contracts";
-import { matchesStatus, primaryAction, sourceStatus, statusFilters, type StatusFilter } from "./source-status";
+import { matchesStatus, primaryAction, statusFilters, type SourceStatus, type StatusFilter } from "./source-status";
 import { LibraryEmpty, type EmptyKind } from "./LibraryEmpty";
 import { IngestionRows, type IngestionRowsProps } from "./IngestionRows";
 import { useLibraryMotion } from "./use-library-motion";
@@ -15,7 +15,7 @@ import type { SourceViewProps } from "./SourceParts";
 
 export type LibraryPageProps = Pick<IngestionRowsProps, "taskInbox" | "taskBatches" | "statusText" | "itemStatusText" | "continueInbox" | "controlBatch" | "onTasks"> & {
   scoped: readonly LibrarySource[]; statusFilter: StatusFilter; setStatusFilter: (filter: StatusFilter) => void; sourcesFailed: boolean; refresh: () => Promise<void>;
-  sources: readonly LibrarySource[]; unfiledCount: number; sortingReason: string; reorderTopic: (topicId: string, sourceIds: readonly string[]) => Promise<boolean>;
+  sources: readonly LibrarySource[]; statusFor: (source: LibrarySource) => SourceStatus; unfiledCount: number; sortingReason: string; reorderTopic: (topicId: string, sourceIds: readonly string[]) => Promise<boolean>;
   dragging: boolean; setDragging: (value: boolean) => void; uploadDisabled: boolean; chooseUpload: (files?: readonly File[]) => void;
   selectedTopic: LibraryTopic | undefined; managementBusy: boolean; host: ReaderHost;
   openManagement: (kind: "create" | "rename" | "delete" | "source", id?: string, title?: string) => void;
@@ -25,14 +25,14 @@ export type LibraryPageProps = Pick<IngestionRowsProps, "taskInbox" | "taskBatch
   preparationHidden: (id: string) => boolean; blogs: Readonly<Record<string, BlogStatus>>; setBlogViewer: (id: string) => void;
   busy: string; active: boolean; enterReading: (id: string) => Promise<void>; preparationFailed: (id: string) => boolean; retryPreparation: (id: string) => Promise<void>;
   refreshBlog: (id: string) => Promise<void>; moreSource: string | null; setMoreSource: (id: string | null) => void;
-  moveSource: (id: string, offset: number) => void; setConfirm: (value: { source: LibrarySource; action: "delete" | "reread" | "replan" | "clear"; requestId?: string } | null) => void;
+  moveSource: (id: string, offset: number) => void; requestReadingReset: (id: string, opener: HTMLElement) => void;
   confirmDelete: (source: LibrarySource) => Promise<void>; preparationNotice: (id: string) => ReactNode; activateCandidate: (id: string) => Promise<void>;
   blogArtifacts: readonly [BlogArtifactName, string][]; blogStatusText: Record<BlogArtifactStatus, string>; blogRetryLabel: Record<BlogArtifactName, string>;
   generateBlog: (id: string) => Promise<void>; cancelBlog: (id: string) => Promise<void>; regenerateBlog: (id: string, target: BlogRegenerationTarget) => Promise<void>;
 };
 
 export function LibraryPage(page: LibraryPageProps) {
-  const { sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, busy, active, view, preparationHidden, blogs, enterReading, refreshBlog, setMoreSource } = page;
+  const { sources, statusFor, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, busy, active, view, preparationHidden, blogs, enterReading, refreshBlog, setMoreSource } = page;
   const [overviewId, setOverviewId] = useState<string | null>(null);
   const overviewDialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -121,9 +121,9 @@ export function LibraryPage(page: LibraryPageProps) {
   }
   function presentation(source: LibrarySource): SourceViewProps {
     const preparation = view?.preparations?.[source.sourceId], action = primaryAction(source, preparation, preparationHidden(source.sourceId), { busy, active, canOpen: !!host.openSource, direct: !!host.getSourceDocument });
-    return { source, unified: !!host.getSourceDocument, onOverview: host.getArticleOverview && !host.getSourceDocument ? () => setOverviewId(source.sourceId) : undefined, onBlog: () => { if (blogs[source.sourceId]?.artifacts.html.status === "completed") page.setBlogViewer(source.sourceId); else { select(source.sourceId); void refreshBlog(source.sourceId); } }, status: sourceStatus(source, preparation, preparationHidden(source.sourceId), !!host.getSourceDocument), action, blog: blogs[source.sourceId], topics, selected: selectedId === source.sourceId, expanded: inspectorOpen && selectedId === source.sourceId, candidate: !!(preparation?.candidate && preparation.ready), onSelect: () => select(source.sourceId), onTopic: setTopic, onPrimary: () => { if (!action.disabled) { if (action.kind === "inspect") select(source.sourceId); else void enterReading(source.sourceId); } }, menu: <SourceMenu source={source} page={page} /> };
+    return { source, unified: !!host.getSourceDocument, onOverview: host.getArticleOverview && !host.getSourceDocument ? () => setOverviewId(source.sourceId) : undefined, onBlog: () => { if (blogs[source.sourceId]?.artifacts.html.status === "completed") page.setBlogViewer(source.sourceId); else { select(source.sourceId); void refreshBlog(source.sourceId); } }, status: statusFor(source), action, blog: blogs[source.sourceId], topics, selected: selectedId === source.sourceId, expanded: inspectorOpen && selectedId === source.sourceId, candidate: !!(preparation?.candidate && preparation.ready), onSelect: () => select(source.sourceId), onTopic: setTopic, onPrimary: () => { if (!action.disabled) { if (action.kind === "inspect") select(source.sourceId); else void enterReading(source.sourceId); } }, menu: <SourceMenu source={source} page={page} /> };
   }
-  const current = !topic && !query && page.statusFilter === "all" ? sources.find(source => source.sourceId === view?.source.sourceId && sourceStatus(source, view?.preparations?.[source.sourceId], preparationHidden(source.sourceId)).phase === "reading") : undefined;
+  const current = !topic && !query && page.statusFilter === "all" ? sources.find(source => source.sourceId === view?.source.sourceId && statusFor(source).phase === "reading") : undefined;
   const cursor = view?.navigationCurrent ?? view?.current;
   const continuation = current && cursor && cursor.sourceId === current.sourceId && cursor.sectionPath.at(-1)?.trim() && Number.isInteger(cursor.index) && cursor.index > 0 && Number.isInteger(cursor.total) && cursor.total >= cursor.index ? { source: current, cursor, action: primaryAction(current, view?.preparations?.[current.sourceId], preparationHidden(current.sourceId), { busy, active, canOpen: !!host.openSource, direct: !!host.getSourceDocument }) } : undefined;
   const emptyKind: EmptyKind | null = sources.length === 0 && page.sourcesFailed ? "offline" : sources.length === 0 ? "library" : filtered.length ? null : query ? "search" : page.statusFilter !== "all" ? "filter" : "topic";
@@ -135,9 +135,9 @@ export function LibraryPage(page: LibraryPageProps) {
     <div className="library-layout" data-inspector={!!selected && inspectorOpen}>
       <section className="library-sources" aria-label="材料列表">
 
-        {selectedTopic && <TopicHead topic={selectedTopic} sources={sources} view={view} preparationHidden={preparationHidden} disabled={managementBusy || !host.manageTopic} reason={sortingReason} onRename={() => openManagement("rename", selectedTopic.topicId, selectedTopic.title)} onDelete={() => openManagement("delete", selectedTopic.topicId, selectedTopic.title)} />}
+        {selectedTopic && <TopicHead topic={selectedTopic} sources={sources} statusFor={statusFor} disabled={managementBusy || !host.manageTopic} reason={sortingReason} onRename={() => openManagement("rename", selectedTopic.topicId, selectedTopic.title)} onDelete={() => openManagement("delete", selectedTopic.topicId, selectedTopic.title)} />}
         {continuation && <section className="library-continue" aria-label="继续阅读"><button className="library-continue-text" aria-label={`查看 ${continuation.source.displayTitle || continuation.source.title} 详情`} onClick={() => select(continuation.source.sourceId)}><small>继续阅读</small><strong>{continuation.source.displayTitle || continuation.source.title}</strong><span>{continuation.cursor.sectionPath.at(-1)} · 第 {continuation.cursor.index} 段 / 共 {continuation.cursor.total} 段</span></button><button className="workspace-primary" disabled={continuation.action.disabled} title={continuation.action.title} onClick={() => void enterReading(continuation.source.sourceId)}>继续阅读</button></section>}
-        <div className="library-filters" role="group" aria-label="按状态筛选">{statusFilters.map(([filter, label]) => { const count = page.scoped.filter(source => matchesStatus(sourceStatus(source, view?.preparations?.[source.sourceId], preparationHidden(source.sourceId)), filter, blogs[source.sourceId])).length; return <button key={filter} aria-pressed={page.statusFilter === filter} disabled={count === 0 && page.statusFilter !== filter} onClick={() => page.setStatusFilter(filter)}>{label}<span>{count}</span></button>; })}</div>
+        <div className="library-filters" role="group" aria-label="按状态筛选">{statusFilters.map(([filter, label]) => { const count = page.scoped.filter(source => matchesStatus(statusFor(source), filter, blogs[source.sourceId])).length; return <button key={filter} aria-pressed={page.statusFilter === filter} disabled={count === 0 && page.statusFilter !== filter} onClick={() => page.setStatusFilter(filter)}>{label}<span>{count}</span></button>; })}</div>
         <IngestionRows {...page} canContinue={!!host.continueIngestion} canControl={!!host.controlBatch} />
         {loading ? <p role="status" className="library-empty">读取中…</p> : emptyKind ? <LibraryEmpty kind={emptyKind} disabled={emptyKind === "library" && uploadDisabled} onAction={emptyAction} /> : <div className="library-source-list" data-view={libraryView} role="list" aria-label="来源">{rows.map(source => libraryView === "list" ? <SourceRow key={source.sourceId} {...presentation(source)} ordinal={selectedTopic ? selectedTopic.sourceIds.indexOf(source.sourceId) + 1 : undefined} sortingReason={sortingReason} onDragStart={event => startDrag(event, source.sourceId)} onDragOver={event => previewDrag(event, source.sourceId)} onDrop={event => void dropDrag(event)} onDragEnd={endDrag} /> : <SourceCard key={source.sourceId} {...presentation(source)} />)}</div>}
         {busy && <p role="status">{busy}中…</p>}

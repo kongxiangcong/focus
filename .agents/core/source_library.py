@@ -19,6 +19,7 @@ from .reading_workspace import (
     _slug,
     _validate_parser_bundle,
     _write_document,
+    has_started_reading,
     validate_source_id,
     validate_topic_id,
 )
@@ -453,17 +454,20 @@ class SourceLibrary:
             selected = state.get('sources', {}).get(sid, {})
             plan, cursor = selected.get('current_plan_id'), selected.get('current_chunk_id')
             total = completed = 0
+            reading_status = 'unplanned'
             if plan:
                 from .reading_workspace import _identifier
                 chunks = _read_chunk_records(root / 'reading/plans' / _identifier(plan, 'reading_plan') / 'chunks.jsonl')
                 total = len(chunks)
                 if cursor is None:
                     completed = total
+                    reading_status = 'completed'
                 else:
                     ids = [c['chunk_id'] for c in chunks]
                     if cursor not in ids:
                         raise WorkspaceError('workspace_state_invalid', 'Cursor is absent from its Plan')
                     completed = ids.index(cursor)
+                    reading_status = 'reading' if has_started_reading(selected) else 'ready'
             notes = sum(len(_read_reading_record(p, p.stem)['notes'])
                         for p in (root / 'reading/plans').glob('*/records/*.json'))
             result.append({'sourceId': sid, 'title': source['title'],
@@ -472,7 +476,7 @@ class SourceLibrary:
                            'format': {'paper_pdf': 'PDF', 'article_html': 'HTML', 'article_markdown': 'Markdown'}[source['source_kind']],
                            'shortName': source['short_name'], 'publishedAt': source.get('published_at'),
                            'venue': source.get('venue'), 'uploader': source.get('uploader'),
-                           'readingStatus': ('completed' if plan and cursor is None else 'reading' if selected.get('reading_started', completed > 0) else 'ready' if plan else 'unplanned'),
+                           'readingStatus': reading_status,
                            'parseStatus': 'invalid' if error else 'ready', 'error': error,
                            'progress': {'completed': completed, 'total': total, 'planId': plan, 'chunkId': cursor},
                            'preparation': (WorkspaceCore(self.workspace).preparation_status(source_id=sid) if not error else None),
@@ -575,6 +579,12 @@ class SourceLibrary:
         state['reading_progress'] = {k: v for k, v in state.get('reading_progress', {}).items() if k not in progress_ids}
         state['progress_requests'] = {k: v for k, v in state.get('progress_requests', {}).items() if v.get('input', {}).get('progress_id') not in progress_ids}
         state['reading_requests'] = {k: v for k, v in state.get('reading_requests', {}).items() if v.get('input', {}).get('source_id') != source_id}
+        state.get('pending_reading_resets', {}).pop(source_id, None)
+        state.get('reading_plan_numbers', {}).pop(source_id, None)
+        state.get('reading_versions', {}).pop(source_id, None)
+        state.get('reading_view_bookmarks', {}).pop(source_id, None)
+        state['reading_version_resets'] = {key: value for key, value in state.get('reading_version_resets', {}).items()
+                                           if value['sourceId'] != source_id}
         state.setdefault('current_topic_id', None)
         state['sources'].pop(source_id, None)
         if state.get('current_source_id') == source_id:

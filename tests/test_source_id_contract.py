@@ -1,4 +1,5 @@
 """Source IDs retain their registered spelling across Core and Host boundaries."""
+import json
 import unittest
 
 import test_source_library_topic
@@ -158,6 +159,15 @@ class SourceIdHostTests(unittest.TestCase):
                 self.host.continue_cached({'requestId': f'continue-{index}', 'receipt': receipt})
                 self.assertEqual('chunk-002', self.host.snapshot()['current']['chunkId'])
                 self.assertTrue((self.workspace / 'sources' / sid).is_dir())
+        first_source = NAMES[0][1]
+        cursor_path = self.workspace / 'state.json'
+        entries = json.loads(cursor_path.read_text(encoding='utf-8'))['sources']
+        selected = self.host.select_discussion_source(first_source)
+        self.assertIsNone(selected['navigationCurrent'])
+        restored = self.host.library_read(first_source, request_id='restore-first-source', restore=True)
+        self.assertEqual(first_source, restored['source']['sourceId'])
+        self.assertEqual('chunk-002', restored['navigationCurrent']['chunkId'])
+        self.assertEqual(entries, json.loads(cursor_path.read_text(encoding='utf-8'))['sources'])
         for sid in INVALID_IDS:
             with self.subTest(invalid_source_id=sid):
                 with self.assertRaises(WorkspaceError) as caught:

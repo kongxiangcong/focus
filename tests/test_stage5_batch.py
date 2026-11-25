@@ -56,11 +56,19 @@ class BatchTests(unittest.TestCase):
         self.runtime.release.set()
         result = self.wait_batch('partial')
         self.assertEqual(['completed', 'failed', 'completed'], [i['status'] for i in result['items']], result)
+        window = self.request('GET', '/reader/window')
+        self.assertEqual([ids[1]], [item['itemId'] for item in window['taskBatches'][0]['items']])
+        self.assertEqual([], window['taskInbox'])
+        work = [item for item in window['workItems'] if item['kind'] in ('batch', 'ingestion')]
+        self.assertEqual([('batch', batch['batchId'], 'error')],
+                         [(item['kind'], item['targetId'], item['phase']) for item in work])
+        self.assertTrue(window['taskBatches'][0]['items'][0]['attemptId'])
         self.assertEqual(2, len(self.request('GET', '/library/sources')))
         calls = list(self.runtime.calls)
         self.stop_host()
         self.start_host()
         self.assertEqual(result, self.request('GET', '/library/batches')[0])
+        self.assertEqual(window['taskBatches'], self.request('GET', '/reader/window')['taskBatches'])
         self.assertEqual(calls, self.runtime.calls)
 
     def test_common_auth_failure_pauses_remaining_items(self):
@@ -72,6 +80,10 @@ class BatchTests(unittest.TestCase):
         result = self.wait_batch('paused')
         self.assertEqual('authentication_failed', result['error']['error_id'])
         self.assertEqual('queued', result['items'][1]['status'])
+        window = self.request('GET', '/reader/window')
+        self.assertEqual('needs_action', window['taskBatches'][0]['phase'])
+        self.assertEqual('needs_action', window['taskBatches'][0]['items'][1]['phase'])
+        self.assertEqual([], window['taskInbox'])
         self.assertEqual([], self.runtime.calls)
 
     def test_blog_service_failure_pauses_and_preserves_source(self):

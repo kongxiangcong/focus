@@ -161,7 +161,7 @@ class SingleIngestionTests(unittest.TestCase):
             'requestId': 'markdown-question', 'content': 'Show evidence across adjacent paragraphs.'})
         self.host.worker.join(8)
         window = self.request('GET', '/reader/window')
-        self.assertEqual('completed', window['agent']['run']['status'])
+        self.assertIsNone(window['agent']['run'])
         self.assertEqual('\n\n'.join((first, middle, last)), inspected['read']['source_text'])
         self.assertFalse(inspected['skipped']['success'])
         self.assertTrue(inspected['citation']['success'])

@@ -16,8 +16,9 @@ class ClearRetentionTests(unittest.TestCase):
 
     def discuss(self, source='fixture-paper', request='request-clear-note'):
         selected = self.host.select_discussion_source(source)
-        self.host.start({'requestId': request, 'sourceId': source,
-                         'sessionId': selected['sessionId'], 'receipt': None, 'content': '记下来'})
+        started = self.host.start({'requestId': request, 'sourceId': source,
+                                   'sessionId': selected['sessionId'], 'receipt': None, 'content': '记下来'})
+        self.latest_run_id = started['agent']['run']['runId']
         self.host.worker.join(3)
         self.assertFalse(self.host.worker.is_alive())
         return self.host.snapshot()
@@ -106,23 +107,26 @@ class ClearRetentionTests(unittest.TestCase):
                 super().start_turn(**kwargs)
         self.host = self.fixture.host = HostService(self.fixture.workspace, self.fixture.fixture.root / 'host',
             backend_factory=lambda workspace, **kwargs: ActivityRuntime(workspace, **kwargs), clock=lambda: now[0])
-        before = self.discuss()
-        self.assertTrue(before['agent']['run']['activity'])
+        self.discuss()
+        old_run = self.latest_run_id
+        self.assertTrue(self.host.execution_log(old_run)['activity'])
         terminal = now[0]
-        old_run = before['agent']['run']['runId']
         self.discuss(request='request-next-log')
+        new_run = self.latest_run_id
         self.assertTrue(self.host.execution_log(old_run)['activity'])
         now[0] = terminal + 7 * 86400 - 1
         self.assertTrue(self.host.execution_log(old_run)['activity'])
-        self.assertTrue(self.host.snapshot()['agent']['run']['activity'])
+        self.assertTrue(self.host.execution_log(new_run)['activity'])
         now[0] += 1
         self.assertEqual([], self.host.execution_log(old_run)['activity'])
-        self.assertTrue(self.host.snapshot()['agent']['run']['activity'])
+        self.assertTrue(self.host.execution_log(new_run)['activity'])
         before = self.host.snapshot()
         now[0] += 600
         after = self.host.snapshot()
-        self.assertEqual([], after['agent']['run']['activity'])
-        self.assertEqual('completed', after['agent']['run']['status'])
+        self.assertIsNone(after['agent']['run'])
+        archived = self.host.execution_log(new_run)
+        self.assertEqual([], archived['activity'])
+        self.assertEqual('completed', archived['status'])
         self.assertEqual(before['sourceNotes'], after['sourceNotes'])
         self.assertEqual(before['conversation'], after['conversation'])
 

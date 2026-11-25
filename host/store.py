@@ -30,6 +30,8 @@ class Store:
         self.state.setdefault('displayReading', True)
         self.state.setdefault('timeline', [])
         self.state.setdefault('resumeBackend', None)
+        if (self.state.get('noteFeedback') or {}).get('status') == 'saved':
+            self.state.pop('noteFeedback')
         # Native sessions are machine-local and never resumed from a backup.
         self.state['threadId'] = None
         self.state['resumeBackend'] = None
@@ -45,6 +47,17 @@ class Store:
             key = 'execution:' + run['runId']
             if self.get(key) is None:
                 self.put(key, {'run': run})
+            if run['status'] in ('failed', 'interrupted'):
+                self._remember_chat_failure(run)
+                self.save()
+
+    def archive_execution(self, run):
+        self.put('execution:' + run['runId'], {'run': run})
+        if run['status'] in ('failed', 'interrupted'):
+            self._remember_chat_failure(run)
+
+    def _remember_chat_failure(self, run):
+        self.state.setdefault('failedChatRuns', {})[run.get('sourceId') or ''] = run['runId']
 
     def get(self, key):
         if key.startswith('runtimeCleanup:'):
@@ -70,21 +83,35 @@ class Store:
     def save(self):
         self.put('session', self.state)
 
-    def clear_discussions(self, source_id, request_id, *, reset_reading=False):
+    def clear_discussions(self, source_id, request_id, **scope):
         self.lease.require_current()
         from .source_clear import scrub
         with self.lock, self.db:
             self.db.execute('PRAGMA secure_delete=ON')
-            current = scrub(self.state, source_id, reset_reading=reset_reading)
+            current = scrub(self.state, source_id, **scope)
             for key, raw in self.db.execute("SELECT key, value FROM state WHERE key LIKE 'session:%' OR key LIKE 'execution:%'").fetchall():
                 self.db.execute('UPDATE state SET value=? WHERE key=?',
-                    (json.dumps(scrub(json.loads(raw), source_id, reset_reading=reset_reading), ensure_ascii=False), key))
+                    (json.dumps(scrub(json.loads(raw), source_id, **scope), ensure_ascii=False), key))
             self.db.execute('UPDATE state SET value=? WHERE key=?', (json.dumps(current, ensure_ascii=False), 'session'))
             operations = self.get('sourceClears')
             operations[request_id]['status'] = 'completed'
             self.db.execute('UPDATE state SET value=? WHERE key=?', (json.dumps(operations), 'sourceClears'))
         self.state = current
         self.db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+
+    def archive_for_reading_reset(self, source_id, request_id, current_source):
+        self.lease.require_current()
+        from core.source_clear import archive_for_reset
+
+        with self.lock, self.db:
+            current = archive_for_reset(self.state, source_id, current_source)
+            operations = self.get('sourceClears')
+            operations[request_id]['status'] = 'completed'
+            self.db.executemany('UPDATE state SET value=? WHERE key=?', (
+                (json.dumps(current, ensure_ascii=False), 'session'),
+                (json.dumps(operations), 'sourceClears'),
+            ))
+        self.state = current
 
     def expire_logs(self):
         self.lease.require_current()

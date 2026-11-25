@@ -9,6 +9,7 @@ export interface ChunkNoteListProps {
   onAccept: (value: ReadingWindow) => void;
   onToast?: (message: string, action?: { label: string; run: () => void }) => void;
   freshNoteId?: string | null;
+  readingVersion?: number;
   resetVersion?: number;
   noteClearVersion?: number;
   createSignal?: number;
@@ -21,14 +22,15 @@ const kinds = { thought: "想法", conclusion: "结论", question: "问题", exa
 type EditableKind = "thought" | "conclusion" | "question";
 
 export function ChunkNoteList({ chunk, notes, host, onAccept, onToast, freshNoteId, createSignal = 0,
-  hideCreate, onEditingChange, onSaved, resetVersion = 0, noteClearVersion = 0 }: ChunkNoteListProps) {
+  hideCreate, onEditingChange, onSaved, readingVersion, resetVersion = 0, noteClearVersion = 0 }: ChunkNoteListProps) {
   const [editor, setEditor] = useState<"new" | SourceNote | null>(null), [text, setText] = useState("");
   const [kind, setKind] = useState<EditableKind>("thought"), [busy, setBusy] = useState(false), [error, setError] = useState("");
   const [bundleChanged, setBundleChanged] = useState(false);
   const [conflict, setConflict] = useState<SourceNote | null>(null);
   const [pending, setPending] = useState<{ text: string; noteId?: string } | null>(null), [savedId, setSavedId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<ReadonlySet<string>>(new Set());
-  const scope = `${chunk.sourceId}:${chunk.planId}:${chunk.chunkId}:${resetVersion}:${noteClearVersion}`;
+  const scope = `${chunk.sourceId}:${chunk.planId}:${chunk.chunkId}:${readingVersion ?? resetVersion}:${noteClearVersion}`;
+  const versionArg: [] | [number] = readingVersion === undefined ? [] : [readingVersion];
   const currentScope = useRef(scope); currentScope.current = scope;
   const latestEditor = useRef({ editor, text }); latestEditor.current = { editor, text };
   const requestIds = useRef(new Map<string, string>());
@@ -65,8 +67,9 @@ export function ChunkNoteList({ chunk, notes, host, onAccept, onToast, freshNote
     setBusy(true); setError(""); setPending({ text: content, ...(editing ? { noteId: editing.noteId } : {}) });
     let result: ReaderHostResult<ReadingWindow>;
     try {
-      result = editing ? await host.changeSourceNote!(chunk.sourceId, editing.noteId, "edit", expected!, id, content)
+      result = editing ? await host.changeSourceNote!(chunk.sourceId, editing.noteId, "edit", expected!, id, content, ...versionArg)
         : await host.createSourceNote!({ sourceId: chunk.sourceId, requestId: id, content, kind, origin: "user",
+          ...(readingVersion === undefined ? {} : { readingVersion }),
           ...(wholeSource ? {} : { chunk: { planId: chunk.planId, chunkId: chunk.chunkId } }) });
     } catch (error) { result = readerFailure("unavailable", String(error), true); }
     if (currentScope.current !== capturedScope) return;
@@ -89,7 +92,7 @@ export function ChunkNoteList({ chunk, notes, host, onAccept, onToast, freshNote
     const capturedScope = scope, key = JSON.stringify([note.noteId, note.revision, operation]);
     if (operation === "delete") setDeleting(previous => new Set([...previous, note.noteId]));
     let result: ReaderHostResult<ReadingWindow>;
-    try { result = await host.changeSourceNote(chunk.sourceId, note.noteId, operation, note.revision, requestId(key), undefined); }
+    try { result = await host.changeSourceNote(chunk.sourceId, note.noteId, operation, note.revision, requestId(key), undefined, ...versionArg); }
     catch (error) { result = readerFailure("unavailable", String(error), true); }
     if (currentScope.current !== capturedScope) return;
     setDeleting(previous => new Set([...previous].filter(id => id !== note.noteId)));
@@ -113,7 +116,9 @@ export function ChunkNoteList({ chunk, notes, host, onAccept, onToast, freshNote
       }
       <textarea autoFocus aria-label="小段笔记" placeholder="写下这一段的笔记…" maxLength={8000} value={text} onChange={event => { setText(event.target.value); persist(event.target.value); }} onKeyDown={event => {
         if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) { event.preventDefault(); void save(); }
-        else if (event.key === "Escape") { persist(null); setEditor(null); }
+        else if (event.key === "Escape" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
+          event.preventDefault(); event.stopPropagation(); persist(null); setEditor(null);
+        }
       }} />
       <div className="reader-anno-editor__bar"><small>Enter 保存 · Shift+Enter 换行 · Esc 取消</small>
         <button className="reader-anno-ghost" onClick={() => { persist(null); setEditor(null); }}>取消</button>

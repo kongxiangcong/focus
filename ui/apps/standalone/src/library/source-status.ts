@@ -1,44 +1,63 @@
 import type { BlogStatus, LibrarySource, ReadingPreparation } from "@focus/reader-contracts";
+import { preparationFailed } from "@focus/reader-ui";
 
-export type Phase = "invalid" | "preparing" | "prepFailed" | "completed" | "reading" | "ready" | "unplanned";
+export type Phase = "unstarted" | "reading" | "completed";
 export type Tone = "danger" | "accent" | "warning" | "success" | "muted";
-export type SourceStatus = { phase: Phase; label: string; tone: Tone; detail: string; ratio: number };
-export function readingStatus(source: LibrarySource) {
-  return source.readingStatus ?? (source.progress.planId && source.progress.chunkId === null ? "completed" : source.progress.completed ? "reading" : source.progress.planId ? "ready" : "unplanned");
+type SourceOperation = { kind: "parseFailed" | "preparing" | "prepFailed"; label: string; tone: Tone; detail?: string };
+export type SourceStatus = {
+  phase: Phase; label: string; tone: Tone;
+  progress: { completed: number; total: number };
+  operation?: SourceOperation;
+};
+
+function readingPhase(source: LibrarySource): Phase {
+  const { completed, total, planId, chunkId } = source.progress;
+  if (!planId || total <= 0) return "unstarted";
+  // Older adapters may still report an independent source completion.
+  if (chunkId === null && completed === total) return "completed";
+  return completed > 0 || source.readingStatus === "reading" ? "reading" : "unstarted";
 }
-export function preparationFailed(preparation: ReadingPreparation | undefined) {
-  return ["failed", "cancelled", "interrupted", "bundle_changed", "commit_conflict"].includes(preparation?.status ?? "");
+
+const phases: Record<Phase, { label: string; tone: Tone }> = {
+  unstarted: { label: "未开始", tone: "muted" },
+  reading: { label: "阅读中", tone: "accent" },
+  completed: { label: "已读完", tone: "success" },
+};
+
+export function sourceStatus(source: LibrarySource, preparation?: ReadingPreparation, hidden = false): SourceStatus {
+  const phase = readingPhase(source);
+  const total = source.progress.planId ? source.progress.total : 0;
+  const completed = phase === "completed" ? total : Math.max(0, Math.min(total - 1, source.progress.completed));
+  const operation: SourceOperation | undefined = source.parseStatus !== "ready" ? { kind: "parseFailed", label: "解析失败", tone: "danger" }
+    : preparation?.status === "running" && !preparation.selected_ready
+      ? { kind: "preparing", label: "准备中", tone: "accent", detail: `${preparation.completed}/${preparation.total} 段` }
+    : preparationFailed(preparation) && !preparation?.selected_ready && !hidden ? { kind: "prepFailed", label: "准备失败", tone: "warning" }
+    : undefined;
+  return { phase, ...phases[phase], progress: { completed, total }, operation };
 }
-const labels: Record<Phase, string> = { invalid: "解析失败", preparing: "准备中", prepFailed: "准备失败", completed: "已读完", reading: "阅读中", ready: "可阅读", unplanned: "待准备" };
-const tones: Record<Phase, Tone> = { invalid: "danger", preparing: "accent", prepFailed: "warning", completed: "success", reading: "accent", ready: "muted", unplanned: "muted" };
-export function sourceStatus(source: LibrarySource, preparation?: ReadingPreparation, hidden = false, direct = false): SourceStatus {
-  if (direct && source.parseStatus === "ready") { const phase = readingStatus(source) === "completed" ? "completed" : "ready"; return { phase, label: labels[phase], tone: tones[phase], detail: "", ratio: phase === "completed" ? 1 : 0 }; }
-  const phase: Phase = source.parseStatus !== "ready" ? "invalid"
-    : preparation?.status === "running" && !preparation.selected_ready ? "preparing"
-    : preparationFailed(preparation) && !preparation?.selected_ready && !hidden ? "prepFailed"
-    : readingStatus(source) === "completed" ? "completed"
-    : source.progress.completed > 0 ? "reading"
-    : preparation?.ready || preparation?.selected_ready || readingStatus(source) === "ready" ? "ready" : "unplanned";
-  const progress = phase === "preparing" || phase === "prepFailed" ? preparation! : source.progress;
-  const detail = phase === "preparing" ? `${progress.completed}/${progress.total} 段` : phase === "reading" ? `${progress.completed}/${progress.total}` : phase === "ready" || phase === "completed" ? `${source.progress.total} 段` : "";
-  return { phase, label: labels[phase], tone: tones[phase], detail, ratio: phase === "completed" ? 1 : Math.max(0, Math.min(1, progress.completed / Math.max(1, progress.total))) };
-}
+
 export function primaryAction(source: LibrarySource, preparation: ReadingPreparation | undefined, hidden: boolean, options: { busy: string; active: boolean; canOpen: boolean; direct?: boolean }) {
   const { busy, active, canOpen } = options;
   const title = active ? "请先完成或停止当前问答" : busy ? `${busy}中` : undefined;
   if (source.parseStatus !== "ready") return { kind: "inspect" as const, label: "查看问题", disabled: false, title: undefined };
   if (options.direct) return { kind: "read" as const, label: "阅读", disabled: !!busy || active || !canOpen, title };
   const running = preparation?.status === "running" && !preparation.selected_ready;
-  const label = running ? "阅读准备中…" : preparationFailed(preparation) && !preparation?.selected_ready ? hidden ? "准备阅读" : "重试准备" : readingStatus(source) === "completed" ? "查看已读" : source.progress.completed > 0 ? "继续阅读" : preparation?.selected_ready || preparation?.ready ? "开始阅读" : "准备阅读";
+  const phase = readingPhase(source);
+  const label = running ? "阅读准备中…"
+    : preparationFailed(preparation) && !preparation?.selected_ready ? hidden ? "准备阅读" : "重试准备"
+    : phase === "completed" ? "查看已读"
+    : phase === "reading" ? "继续阅读"
+    : preparation?.selected_ready || preparation?.ready ? "开始阅读" : "准备阅读";
   return { kind: "read" as const, label, disabled: !!busy || active || !canOpen || running, title };
 }
-export type StatusFilter = "all" | "reading" | "unstarted" | "completed" | "attention";
-export const statusFilters: readonly [StatusFilter, string][] = [["all", "全部"], ["reading", "阅读中"], ["unstarted", "未开始"], ["completed", "已读完"], ["attention", "需处理"]];
+
+export type StatusFilter = "all" | Phase | "attention";
+export const statusFilters: readonly [StatusFilter, string][] = [["all", "全部"], ["reading", phases.reading.label], ["unstarted", phases.unstarted.label], ["completed", phases.completed.label], ["attention", "需处理"]];
 export function needsAttention(status: SourceStatus, blog?: BlogStatus) {
-  return status.phase === "invalid" || status.phase === "prepFailed" || !!blog?.error || Object.values(blog?.artifacts ?? {}).some(artifact => artifact.status === "failed");
+  return status.operation?.kind === "parseFailed" || status.operation?.kind === "prepFailed" || !!blog?.error || Object.values(blog?.artifacts ?? {}).some(artifact => artifact.status === "failed");
 }
 export function matchesStatus(status: SourceStatus, filter: StatusFilter, blog?: BlogStatus) {
-  return filter === "all" || (filter === "attention" ? needsAttention(status, blog) : filter === "unstarted" ? ["ready", "unplanned", "preparing"].includes(status.phase) : status.phase === filter);
+  return filter === "all" || (filter === "attention" ? needsAttention(status, blog) : status.phase === filter);
 }
 export function blogSummary(blog?: BlogStatus): { label: string; tone: Tone } {
   if (!blog) return { label: "博客状态未载入", tone: "muted" };

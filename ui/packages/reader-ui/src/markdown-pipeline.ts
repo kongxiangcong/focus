@@ -62,8 +62,20 @@ function rehypeCellMath() {
     visit(tree);
   };
 }
+function rehypeDisplayMathBlocks() {
+  return (tree: Parameters<ReturnType<typeof rehypeKatex>>[0]) => {
+    tree.children = tree.children.map(node => {
+      if (node.type !== "element" || node.tagName !== "pre") return node;
+      const code = node.children[0];
+      const classes = code?.type === "element" && code.tagName === "code" && code.properties.className;
+      if (!Array.isArray(classes) || !classes.includes("language-math")) return node;
+      // Keep the source range on a wrapper because KaTeX replaces the math node.
+      return { ...node, tagName: "div", properties: {}, children: [node] };
+    });
+  };
+}
 export const rehypePlugins: NonNullable<ComponentProps<typeof Markdown>["rehypePlugins"]> = [
-  rehypeRaw, [rehypeSanitize, schema], rehypeInlineFormatting, rehypeCellMath, rehypeKatex,
+  rehypeRaw, [rehypeSanitize, schema], rehypeInlineFormatting, rehypeCellMath, rehypeDisplayMathBlocks, rehypeKatex,
 ];
 
 export function markdownTree(text: string): HastNode {

@@ -134,8 +134,14 @@ class Handler(BaseHTTPRequestHandler):
             annotation_errors = {'note_bundle_changed': 409, 'highlight_bundle_changed': 409,
                                  'highlight_overlap': 409, 'note_sentence_overlap': 409,
                                  'highlight_request_conflict': 409, 'highlight_invalid': 400,
-                                 'note_sentence_invalid': 400, 'highlight_not_found': 404}
-            code = error_id if error_id in annotation_errors else 'cursor-changed' if error_id == 'cursor_changed' else 'invalid-request' if isinstance(exc, (ValueError, WorkspaceError)) else 'unavailable'
+                                 'note_sentence_invalid': 400, 'note_selection_invalid': 400, 'highlight_not_found': 404}
+            if error_id == 'clear_incomplete':
+                self._send(503, {'ok': False, 'error': {'code': 'unavailable', 'message': str(exc), 'retryable': True}})
+                return
+            if error_id in ('reading_backup_missing', 'reading_version_missing'):
+                self._send(404, {'ok': False, 'error': {'code': 'invalid-request', 'message': str(exc), 'retryable': False}})
+                return
+            code = error_id if error_id in annotation_errors else 'cursor-changed' if error_id in ('cursor_changed', 'reading_version_changed') else 'invalid-request' if isinstance(exc, (ValueError, WorkspaceError)) else 'unavailable'
             self._send(annotation_errors.get(code, 409 if code == 'cursor-changed' else 400 if code == 'invalid-request' else 500),
                        {'ok': False, 'error': {'code': code, 'message': str(exc), 'retryable': code == 'unavailable'}})
 
@@ -213,7 +219,9 @@ class Handler(BaseHTTPRequestHandler):
     def _business_api(self, method, path):
         service = self.active_service
         if method == 'POST' and path == '/reader/status/clear':
-            self._send(200, {'ok': True, 'value': service.clear_finished_statuses(self._body().get('requestId'))})
+            payload = self._body()
+            value = service.clear_finished_statuses(payload.get('requestId'), payload.get('clearableStatusTokens'))
+            self._send(200, {'ok': True, 'value': value})
             return
         if method == 'GET' and path == '/reader/events':
             self.send_response(200)
@@ -266,11 +274,9 @@ class Handler(BaseHTTPRequestHandler):
             source, relative = unquote(path[len('/reader/assets/'):]).split('/', 1)
             expected = parse_qs(urlsplit(self.path).query).get('bundle', [None])[0]
             with service.lock:
-                if expected and service.source_notes.bundle_version(source) != expected:
-                    raise WorkspaceError('source_bundle_changed', '图片原文版本已改变，请重新打开。')
-                target = service.core.image(source, relative)
+                target = service.core.image(source, relative, bundle_version=expected)
                 data = target.read_bytes()
-                if expected and service.source_notes.bundle_version(source) != expected:
+                if expected and service.core.image(source, relative, bundle_version=expected) != target:
                     raise WorkspaceError('source_bundle_changed', '图片原文版本已改变，请重新打开。')
             self._send(200, data, content_type=mimetypes.guess_type(target)[0] or 'image/png')
             return
@@ -359,7 +365,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(201, {'ok': True, 'value': result})
                     return
                 if method == 'GET' and len(parts) == 4 and parts[2] == 'requests':
-                    self._send(200, {'ok': True, 'value': service.source_note_request(source_id, unquote(parts[3]))})
+                    version = parse_qs(urlsplit(self.path).query).get('readingVersion', [None])[0]
+                    self._send(200, {'ok': True, 'value': service.source_note_request(source_id, unquote(parts[3]),
+                        reading_version=int(version) if version else None)})
                     return
                 if method == 'POST' and len(parts) == 4 and parts[3] in ('edit', 'delete', 'undo'):
                     result = service.source_note_change(source_id, unquote(parts[2]), self._body(), parts[3])
@@ -372,7 +380,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(201, {'ok': True, 'value': result})
                     return
                 if method == 'GET' and len(parts) == 4 and parts[2] == 'requests':
-                    self._send(200, {'ok': True, 'value': service.source_highlight_request(source_id, unquote(parts[3]))})
+                    version = parse_qs(urlsplit(self.path).query).get('readingVersion', [None])[0]
+                    self._send(200, {'ok': True, 'value': service.source_highlight_request(source_id, unquote(parts[3]),
+                        reading_version=int(version) if version else None)})
                     return
                 if method == 'POST' and len(parts) == 4 and re.fullmatch(r'[0-9a-f]{32}', parts[2]) and parts[3] in ('delete', 'undo'):
                     result = service.source_highlight_change(source_id, parts[2], parts[3], self._body())
@@ -404,10 +414,28 @@ class Handler(BaseHTTPRequestHandler):
             if len(parts) == 2 and parts[1] == 'document' and method == 'GET':
                 self._send(200, {'ok': True, 'value': service.source_document(source_id)})
                 return
+            if len(parts) == 2 and parts[1] == 'reading-versions' and method == 'GET':
+                self._send(200, {'ok': True, 'value': service.list_reading_versions(source_id)})
+                return
+            if len(parts) == 4 and parts[1] == 'reading-versions' and parts[3] == 'select' and method == 'POST':
+                self._body()
+                self._send(200, {'ok': True, 'value': service.switch_reading_version(source_id, int(parts[2]))})
+                return
+            if len(parts) == 4 and parts[1] == 'reading-versions' and parts[3] == 'backup' and method == 'GET':
+                version = int(parts[2])
+                self._send(200, {'ok': True, 'value': service.reading_version_backup(source_id, version)})
+                return
+            if len(parts) == 2 and parts[1] == 'reading-bookmark' and method in ('GET', 'POST'):
+                value = parse_qs(urlsplit(self.path).query).get('readingVersion', [None])[0]
+                self._send(200, {'ok': True, 'value': service.reading_view_bookmark(source_id,
+                    reading_version=int(value) if value else None, payload=self._body() if method == 'POST' else None)})
+                return
             if len(parts) == 2 and parts[1] == 'opening' and method in ('GET', 'POST'):
                 if method == 'POST':
                     self._body()
-                self._send(200, {'ok': True, 'value': service.source_opening(source_id, prepare=method == 'POST')})
+                version = parse_qs(urlsplit(self.path).query).get('readingVersion', [None])[0]
+                self._send(200, {'ok': True, 'value': service.source_opening(source_id, prepare=method == 'POST',
+                    reading_version=int(version) if version else None)})
                 return
             if len(parts) == 2 and parts[1] == 'overview' and method in ('GET', 'POST'):
                 with service.lock:
@@ -424,14 +452,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, target.read_bytes(), content_type=mimetypes.guess_type(target)[0] or 'image/png')
                 return
             elif method == 'GET' and len(parts) == 2 and parts[1] in ('original', 'content'):
-                target = service.core.source_resource(source_id, parts[1])
+                params = parse_qs(urlsplit(self.path).query)
+                target = service.core.source_resource(source_id, parts[1], bundle_version=params.get('bundle', [None])[0])
                 content_type = 'text/markdown; charset=utf-8' if parts[1] == 'content' else mimetypes.guess_type(target)[0] or 'application/octet-stream'
                 headers = {'Content-Disposition': ('inline; filename="' + target.name.replace('"', '') + '"')}
                 if parts[1] == 'original' and target.suffix.lower() == '.html':
                     # Preserve original bytes without granting saved pages Host privileges.
                     headers['Content-Security-Policy'] = "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'"
                 data = target.read_bytes()
-                expected = parse_qs(urlsplit(self.path).query).get('pdfHash', [None])[0]
+                expected = params.get('pdfHash', [None])[0]
                 if expected and hashlib.sha256(data).hexdigest() != expected:
                     raise WorkspaceError('source_bundle_changed', '原版 PDF 已更新，请重新打开。')
                 self._send(200, data, content_type=content_type,
@@ -439,11 +468,14 @@ class Handler(BaseHTTPRequestHandler):
                 return
             elif method == 'POST' and len(parts) == 2 and parts[1] == 'discuss':
                 payload = self._body()
-                result = service.select_discussion_source(source_id, discussion_id=payload.get('discussionId'))
+                result = service.select_discussion_source(source_id, discussion_id=payload.get('discussionId'),
+                                                          selection=payload.get('selection'))
             elif method == 'POST' and len(parts) == 2 and parts[1] == 'manage':
                 result = service.save_source_details(source_id, self._body())
             elif method == 'POST' and len(parts) == 2 and parts[1] == 'clear':
                 result = service.clear_source(source_id, self._body())
+            elif method == 'POST' and len(parts) == 2 and parts[1] == 'reset-reading':
+                result = service.reset_source_reading(source_id, self._body())
             elif method == 'DELETE' and len(parts) == 1:
                 result = service.library_delete(source_id)
             elif method == 'GET' and len(parts) == 2 and parts[1] == 'deletion-impact':
@@ -453,7 +485,7 @@ class Handler(BaseHTTPRequestHandler):
             elif method == 'POST' and len(parts) == 2 and parts[1] in ('reread', 'replan', 'open'):
                 payload = self._body()
                 result = service.library_read(source_id, reread=parts[1] == 'reread', replan=parts[1] == 'replan',
-                                              request_id=payload.get('requestId'))
+                                              request_id=payload.get('requestId'), restore=payload.get('restore') is True)
             else:
                 raise ValueError('Unknown Library operation')
         elif method == 'GET' and path == '/reader/window':

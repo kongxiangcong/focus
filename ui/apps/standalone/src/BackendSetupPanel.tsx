@@ -10,8 +10,8 @@ function catalogKey(input: BackendSetupInput) {
   return JSON.stringify([input.backend, input.runtimePath ?? "", input.credentialFile ?? ""]);
 }
 
-export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearance, onCancelAppearance }: {
-  host: ReaderHost; configuration?: BackendConfigurationState; onSaved?: (view: ReadingWindow) => void; onSaveAppearance?: () => boolean; onCancelAppearance?: () => void;
+export function BackendSetupPanel({ host, configuration, onSaved }: {
+  host: ReaderHost; configuration?: BackendConfigurationState; onSaved?: (view: ReadingWindow) => void;
 }) {
   const [input, setInput] = useState<BackendSetupInput>({ backend: "" });
   const [scan, setScan] = useState<BackendSetupResult | null>(null);
@@ -161,8 +161,7 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
   }
 
   async function save() {
-    const appearanceSaved = onSaveAppearance?.();
-    if (!host.saveBackendConfiguration) { setFeedback(appearanceSaved ? "外观已保存；此宿主不支持保存后端配置。" : "外观未保存。此宿主不支持保存后端配置。"); return; }
+    if (!host.saveBackendConfiguration) { setFeedback("此宿主不支持保存后端配置。"); return; }
     const version = ++revision.current;
     setChecking(true); setError(""); setFeedback("");
     try {
@@ -174,18 +173,18 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
         if (!alive.current || version !== revision.current) return;
         if (authority.ok && authority.value.configuration?.operationId === requestId) result = authority;
       }
-      if (!result.ok) { setError(`${appearanceSaved ? "外观已保存；" : appearanceSaved === false ? "外观未保存；" : ""}后端配置未保存：${result.error.message}`); return; }
+      if (!result.ok) { setError(`后端配置未保存：${result.error.message}`); return; }
       onSaved?.(result.value);
-      setFeedback(appearanceSaved === false ? "后端设置已保存并应用；外观未保存，请重试。" : "设置已保存并应用。");
-    } catch { setError(`${appearanceSaved ? "外观已保存；" : appearanceSaved === false ? "外观未保存；" : ""}后端保存结果未知，请刷新配置确认后重试。`); }
+      setFeedback("设置已保存并应用。");
+    } catch { setError("后端保存结果未知，请刷新配置确认后重试。"); }
     finally { if (alive.current && version === revision.current) setChecking(false); }
   }
 
   const currentCatalog = catalog[catalogKey(input)];
   const options = [...new Set([...(currentCatalog?.models ?? []), input.model ?? ""])].filter(Boolean);
   const manifestErrors = scan?.backendErrors ?? configuration?.backendErrors ?? [];
-  return <section className="backend-setup focus-reader__appearance-panel" aria-label="后端设置">
-    <h2>后端</h2>
+  return <section className="backend-setup focus-reader__appearance-panel" aria-label="模型与后端">
+    <h2>模型与后端</h2>
     {configuration?.startupError && <p role="alert">{configuration.startupError}</p>}
     {discovered && available.length === 0 && <p>未找到可用的 Backend。请安装，或选择一项后指定可执行文件。</p>}
     {!!manifestErrors.length && <ul aria-label="Backend 配置错误">{manifestErrors.map(({ file, message }) =>
@@ -237,7 +236,6 @@ export function BackendSetupPanel({ host, configuration, onSaved, onSaveAppearan
     <button type="button" className="workspace-primary" disabled={!selectedBackend || needsModel || scanning || checking || loginBusy || !!login || configuration?.busy }
       onClick={() => void save()}>保存并应用</button>
     <button type="button" disabled={checking || loginBusy || !!login} onClick={() => {
-      onCancelAppearance?.();
       const backend = saved?.backend ?? suggested;
       const preference = startupOverride ? saved : configuration?.preferences?.[backend];
       change({ backend, model: preference?.model ?? undefined, runtimePath: preference?.runtimePath ?? undefined,

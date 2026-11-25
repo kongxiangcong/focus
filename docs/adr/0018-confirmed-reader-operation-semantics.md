@@ -4,6 +4,8 @@ status: accepted
 
 # Confirmed reading operations and work visibility
 
+[ADR 0035](0035-close-reading-completion-and-reset.md) 更新了重新阅读、独立新会话入口和精读完成条件。
+
 The confirmed 2026-09-30 UX specification supersedes ADR 0008, 0010 and 0015 where they describe historical Continue, from-start rereading, or the location of reader notes. The original confirmed spec is retained in `docs/requirements/FOCUS_User_Experience_Fix_Spec_Confirmed.md`.
 
 - Continue from a historical Chunk browses the next already read Chunk without changing the Cursor or producing another progress entry. At the persistent frontier it advances exactly once. A completed Source remains completed during review and its final Continue is disabled.

@@ -23,6 +23,7 @@ from .backend_setup import BackendSetup
 from .progress import CORE_LABELS, activity_label
 from core import INGESTION_SERVICES, BlogApplication, IngestionApplication, AutoMinerUParser
 from core.reading_application import ReadingApplication
+from core.reading_workspace import has_started_reading
 from core.reading_progress import ReadingProgress, ProgressApplication
 from core.processing_application import ProcessingApplication, supports_ingestion_blog
 from core.batch_application import BatchApplication
@@ -34,7 +35,10 @@ from .ingestion_inspector import IngestionInspector
 from .configuration import BackendBusyError, UserSettings
 from core.workspace_lifecycle import WorkspaceLease, create_workspace
 from core.source_management import SourceManagement
+from core.source_blocks import SourceBlocks
 from core.source_notes import check_sentence
+from core.reading_versions import ReadingVersions, pending_reset, selected_version, version_metadata, version_reading_directory
+from core.reading_workspace import _read_document, _source_bundle_at_version
 
 #: The Workbench offers one retry entry per artifact, named by granularity.
 BLOG_ARTIFACT_LABELS = {'reading_blog': '重新生成带读博客', 'html': '重新生成 HTML'}
@@ -80,8 +84,6 @@ class HostService:
         self.discussion_app = DiscussionApplication(self.workspace, writer_id=writer_id)
         self.source_notes = self.discussion_app.notes
         self.source_highlights = self.discussion_app.highlights
-        self.source_clear = SourceClear(self.store, self.source_notes)
-        self.source_clear.recover()
         self.source_management = SourceManagement(self.workspace, self.store)
         self.ingestion = IngestionApplication(
             self.workspace,
@@ -90,6 +92,7 @@ class HostService:
         )
         self.lock = threading.RLock()
         self.condition = threading.Condition(self.lock)
+        self.workbench_selections = {}
         self._backend_switching = False
         self._foreground_ai_admissions = 0
         self.generation = int(time.time() * 1000)
@@ -116,10 +119,15 @@ class HostService:
         if reading_runtime is None:
             reading_runtime = AgentReadingRuntime(self._build_backend, self._backend_configuration)
         self.reading_app = ReadingApplication(self.workspace, runtime=reading_runtime, writer_id=writer_id)
+        self.source_clear = SourceClear(self.store, self.source_notes, self.reading_app.core)
+        self.source_clear.recover()
+        self.reading_versions = ReadingVersions(self.reading_app.core, self.source_notes)
+        self._reconcile_reading_version_resets()
+        self._reconcile_reading_version_switch()
         self.reading_app.core.interrupt_running()
         self.reading_workers = {}
+        self.reading_worker_versions = {}
         self.opening_workers = {}
-        self.opening_errors = {}
         self.progress_core = ReadingProgress(self.workspace)
         self.progress_core.interrupt_running()
         self.progress_app = ProgressApplication(self.progress_core, progress_runtime or
@@ -157,19 +165,23 @@ class HostService:
         self.resetting = False
         self._snapshot_cache = None
         self._disk_memo = {}
+        if (self.workspace / 'ingestion' / 'batches.json').is_file():
+            self._batch_app()  # Recover a paused batch before its first task snapshot.
         if backend_factory is None and not saved and backend and self.startup is None:
             self.registry.get_spec(backend)
         if not self.state['timeline'] and self.state['displayReading']:
             window = self.core.window()
             selection = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8")).get('sources', {}).get(window['source']['sourceId'], {}) if (self.workspace / 'state.json').is_file() else {}
-            for c in ([*window['history'], *([window['current']] if window['current'] else [])] if selection.get('reading_started') else []):
+            for c in ([*window['history'], *([window['current']] if window['current'] else [])] if has_started_reading(selection) else []):
                 self._append_reading({k: c[k] for k in ('sourceId', 'planId', 'chunkId')})
-            if selection.get('reading_started') and window['current']:
+            if has_started_reading(selection) and window['current']:
                 self.state['readingMarker'] = [{k: window['current'][k] for k in ('sourceId', 'planId', 'chunkId')}, window.get('readingRevision'), self.state['sessionId']]
             self.state['timeline'].extend({'kind': 'message', 'messageId': m['messageId']} for m in self.state['conversation'])
             self.store.save()
 
         self.store.expire_logs()
+        with self.lock:
+            self._recover_pending_reading_resets(resume_interrupted=True)
         self.retention_stop = threading.Event()
         self.retention_worker = threading.Thread(target=self._retain_logs, daemon=True)
         self.retention_worker.start()
@@ -191,7 +203,7 @@ class HostService:
         if self.state['displayReading']:
             current = self._safe_state()
             selected = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8")).get('sources', {}).get(current.get('source_id'), {}) if (self.workspace / 'state.json').is_file() else {}
-            if current.get('chunk_id') and selected.get('reading_started'):
+            if current.get('chunk_id') and has_started_reading(selected):
                 receipt = {'sourceId': current['source_id'], 'planId': current['plan_id'], 'chunkId': current['chunk_id']}
                 marker = [receipt, self.core.window().get('readingRevision'), self.state['sessionId']]
                 if self.state.get('readingMarker') != marker:
@@ -213,22 +225,24 @@ class HostService:
             'eventId': uuid.uuid4().hex, 'sessionId': self.state['sessionId'],
             'discussionId': discussions.select(self.state, source_id)})
 
-    def snapshot(self):
+    def snapshot(self, *, status_notifications=None):
         # Existing mutation commands may already own the lock for their response.
         # Read-only HTTP refreshes, like SSE, project a captured state off lock.
         if not self.lock._is_owned():
             with self.lock:
                 self.source_clear.recover()
+                self._recover_pending_reading_resets()
                 self.recover_source_edits()
                 self.store.expire_logs()
                 self._reconcile_deleted_sources()
             return self.event_snapshot()[1]
         with self.lock:
             self.source_clear.recover()
+            self._recover_pending_reading_resets()
             self.recover_source_edits()
             self.store.expire_logs()
             self._reconcile_deleted_sources()
-            return self._project_snapshot()
+            return self._project_snapshot(status_notifications=status_notifications)
 
     def _path_stamp(self, path):
         try:
@@ -245,7 +259,7 @@ class HostService:
         self._disk_memo[key] = (stamp, copy.deepcopy(value))
         return value
 
-    def _project_snapshot(self):
+    def _project_snapshot(self, *, status_notifications=None):
         window = self.core.window()
         discussion_source = self.state.get('discussionSourceId')
         if discussion_source and discussion_source != window['source']['sourceId']:
@@ -267,10 +281,11 @@ class HostService:
         state_path = self.workspace / 'state.json'
         state_stamp = self._path_stamp(state_path)
         selected_state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
-        window['readingStarted'] = bool(selected_state.get('sources', {}).get(note_source, {}).get('reading_started'))
+        window['readingVersion'] = selected_version(selected_state, note_source) if note_source else None
+        window['readingStarted'] = has_started_reading(selected_state.get('sources', {}).get(note_source, {}))
         window['structureIntro'] = bool(window.get('structure') and window['navigationCurrent'] and not window['readingStarted'])
         if note_source and window.get('structure'):
-            reading_dir = self.workspace / 'sources' / note_source / 'reading'
+            reading_dir = version_reading_directory(self.workspace / 'sources' / note_source, selected_state, note_source)
             overview_stamp = (
                 state_stamp,
                 self._path_stamp(reading_dir / 'overview.json'),
@@ -291,11 +306,8 @@ class HostService:
         except (OSError, ValueError, WorkspaceError):
             window['sourceBundleVersion'] = None
         window['sourceGeneration'] = self.source_notes.generation(note_source) if note_source else 0
-        try:
-            window['sourceCompletion'] = SourceReading(self.workspace).completion(note_source) if note_source else None
-        except (OSError, ValueError, WorkspaceError):
-            window['sourceCompletion'] = None
-        window['resetVersion'] = sum(1 for source in selected_state.get('source_resets', {}).values() if source == note_source)
+        window['resetVersion'] = sum(1 for source in selected_state.get('source_resets', {}).values() if source == note_source) + sum(
+            1 for reset in selected_state.get('reading_version_resets', {}).values() if reset['sourceId'] == note_source)
         if not self.state['displayReading'] or (window['navigationCurrent'] and not window['readingStarted']):
             window['sessionFresh'] = True
             window['current'] = None
@@ -320,6 +332,8 @@ class HostService:
         if note_source:
             discussion_id = discussions.select(self.state, note_source)
             window['discussionId'] = discussion_id
+            if version_metadata(selected_state, note_source).get('discussion_id') == discussion_id:
+                window['discussionReadingVersion'] = window['readingVersion']
             window['discussions'] = [{'discussionId': key, 'sourceId': value['sourceId']}
                                      for key, value in self.state['discussions'].items()
                                      if value['sourceId'] == note_source]
@@ -346,22 +360,26 @@ class HostService:
                     'eventId': 'completed:' + ':'.join(key)})
                 present.add(key)
         window['conversation'] = json.loads(json.dumps(messages))
-        window['sourceNotes'] = self.source_notes.list(note_source, include_deleted=True) if note_source else []
+        version = window['readingVersion']
+        window['sourceNotes'] = self.source_notes.list(note_source, include_deleted=True, reading_version=version) if note_source else []
         window['noteClearVersion'] = self.source_notes.generation(note_source) if note_source else 0
-        window['sourceHighlights'] = self.source_highlights.list(note_source, include_deleted=True) if note_source else []
+        window['sourceHighlights'] = self.source_highlights.list(note_source, include_deleted=True, reading_version=version) if note_source else []
         window['readingProgress'] = self.progress_core.list(note_source) if note_source else []
-        window['noteFeedback'] = self.state.get('noteFeedback') if note_source and (self.state.get('noteFeedback') or {}).get('sourceId') == note_source else None
-        window['noteOperation'] = self.state.get('noteOperation') if note_source and (self.state.get('noteOperation') or {}).get('sourceId') == note_source else None
-        window['highlightOperation'] = self.state.get('highlightOperation') if note_source and (self.state.get('highlightOperation') or {}).get('sourceId') == note_source else None
+        for key in ('noteFeedback', 'noteOperation', 'highlightOperation'):
+            operation = self.state.get(key)
+            window[key] = operation if operation and (operation.get('sourceId'), operation.get('readingVersion', 1)) == (note_source, version) else None
         sources_overview = SourceLibrary(self.workspace).overview()
         window['blog'] = self._blog_summary(overview=sources_overview)
         preparations = {}
-        for path in (self.workspace / 'sources').glob('*/reading/preparation.json'):
-            source_id = path.parent.parent.name
+        for source_id in selected_state.get('sources', {}):
+            root = self.workspace / 'sources' / source_id
+            path = version_reading_directory(root, selected_state, source_id) / 'preparation.json'
+            if not path.is_file():
+                continue
             prep_stamp = (
                 state_stamp,
                 self._path_stamp(path),
-                self._path_stamp(path.parent.parent / 'source.json'),
+                self._path_stamp(root / 'source.json'),
                 bool(self.reading_workers.get(source_id) and self.reading_workers[source_id].is_alive()),
             )
             preparation = self._memo_disk(
@@ -369,7 +387,7 @@ class HostService:
             )
             if preparation:
                 preparations[source_id] = {key: preparation.get(key) for key in
-                    ('source_id', 'status', 'step', 'total', 'completed', 'ready', 'error', 'plan_id', 'attempt',
+                    ('source_id', 'status', 'step', 'total', 'completed', 'ready', 'error', 'plan_id', 'run_id', 'attempt',
                      'glossary_revision',
                      'selected_plan_id', 'selected_ready', 'candidate')}
                 projected = preparations[source_id]
@@ -378,12 +396,17 @@ class HostService:
                 dismissed = self.store.get('dismissedPreparation:' + source_id)
                 projected['dismissed'] = dismissed == {
                     'run_id': preparation['run_id'], 'attempt': preparation['attempt']}
+        window['unifiedPreparation'] = True
         window['preparations'] = preparations
-        window['clearBusySources'] = [source['sourceId'] for source in sources_overview if self.source_clear_busy(source['sourceId'])]
-        window['agent'] = {'run': self.state['run'], 'catalog': self.core.catalog(),
+        window['clearBusySources'] = [source['sourceId'] for source in sources_overview
+                                      if self.source_clear_busy(source['sourceId'], restart_reading=True)]
+        window['agent'] = {'run': self._active_run(window.get('discussionId')), 'catalog': self.core.catalog(),
                            'backend': self.backend_name,
                            'backends': window['configuration']['backends']}
-        window['workItems'] = self.work_items(window, overview=sources_overview, state=selected_state)
+        notices = status_notifications or StatusNotifications(self.store)
+        window['taskInbox'], window['taskBatches'] = self._upload_tasks(sources_overview, notices)
+        window['workItems'] = self.work_items(window, notices, overview=sources_overview, state=selected_state)
+        window['clearableStatusTokens'] = list(notices.available)
         for item in window['workItems']:
             if item['kind'] == 'preparation' and item['dismissed']:
                 window['preparations'][item['targetId']]['dismissed'] = True
@@ -413,7 +436,7 @@ class HostService:
                     # belongs to the authority, never to a detached projection.
                     discussions.select(self.state, source_id)
                 view = copy.copy(self)
-                for name in ('reading_workers', 'opening_workers', 'opening_errors', 'progress_workers', 'ingestion_workers',
+                for name in ('reading_workers', 'opening_workers', 'progress_workers', 'ingestion_workers',
                              'batch_workers', 'blog_workers', 'blog_errors'):
                     setattr(view, name, dict(getattr(self, name)))
                 view.lock = threading.RLock()
@@ -432,91 +455,252 @@ class HostService:
         """Bounded absolute replacements, not a replay queue of token fragments."""
         if page != self.page_generation:
             return None
+        path = self.workspace / 'state.json'
+        state = _read_document(path) if path.is_file() else {}
+        source = self.state.get('discussionSourceId') or state.get('current_source_id')
+        discussion = self.state.get('latestDiscussion', {}).get(source)
         return {'baseRevision': revision, 'revision': self.generation,
                 'sessionId': self.state['sessionId'], 'instanceId': self.lease.instance_id,
                 'messages': copy.deepcopy(list(self.stream_messages.values())),
-                'run': copy.deepcopy(self.state['run'])}
+                'run': copy.deepcopy(self._active_run(discussion))}
 
-    def work_items(self, window, *, overview=None, state=None):
+    def _active_run(self, discussion_id=None):
+        run = self.state['run']
+        if not run or run['status'] == 'completed':
+            return None
+        if discussion_id and run.get('discussionId') and run['discussionId'] != discussion_id:
+            return None
+        approvals = [approval for approval in run.get('approvals', [])
+                     if run['status'] == 'approval' and not approval.get('status')]
+        return {**run, 'approvals': approvals}
+
+    def work_items(self, window, notices, *, overview=None, state=None):
         """Project durable business attempts; never infer work from the last log line."""
         items = []
         sources_overview = overview if overview is not None else SourceLibrary(self.workspace).overview()
         titles = {s['sourceId']: s.get('shortName') or s['title'] for s in sources_overview}
-        def add(kind, target, status, label, error=None, record=None):
-            item = {'kind': kind, 'targetId': target, 'status': status,
-                    'label': label, 'error': error, 'notificationId': fingerprint(record or {}),
-                    'executing': bool((record or {}).get('executing'))}
-            items.append(StatusNotifications(self.store).project('work', kind + ':' + target, item))
-        run = self.state.get('run')
-        if run and run['status'] in ('running', 'approval', 'stopping', 'failed', 'interrupted'):
-            add('chat', run['runId'], run['status'], '等待你的确认' if run['status'] == 'approval' else '正在回答问题' if run['status'] == 'running' else '问答任务', run.get('error'), {'runId': run['runId']})
+
+        def add(kind, target, attempt, status, phase, label, *, source=None, stage=None,
+                percent=None, error=None, executing=False, retryable=False, cancellable=False, dismissed=None):
+            key = kind + ':' + target
+            item = {'id': f'{key}:{attempt}', 'kind': kind, 'targetId': target, 'attemptId': attempt,
+                    'sourceId': source, 'sourceTitle': titles.get(source), 'status': status, 'phase': phase,
+                    'label': label, 'stage': stage, 'percent': percent, 'error': error,
+                    'executing': executing, 'retryable': retryable, 'cancellable': cancellable,
+                    'notificationId': fingerprint({'attemptId': attempt})}
+            if dismissed is None:
+                item = notices.project('work', key, item, eligible=phase == 'error' and not executing,
+                                       attempt=attempt, offer=True,
+                                       legacy=('work:' + key, fingerprint({'status': status, 'notificationId': item['notificationId']})))
+            else:
+                item['dismissed'] = dismissed
+            items.append(item)
+
+        current_run = self._active_run()
+        chat_runs = [current_run] if current_run else []
+        for source, run_id in self.state.get('failedChatRuns', {}).items():
+            if (not source or source in titles) and (not current_run or current_run.get('runId') != run_id):
+                archived = (self.store.get('execution:' + run_id) or {}).get('run')
+                if archived:
+                    chat_runs.append(archived)
+        for run in chat_runs:
+            if not run.get('runId') or run['status'] not in (*ACTIVE, 'failed', 'interrupted'):
+                continue
+            status = run['status']
+            phase = 'approval' if status == 'approval' and run['approvals'] else 'running' if status in ACTIVE else 'error'
+            label = '等待你的确认' if phase == 'approval' else '正在回答问题' if phase == 'running' else '问答任务'
+            add('chat', run['runId'], run['runId'], status, phase, label, source=run.get('sourceId'),
+                stage=(run.get('progress') or {}).get('label'), error=run.get('error'),
+                retryable=phase == 'error', cancellable=status in ('running', 'approval'))
         for source_id, preparation in window['preparations'].items():
-            if not preparation.get('dismissed') and preparation['status'] in ('running', 'failed', 'interrupted', 'cancelled', 'bundle_changed', 'commit_conflict'):
-                add('preparation', source_id, preparation['status'], '准备阅读 · ' + titles.get(source_id, source_id), preparation.get('error'), {'attempt': preparation['attempt']})
+            status = preparation['status']
+            if source_id in titles and not preparation.get('dismissed') and status in ('running', 'failed', 'interrupted', 'cancelled', 'bundle_changed', 'commit_conflict'):
+                running = status == 'running'
+                total = preparation.get('total') or 0
+                add('preparation', source_id, f"{preparation['run_id']}:{preparation['attempt']}",
+                    status, 'running' if running else 'error', '准备阅读', source=source_id,
+                    stage=preparation['step'], percent=100 * preparation['completed'] / total if total else None,
+                    error=preparation.get('error'), retryable=not running, cancellable=running)
+        for source_id, attempt in (self.store.get('openingAttempts') or {}).items():
+            if source_id not in titles:
+                continue
+            try:
+                opening = self._opening_status(source_id, SourceReading(self.workspace), attempt)
+            except (OSError, WorkspaceError):
+                continue  # A concurrent source removal invalidates the snapshot.
+            if opening['status'] in ('running', 'failed', 'interrupted'):
+                running = opening['status'] == 'running'
+                add('opening', source_id, attempt['attemptId'], opening['status'],
+                    'running' if running else 'error', '生成开篇导读', source=source_id,
+                    error=opening.get('error'), retryable=not running)
+        batched_blogs = {(child['sourceId'], child['blog']['attemptId'])
+                         for batch in window['taskBatches'] for child in batch['items']
+                         if child['blog'] and (attempt := child['blog'].get('attemptId'))
+                         and attempt.startswith(batch['attemptId'] + ':')}
         for source_id, blog in window['blog'].items():
-            if blog.get('runStatus') in ('running', 'failed', 'interrupted', 'cancelled'):
-                add('blog', source_id, blog['runStatus'], '生成博客 · ' + titles.get(source_id, source_id), (blog.get('error') or {}).get('message'), {'attemptId': blog.get('attemptId'), 'executing': blog.get('executing')})
-        # Inbox/Core files are atomic. Avoid taking the batch lock under the Host lock.
-        for item in self.ingestion.list_inbox():
-            if not item.get('deleted') and item['status'] not in ('completed', 'awaiting_confirmation'):
-                add('ingestion', item['item_id'], item['status'], '正在解析 ' + item['file_name'] if item['status'] in ('processing', 'confirmed') else '解析待处理 · ' + item['file_name'], (item.get('error') or {}).get('message'), item)
+            status = blog.get('runStatus')
+            if status in ('running', 'failed', 'interrupted', 'cancelled') and (source_id, blog.get('attemptId')) not in batched_blogs:
+                running = status == 'running'
+                stage = next((name for name, artifact in blog['artifacts'].items() if artifact['status'] == 'generating'), None)
+                add('blog', source_id, blog.get('attemptId') or source_id, status,
+                    'running' if running else 'error', '生成博客', source=source_id, stage=stage,
+                    error=(blog.get('error') or {}).get('message'), executing=bool(blog.get('executing')),
+                    retryable=not running, cancellable=running)
+        for item in window['taskInbox']:
+            status = item['status']
+            progress = item.get('parser_progress') or {}
+            add('ingestion', item['item_id'], item['attemptId'], status, item['phase'], item['file_name'],
+                source=item.get('source_id'), stage=progress.get('status'), percent=progress.get('percent'),
+                error=(item.get('topic_error') or item.get('error') or {}).get('message'),
+                cancellable=status == 'processing', retryable=item['phase'] == 'error', dismissed=item['dismissed'])
+        for batch in window['taskBatches']:
+            add('batch', batch['batchId'], batch['attemptId'], batch['status'], batch['phase'],
+                '上传任务', error=(batch.get('error') or {}).get('message'), executing=batch['executing'],
+                cancellable=batch['phase'] == 'running', retryable=batch['phase'] == 'error', dismissed=False)
         if state is None:
             state_path = self.workspace / 'state.json'
             state = json.loads(state_path.read_text(encoding="utf-8")) if state_path.is_file() else {}
         for entry in state.get('reading_progress', {}).values():
-            if not entry['deleted'] and entry['status'] in ('pending', 'generating', 'failed', 'interrupted'):
+            if not entry['deleted'] and entry['source_id'] in titles and entry['status'] in ('pending', 'generating', 'failed', 'interrupted'):
                 attempts = [receipt.get('result', {}).get('attempt')
                             for receipt in state.get('progress_requests', {}).values()
                             if receipt.get('input', {}).get('progress_id') == entry['progress_id']]
-                add('progress', entry['progress_id'], entry['status'], '整理阅读记录 · ' + titles.get(entry['source_id'], entry['source_id']), entry.get('error'), {**entry, 'attempts': attempts})
+                running = entry['status'] in ('pending', 'generating')
+                attempt = entry.get('attempt') or next((value for value in reversed(attempts) if value), entry['progress_id'])
+                add('progress', entry['progress_id'], attempt, entry['status'], 'running' if running else 'error',
+                    '整理阅读记录', source=entry['source_id'], error=entry.get('error'),
+                    retryable=not running, cancellable=entry['status'] == 'generating')
         return items
 
-    def clear_finished_statuses(self, request_id):
-        # Batch -> Host is the existing lock order. Capture batch views before
-        # taking the Host lock; changed attempts cannot match old receipts.
-        batches = self.batch_list()
+    def _upload_tasks(self, sources, notices):
+        records = {item['item_id']: item for item in self.ingestion.list_inbox()}
+        sources = {item['sourceId']: item.get('shortName') or item['title'] for item in sources}
+
+        def metadata(item):
+            status = item['status']
+            if self._inbox_needs_action(item):
+                phase = 'needs_action'
+            elif status in ('processing', 'confirmed'):
+                phase = 'running'
+            else:
+                phase = 'error'
+            return {'attemptId': item.get('request_id') or item['item_id'], 'phase': phase,
+                    'sourceTitle': sources.get(item.get('source_id'))}
+
+        batches = self.batches.task_snapshot(records) if self.batches else []
+        # A retried original can occur in several durable batches. Prefer its current batch.
+        batches = sorted(reversed(batches), key=lambda entry: entry[1]['status'] not in ('confirmed', 'running', 'paused'))
+        owned = set()
+        task_batches = []
+        for attempt, batch in batches:
+            batch = self._batch_execution(batch)
+            children = []
+            for child in batch['items']:
+                item_id = child['itemId']
+                if item_id in owned:
+                    continue
+                owned.add(item_id)
+                if child['status'] in ('completed', 'deleted'):
+                    continue
+                item = records[item_id]
+                details = metadata(item)
+                details['phase'] = self._batch_item_phase(batch, child, item)
+                child = self._batch_item_notification(notices, batch, child, item, offer=True)
+                if child['dismissed']:
+                    continue
+                if details['phase'] == 'error':
+                    self._inbox_notification(notices, item, offer=True)
+                details['attemptId'] = (child['blog'] or {}).get('attemptId') or child['attemptId']
+                children.append({**child, **details})
+            if not children:
+                continue
+            phase = 'running' if batch['status'] in ('confirmed', 'running') else 'needs_action' if any(child['phase'] == 'needs_action' for child in children) else 'error'
+            task_batches.append({**batch, 'items': children, 'attemptId': attempt, 'phase': phase, 'dismissed': False})
+
+        task_inbox = []
+        for item_id, item in records.items():
+            if item_id in owned or item.get('deleted') or item['status'] == 'completed':
+                continue
+            item = self._inbox_notification(notices, item, offer=True)
+            fields = ('item_id', 'file_name', 'status', 'topic_title', 'topic_id', 'source_id',
+                      'document_status', 'topic_status', 'services', 'confirmation', 'dismissed',
+                      'remote_reference', 'parser_backend', 'selection_reason', 'parser_progress',
+                      'resubmit_risk', 'error', 'topic_error')
+            task_inbox.append({**{key: item[key] for key in fields if key in item}, **metadata(item)})
+        return task_inbox, task_batches
+
+    def clear_finished_statuses(self, request_id, tokens):
         with self.lock:
             notices = StatusNotifications(self.store)
-            entries = [('work', item['kind'] + ':' + item['targetId'], item)
-                       for item in self.snapshot()['workItems']]
-            entries.extend(('inbox', item['item_id'], item) for item in self.ingestion.list_inbox())
-            for batch in batches:
-                entries.append(('batch', batch['batchId'], batch))
-                entries.extend(('batch-item', item['itemId'], item) for item in batch['items'])
-            notices.clear(entries, request_id)
-            self.changed()
-            return self.snapshot()
+            window = self.snapshot(status_notifications=notices)
+            if notices.clear(request_id, tokens):
+                self._publish_snapshot_locked()
+                return self.snapshot()
+            return window
 
-    def _run_reading_preparation(self, source_id, run_id, attempt):
+    def _start_reading_worker(self, source_id, run, *, finished=None):
+        worker = self.reading_workers.get(source_id)
+        if run['status'] == 'running' and (worker is None or worker is finished or not worker.is_alive()):
+            reading_version = run.get('reading_version') or self.reading_app.core._reading_version(source_id)
+            self.reading_worker_versions[source_id] = reading_version
+            self.reading_workers[source_id] = threading.Thread(target=self._run_reading_preparation,
+                args=(source_id, run['run_id'], run['attempt'], reading_version, bool(run.get('reset_request_id'))), daemon=True)
+            self.reading_workers[source_id].start()
+
+    def _run_reading_preparation(self, source_id, run_id, attempt, reading_version, activate_reset=False):
         def progress_changed():
             with self.lock:
                 if not self.shutting_down:
+                    if activate_reset:
+                        self._enter_reset_reading(source_id, run_id, reading_version=reading_version)
                     self.changed()
         try:
             self.reading_app.process(source_id, run_id=run_id, attempt=attempt,
-                                     on_progress=progress_changed)
+                                     reading_version=reading_version, on_progress=progress_changed)
             if hasattr(self.reading_app.runtime, "overview_structure"):
-                ArticleOverview(self.workspace, self.reading_app).generate(source_id, stopped=lambda: self.shutting_down, on_progress=progress_changed)
+                ArticleOverview(self.workspace, self.reading_app).generate(source_id, reading_version=reading_version,
+                    stopped=lambda: self.shutting_down, on_progress=progress_changed)
         except Exception:
             # ReadingCore has already persisted a failed or closed attempt.
             pass
         finally:
-            with self.lock:
-                if not self.shutting_down:
-                    self.changed()
+            self._reading_worker_finished(run_id, source_id=source_id, attempt=attempt, reading_version=reading_version)
+
+    def _reading_worker_finished(self, run_id=None, *, source_id=None, attempt=None, reading_version=None):
+        with self.lock:
+            if not self.shutting_down:
+                # A confirmed reset can queue its new run while an older,
+                # revoked attempt still owns the source's model worker.
+                worker = threading.current_thread()
+                self._recover_pending_reading_resets(finished=(worker, run_id))
+                if source_id and self.reading_workers.get(source_id) is worker:
+                    retry = self.reading_app.status(source_id, reading_version=reading_version)
+                    if retry and retry['run_id'] == run_id and retry['attempt'] != attempt:
+                        self._start_reading_worker(source_id, retry, finished=worker)
+                self.changed()
 
     def source_document(self, source_id):
         with self.lock:
             self.source_clear.recover()
-            document = SourceReading(self.workspace).document(source_id)
-            bundle = self.workspace / 'sources' / source_id / 'parser-bundle'
-            from core.source_blocks import SourceBlocks
+            version = self.reading_app.core._reading_version(source_id)
+            document = SourceReading(self.workspace).document(source_id, reading_version=version)
+            bundle = _source_bundle_at_version(self.workspace / 'sources' / source_id, document['bundleVersion'])
             from core.source_provenance import SOURCE_ORIGINALS
             source = SourceBlocks(bundle, document['markdown'])
-            document['blocks'] = [{'blockId': block['block_id'], 'offsets': block['offsets']} for block in source.blocks]
+            document['blocks'] = [
+                {'blockId': block['block_id'], 'offsets': block['offsets'],
+                 'sourceLines': source.line_span(*block['offsets']),
+                 **({'pageNumber': block['page']} if 'page' in block else {})}
+                for block in source.blocks]
+            if source.sections is not None:
+                document['sections'] = source.sections
+            document['language'] = self.reading_app.core.source_language(source_id, reading_version=version)
+            document['readingPlan'] = self.reading_app.core.note_plan(source_id, document['bundleVersion'], source, reading_version=version)
             if (bundle / SOURCE_ORIGINALS['paper_pdf']).is_file():
                 document['pdf'] = source.pdf
-                document['translation'] = self.reading_app.core.shared_translation(source_id, document)
+            document['translation'] = self.reading_app.core.shared_translation(source_id, document, source=source, reading_version=version)
+            document['readingVersion'] = version
+            document['bookmark'] = self.reading_versions.bookmark(source_id, document['readingVersion'])
             return document
 
     def complete_source(self, source_id, payload):
@@ -526,42 +710,68 @@ class HostService:
             self.changed()
             return self.snapshot()
 
-    def source_opening(self, source_id, *, prepare=False):
+    def _opening_status(self, source_id, app, attempt, *, reading_version=None):
+        version = self.reading_app.core._reading_version(source_id) if reading_version is None else reading_version
+        result = app.opening(source_id, reading_version=version)
+        if result['status'] == 'missing':
+            legacy = ArticleOverview(self.workspace, self.reading_app).status(source_id, reading_version=version)
+            if legacy.get('status') == 'ready':
+                return {**result, 'status': 'ready', 'structure': legacy['structure'], 'guide': legacy['guide']}
+            worker = self.reading_workers.get(source_id)
+            if (worker and worker.is_alive() and self.reading_worker_versions.get(source_id) == version
+                    and hasattr(self.reading_app.runtime, 'overview_structure')):
+                return {**result, 'status': 'running'}
+        worker = self.opening_workers.get((source_id, version))
+        if result['status'] == 'ready':
+            return result
+        if worker and worker.is_alive():
+            return {**result, 'status': 'running'}
+        if not attempt or attempt['bundleVersion'] != result['bundleVersion'] or attempt.get('readingVersion', 1) != version:
+            return result
+        error = '导读生成已中断，请重试。' if attempt['status'] == 'running' else attempt['error']
+        return {**result, 'status': 'failed', 'error': error}
+
+    def source_opening(self, source_id, *, prepare=False, reading_version=None):
         with self.lock:
             self.source_clear.recover()
             app = SourceReading(self.workspace)
-            result = app.opening(source_id)
-            if result['status'] == 'missing':
-                legacy = ArticleOverview(self.workspace, self.reading_app).status(source_id)
-                if legacy.get('status') == 'ready':
-                    return {**result, 'status': 'ready', 'structure': legacy['structure'], 'guide': legacy['guide']}
-                worker = self.reading_workers.get(source_id)
-                if worker and worker.is_alive() and hasattr(self.reading_app.runtime, 'overview_structure'):
-                    return {**result, 'status': 'running'}
-            workers = self.opening_workers
-            errors = self.opening_errors
-            if result['status'] == 'ready':
+            attempts = self.store.get('openingAttempts') or {}
+            version = self._resolve_reading_version(source_id, reading_version)
+            result = self._opening_status(source_id, app, attempts.get(source_id), reading_version=version)
+            if not prepare or result['status'] in ('ready', 'running'):
                 return result
-            if source_id in workers and workers[source_id].is_alive():
-                return {**result, 'status': 'running'}
-            if not prepare:
-                return {**result, **({'status': 'failed', 'error': errors[source_id]} if source_id in errors else {})}
             self._require_backend_admission()
             if self.shutting_down or self.resetting:
                 raise ValueError('工作区正在关闭或重置')
-            errors.pop(source_id, None)
+            key = (source_id, version)
+            attempt = {'attemptId': uuid.uuid4().hex, 'bundleVersion': result['bundleVersion'], 'status': 'running',
+                       'readingVersion': version}
+            self.store.put('openingAttempts', {**attempts, source_id: attempt})
+
             def generate():
+                error = None
                 try:
-                    app.generate(source_id, self.reading_app.runtime, stopped=lambda: self.shutting_down or self.resetting)
+                    app.generate(source_id, self.reading_app.runtime, reading_version=version,
+                                 stopped=lambda: self.shutting_down or self.resetting)
                 except Exception as exc:
-                    errors[source_id] = str(exc)
+                    error = str(exc)
                 finally:
                     with self.lock:
+                        self.opening_workers.pop(key, None)
                         if not self.shutting_down:
+                            current = self.store.get('openingAttempts') or {}
+                            if (current.get(source_id) or {}).get('attemptId') != attempt['attemptId']:
+                                return
+                            if error is None:
+                                current.pop(source_id, None)
+                            elif source_id not in SourceLibrary(self.workspace).deleted_sources():
+                                current[source_id] = {**attempt, 'status': 'failed', 'error': error}
+                            self.store.put('openingAttempts', current)
                             self.changed()
-            workers[source_id] = threading.Thread(target=generate, daemon=True)
-            workers[source_id].start()
-            return {**result, 'status': 'running'}
+            self.opening_workers[key] = threading.Thread(target=generate, daemon=True)
+            self.opening_workers[key].start()
+            self._publish_snapshot_locked()
+            return {**result, 'status': 'running', 'error': None}
 
     def article_overview(self, source_id):
         overview = ArticleOverview(self.workspace, self.reading_app).status(source_id)
@@ -597,19 +807,22 @@ class HostService:
                 else:
                     self.prepare_reading(source_id, request_id=request_id)
                 return self.article_overview(source_id)
+            reading_version = self.reading_app.core._reading_version(source_id)
             def run():
                 def changed():
                     with self.lock:
                         if not self.shutting_down:
                             self.changed()
                 try:
-                    ArticleOverview(self.workspace, self.reading_app).generate(source_id, stopped=lambda: self.shutting_down, on_progress=changed)
+                    ArticleOverview(self.workspace, self.reading_app).generate(source_id, reading_version=reading_version,
+                        stopped=lambda: self.shutting_down, on_progress=changed)
                 except Exception:
                     pass  # The version-bound asset records failures for explicit retry.
                 finally:
-                    changed()
+                    self._reading_worker_finished()
             worker = threading.Thread(target=run, daemon=True)
             self.reading_workers[source_id] = worker
+            self.reading_worker_versions[source_id] = reading_version
             worker.start()
             return self.article_overview(source_id)
 
@@ -623,12 +836,7 @@ class HostService:
                 if rebuild or not existing or existing['status'] not in ('running', 'ready'):
                     raise WorkspaceError('reading_busy', '此文章正在准备，请完成后再重新规划。')
             run = self.reading_app.begin(source_id, request_id=request_id, rebuild=rebuild)
-            worker = self.reading_workers.get(source_id)
-            if run['status'] == 'running' and (worker is None or not worker.is_alive()):
-                worker = threading.Thread(target=self._run_reading_preparation,
-                    args=(source_id, run['run_id'], run['attempt']), daemon=True)
-                self.reading_workers[source_id] = worker
-                worker.start()
+            self._start_reading_worker(source_id, run)
             self.changed()
             return {**self.snapshot(), 'readingOperation': self.reading_app.core.request_result(source_id, request_id)}
 
@@ -638,14 +846,11 @@ class HostService:
             self.source_clear.recover()
             worker = self.reading_workers.get(source_id)
             if worker and worker.is_alive():
-                return self.snapshot()
+                preparation = self.reading_app.status(source_id)
+                if not preparation or preparation['status'] not in ('failed', 'cancelled', 'interrupted'):
+                    return self.snapshot()
             run = self.reading_app.resume(source_id, request_id=request_id)
-            worker = self.reading_workers.get(source_id)
-            if run['status'] == 'running' and (worker is None or not worker.is_alive()):
-                worker = threading.Thread(target=self._run_reading_preparation,
-                    args=(source_id, run['run_id'], run['attempt']), daemon=True)
-                self.reading_workers[source_id] = worker
-                worker.start()
+            self._start_reading_worker(source_id, run)
             self.changed()
             return {**self.snapshot(), 'readingOperation': self.reading_app.core.request_result(source_id, request_id)}
 
@@ -657,12 +862,7 @@ class HostService:
                 plan_id=payload.get('planId'),
                 expected_glossary_revision=payload.get('expectedGlossaryRevision'),
                 terms=payload.get('terms'), request_id=payload.get('requestId'))
-            worker = self.reading_workers.get(source_id)
-            if run['status'] == 'running' and (worker is None or not worker.is_alive()):
-                worker = threading.Thread(target=self._run_reading_preparation,
-                    args=(source_id, run['run_id'], run['attempt']), daemon=True)
-                self.reading_workers[source_id] = worker
-                worker.start()
+            self._start_reading_worker(source_id, run)
             self.changed()
             return {**self.snapshot(), 'readingOperation': self.reading_app.core.request_result(source_id, payload.get('requestId'))}
 
@@ -704,31 +904,165 @@ class HostService:
             self.changed()
             return {**self.snapshot(), 'readingOperation': operation}
 
-    def select_discussion_source(self, source_id, *, discussion_id=None):
+    def select_discussion_source(self, source_id, *, discussion_id=None, selection=None):
         """Select a Source for discussion without touching the Reading Cursor."""
         with self.lock:
+            if selection is not None:
+                client = selection.get('workbenchId') if isinstance(selection, dict) else None
+                generation = selection.get('generation') if isinstance(selection, dict) else None
+                if (not isinstance(client, str) or not re.fullmatch(r'[\w-]{8,128}', client, re.ASCII)
+                        or type(generation) is not int or not 0 < generation <= 2**53 - 1):
+                    raise ValueError('工作台选择身份无效。')
+                if generation <= self.workbench_selections.get(client, 0):
+                    raise WorkspaceError('cursor_changed', '已选择其他材料，请继续阅读当前材料。')
+                self.workbench_selections[client] = generation
             self.source_clear.recover()
             SourceLibrary(self.workspace).get(source_id)
             self.source_notes.bundle_version(source_id)
+            state = _read_document(self.workspace / 'state.json')
+            round_discussion = version_metadata(state, source_id).get('discussion_id')
+            if discussion_id and round_discussion and discussion_id != round_discussion:
+                raise WorkspaceError('reading_version_changed', '此讨论属于另一阅读轮次。')
+            if selection is not None and self.reading_app.status(source_id) is None:
+                self.prepare_reading(source_id, request_id=uuid.uuid4().hex)
             self._cancel_early_summary_locked()
-            discussions.select(self.state, source_id, discussion_id=discussion_id)
+            discussions.select(self.state, source_id, discussion_id=discussion_id or round_discussion)
             self.state['discussionSourceId'] = source_id
             self.state['displayReading'] = True
             self.changed()
             return self.snapshot()
 
+    def _note_selection(self, source_id, bundle, selection, *, reading_version=None):
+        invalid = WorkspaceError('note_selection_invalid', '选文位置已失效，请重新选择。')
+        if not isinstance(selection, dict) or selection.get('layer') not in ('source', 'translation'):
+            raise invalid
+        keys = {'layer', 'planId', 'bundleVersion', 'ranges'}
+        if selection['layer'] == 'translation':
+            keys.add('readingVersion')
+        if set(selection) != keys:
+            raise invalid
+        if selection['bundleVersion'] != bundle:
+            raise WorkspaceError('note_bundle_changed', '这段原文已更新，请重新选文。')
+        source = SourceBlocks(_source_bundle_at_version(self.workspace / 'sources' / source_id, bundle))
+        plan = self.reading_app.core.note_plan(source_id, bundle, source, reading_version=reading_version)
+        if plan is None or selection['planId'] != plan['planId']:
+            raise invalid
+        ranges = selection['ranges']
+        if not isinstance(ranges, list) or not ranges:
+            raise invalid
+        if selection['layer'] == 'translation':
+            return self._translated_note_selection(source_id, bundle, source, plan, selection, invalid, reading_version)
+        previous = 0
+        for span in ranges:
+            if (not isinstance(span, dict) or set(span) != {'start', 'end'}
+                    or any(type(offset) is not int for offset in span.values())):
+                raise invalid
+            start, end = span['start'], span['end']
+            if not previous <= start < end <= len(source.markdown) or not source.markdown[start:end].strip():
+                raise invalid
+            previous = end
+        chunk_ids = [chunk['chunkId'] for chunk in plan['chunks']
+                     for first, last in [chunk['sourceOffsets']]
+                     if any(span['start'] < last and first < span['end']
+                            and source.markdown[max(first, span['start']):min(last, span['end'])].strip()
+                            for span in ranges)]
+        if not chunk_ids:
+            raise invalid
+        placement = {'sourceId': source_id, 'bundle': bundle,
+                     'sourceLines': list(source.line_span(ranges[0]['start'], ranges[-1]['end']))}
+        return {**selection, 'chunkIds': chunk_ids}, placement
+
+    def _resolve_reading_version(self, source_id, reading_version, *, require_visible=False):
+        state = _read_document(self.workspace / 'state.json')
+        current = selected_version(state, source_id)
+        if reading_version is None:
+            if require_visible and source_id != (self.state.get('discussionSourceId') or state.get('current_source_id')):
+                raise ValueError('讨论材料已改变，请刷新后重试。')
+            return current
+        self.reading_versions.check_version(reading_version)
+        if source_id not in state.get('sources', {}) or (
+                reading_version != current and not version_metadata(state, source_id, reading_version)):
+            raise WorkspaceError('reading_version_missing', '找不到此阅读轮次。')
+        return reading_version
+
+    def _annotation_result(self, key, source_id, reading_version, result):
+        state = _read_document(self.workspace / 'state.json')
+        if (source_id == (self.state.get('discussionSourceId') or state.get('current_source_id'))
+                and selected_version(state, source_id) == reading_version):
+            self.state[key] = {'sourceId': source_id, 'readingVersion': reading_version, **result}
+        self.changed()
+        return self.snapshot()
+    def _translated_note_selection(self, source_id, bundle, source, plan, selection, invalid, reading_version):
+        reading = self.reading_app.core
+        version = selection['readingVersion']
+        if type(version) is not int or version != reading_version:
+            raise invalid
+        translation = reading.shared_translation(source_id, {'bundleVersion': bundle, 'markdown': source.markdown},
+                                                  source=source, reading_version=reading_version)
+        if translation['status'] != 'ready' or translation.get('planId') != plan['planId']:
+            raise invalid
+        segments = translation['segments']
+        by_id = {segment['id']: (index, segment) for index, segment in enumerate(segments)}
+        selected = {}
+        previous_index, previous_end = -1, 0
+        for span in selection['ranges']:
+            if (not isinstance(span, dict) or set(span) != {'segmentId', 'start', 'end'}
+                    or not isinstance(span['segmentId'], str)
+                    or any(type(span[key]) is not int for key in ('start', 'end'))):
+                raise invalid
+            segment_id = span['segmentId']
+            if segment_id not in by_id:
+                raise invalid
+            index, segment = by_id[segment_id]
+            start, end = span['start'], span['end']
+            if (index < previous_index or (index == previous_index and start < previous_end)
+                    or not 0 <= start < end <= len(segment['text']) or not segment['text'][start:end].strip()):
+                raise invalid
+            selected.setdefault(segment_id, []).append(span)
+            previous_index, previous_end = index, end
+
+        composer = reading._source_translation(source_id, bundle, version, source=source)
+        chunk_text = {chunk['id']: chunk['text'] for chunk in translation['chunks']}
+        chunk_ids, chunk_ranges = [], []
+        for chunk in plan['chunks']:
+            first, last = chunk['sourceOffsets']
+            covered = [segment_id for segment_id in selected
+                       if first < by_id[segment_id][1]['sourceOffsets'][1]
+                       and by_id[segment_id][1]['sourceOffsets'][0] < last]
+            if not covered:
+                continue
+            chunk_id = chunk['chunkId']
+            chunk_ids.append(chunk_id)
+            projection = composer.project(segments, first, last)
+            if projection is None or projection[0] != chunk_text.get(chunk_id):
+                continue
+            text, offsets = projection
+            ranges = [{'start': max(0, offsets[segment_id] + span['start']),
+                       'end': min(len(text), offsets[segment_id] + span['end'])}
+                      for segment_id in covered for span in selected[segment_id]]
+            chunk_ranges.append({'chunkId': chunk_id, 'ranges': ranges})
+        if not chunk_ids:
+            raise invalid
+        first = by_id[next(iter(selected))][1]['sourceOffsets'][0]
+        last = by_id[next(reversed(selected))][1]['sourceOffsets'][1]
+        placement = {'sourceId': source_id, 'bundle': bundle, 'sourceLines': list(source.line_span(first, last))}
+        return {**selection, 'chunkIds': chunk_ids, 'chunkRanges': chunk_ranges}, placement
+
     def source_note_create(self, source_id, payload):
         with self.lock:
             self.source_clear.recover()
-            selected = self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']
-            if source_id != selected:
-                raise ValueError('讨论材料已改变，请刷新后重试。')
+            reading_version = self._resolve_reading_version(source_id, payload.get('readingVersion'), require_visible=True)
             kind, origin = payload.get('kind'), payload.get('origin')
             if kind not in ('thought', 'conclusion', 'question') or origin not in ('user', 'dialogue'):
                 raise ValueError('笔记类型或来源不正确。')
-            bundle = self.source_notes.bundle_version(source_id)
+            bundle = self.source_notes.bundle_version(source_id, reading_version)
             chunk, anchor = payload.get('chunk'), None
             sentence = payload.get('sentence')
+            selection, placement = payload.get('selection'), None
+            if selection is not None:
+                if any(value is not None for value in (chunk, sentence, payload.get('quote'))) or kind != 'thought' or origin != 'user':
+                    raise ValueError('笔记类型或来源不正确。')
+                selection, placement = self._note_selection(source_id, bundle, selection, reading_version=reading_version)
             if sentence is not None:
                 if chunk is None:
                     raise WorkspaceError('note_sentence_invalid', '句子备注需要段落引用')
@@ -741,6 +1075,8 @@ class HostService:
                     raise ValueError('笔记段落引用不正确。')
                 if self.core.plan_bundle(source_id, chunk['planId']) != bundle:
                     raise WorkspaceError('note_bundle_changed', '这段原文已更新，可改存为整篇笔记')
+                if not self.reading_app.core.plan_belongs_to_version(source_id, chunk['planId'], reading_version=reading_version):
+                    raise WorkspaceError('reading_version_changed', '小段属于另一阅读轮次。')
                 reference = self.core.reference({'sourceId': source_id, **chunk})
                 anchor = {'sourceId': source_id, 'bundle': bundle, 'sourceLines': reference['sourceLines']}
                 if sentence is not None:
@@ -752,71 +1088,62 @@ class HostService:
             result = self.source_notes.save(source_id, bundle=bundle, request_id=request_id, intent_id=request_id,
                 content=payload.get('content'), kind=kind, origin=origin,
                 evidence_role='unresolved_question' if kind == 'question' else 'explanation', anchor=anchor,
-                sentence=sentence)
-            self.state['noteOperation'] = {'sourceId': source_id, **result}
-            self.changed()
-            return self.snapshot()
+                sentence=sentence, placement=placement, selection=selection, reading_version=reading_version)
+            return self._annotation_result('noteOperation', source_id, reading_version, result)
 
     def source_note_change(self, source_id, note_id, payload, operation):
         with self.lock:
             self.source_clear.recover()
-            selected = self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']
-            if source_id != selected:
-                raise ValueError('讨论材料已改变，请刷新后重试。')
+            reading_version = self._resolve_reading_version(source_id, payload.get('readingVersion'), require_visible=True)
             result = self.source_notes.change(source_id, note_id=note_id,
                 request_id=payload.get('requestId'), expected_revision=payload.get('expectedRevision'),
-                operation=operation, content=payload.get('content'))
-            self.state['noteOperation'] = {'sourceId': source_id, **result}
-            self.changed()
-            return self.snapshot()
+                operation=operation, content=payload.get('content'), reading_version=reading_version)
+            return self._annotation_result('noteOperation', source_id, reading_version, result)
 
-    def source_note_request(self, source_id, request_id):
+    def source_note_request(self, source_id, request_id, *, reading_version=None):
         with self.lock:
-            return self.source_notes.result(source_id, request_id)
+            reading_version = self._resolve_reading_version(source_id, reading_version)
+            return self.source_notes.result(source_id, request_id, reading_version=reading_version)
 
     def source_highlight_create(self, source_id, payload):
         with self.lock:
             self.source_clear.recover()
-            selected = self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']
-            if source_id != selected:
-                raise ValueError('讨论材料已改变，请刷新后重试。')
-            if not isinstance(payload, dict) or set(payload) != {'requestId', 'chunk', 'layer', 'range', 'quote'}:
+            if not isinstance(payload, dict) or set(payload) - {'readingVersion'} != {'requestId', 'chunk', 'layer', 'range', 'quote'}:
                 raise ValueError('标注参数不正确。')
+            reading_version = self._resolve_reading_version(source_id, payload.get('readingVersion'), require_visible=True)
             chunk = payload['chunk']
             if not isinstance(chunk, dict) or set(chunk) != {'planId', 'chunkId'}:
                 raise ValueError('标注参数不正确。')
-            generation = self.source_notes.generation(source_id)
+            generation = self.source_notes.generation(source_id, reading_version)
             plan_bundle = self.core.plan_bundle(source_id, chunk['planId'])
-            if plan_bundle != self.source_notes.bundle_version(source_id):
+            if plan_bundle != self.source_notes.bundle_version(source_id, reading_version):
                 raise WorkspaceError('highlight_bundle_changed', '这段原文已更新，标注未保存')
+            if not self.reading_app.core.plan_belongs_to_version(source_id, chunk['planId'], reading_version=reading_version):
+                raise WorkspaceError('reading_version_changed', '小段属于另一阅读轮次。')
             reference = self.core.reference({'sourceId': source_id, **chunk})
             locator = check_sentence({key: payload[key] for key in ('layer', 'range', 'quote')},
                 plan_id=chunk['planId'], chunk_id=chunk['chunkId'],
                 has_translation=bool(reference.get('translation')), code='highlight_invalid')
             result = self.source_highlights.save(source_id, request_id=payload['requestId'],
                 plan_bundle=plan_bundle, chunk_lines=reference['sourceLines'], locator=locator,
-                expected_generation=generation)
-            self.state['highlightOperation'] = {'sourceId': source_id, **result}
-            self.changed()
-            return self.snapshot()
+                expected_generation=generation, reading_version=reading_version)
+            return self._annotation_result('highlightOperation', source_id, reading_version, result)
 
-    def source_highlight_request(self, source_id, request_id):
+    def source_highlight_request(self, source_id, request_id, *, reading_version=None):
         with self.lock:
-            return self.source_highlights.result(source_id, request_id)
+            reading_version = self._resolve_reading_version(source_id, reading_version)
+            return self.source_highlights.result(source_id, request_id, reading_version=reading_version)
 
     def source_highlight_change(self, source_id, highlight_id, operation, payload):
         with self.lock:
             self.source_clear.recover()
-            selected = self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']
-            if source_id != selected:
-                raise ValueError('讨论材料已改变，请刷新后重试。')
-            if not isinstance(payload, dict) or set(payload) != {'requestId', 'expectedRevision'}:
+            if not isinstance(payload, dict) or set(payload) - {'readingVersion'} != {'requestId', 'expectedRevision'}:
                 raise ValueError('标注参数不正确。')
+            reading_version = self._resolve_reading_version(source_id, payload.get('readingVersion'), require_visible=True)
             result = self.source_highlights.change(source_id, highlight_id=highlight_id,
-                request_id=payload['requestId'], expected_revision=payload['expectedRevision'], operation=operation)
-            self.state['highlightOperation'] = {'sourceId': source_id, **result}
-            self.changed()
-            return self.snapshot()
+                request_id=payload['requestId'], expected_revision=payload['expectedRevision'],
+                operation=operation, reading_version=reading_version)
+            return self._annotation_result('highlightOperation', source_id, reading_version, result)
 
     def library_topics(self):
         from .core_bridge import SourceLibrary
@@ -873,13 +1200,8 @@ class HostService:
             return SourceLibrary(self.workspace).deletion_impact(source_id)
 
     def library_sources(self):
-        from .core_bridge import SourceLibrary
         with self.lock:
-            sources = SourceLibrary(self.workspace).overview()
-            for source in sources:
-                if source.get('parseStatus') == 'ready' and SourceReading(self.workspace).completion(source['sourceId']):
-                    source['readingStatus'] = 'completed'
-            return sources
+            return SourceLibrary(self.workspace).overview()
 
     def inbox_stage(self, attachment_id, *, topic_title=None, topic_id=None):
         with self.lock:
@@ -892,20 +1214,10 @@ class HostService:
 
     def inbox_stage_file(self, path, *, topic_title=None, topic_id=None):
         item = self.ingestion.stage_file(path, topic_title=topic_title, topic_id=topic_id)
-        if item.get('duplicate'):
-            app = self._batch_app()
-            # Match the Batch -> Host lock order used by batch controls. Restoring
-            # the parent must not restore its other dismissed children.
-            with app.lock:
-                batch_ids = [batch['batchId'] for batch in app.list()
-                             if any(child['itemId'] == item['item_id'] for child in batch['items'])]
-                with self.lock:
-                    StatusNotifications(self.store).restore([
-                        ('work', 'ingestion:' + item['item_id']),
-                        ('inbox', item['item_id']), ('batch-item', item['item_id']),
-                        *(('batch', batch_id) for batch_id in batch_ids),
-                    ])
-                    self.changed()
+        with self.lock:
+            if item.get('duplicate'):
+                StatusNotifications(self.store).restore_original(item['item_id'])
+            self._publish_snapshot_locked()
         return item
 
     def inbox_confirm(self, item_id, *, generate_blog=False):
@@ -917,13 +1229,15 @@ class HostService:
         with self.lock:
             self._library_idle()
             if generate_blog:
-                return self._processing_app().confirm(item_id, request_id='ingestion-' + item_id)
-            confirmed = self.ingestion.confirm(
-                item_id, services=self.ingestion.get(item_id)["services"], purpose='register source', scope='ingestion'
-            )
+                confirmed = self._processing_app().confirm(item_id, request_id='ingestion-' + item_id)
+            else:
+                confirmed = self.ingestion.confirm(
+                    item_id, services=self.ingestion.get(item_id)["services"], purpose='register source', scope='ingestion'
+                )
+            self._publish_snapshot_locked()
             return confirmed
 
-    def _prepare_uploaded_pdf(self, source_id, *, start_allowed):
+    def _prepare_uploaded_reading(self, source_id, *, start_allowed):
         with self.lock:
             if start_allowed and not start_allowed():
                 return
@@ -947,7 +1261,7 @@ class HostService:
 
     def _processing_app(self):
         if self.processing is None:
-            self.processing = ProcessingApplication(self.ingestion, self._blog_app(), self._prepare_uploaded_pdf)
+            self.processing = ProcessingApplication(self.ingestion, self._blog_app(), self._prepare_uploaded_reading)
         return self.processing
 
     def inbox_start(self, item_id, *, request_id):
@@ -960,28 +1274,72 @@ class HostService:
                 self.batches = BatchApplication(self._processing_app())
             return self.batches
 
+    @staticmethod
+    def _inbox_needs_action(item):
+        return bool(item.get('resubmit_risk')) or item['status'] in (
+            'awaiting_confirmation', 'status_check_required', 'retry_waiting', 'topic_attachment_pending',
+        )
+
+    @staticmethod
+    def _ingestion_attempt(item):
+        parse = (item.get('run') or {}).get('steps', {}).get('parse', {})
+        attempts = parse.get('attempts', [])
+        return [item.get('request_id'), attempts[-1]['attempt_id'] if attempts else None]
+
+    def _inbox_notification(self, notices, item, *, offer=False):
+        item_id = item['item_id']
+        eligible = not item.get('deleted') and not self._inbox_needs_action(item) and item['status'] in (
+            'failed', 'interrupted', 'cancelled', 'commit_conflict')
+        return notices.project('inbox', item_id, item, eligible=eligible, attempt=self._ingestion_attempt(item),
+                               original=item_id, legacy=('inbox:' + item_id, fingerprint(item)), offer=offer)
+
+    def _batch_item_phase(self, batch, child, item):
+        if batch['status'] == 'paused' or self._inbox_needs_action(item):
+            return 'needs_action'
+        if (child['scheduled'] or child['status'] in ('queued', 'processing') or item['status'] in ('processing', 'confirmed')
+                or (child.get('blog') or {}).get('runStatus') == 'running'):
+            return 'running'
+        return 'error'
+
+    def _batch_item_notification(self, notices, batch, child, item, *, offer=False):
+        item_id = child['itemId']
+        eligible = child['status'] in ('failed', 'partial', 'cancelled') and self._batch_item_phase(batch, child, item) == 'error'
+        attempt = [child['attemptId'], self._ingestion_attempt(item), (child.get('blog') or {}).get('attemptId')]
+        legacy = None
+        if eligible:
+            legacy_child = {key: value for key, value in child.items() if key not in ('attemptId', 'scheduled')}
+            legacy = ('batch-item:' + item_id, fingerprint({**legacy_child, 'notificationId': fingerprint(item)}))
+        return notices.project('batch-item', batch['batchId'] + ':' + item_id, child,
+                               eligible=eligible, attempt=attempt, original=item_id, legacy=legacy, offer=offer)
+
+    def _batch_execution(self, batch):
+        worker = self.batch_workers.get(batch['batchId'])
+        return {**batch, 'executing': bool(worker and worker.is_alive())}
+
     def batch_list(self):
         batches = self._batch_app().list()
         records = {item['item_id']: item for item in self.ingestion.list_inbox()}
         with self.lock:
+            notices = StatusNotifications(self.store)
+            result = []
             for batch in batches:
-                worker = self.batch_workers.get(batch['batchId'])
-                batch['executing'] = bool(worker and worker.is_alive())
-                for item in batch['items']:
-                    item['notificationId'] = fingerprint(records.get(item['itemId'], item))
-                batch['items'] = [StatusNotifications(self.store).project('batch-item', item['itemId'], item) for item in batch['items']]
-                batch.update(StatusNotifications(self.store).project('batch', batch['batchId'], batch))
-        return batches
+                batch = self._batch_execution(batch)
+                items = [self._batch_item_notification(notices, batch, child, records[child['itemId']])
+                         for child in batch['items'] if child['itemId'] in records]
+                unfinished = [child for child in items if child['status'] not in ('completed', 'deleted')]
+                dismissed = batch['status'] == 'partial' and bool(unfinished) and all(child['dismissed'] for child in unfinished)
+                result.append({**batch, 'items': items, 'dismissed': dismissed})
+            return result
 
     def batch_start(self, item_ids, *, request_id, generate_blog=True, prepare_reading=False):
-        if type(prepare_reading) is not bool or (prepare_reading and not generate_blog):
+        if type(prepare_reading) is not bool:
             raise ValueError('阅读准备范围无效。')
         if type(generate_blog) is not bool:
             raise ValueError('生成博客选项无效。')
         app = self._batch_app()
         with app.lock, self._batch_admission(requires_backend=(
-            generate_blog and isinstance(item_ids, list)
-            and any(supports_ingestion_blog(self.ingestion.get(i)) for i in item_ids if isinstance(i, str))
+            prepare_reading or (generate_blog and isinstance(item_ids, list)
+            and any(supports_ingestion_blog(self.ingestion.get(i)) for i in item_ids if isinstance(i, str)))
         )):
             with self.lock:
                 if isinstance(item_ids, list) and any(self.ingestion_workers.get(i) and self.ingestion_workers[i].is_alive() for i in item_ids if isinstance(i, str)):
@@ -1039,6 +1397,7 @@ class HostService:
             batch_id = batch['batchId']
             worker = self.batch_workers.get(batch_id)
             if (worker and worker.is_alive()) or batch['status'] != 'confirmed':
+                self._publish_snapshot_locked()
                 return batch
 
             def submit_blog(source_id, **kwargs):
@@ -1047,21 +1406,24 @@ class HostService:
                     blog_worker = self.blog_workers.get(source_id)
                 return blog_worker.join if blog_worker else None
 
+            def progress_changed():
+                with self.lock:
+                    self._publish_snapshot_locked()
+
             def run():
                 try:
                     with self.batch_serial:
-                        app.run(batch_id, submit_blog=submit_blog, should_stop=lambda: self.shutting_down)
+                        app.run(batch_id, submit_blog=submit_blog, should_stop=lambda: self.shutting_down,
+                                on_progress=progress_changed)
                 finally:
                     with self.lock:
                         self.batch_workers.pop(batch_id, None)
-                        self.generation += 1
-                        self.page_generation = self.generation
-                        self.stream_messages.clear()
-                        self.condition.notify_all()
+                        self._publish_snapshot_locked()
 
             worker = threading.Thread(target=run, name='focus-batch-' + batch_id[:8], daemon=True)
             self.batch_workers[batch_id] = worker
             worker.start()
+            self._publish_snapshot_locked()
             return batch
 
     def inbox_process(self, item_id, *, request_id):
@@ -1106,14 +1468,12 @@ class HostService:
                 finally:
                     with self.lock:
                         self.ingestion_workers.pop(item_id, None)
-                        self.generation += 1
-                        self.page_generation = self.generation
-                        self.stream_messages.clear()
-                        self.condition.notify_all()
+                        self._publish_snapshot_locked()
 
             worker = threading.Thread(target=run, name='focus-ingestion-' + item_id[:8], daemon=True)
             self.ingestion_workers[item_id] = worker
             worker.start()
+            self._publish_snapshot_locked()
             return self.ingestion.get(item_id)
 
     def inbox_item(self, item_id):
@@ -1122,7 +1482,8 @@ class HostService:
 
     def inbox_items(self):
         with self.lock:
-            return [StatusNotifications(self.store).project('inbox', item['item_id'], item) for item in self.ingestion.list_inbox()]
+            notices = StatusNotifications(self.store)
+            return [self._inbox_notification(notices, item) for item in self.ingestion.list_inbox()]
 
     def inbox_continue(self, item_id, *, request_id):
         with self.lock:
@@ -1138,25 +1499,34 @@ class HostService:
 
     def inbox_cancel(self, item_id):
         with self.lock:
-            return self.ingestion.cancel(item_id)
+            item = self.ingestion.cancel(item_id)
+            self._publish_snapshot_locked()
+            return item
 
     def _library_idle(self):
         self.source_clear.recover()
         if self.resetting or self.shutting_down or (self.worker and self.worker.is_alive()) or any(w.is_alive() for w in self.ingestion_workers.values()) or (self.state['run'] and self.state['run']['status'] in ACTIVE):
             raise ValueError('请等待当前任务结束后再管理材料。')
 
-    def library_read(self, source_id, *, reread=False, replan=False, request_id=None):
+    def library_read(self, source_id, *, reread=False, replan=False, request_id=None, restore=False):
         request_id = request_id or uuid.uuid4().hex
         if replan:
             return self.prepare_reading(source_id, request_id=request_id, rebuild=True)
         if reread:
             raise ValueError('从头重读尚未接入新版阅读操作。')
-        status = self.reading_app.status(source_id)
-        if status and (status.get('selected_ready') or (status['ready'] and not status.get('candidate'))):
-            return self.open_prepared_reading(source_id, request_id=request_id)
-        if status and status['status'] in ('failed', 'cancelled', 'interrupted'):
-            raise ValueError('准备已中断，请明确选择恢复。')
-        return self.prepare_reading(source_id, request_id=request_id)
+        with self.lock:
+            if restore:
+                selected = self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']
+                if source_id != selected:
+                    raise WorkspaceError('cursor_changed', '当前材料已变化，请重新打开。')
+            status = self.reading_app.status(source_id)
+            if status and (status.get('selected_ready') or (status['ready'] and not status.get('candidate'))):
+                return self.open_prepared_reading(source_id, request_id=request_id)
+            if restore and status:
+                return self.snapshot()
+            if status and status['status'] in ('failed', 'cancelled', 'interrupted'):
+                raise ValueError('准备已中断，请明确选择恢复。')
+            return self.prepare_reading(source_id, request_id=request_id)
 
     # ------------------------------------------------------------------- blog
 
@@ -1293,7 +1663,7 @@ class HostService:
             newly_committed = self.reading_request_result(payload.get('requestId')) is None
             selected = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8"))['sources'].get(receipt.get('sourceId'), {})
             previous_operation = self.reading_request_result(payload.get('requestId'))
-            if payload.get('beginBody') or not selected.get('reading_started') or (previous_operation and previous_operation.get('operation') == 'start'):
+            if payload.get('beginBody') or not has_started_reading(selected) or (previous_operation and previous_operation.get('operation') == 'start'):
                 state = json.loads((self.workspace / 'state.json').read_text(encoding="utf-8"))
                 if newly_committed and (state.get('current_source_id') != receipt.get('sourceId') or selected.get('current_plan_id') != receipt.get('planId') or selected.get('current_chunk_id') != receipt.get('chunkId') or state.get('reading_revision', 0) != receipt.get('readingRevision')):
                     raise WorkspaceError('cursor_changed', '阅读位置已改变，请刷新后重试。')
@@ -1324,21 +1694,24 @@ class HostService:
         with self.lock:
             if payload.get('sessionId', self.state['sessionId']) != self.state['sessionId']:
                 raise ValueError('会话已更新，请重新连接。')
-            self._library_idle()
             receipt = payload.get('receipt') or {}
             newly_committed = self.reading_request_result(payload.get('requestId')) is None
             if newly_committed:
+                self._library_idle()
+                discussion_source = self.state.get('discussionSourceId')
+                if not self.state['displayReading'] or (discussion_source and discussion_source != receipt.get('sourceId')):
+                    raise WorkspaceError('cursor_changed', '阅读位置已改变，请刷新后重试。')
                 self._require_backend_admission()
-            self.state['displayReading'] = True
             result = self.reading_app.finish_reading(
                 source_id=receipt.get('sourceId'), plan_id=receipt.get('planId'),
                 chunk_id=receipt.get('chunkId'), reading_revision=receipt.get('readingRevision'),
                 request_id=payload.get('requestId'))
-            self.changed()
-            window = {**self.snapshot(), 'readingOperation': result}
             if newly_committed:
+                self.changed()
+                window = {**self.snapshot(), 'readingOperation': result}
                 self._start_progress(result['progress_id'])
-            return window
+                return window
+            return {**self.snapshot(), 'readingOperation': result}
 
     def _start_progress(self, progress_id, request_id=None):
         entry = self.progress_core.get(progress_id)
@@ -1442,20 +1815,206 @@ class HostService:
             state = json.loads((self.workspace / 'state.json').read_text(encoding='utf-8'))
             return state.get('reading_requests', {}).get(request_id, {}).get('result')
 
-    def source_clear_busy(self, source_id):
+    def source_clear_busy(self, source_id, *, restart_reading=False):
         run = self.state.get('run')
         return bool(self.resetting or self.shutting_down or self.batch_admissions
             or any(w.is_alive() for w in (*self.batch_workers.values(), *self.ingestion_workers.values()))
             or ((self.worker and self.worker.is_alive()) and (not run or run.get('sourceId') in (None, source_id)))
-            or any(workers.get(source_id) and workers[source_id].is_alive() for workers in (self.reading_workers, self.blog_workers))
-            or any(w.is_alive() and self.progress_core.get(key)['source_id'] == source_id for key, w in self.progress_workers.items()))
+            or (self.blog_workers.get(source_id) and self.blog_workers[source_id].is_alive())
+            or (not restart_reading and (
+                (self.reading_workers.get(source_id) and self.reading_workers[source_id].is_alive())
+                or any(self.progress_workers.get(entry['progress_id']) and self.progress_workers[entry['progress_id']].is_alive()
+                       for entry in self.progress_core.list(source_id)))))
 
     def clear_source(self, source_id, payload):
         with self.lock:
+            request_id = payload.get('requestId')
+            self.source_notes._check_request(request_id)
+            if request_id in self.reading_versions.receipts():
+                raise WorkspaceError('clear_request_conflict', '请求已用于另一操作。')
             self._cancel_early_summary_locked()
             result = self.source_clear.execute(source_id, payload, busy=self.source_clear_busy(source_id))
             self.changed()
             return {**self.snapshot(), 'clearOperation': result}
+
+    def reset_source_reading(self, source_id, payload):
+        with self.lock:
+            request_id = payload.get('requestId')
+            self.source_notes._check_request(request_id)
+            if payload.get('confirmed') is not True:
+                raise WorkspaceError('clear_confirmation_required', '请确认备份并重新阅读。')
+            expected = payload.get('readingVersion')
+            if expected is not None:
+                self.reading_versions.check_version(expected)
+            self.source_clear.recover()
+            result = self.reading_versions.receipts().get(request_id)
+            legacy = (self.store.get('sourceClears') or {}).get(request_id)
+            if legacy:
+                if not legacy.get('restartReading') or legacy['sourceId'] != source_id:
+                    raise WorkspaceError('clear_request_conflict', '请求已用于另一操作。')
+                result = legacy
+            if result:
+                if result['sourceId'] != source_id or (expected is not None and expected != result.get('priorReadingVersion')):
+                    raise WorkspaceError('clear_request_conflict', '请求已用于另一阅读轮次。')
+            else:
+                if self.source_clear_busy(source_id, restart_reading=True):
+                    raise WorkspaceError('source_busy', '该材料有活动任务，请等待任务结束后再重新阅读。')
+                state = _read_document(self.workspace / 'state.json')
+                versions = version_metadata(state, source_id)
+                discussion_id = versions.get('discussion_id')
+                if discussion_id not in self.state.get('discussions', {}):
+                    discussion_id = discussions.select(self.state, source_id)
+                result = self.reading_versions.reset(source_id, request_id, expected=expected, discussion_id=discussion_id,
+                    capture=lambda plan, bundle: self._capture_reading_version(source_id, discussion_id, plan, bundle), clock=self.clock)
+                self._cancel_early_summary_locked()
+                worker = self.reading_workers.get(source_id)
+                if (worker and worker.is_alive()
+                        and self.reading_worker_versions.get(source_id) == result['priorReadingVersion']):
+                    try:
+                        self.reading_app.runtime.cancel(source_id)
+                    except Exception:
+                        pass
+            self._recover_pending_reading_resets()
+            self.changed()
+            return {**self.snapshot(), 'clearOperation': result}
+
+    def _capture_reading_version(self, source_id, discussion_id, plan_id, bundle):
+        history = discussions.plan(self.state, discussion_id)
+        messages = [message for message in self.state['conversation'] if message.get('discussionId') == discussion_id]
+        message_ids = {message['messageId'] for message in messages}
+        timeline = [entry for entry in self.state['timeline'] if entry.get('messageId') in message_ids
+                    or entry.get('discussionId') == discussion_id
+                    or (not entry.get('discussionId') and (entry.get('receipt') or {}).get('sourceId') == source_id)]
+        window = self.core.window()
+        current = window['current'] if window['source']['sourceId'] == source_id else None
+        if not current and plan_id:
+            selected = _read_document(self.workspace / 'state.json')['sources'][source_id]
+            if selected.get('current_chunk_id'):
+                current = self.core.reference({'sourceId': source_id, 'planId': plan_id, 'chunkId': selected['current_chunk_id']})
+        document = self.source_document(source_id)
+        if document['bundleVersion'] != bundle:
+            raise WorkspaceError('source_bundle_changed', '备份正文与精读计划的原文版本不一致。')
+        overview = self.article_overview(source_id)
+        if overview['status'] == 'ready' and overview['planId'] == plan_id:
+            structure = overview['structure']
+        else:
+            structure = self.core.plan_structure(source_id, plan_id)[0] if plan_id else []
+        return {'document': document, 'current': current, 'readingProgress': self.progress_core.list(source_id),
+                'structure': structure, 'opening': self.source_opening(source_id), 'articleOverview': overview,
+                'discussionId': discussion_id, 'discussion': {**self.state['discussions'][discussion_id],
+                    'summary': history['summary'], 'summaryThrough': history['summaryThrough']},
+                'conversation': messages, 'timeline': timeline}
+
+    def _reconcile_reading_version_resets(self):
+        path = self.workspace / 'state.json'
+        if not path.is_file():
+            return
+        state = _read_document(path)
+        applied = self.state.setdefault('readingVersionResetReceipts', {})
+        changed = False
+        for request_id, reset in state.get('reading_version_resets', {}).items():
+            if request_id in applied:
+                continue
+            source_id, version = reset['sourceId'], reset['readingVersion']
+            if source_id not in state.get('sources', {}):
+                continue
+            discussion_id = version_metadata(state, source_id, version)['discussion_id']
+            self.state.setdefault('discussions', {}).setdefault(discussion_id,
+                {'sourceId': source_id, 'summary': '', 'summaryThrough': None})
+            if selected_version(state, source_id) == version:
+                discussions.select(self.state, source_id, discussion_id=discussion_id)
+                self.state.get('failedChatRuns', {}).pop(source_id, None)
+                for key in ('noteFeedback', 'noteOperation', 'highlightOperation', 'run'):
+                    if (self.state.get(key) or {}).get('sourceId') == source_id:
+                        self.state[key] = None
+                if (self.state.get('discussionSourceId') or state.get('current_source_id')) == source_id:
+                    self.state.update(sessionId=discussion_id, threadId=None, resumeBackend=None,
+                                      discussionSourceId=source_id, displayReading=True, readingMarker=None)
+            applied[request_id] = source_id
+            changed = True
+        if changed:
+            self.store.save()
+
+    def reading_version_backup(self, source_id, reading_version):
+        with self.lock:
+            return self.reading_versions.recover(source_id, reading_version)
+
+    def list_reading_versions(self, source_id):
+        with self.lock:
+            return self.reading_versions.list(source_id)
+
+    def switch_reading_version(self, source_id, reading_version):
+        with self.lock:
+            self.source_clear.recover()
+            self.reading_versions.switch(source_id, reading_version)
+            self._reconcile_reading_version_switch()
+            self._publish_snapshot_locked()
+            return self.snapshot()
+
+    def _reconcile_reading_version_switch(self):
+        path = self.workspace / 'state.json'
+        if not path.is_file():
+            return
+        state = _read_document(path)
+        selection = state.get('reading_version_switch')
+        if not selection or self.state.get('readingVersionSwitchRevision', 0) >= selection['readingRevision']:
+            return
+        source_id, reading_version = selection['sourceId'], selection['readingVersion']
+        if source_id == state.get('current_source_id') and selected_version(state, source_id) == reading_version:
+            discussion_id = version_metadata(state, source_id)['discussion_id']
+            self._cancel_early_summary_locked()
+            discussions.select(self.state, source_id, discussion_id=discussion_id)
+            cursor = state['sources'][source_id]
+            receipt = {'sourceId': source_id, 'planId': cursor['current_plan_id'], 'chunkId': cursor['current_chunk_id']}
+            self.state.update(sessionId=discussion_id, threadId=None, resumeBackend=None,
+                              discussionSourceId=None, displayReading=True,
+                              readingMarker=[receipt, state['reading_revision'], discussion_id])
+        self.state['readingVersionSwitchRevision'] = selection['readingRevision']
+        self.store.save()
+
+    def reading_view_bookmark(self, source_id, *, reading_version=None, payload=None):
+        with self.lock:
+            if payload is not None:
+                reading_version = payload.get('readingVersion')
+                self.reading_versions.check_version(reading_version)
+            return self.reading_versions.bookmark(source_id, reading_version, payload)
+
+    def _enter_reset_reading(self, source_id, run_id, *, reading_version):
+        path = self.workspace / 'state.json'
+        state = _read_document(path)
+        visible = ((self.state.get('discussionSourceId') or state.get('current_source_id')) == source_id
+                   and selected_version(state, source_id) == reading_version)
+        if self.reading_app.core.enter_reset_reading(source_id, run_id=run_id,
+                reading_version=reading_version, select_source=visible):
+            if visible:
+                self.state['displayReading'] = True
+                self.state['readingMarker'] = None
+            return True
+        return False
+
+    def _recover_pending_reading_resets(self, *, resume_interrupted=False, finished=None):
+        path = self.workspace / 'state.json'
+        if not path.is_file() or self.shutting_down or self.resetting:
+            return
+        self._reconcile_reading_version_resets()
+        self._reconcile_reading_version_switch()
+        state = _read_document(path)
+        for source_id in state.get('sources', {}):
+            versions = state.get('reading_versions', {}).get(source_id, {})
+            for reading_version in {selected_version(state, source_id), *map(int, versions)}:
+                request_id = pending_reset(state, source_id, reading_version)
+                if not request_id:
+                    continue
+                run = self.reading_app.status(source_id, reading_version=reading_version)
+                if not run:
+                    run = self.reading_app.begin(source_id, request_id=request_id, reading_version=reading_version)
+                elif run['ready']:
+                    if self._enter_reset_reading(source_id, run['run_id'], reading_version=reading_version):
+                        self.changed()
+                elif resume_interrupted and run['status'] == 'interrupted':
+                    run = self.reading_app.resume(source_id, request_id=uuid.uuid4().hex, reading_version=reading_version)
+                old_worker = finished[0] if finished and finished[1] != run['run_id'] else None
+                self._start_reading_worker(source_id, run, finished=old_worker)
 
     def library_delete(self, source_id):
         from .core_bridge import SourceLibrary
@@ -1475,6 +2034,12 @@ class HostService:
         deleted = SourceLibrary(self.workspace).deleted_sources()
         if not deleted:
             return
+        opening_attempts = self.store.get('openingAttempts') or {}
+        remaining_openings = {source: attempt for source, attempt in opening_attempts.items() if source not in deleted}
+        if remaining_openings != opening_attempts:
+            self.store.put('openingAttempts', remaining_openings)
+        for source_id in deleted:
+            self.blog_errors.pop(source_id, None)
         before = self.store.state
         state = json.loads(json.dumps(before))
         def references(value):
@@ -1489,6 +2054,8 @@ class HostService:
                 message['reference'] = None
                 message['sourceDeleted'] = True
         state['requests'] = {k: v for k, v in state['requests'].items() if not references(v)}
+        for source_id in deleted:
+            state.get('failedChatRuns', {}).pop(source_id, None)
         for key in ('noteFeedback', 'noteOperation', 'highlightOperation', 'run'):
             if references(state.get(key)):
                 state[key] = None
@@ -1533,17 +2100,26 @@ class HostService:
                 selected_source = self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']
                 if source_id != selected_source:
                     raise ValueError('讨论材料已改变，请刷新后重试。')
+                discussion_id = discussions.select(self.state, source_id)
+                if payload.get('discussionId', discussion_id) != discussion_id:
+                    raise WorkspaceError('discussion_cleared', '讨论已更新，请刷新后重试。')
+                state = _read_document(self.workspace / 'state.json')
+                reading_version = selected_version(state, source_id)
+                if payload.get('readingVersion', reading_version) != reading_version:
+                    raise WorkspaceError('reading_version_changed', '此讨论属于另一阅读轮次。')
+                if pending_reset(state, source_id, reading_version):
+                    raise WorkspaceError('reading_not_ready', '当前轮次仍在准备，请完成后再开始对话。')
                 reference_snapshot = self.core.reference(receipt) if receipt is not None else None
                 if receipt is not None and receipt.get('sourceId') != source_id:
                     raise ValueError('引用段落不属于当前讨论材料。')
                 discussion = self.discussion_app.bind(source_id=source_id, request_id=request_id,
                                                       content=payload.get('content', ''),
+                                                      reading_version=reading_version,
                                                       bundle_version=reference_snapshot.get('bundleVersion') if reference_snapshot else None)
                 discussion['receipt'] = receipt
-                discussion['discussionId'] = discussions.select(self.state, source_id)
+                discussion['discussionId'] = discussion_id
                 discussion['reference'] = reference_snapshot
                 if receipt is not None:
-                    state = json.loads((self.workspace / 'state.json').read_text(encoding='utf-8'))
                     selected = state['sources'].get(source_id, {})
                     discussion['readingPass'] = selected.get('reading_pass', 1) if selected.get('current_plan_id') == receipt.get('planId') else None
             if self.resetting or self.shutting_down or (self.worker and self.worker.is_alive()) or (self.state['run'] and self.state['run']['status'] in ACTIVE):
@@ -1591,10 +2167,12 @@ class HostService:
                        'discussionId': discussion.get('discussionId') if discussion else None,
                        'readingPass': discussion.get('readingPass') if discussion else None,
                        'content': display_content + ''.join('\n附件：' + f['name'] for f in attachments)}
+            self.state.get('failedChatRuns', {}).pop(source_id or '', None)
             self.state['run'] = {'runId': run_id, 'status': 'running', 'turnId': None,
                                  'phaseTiming': {'sentAt': int(time.time() * 1000),
                                                  'summaryBatches': 0, 'summaryInputChars': 0},
                                  'sourceId': source_id,
+                                 'discussionId': discussion_id if discussion else None,
                                  'error': None, 'approvals': [], 'activity': [],
                                  'progress': {'label': '正在检测 Backend' if needs_verification else '连接助手',
                                               'startedAt': int(time.time() * 1000),
@@ -1617,6 +2195,15 @@ class HostService:
         self.state['requests'][request_id] = {'discussion': discussion} if discussion else self.state['run']['runId']
         self.state['conversation'].append(message)
         self.state['timeline'].append({'kind': 'message', 'messageId': message['messageId']})
+
+    def _apply_discussion_note_feedback(self, discussion, *, failed):
+        source_id = discussion['sourceId']
+        if self.state.get('latestDiscussion', {}).get(source_id) != discussion['discussionId']:
+            return
+        if failed:
+            self.state['noteFeedback'] = {'sourceId': source_id, 'readingVersion': discussion['readingVersion'], 'status': 'failed'}
+        elif (self.state.get('noteFeedback') or {}).get('sourceId') == source_id:
+            self.state.pop('noteFeedback', None)
 
     def _instructions(self):
         return ("You are the FOCUS assistant. Reply in the user's language. "
@@ -1862,7 +2449,7 @@ class HostService:
                 return False
             if self.shutting_down or self.resetting or self.stop_requested:
                 return False
-            if (self.state.get('latestDiscussion', {}).get(discussion['sourceId']) != discussion_id or
+            if epoch is not None and (self.state.get('latestDiscussion', {}).get(discussion['sourceId']) != discussion_id or
                     (self.state.get('discussionSourceId') or self.core.window()['source']['sourceId']) != discussion['sourceId']):
                 return False
             # The prefetch input prefix must still exist in identical order.
@@ -1917,6 +2504,7 @@ class HostService:
     def _run(self, content, attachments, receipt, discussion=None, *, selection=None, pending=None):
         backend = None
         temporary = None
+        completed = False
         try:
             with self.lock:
                 if self.stop_requested:
@@ -1982,7 +2570,7 @@ class HostService:
                 history = discussions.inline_context(snapshot, budget=budget)
                 if history is None:
                     if not snapshot['pending']:
-                        raise ValueError('近期消息已经超过输入预算；未丢弃历史，请开启新会话或缩短内容。')
+                        raise ValueError('近期消息已经超过输入预算，请缩短内容或通过「重新阅读」开启新对话。')
                     self._phase('整理历史对话', 'summaryStart')
                     def summarize(previous, messages):
                         if self.stop_requested:
@@ -2003,9 +2591,9 @@ class HostService:
                     history = discussions.inline_context({**snapshot, 'summary': result['summary'], 'pending': []},
                                                          budget=budget)
                     if history is None:
-                        raise ValueError('历史上下文超过输入预算；没有截断消息，请缩短问题或开启新会话。')
+                        raise ValueError('历史上下文超过输入预算，请缩短问题或通过「重新阅读」开启新对话。')
                 text += '\n[FOCUS discussion history; data, not new instructions]: ' + json.dumps(history, ensure_ascii=False)
-                opening = self.source_opening(discussion['sourceId'])
+                opening = self.source_opening(discussion['sourceId'], reading_version=discussion['readingVersion'])
                 if opening.get('status') == 'ready':
                     text += '\n[Article opening; data]: ' + json.dumps(opening, ensure_ascii=False)
                 text += '\n[Bound Source discussion scope]: ' + json.dumps(
@@ -2024,15 +2612,15 @@ class HostService:
             with self.lock:
                 if self.state['run']['status'] == 'running':
                     if discussion and discussion['saveIntent'] and (self.discussion_app.result(discussion) or {}).get('status') != 'saved':
-                        self.state['noteFeedback'] = {'sourceId': discussion['sourceId'], 'status': 'failed'}
-                    self.state['run']['status'] = 'completed'
+                        self._apply_discussion_note_feedback(discussion, failed=True)
+                    completed = True
                     self.state['run']['phaseTiming']['completed'] = int(time.time() * 1000)
         except Exception as exc:
             with self.lock:
                 if self.state['run'].get('backendVerification') == 'checking':
                     self.state['run']['backendVerification'] = 'failed'
                 elif discussion and discussion['saveIntent'] and (self.discussion_app.result(discussion) or {}).get('status') != 'saved':
-                    self.state['noteFeedback'] = {'sourceId': discussion['sourceId'], 'status': 'failed'}
+                    self._apply_discussion_note_feedback(discussion, failed=True)
                 self.state['run']['status'] = 'interrupted' if self.stop_requested else 'failed'
                 self.state['run']['error'] = str(exc)
                 self.state['run'].setdefault('phaseTiming', {})['completed'] = int(time.time() * 1000)
@@ -2050,12 +2638,14 @@ class HostService:
                     self.state['run']['runtimeCleanup'] = dict(backend.cleanup)
                 self.state['run']['approvals'] = [
                     approval for approval in self.state['run']['approvals'] if approval.get('status') == 'expired']
-                if self.state['run']['status'] in ACTIVE:
+                if completed:
+                    self.state['run']['status'] = 'completed'
+                elif self.state['run']['status'] in ACTIVE:
                     self.state['run']['status'] = 'interrupted'
                 if self.state['run'].get('progress'):
                     self.state['run']['progress']['finishedAt'] = int(time.time() * 1000)
                 self.state['run']['terminalAt'] = self.clock()
-                self.store.put('execution:' + self.state['run']['runId'], {'run': self.state['run']})
+                self.store.archive_execution(self.state['run'])
                 self.changed()
             if discussion and self.state['run'] and self.state['run']['status'] == 'completed':
                 self._schedule_early_summary(discussion)
@@ -2162,7 +2752,7 @@ class HostService:
                     else:
                         value = self.discussion_app.candidate(discussion, action, candidate)
                     if action == 'source_note':
-                        self.state['noteFeedback'] = {'sourceId': discussion['sourceId'], 'status': 'saved'}
+                        self._apply_discussion_note_feedback(discussion, failed=False)
                         self.changed()
                 self._answer(request_id, {'success': True, 'text': json.dumps(value, ensure_ascii=False)})
                 return
@@ -2178,7 +2768,7 @@ class HostService:
         except Exception as exc:
             if discussion and action == 'source_note':
                 with self.lock:
-                    self.state['noteFeedback'] = {'sourceId': discussion['sourceId'], 'status': 'failed'}
+                    self._apply_discussion_note_feedback(discussion, failed=True)
                     self.changed()
             result = {'success': False, 'text': json.dumps(
                 {'error': getattr(exc, 'error_id', type(exc).__name__), 'message': str(exc)}, ensure_ascii=False)}
@@ -2260,13 +2850,17 @@ class HostService:
                 self.changed()
 
     def _conversation_entry(self, item_id):
+        discussion_id = (self.active_discussion or {}).get('discussionId')
         message = next((m for m in self.state['conversation'] if m['messageId'] == item_id), None)
+        if message and message.get('discussionId') != discussion_id:
+            item_id = uuid.uuid5(uuid.NAMESPACE_OID, f'{discussion_id}:{item_id}').hex
+            message = next((m for m in self.state['conversation'] if m['messageId'] == item_id), None)
         if not message:
             bound_receipt = (self.active_discussion or {}).get('receipt')
             message = {'messageId': item_id, 'chunkId': (bound_receipt or {}).get('chunkId') or '',
                        'reference': bound_receipt, 'bundle': (self.active_discussion or {}).get('bundle'),
                        'sourceId': self.active_discussion['sourceId'] if self.active_discussion else None,
-                       'discussionId': self.active_discussion.get('discussionId') if self.active_discussion else None,
+                       'discussionId': discussion_id,
                        'readingPass': self.active_discussion.get('readingPass') if self.active_discussion else None,
                        'role': 'assistant', 'content': ''}
             self.state['conversation'].append(message)
@@ -2330,7 +2924,9 @@ class HostService:
                 raise ValueError('Invalid approval decision')
             # Claim once; double clicks and stale tabs cannot answer again.
             waiter, _ = self.pending.pop(approval['id'])
+            approval['status'] = 'answered'
             waiter.put(payload if approval['kind'] != 'continue' else payload.get('decision') == 'accept')
+            self.changed()
             return self.snapshot()
 
     def _interrupt(self):

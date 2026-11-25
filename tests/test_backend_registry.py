@@ -188,7 +188,8 @@ with open(sys.argv[1], 'a', encoding='utf-8') as log:
             release.touch()
         app.host.worker.join(8)
         result = app.host.snapshot()
-        self.assertEqual('completed', result['agent']['run']['status'])
+        self.assertIsNone(result['agent']['run'])
+        self.assertEqual('completed', app.host.execution_log(active['runId'])['status'])
         self.assertIn('Manifest discussion answer.', json.dumps(result))
         records = list(map(json.loads, log.read_text(encoding='utf-8').splitlines()))
         self.assertEqual([['--first', '--second', 'app-server']] * 2,

@@ -21,8 +21,8 @@ export async function workspaceRequest(path: string, payload?: unknown): Promise
   return body.value;
 }
 
-export function WorkspaceSelection({ status: initial, onOpened }: {
-  status?: WorkspaceBindingStatus; onOpened?: (status: WorkspaceBindingStatus) => void;
+export function WorkspaceSelection({ status: initial, onOpened, autoFocus = false }: {
+  status?: WorkspaceBindingStatus; onOpened?: (status: WorkspaceBindingStatus) => void; autoFocus?: boolean;
 }) {
   const [status, setStatus] = useState(initial);
   const [editing, setEditing] = useState(!initial?.bound);
@@ -74,7 +74,7 @@ export function WorkspaceSelection({ status: initial, onOpened }: {
       <div className="workspace-path-field">
       <label htmlFor={pathId}>{mode === 'create' ? '父目录' : '工作区目录'}</label>
       <div className="workspace-path-row">
-      <input id={pathId} autoFocus value={path} onChange={event => setPath(event.target.value)} disabled={busy || picking} placeholder="运行 FOCUS 这台电脑上的目录" required />
+      <input id={pathId} autoFocus={autoFocus} value={path} onChange={event => setPath(event.target.value)} disabled={busy || picking} placeholder="运行 FOCUS 这台电脑上的目录" required />
       <button type="button" disabled={busy || picking} onClick={async () => {
         setPicking(true); setError('');
         try {

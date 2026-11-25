@@ -8,14 +8,16 @@
 
 | 范围 | 当前入口 | 适用及替代关系 |
 |---|---|---|
+| 对话阅读正文、引用定位、侧栏目录与论文阅读版本 | [设计文档 04](20261122-refactor/04-conversation-reading-bilingual-view.md) | 已确认的下一版方案。原文、适用的译文、精读计划及全部小段就绪后，同时开放逐段精读与对话。重新阅读前自动备份，在论文管理中切换阅读版本。PDF 使用单栏重排，原文证据映射至当前译文，点击引用直接定位并高亮，章节导航集中到可折叠的侧栏目录。 |
 | 工作台总体布局、设置、共用视觉基础 | [CDS 设计规范](FOCUS_UI_CDS2_DESIGN_SPEC.md) §4–§12 + [ADR 0025](../adr/0025-cds-focus-presentation.md) | 作为基础；以下专项决策在各自范围内覆盖它，旧颜色、动效和 Composer 规则不能直接套回 |
+| 浅色强调色、炭灰深色、语义状态与外观启动 | [设计文档 03 §2](20261122-refactor/03_focus_theme_and_ui_consistency_refactor_design.md#2-简洁主题-token-架构浅色-4-套--深色-1-套) | 主题配色、状态提示和外观设置遵循本节；知识库电量等级沿用设计文档 02 |
 | 阅读镜头、按需图片、讨论吸附、阅读主题与动效 | [阅读重设计](FOCUS_READING_REDESIGN_SPEC.md) + [ADR 0026](../adr/0026-reading-lens-on-demand-figures.md) | 覆盖 ADR 0025 对应的阅读视觉、图片自动展开和相关动效条款；领域 Reading Cursor 不由镜头控制 |
 | 阅读功能行、输入框、发送与收起 | [ADR 0028](../adr/0028-reading-dock-ghost-controls-and-inline-send.md) | 覆盖旧边框控件、Chin 下沿和分离的收起按钮；按此处的 ghost 控件与行内发送执行 |
 | 知识库列表、卡片、来源详情面板 | [知识库重设计](FOCUS_LIBRARY_REDESIGN_SPEC.md) 方向 A + [ADR 0027](../adr/0027-library-list-and-details-panel.md) | 覆盖 CDS §5.2 的行内／卡片内详情展开 |
 | 中文文章结构、导读及知识库预览 | [ADR 0030](../adr/0030-shared-chinese-article-overview.md) | 两入口共用派生资产；生成和预览与正式阅读进度分离 |
 | 吸附笔记与直接记笔记 | [ADR 0031](../adr/0031-attached-notes-and-direct-note-entry.md) + [ADR 0033](../adr/0033-reading-annotations-and-chunk-notes.md) | 取代 ADR 0026 中 Discussion attachment；句内标注（重点/备注）、小段笔记、吸附栏跟随卡片由 0033 定义；视觉数值见 [.scratch/reading-annotations/spec.md §7](../../.scratch/reading-annotations/spec.md#7-视觉与动效数值)，落地后迁入 focus-tokens.css。当前 spec 定义四挡行宽与抽屉平移，其余旧决定保留 |
 | 宽度、亮度、小屏导航、完成后全文、导航提示与段下讨论折叠 | [阅读控制补充](reading-controls-update.md) | 2026-10-21 用户明确修改，覆盖旧设置位置、亮度保留及已完成后的继续按钮条款 |
-| 业务操作、数据与恢复 | [CONTEXT](../../CONTEXT.md) + [ADR 0018](../adr/0018-confirmed-reader-operation-semantics.md) 及相关领域 ADR | 视觉重设计本身不授权改写业务契约；ADR 0018 已补充完成后全文规则 |
+| 业务操作、数据与恢复 | [CONTEXT](../../CONTEXT.md) + [ADR 0018](../adr/0018-confirmed-reader-operation-semantics.md) 及相关领域 ADR | [ADR 0035](../adr/0035-close-reading-completion-and-reset.md) 定义 02 的精读完成与重新阅读规则，实施范围和验收见 [设计文档 02](20261122-refactor/02_focus_statusbar_and_core_logic_refactor_design.md) |
 
 实施数值统一从 [focus-tokens.css](../../ui/packages/reader-ui/src/focus-tokens.css) 读取。规范表达目标；现有 CSS 表达实现。二者冲突时先依据上述范围与明确的后续决策定位原因，不能用实现覆盖已接受目标，也不能恢复已被替代的规范值。新决策更新对应 ADR／补充说明及本索引，避免按文件名或日期猜测优先级。
 

@@ -24,6 +24,84 @@ class LibraryHostTests(unittest.TestCase):
         self.assertEqual('ready', sources[0]['parseStatus'])
         self.assertEqual(state, (self.workspace / 'state.json').read_bytes())
 
+    def test_independent_source_completion_does_not_count_with_or_without_a_current_plan(self):
+        source_id = 'fixture-paper'
+        self.prepare_all()
+        document = self.host.source_document(source_id)
+        self.host.complete_source(source_id, {
+            'requestId': 'legacy-completion', 'bundleVersion': document['bundleVersion'],
+            'generation': document['generation'],
+        })
+        archived = self.workspace / 'sources' / source_id / 'reading/source-completion.json'
+        original = archived.read_bytes()
+
+        selected = self.host.library_sources()[0]
+        self.assertEqual('ready', selected['readingStatus'])
+        self.assertEqual((0, 3), (selected['progress']['completed'], selected['progress']['total']))
+
+        SourceLibrary(self.workspace).unselect_plan(source_id)
+        unselected = self.host.library_sources()[0]
+        self.assertEqual('unplanned', unselected['readingStatus'])
+        self.assertEqual((0, 0), (unselected['progress']['completed'], unselected['progress']['total']))
+        self.assertEqual(original, archived.read_bytes())
+
+    def test_reopening_a_historical_in_progress_plan_preserves_reading_status(self):
+        self.prepare_all()
+        state_path = self.workspace / 'state.json'
+        state = json.loads(state_path.read_text())
+        state['sources']['fixture-paper']['current_chunk_id'] = 'chunk-002'
+        state_path.write_text(json.dumps(state))
+        initial = self.host.library_sources()[0]
+        self.assertEqual('reading', initial['readingStatus'])
+
+        opened = self.host.open_prepared_reading('fixture-paper', request_id='reopen-historical')
+        self.assertTrue(opened['readingStarted'])
+        self.assertEqual('chunk-002', opened['current']['chunkId'])
+        self.assertEqual(initial['progress'], self.host.library_sources()[0]['progress'])
+        self.assertEqual('reading', self.host.library_sources()[0]['readingStatus'])
+
+    def test_entering_a_single_chunk_plan_counts_as_reading_at_zero(self):
+        chunks = self.workspace / 'sources/fixture-paper/reading/plans/plan-001/chunks.jsonl'
+        chunks.write_text(chunks.read_text().splitlines()[0] + '\n')
+        self.prepare_all()
+
+        view = self.host.open_prepared_reading('fixture-paper', request_id='open-single-chunk')
+        self.assertEqual('ready', self.host.library_sources()[0]['readingStatus'])
+        self.host.continue_cached({
+            'requestId': 'enter-single-chunk', 'beginBody': True,
+            'receipt': {**self.receipt, 'readingRevision': view['readingRevision']},
+        })
+        source = self.host.library_sources()[0]
+        self.assertEqual('reading', source['readingStatus'])
+        self.assertEqual((0, 1), (source['progress']['completed'], source['progress']['total']))
+
+    def test_advancing_and_reviewing_preserve_progress_and_completed_plan_reopens_in_full(self):
+        self.prepare_all()
+        source_id = 'fixture-paper'
+        view = self.host.open_prepared_reading(source_id, request_id='open-library-progress')
+
+        def receipt():
+            cursor = view['navigationCurrent']
+            return {**{key: cursor[key] for key in ('sourceId', 'planId', 'chunkId')},
+                    'readingRevision': view['readingRevision']}
+
+        view = self.host.continue_cached({'receipt': receipt(), 'requestId': 'enter-library-progress'})
+        view = self.host.continue_cached({'receipt': receipt(), 'requestId': 'advance-library-first'})
+        view = self.host.continue_cached({'receipt': receipt(), 'requestId': 'advance-library-second'})
+        self.assertEqual(2, self.host.library_sources()[0]['progress']['completed'])
+        reviewed = self.host.review_chunk(source_id, 'plan-001', 'chunk-001')
+        self.assertEqual('chunk-001', reviewed['reviewChunk']['chunkId'])
+        self.assertEqual('chunk-003', reviewed['navigationCurrent']['chunkId'])
+        self.assertEqual(2, self.host.library_sources()[0]['progress']['completed'])
+
+        self.host.finish_reading({'receipt': receipt(), 'requestId': 'finish-library-progress'})
+        finished = self.host.library_sources()[0]
+        self.assertEqual('completed', finished['readingStatus'])
+        self.assertEqual((3, 3), (finished['progress']['completed'], finished['progress']['total']))
+        reopened = self.host.open_prepared_reading(source_id, request_id='reopen-library-progress')
+        self.assertEqual('completed', reopened['status'])
+        self.assertEqual(['chunk-001', 'chunk-002', 'chunk-003'], [chunk['chunkId'] for chunk in reopened['history']])
+
     def test_reread_keeps_notes_and_translation_and_plan(self):
         self.prepare_all()
         core = self.host.core.core

@@ -121,16 +121,17 @@ for backend, selected in (('codex', os.getenv('FOCUS_REAL_CODEX_MODEL', 'gpt-5.6
         view = host.open_prepared_reading('fixture-paper', request_id=uuid.uuid4().hex)
         current = host.snapshot()['current']
         result['stages']['opened'] = {'chunkId': current['chunkId'], 'translationPresent': bool(current.get('translation'))}
-        host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper',
+        started = host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper',
                     'content': '请依据原文解释为什么示例受到内存带宽限制，并将“该示例预测时间为 0.008 秒，属于模型计算而非硬件测量”保存为一条简短笔记。',
                     'receipt': {'sourceId': 'fixture-paper', 'planId': current['planId'], 'chunkId': current['chunkId']}})
         wait(host.worker)
         snapshot = host.snapshot()
         notes = snapshot.get('sourceNotes', {}).get('notes', []) if isinstance(snapshot.get('sourceNotes'), dict) else snapshot.get('sourceNotes', [])
-        result['stages']['discussion'] = {'status': snapshot['agent']['run']['status'], 'discussionId': snapshot['discussionId'],
+        discussion_run = host.execution_log(started['agent']['run']['runId'])
+        result['stages']['discussion'] = {'status': discussion_run['status'], 'discussionId': snapshot['discussionId'],
             'messages': snapshot['conversation'], 'notes': snapshot.get('sourceNotes')}
         save()
-        if snapshot['agent']['run']['status'] != 'completed':
+        if discussion_run['status'] != 'completed':
             raise AssertionError('discussion failed')
         if not snapshot.get('sourceNotes'):
             raise AssertionError('explicit note was not committed')
@@ -162,9 +163,9 @@ for backend, selected in (('codex', os.getenv('FOCUS_REAL_CODEX_MODEL', 'gpt-5.6
             wait(host.progress_workers[request_id])
         advanced = host.snapshot()['navigationCurrent'] or host.snapshot()['current']
         assert advanced['chunkId'] != cursor['chunkId']
-        host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': '刚才讨论的公式是什么？简短回答。'})
+        started = host.start({'requestId': uuid.uuid4().hex, 'sourceId': 'fixture-paper', 'content': '刚才讨论的公式是什么？简短回答。'})
         wait(host.worker)
-        result['stages']['restoredContinue'] = {'status': host.snapshot()['agent']['run']['status'],
+        result['stages']['restoredContinue'] = {'status': host.execution_log(started['agent']['run']['runId'])['status'],
             'identityPreserved': True, 'discussionPreserved': before['discussionId'] == host.snapshot()['discussionId'],
             'oldConversationPreserved': True, 'oldNotesPreserved': True}
         result['stages']['restoredContinue']['remainingReadingAdvanced'] = True

@@ -26,7 +26,9 @@ export function useAnnotations({ host, view, accept, stream, groups, onReference
   host: ReaderHost; view: ReadingWindow | null; accept: (view: ReadingWindow) => void;
   stream: RefObject<HTMLElement | null>; groups: readonly Group[]; onReference: (chunk: ReaderChunk, text?: string) => void; attached: boolean; notesLayout?: string;
 }) {
-  const scope = `${view?.source.sourceId ?? ""}:${view?.resetVersion ?? 0}:${view?.noteClearVersion ?? 0}`;
+  const readingVersion = view?.readingVersion;
+  const round = readingVersion == null ? view?.resetVersion ?? 0 : `round-${readingVersion}`;
+  const scope = `${view?.source.sourceId ?? ""}:${round}:${view?.noteClearVersion ?? 0}`;
   const [float, setFloat] = useState<Float | null>(null), [text, setText] = useState("");
   const [linkedKey, setLinkedKey] = useState<string | null>(null), [registryVersion, setRegistryVersion] = useState(0);
   const [localToast, setLocalToast] = useState<AnnotationToastValue | null>(null);
@@ -216,10 +218,9 @@ export function useAnnotations({ host, view, accept, stream, groups, onReference
     const up = (event: PointerEvent) => { pointerDown = false; if (!(event.target as Element).closest?.("[data-anno-ui]")) timer = setTimeout(readSelection, 0); };
     const change = () => { if (pointerDown) return; clearTimeout(timer); timer = setTimeout(readSelection, 220); };
     const resize = () => { if (latest.current.float?.kind === "selection") close(); };
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape" && latest.current.float?.kind !== "editor") close(true); };
     document.addEventListener("pointerdown", down); document.addEventListener("pointerup", up); document.addEventListener("selectionchange", change);
-    document.addEventListener("keydown", escape); window.addEventListener("resize", resize);
-    return () => { clearTimeout(timer); document.removeEventListener("pointerdown", down); document.removeEventListener("pointerup", up); document.removeEventListener("selectionchange", change); document.removeEventListener("keydown", escape); window.removeEventListener("resize", resize); };
+    window.addEventListener("resize", resize);
+    return () => { clearTimeout(timer); document.removeEventListener("pointerdown", down); document.removeEventListener("pointerup", up); document.removeEventListener("selectionchange", change); window.removeEventListener("resize", resize); };
   }, [stream, readSelection, close, drafts.write, !!view]);
   useEffect(() => {
     const active = latest.current.float;
@@ -267,6 +268,12 @@ export function useAnnotations({ host, view, accept, stream, groups, onReference
     deleteMark, beforeAttachChange: motion.beforeAttachChange, showToast, fresh: actions.fresh, notes, highlights,
     overlay, toast: <AnnotationToast toast={localToast ?? actions.toast ?? null} onDismiss={dismissToast} />,
     readSelection, closeSelection: () => { if (float?.kind === "selection") close(); },
+    escape: () => {
+      if (!float) return false;
+      if (float.kind === "editor") cancelEditor();
+      else close(true);
+      return true;
+    },
     onClick: delegated,
     onKeyDown: (event: { key: string; target: EventTarget | null; preventDefault: () => void }) => { if (["Enter", " "].includes(event.key)) delegated(event, true); },
     onPointerOver: (event: { target: EventTarget | null }) => { const el = (event.target as Element).closest<HTMLElement>("[data-anno-key]"); if (el) setLinkedKey(el.dataset.annoKey ?? null); },

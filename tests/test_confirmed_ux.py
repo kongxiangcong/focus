@@ -167,16 +167,22 @@ class ConfirmedUXTests(unittest.TestCase):
         self.assertEqual('chunk-002', again['timeline'][-1]['chunk']['chunkId'])
 
     def test_T17_progress_preparation_and_chat_visible_in_global_work(self):
-        self.host.state['run'] = {'runId': 'fake-run', 'status': 'approval', 'sourceId': 'fixture-paper', 'approvals': [], 'error': None}
+        with self.host.lock:
+            self.host.state['run'] = {'runId': 'fake-run', 'status': 'approval', 'sourceId': 'fixture-paper', 'approvals': [], 'error': None}
+            self.host.changed()
         work = self.host.snapshot()['workItems']
         self.assertEqual('approval', next(w for w in work if w['kind'] == 'chat')['status'])
-        self.host.state['run']['status'] = 'completed'
+        with self.host.lock:
+            self.host.state['run']['status'] = 'completed'
+            self.host.changed()
         self.assertFalse(any(w['kind'] == 'chat' for w in self.host.snapshot()['workItems']))
         self.host.state['run'] = None
 
     def failed_preparation(self, message='Runtime timed out'):
-        run = self.host.reading_app.begin('fixture-paper', request_id=uuid.uuid4().hex, rebuild=True)
-        self.host.reading_app.core.fail('fixture-paper', run['run_id'], run['attempt'], run['bundle'], message)
+        with self.host.lock:
+            run = self.host.reading_app.begin('fixture-paper', request_id=uuid.uuid4().hex, rebuild=True)
+            self.host.reading_app.core.fail('fixture-paper', run['run_id'], run['attempt'], run['bundle'], message)
+            self.host.changed()
         return self.host.snapshot()['preparations']['fixture-paper']
 
     def test_preparation_dismissal_survives_restart_without_cancelling_or_mutating_assets(self):
@@ -218,7 +224,9 @@ class ConfirmedUXTests(unittest.TestCase):
             self.host.dismiss_preparation('fixture-paper', {'attempt': old['attempt']})
         with self.assertRaisesRegex(ValueError, '仍在运行'):
             self.host.dismiss_preparation('fixture-paper', {'attempt': resumed['attempt']})
-        self.host.reading_app.core.fail('fixture-paper', resumed['run_id'], resumed['attempt'], resumed['bundle'], '请求超时')
+        with self.host.lock:
+            self.host.reading_app.core.fail('fixture-paper', resumed['run_id'], resumed['attempt'], resumed['bundle'], '请求超时')
+            self.host.changed()
         current = self.host.snapshot()
         self.assertTrue(current['preparations']['fixture-paper']['timed_out'])
         self.assertFalse(current['preparations']['fixture-paper']['dismissed'])

@@ -49,7 +49,7 @@ it("keeps IME composition local until compositionend in the shared header", asyn
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "清除搜索" }))); expect(search).toHaveValue(""); expect(screen.getByRole("button", { name: "Alpha" })).toBeInTheDocument();
 });
 it("preserves progress semantics while exposing a transform-only visual fill", async () => {
-  setup(); const progress = await screen.findByRole("progressbar", { name: "Alpha 阅读进度" }); expect(progress).toHaveAttribute("aria-valuenow", "1"); expect(progress).toHaveAttribute("aria-valuemax", "4"); expect(progress.firstElementChild).toHaveStyle({ transform: "scaleX(0.25)" });
+  setup(); const progress = await screen.findByRole("progressbar", { name: "Alpha 精读进度" }); expect(progress).toHaveAttribute("aria-valuenow", "1"); expect(progress).toHaveAttribute("aria-valuemax", "4"); expect(progress.querySelector(".library-battery__fill")).toHaveStyle({ transform: "scaleX(0.25)" });
 });
 
 it.each(["searchbox", "combobox"] as const)("closes the menu before the inspector from the shared header %s", async role => {

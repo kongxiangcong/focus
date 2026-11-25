@@ -27,6 +27,9 @@ class ProcessingApplication:
     def wants_blog(self, item_id):
         return 'reading_blog' in _read_document(self.path, {}).get(item_id, {}).get('scope', [])
 
+    def wants_reading(self, item_id):
+        return 'translation' in _read_document(self.path, {}).get(item_id, {}).get('scope', [])
+
     def _binding(self, item):
         binding = {'fingerprint': item['fingerprint'], 'topic_id': item['topic_id'],
                    'services': item['services']}
@@ -45,7 +48,7 @@ class ProcessingApplication:
             if any(key != item_id and value['request_id'] == request_id for key, value in scopes.items()):
                 raise WorkspaceError('request_conflict', 'Request identity belongs to another original')
             generate_blog = generate_blog and supports_ingestion_blog(item)
-            translate = prepare_reading and item.get('source_kind', 'paper_pdf') == 'paper_pdf'
+            translate = prepare_reading
             existing = scopes.get(item_id)
             if existing:
                 if ('reading_blog' in existing['scope']) != generate_blog or ('translation' in existing['scope']) != translate:
@@ -74,8 +77,8 @@ class ProcessingApplication:
             steps = ['ingestion']
             if generate_blog:
                 steps.extend(['reading_blog', 'html'])
-                if translate:
-                    steps.append('translation')
+            if translate:
+                steps.append('translation')
             scopes[item_id] = {
                 'request_id': request_id, **self._binding(item),
                 'scope': steps,
@@ -107,14 +110,15 @@ class ProcessingApplication:
                                                   start_allowed=start_allowed)
                 else:
                     item = self.ingestion.process(item_id, request_id=execution_id, start_allowed=start_allowed)
-            if item['status'] == 'completed' and 'reading_blog' in scope['scope']:
+            if item['status'] == 'completed':
                 wait = None
                 try:
                     if 'translation' in scope['scope']:
                         wait = self.prepare_reading(item['source_id'], start_allowed=start_allowed)
                 finally:
-                    (submit_blog or self.blog.generate)(item['source_id'], request_id=execution_id + ':blog',
-                                                        authorized_by='ingestion_confirmation')
+                    if 'reading_blog' in scope['scope']:
+                        (submit_blog or self.blog.generate)(item['source_id'], request_id=execution_id + ':blog',
+                                                            authorized_by='ingestion_confirmation')
                 if wait:
                     wait()
             return item

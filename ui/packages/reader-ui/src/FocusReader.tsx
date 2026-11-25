@@ -1,7 +1,8 @@
 import { useEvidenceNavigation, type EvidenceNavigation } from "./evidence-navigation";
 import type { ReadingSession } from "./reading-session";
+import { preparationFailed, preparationText } from "./reading-preparation";
 import { ConversationReader } from "./ConversationReader";
-import { evidenceBySourceBlock, messageEvidence } from "./source-evidence";
+import { answerEvidenceKey, evidenceBySourceBlock, messageEvidence } from "./source-evidence";
 import { useLatestNotice } from "./latest-notice";
 import { discussionFoldKey, useDiscussionFolds } from "./discussion-fold";
 import { AnnotationRail } from "./annotations/AnnotationRail";
@@ -25,9 +26,12 @@ import "./reader-annotations.css";
 import "./reader-figures.css";
 import { FigurePanel, FigureViewer, type ViewerRequest } from "./FigurePanel";
 import { useReadingScroll } from "./reading-scroll";
+import { useReadingCompletion } from "./reading-completion";
 import { useReadingLens } from "./reading-lens";
 import { ArticleOverviewPanel } from "./ArticleOverviewPanel";
 import { ArticleStructure } from "./ArticleStructure";
+import { ReaderConfirmation, type ReaderConfirmationInput } from "./ReaderConfirmation";
+import { canDismissReaderLayer } from "./reader-keyboard";
 import "./article-structure.css";
 import { chunkFigures, figureChunk, extractFigures, figureNumber, imageIdentity, mergeFigures, type Figure } from "./figures";
 
@@ -36,7 +40,7 @@ type Upload = { id: string; file: File; state: "uploading" | "ready" | "failed";
 type Failure = { message: string; label: string; retry: () => void };
 type ReadingMode = "chunks" | "chat" | "blog";
 export type { ReadingMode };
-export interface FocusReaderProps { readingSession?: ReadingSession; evidenceNavigation?: EvidenceNavigation; renderModeNavigation?: (mode: ReadingMode, select: (next: ReadingMode) => void, disabled: boolean) => ReactNode; renderBlog?: (sourceId: string) => ReactNode; host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
+export interface FocusReaderProps { readingSession?: ReadingSession; evidenceNavigation?: EvidenceNavigation; approvalManaged?: boolean; renderModeNavigation?: (mode: ReadingMode, select: (next: ReadingMode) => void, disabled: boolean) => ReactNode; renderBlog?: (sourceId: string) => ReactNode; host: ReaderHost; appearance?: "mist" | "conversation"; fontSize?: "small" | "standard" | "large" | "extra"; visible?: boolean; fullscreen?: boolean; onFullscreenChange?: (next: boolean) => void }
 
 // Capture entry eligibility only on mount, never on streaming updates.
 function TimelineEvent({ identity, fresh, current, streaming, children }: { identity: string; fresh: boolean; current: boolean; streaming?: boolean; children: ReactNode }) {
@@ -63,8 +67,9 @@ export function groupReadingDiscussion<C extends { chunkId: string }>(
   return groups;
 }
 
-function LegacyFocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange, readingSession, evidenceNavigation }: FocusReaderProps) {
+function LegacyFocusReader({ host, appearance = "conversation", fontSize = "standard", visible = true, fullscreen = false, onFullscreenChange, readingSession, evidenceNavigation, approvalManaged }: FocusReaderProps) {
   const mist = appearance === "mist";
+  const [confirmation, setConfirmation] = useState<ReaderConfirmationInput | null>(null);
   const [attachNotes, setAttachNotes] = useState(() => {
     try { localStorage.removeItem("focus.attachDiscussion"); return localStorage.getItem("focus.attachNotes") !== "false"; } catch { return true; }
   });
@@ -185,8 +190,8 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     if (readingSession && publish && !readingSession.accept(value, readingSession.generation, allowSourceChange)) return;
     if (!alive.current || (value.revision !== undefined && value.revision < revision.current)) return;
     const priorNotes = acceptedNoteIds.current;
-    if (priorNotes?.source === value.source.sourceId && value.noteFeedback?.status === "saved" &&
-      value.sourceNotes?.some(note => note.origin === "dialogue" && !priorNotes.ids.has(note.noteId))) scrolling.controller.current?.hold();
+    if (priorNotes?.source === value.source.sourceId &&
+      value.sourceNotes?.some(note => note.sourceId === value.source.sourceId && note.origin === "dialogue" && !note.deleted && !priorNotes.ids.has(note.noteId))) scrolling.controller.current?.hold();
     acceptedNoteIds.current = { source: value.source.sourceId, ids: new Set(value.sourceNotes?.map(note => note.noteId) ?? []) };
     const owner = `${value.source.sourceId}:${value.discussionId ?? value.sessionId}`;
     if (draftOwner.current && owner !== draftOwner.current) {
@@ -291,8 +296,9 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
   const current = view?.current ?? null;
   const frontier = view?.navigationCurrent ?? current;
   useEffect(() => { setReviewChunk(null); }, [view?.source.sourceId, view?.readingRevision]);
-  const agent = view?.agent;
+  const agent = !view?.agent?.run?.sourceId || view.agent.run.sourceId === view.source.sourceId ? view?.agent : undefined;
   const active = !!agent?.run && ["running", "approval", "stopping"].includes(agent.run.status);
+  const sharedApproval = approvalManaged && agent?.run?.status === "approval" && agent.run.approvals.some(approval => approval.status !== "expired");
   const uploading = uploads.some(u => u.state === "uploading");
   const blocked = active || !!operation;
   const chunks = useMemo(() => view ? [...view.history, ...(current ? [current] : view.readingStarted && frontier ? [frontier] : [])] : [], [view?.history, current, view?.readingStarted, frontier]);
@@ -310,10 +316,11 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
   const sourceBundleVersion = view?.sourceBundleVersion;
   const sourceGeneration = view?.sourceGeneration ?? view?.resetVersion;
   const discussionId = view?.discussionId;
+  const resettingDiscussion = evidenceNavigation?.isResettingDiscussion(sourceId, discussionId);
   const [evidenceDocument, setEvidenceDocument] = useState<ReadingDocument | null>(null);
-  const discussionEvidence = useMemo(() => (view?.conversation ?? []).flatMap(message =>
+  const discussionEvidence = useMemo(() => (resettingDiscussion ? [] : view?.conversation ?? []).flatMap(message =>
     message.role === "assistant" && !message.sourceDeleted ? messageEvidence(message, { sourceId }, discussionId) : [],
-  ), [view?.conversation, sourceId, discussionId]);
+  ), [view?.conversation, sourceId, discussionId, resettingDiscussion]);
   const needsBlocks = visible && !!evidenceNavigation && discussionEvidence.length > 0;
   useEffect(() => {
     if (!needsBlocks || !sourceId || !host.getSourceDocument) return;
@@ -330,13 +337,20 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     [currentEvidenceDocument, discussionEvidence]);
   const chunkEvidence = (chunk: ReaderChunk) => {
     if (!byBlock || chunk.sourceId !== sourceId || (chunk.bundleVersion && chunk.bundleVersion !== currentEvidenceDocument?.bundleVersion)) return [];
-    return [...new Set((chunk.blockIds ?? []).flatMap(id => byBlock.get(id) ?? []))];
+    const matches = new Map<string, ValidatedAnswerEvidence>();
+    for (const blockId of chunk.blockIds ?? []) {
+      for (const item of byBlock.get(blockId) ?? []) {
+        const key = answerEvidenceKey(item);
+        if (!matches.has(key)) matches.set(key, item);
+      }
+    }
+    return [...matches.values()];
   };
   const openEvidenceAnswer = (item: ValidatedAnswerEvidence) => {
-    if (!evidenceNavigation || !discussionId || item.discussionId !== discussionId ||
+    if (!evidenceNavigation || resettingDiscussion || !discussionId || item.discussionId !== discussionId ||
         (readingSession && !readingSession.isCurrent(readingSession.generation, sourceId))) return;
     evidenceNavigation.start({ destination: "answer", sourceId, discussionId, bundleVersion: sourceBundleVersion,
-      sourceGeneration, messageId: item.messageId, evidenceId: item.evidenceId });
+      sourceGeneration, selectionGeneration: readingSession?.generation, messageId: item.messageId, evidenceId: item.evidenceId });
   };
   const { allFigures, sourceFigures } = useMemo(() => {
     const protectedImages = new Set(chunks.flatMap(c => [...extractFigures(c.sourceMarkdown, c.sourceId).protectedIds]));
@@ -439,6 +453,13 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
   const reviewLanding = useRef(false);
   const pendingQuestion = useRef<string | null | undefined>(undefined);
   const scrolling = useReadingScroll(stream, follow, eventScope, active, visible && !showStructure);
+  const finishGroup = visible && !showStructure && !reviewChunk && view?.status === "reading" && view.readingStarted &&
+    current && frontier && frontier.index === frontier.total && chunkKey(current) === chunkKey(frontier) && host.finishReading
+    ? [...readingGroups].reverse().find(group => group.chunk && chunkKey(group.chunk) === chunkKey(frontier))
+    : undefined;
+  const finishScope = finishGroup && JSON.stringify([eventScope, finishGroup.id, view?.readingRevision, sourceGeneration]);
+  const finishPaused = blocked || !!panel || !!viewer || !!confirmation;
+  const completion = useReadingCompletion(stream, scrolling.controller, finishScope, fullscreen, finishPaused, finish);
   const noteFeedback = useNoteFeedback({ view, groups: paragraphGroups, projected: projectedNotes, stream,
     onToast: annotations.showToast, onJump: element => scrolling.controller.current?.jump(element) });
   useLayoutEffect(() => {
@@ -513,7 +534,9 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     const attachmentIds = (includeAttachments ? uploads : []).flatMap(u => u.attachment ? [u.attachment.attachmentId] : []);
     const sentUploads = (includeAttachments ? uploads : []).filter(u => u.state === "ready").map(u => u.id);
     const input: SendReaderMessageInput = {
-      sessionId: view.sessionId, receipt: selected ? { sourceId: selected.sourceId, planId: selected.planId, chunkId: selected.chunkId } : selected === null ? null : visibleChunks.some(c => current && chunkKey(c) === chunkKey(current)) ? cursorReceipt(view) : null,
+      sessionId: view.sessionId, discussionId: view.discussionId,
+      ...(view.readingVersion == null ? {} : { readingVersion: view.readingVersion }),
+      receipt: selected ? { sourceId: selected.sourceId, planId: selected.planId, chunkId: selected.chunkId } : selected === null ? null : visibleChunks.some(c => current && chunkKey(c) === chunkKey(current)) ? cursorReceipt(view) : null,
       content: clear && reference?.excerpt ? `> ${reference.excerpt.replace(/\n/g, "\n> ")}\n\n${content.trim()}` : content.trim(), attachmentIds,
       sourceId: selected?.sourceId ?? (view.source.sourceId || undefined),
     };
@@ -543,11 +566,6 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     follow.current = true;
     void perform("下一段", () => host.continueReading(input));
   }
-  function finishFresh() {
-    if (!view || !frontier || !host.finishReading || blocked) return;
-    const input = { receipt: cursorReceipt(view)!, sessionId: view.sessionId, requestId: createReaderId() };
-    void perform("完成本篇", () => host.finishReading!(input));
-  }
   function reset() {
     if (!host.newSession || !view?.sessionId || blocked) return;
     const id = view.sessionId;
@@ -574,24 +592,20 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     }
   }
   function finish() {
-    if (!view || !current || blocked || reviewChunk || current.index !== current.total || !host.finishReading) return;
-    const input = { receipt: cursorReceipt(view)!, sessionId: view.sessionId, requestId: createReaderId() };
+    if (!view || !finishScope || finishPaused || !host.finishReading ||
+      (readingSession && !readingSession.isCurrent(readingSession.generation, sourceId))) return;
+    const receipt = cursorReceipt(view);
+    if (!receipt || receipt.readingRevision === undefined) return;
+    const requestId = mutationId(JSON.stringify(["finish", eventScope, sourceGeneration, receipt]));
+    const input = { receipt, sessionId: view.sessionId, requestId };
     void perform("完成本篇", () => host.finishReading!(input), () => setReference(undefined));
-  }
-  function reread() {
-    if (!view || blocked || !host.rereadReading || view.readingRevision === undefined) return;
-    const chunk = current ?? view.history.at(-1);
-    if (!chunk) return;
-    const input = { receipt: { sourceId: chunk.sourceId, planId: chunk.planId,
-      chunkId: current?.chunkId ?? null, readingRevision: view.readingRevision },
-      sessionId: view.sessionId, requestId: createReaderId() };
-    void perform("从头重读", () => host.rereadReading!(input), () => { setReviewChunk(null); setReference(undefined); });
   }
   async function changeNote(note: SourceNote, action: "edit" | "delete" | "undo", expectedRevision = note.revision) {
     if (!host.changeSourceNote || !view) return;
     const content = action === "edit" ? editDraft : undefined;
     const key = JSON.stringify([note.sourceId, note.noteId, action, expectedRevision, content]);
-    const result = await host.changeSourceNote(note.sourceId, note.noteId, action, expectedRevision, mutationId(key), content);
+    const result = await host.changeSourceNote(note.sourceId, note.noteId, action, expectedRevision, mutationId(key), content,
+      ...(view.readingVersion == null ? [] : [view.readingVersion] as const));
     if (!result.ok) { setNoteError(result.error.message); return; }
     accept(result.value);
     mutationIds.current.delete(key);
@@ -679,7 +693,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
       {locationPath}{locationProgress}
       {!view?.structureIntro && <button aria-expanded={showStructure} onClick={() => setStructureOpen(!structureOpen)}>{showStructure ? "返回阅读" : "文章结构"}</button>}
     </div>);
-  const composerFeedback = recoverDraft || connection || failure || (operation && !active) || (agent && active) || uploads.length > 0;
+  const composerFeedback = recoverDraft || connection || failure || (operation && !active) || (agent && active && !sharedApproval) || uploads.length > 0;
   function toggleComposer(nextCollapsed: boolean) {
     scrolling.controller.current?.hold(nextCollapsed ? layout.current?.querySelector<HTMLElement>(".focus-bottom")?.offsetHeight ?? 0 : 0);
     setCollapsed(nextCollapsed);
@@ -717,11 +731,33 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
     }}><Close /></button></span>}
   </div>;
   const continueLabel = view?.status === "completed" && (!reviewChunk || reviewChunk.index === reviewChunk.total) ? "已读完" : (view?.sessionFresh && view.readingStarted && frontier?.index === frontier?.total) || (!view?.sessionFresh && displayed?.index === displayed?.total && !reviewChunk) ? "完成本篇" : operation === "下一段" ? "打开中…" : "继续";
-  return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-measure={measure} data-notes-layout={notesLayout} data-anno-rail={Object.values(stackedRails).some(Boolean) ? "stacked" : undefined} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => { if (event.key === "Escape" && structureOpen) {
+  function dismissReadingLayer() {
+    if (annotations.escape()) return true;
+    if (widthOpen) {
+      setWidthOpen(false);
+      widthControl.current?.querySelector("button")?.focus({ preventScroll: true });
+      return true;
+    }
+    if (structureOpen) {
       setStructureOpen(false); layout.current?.querySelector<HTMLButtonElement>(".reader-location-badge")?.focus({ preventScroll: true });
-    } else if (event.key === "Escape" && sideMode && !(event.target as HTMLElement).closest("dialog")) {
-    preserveReading(() => setSideMode(null)); event.currentTarget.querySelector<HTMLButtonElement>(mist ? ".reader-side-toggle" : ".reader-figures-toggle")?.focus({ preventScroll: true });
-  } }} data-materials-open={mist && materialsOpen && !showStructure} data-side-open={!!sideMode && !showStructure} className={`focus-reader reader-split${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}
+      return true;
+    }
+    if (!sideMode || showStructure) return false;
+    preserveReading(() => setSideMode(null));
+    layout.current?.querySelector<HTMLButtonElement>(mist ? ".reader-side-toggle" : ".reader-figures-toggle")?.focus({ preventScroll: true });
+    return true;
+  }
+  useEffect(() => {
+    if (!visible || (!annotations.overlay && !structureOpen && !sideMode && !widthOpen)) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (canDismissReaderLayer(event) && dismissReadingLayer()) event.preventDefault();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  });
+  return <AssetInstanceContext.Provider value={view?.workspace?.instanceId}><div ref={layout} data-reading-measure={measure} data-notes-layout={notesLayout} data-anno-rail={Object.values(stackedRails).some(Boolean) ? "stacked" : undefined} data-reading-narrow={readingWidth < 600} data-structure-open={showStructure} onKeyDown={event => {
+    if (canDismissReaderLayer(event.nativeEvent) && dismissReadingLayer()) event.stopPropagation();
+  }} data-materials-open={mist && materialsOpen && !showStructure} data-side-open={!!sideMode && !showStructure} className={`focus-reader reader-split${mist ? " focus-mist" : ""}`} data-font-size={fontSize} data-large-text={largeText || fontSize === "large" || fontSize === "extra"} data-composer-collapsed={collapsed}
     style={{ "--reader-column": `calc(${readingMeasures.find(m => m.id === measure)!.characters} * var(--reader-reading-size))`, "--reader-notes-width": `${readingLayout.noteWidth}px`, "--reader-notes-gap": `${readingLayout.noteGap}px`, "--reader-notes-max-height": readingHeight ? `${Math.max(80, readingHeight - 28)}px` : "60dvh", "--reader-available-width": availableWidth ? `${availableWidth}px` : "100%", "--reader-shift": `${readerShift}px`, "--reader-reading-size": `${readingFontSizes[fontSize]}px`, "--reader-text-share": `${textShare}fr`, "--reader-side-share": `${100 - textShare}fr` } as CSSProperties}>
     {!mist && <header className="focus-header">
       <span className="focus-brand">FOCUS<span>.</span></span>
@@ -758,7 +794,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
         </div>
 
         <div className="reader-panel" hidden={renderedSideMode !== "notes"}>
-        {view?.noteFeedback && <p role="status" className="focus-note-feedback">{view.noteFeedback.status === "saved" ? "已记下" : "未保存，可重试"}</p>}
+        {view?.noteFeedback?.status === "failed" && <p role="status" className="focus-note-feedback">未保存，可重试</p>}
         {view?.source.sourceId && view.sourceNotes && <SourceNotesPanel notes={view.sourceNotes} chunks={visibleChunks}
           error={noteError} lostSentenceNoteIds={sentenceNoteController.current?.lostSentenceNoteIds}
           editing={{ noteId: editingNoteId, draft: editDraft, revision: editBaseRevision, conflict: noteConflict }}
@@ -781,7 +817,10 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
               </div> : <>
                 <span>{entry.deleted ? "已删除" : [entry.fact, entry.topic, entry.user_understanding].filter(Boolean).join(" · ")}</span>
                 {!entry.deleted && <button onClick={() => { setEditingProgressId(entry.progress_id); setProgressDraft(entry.topic ?? entry.fact); setProgressBaseRevision(entry.revision); setProgressConflict(null); setProgressError(""); }}>更正</button>}
-                {!entry.deleted && <button onClick={() => { if (window.confirm("删除这条阅读记录？阅读位置不会改变。")) void changeProgress(entry, "delete"); }}>删除</button>}
+                {!entry.deleted && <button onClick={event => setConfirmation({
+                  title: "删除阅读记录", description: "删除这条阅读记录？阅读位置不会改变。",
+                  label: "删除", opener: event.currentTarget, confirm: () => void changeProgress(entry, "delete"),
+                })}>删除</button>}
                 {!entry.deleted && ["pending", "failed", "interrupted"].includes(entry.status) && host.retryReadingProgress &&
                   <button onClick={() => { const requestId = createReaderId(); void perform("补记", () => host.retryReadingProgress!(entry.progress_id, requestId)); }}>补记</button>}
                 {!entry.deleted && entry.status === "generating" && <small>整理中…</small>}
@@ -796,9 +835,34 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
         </section>
     <main className="focus-stream" ref={stream} aria-label="阅读与对话" tabIndex={0}
       onClick={annotations.onClick} onPointerOver={annotations.onPointerOver} onPointerOut={annotations.onPointerOut}
-      onWheel={e => { if (!(e.target as HTMLElement).closest(".reader-anno-rail, .reader-chunk-notes-fold")) scrolling.controller.current?.userIntent(e.deltaY < 0); }} onTouchStart={e => { if (!(e.target as HTMLElement).closest(".reader-anno-rail, .reader-chunk-notes-fold")) pauseFollow(); }}
-      onKeyDown={e => { annotations.onKeyDown(e); if (!e.defaultPrevented && !(e.target as HTMLElement).closest(".reader-anno-rail, .reader-chunk-notes-fold") && ["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "].includes(e.key)) scrolling.controller.current?.userIntent(["PageUp", "Home", "ArrowUp"].includes(e.key)); }}
-      onMouseUp={annotations.readSelection} onScroll={e => { if (e.target !== e.currentTarget) return; annotations.closeSelection(); locateVisibleChunk(); scrolling.controller.current?.onScroll(); }}>
+      onWheel={event => {
+        if ((event.target as Element).closest(".reader-anno-rail, .reader-chunk-notes-fold")) return;
+        scrolling.controller.current?.userIntent(event.deltaY < 0);
+      }}
+      onTouchStart={event => {
+        if ((event.target as Element).closest(".reader-anno-rail, .reader-chunk-notes-fold")) return;
+        pauseFollow();
+      }}
+      onKeyDown={event => {
+        annotations.onKeyDown(event);
+        completion.cancelIntent();
+        const target = event.target as Element;
+        if (event.defaultPrevented || target.closest(".reader-anno-rail, .reader-chunk-notes-fold") ||
+            !["PageUp", "PageDown", "Home", "End", "ArrowUp", "ArrowDown", " "].includes(event.key)) return;
+        const up = ["PageUp", "Home", "ArrowUp"].includes(event.key) || (event.key === " " && event.shiftKey);
+        scrolling.controller.current?.userIntent(up);
+        if (!up && event.nativeEvent.isTrusted && !event.ctrlKey && !event.altKey && !event.metaKey &&
+            !target.closest("input, textarea, select, [contenteditable=true]") && (event.key !== " " || !target.closest("button, a, summary"))) {
+          completion.scrollIntent(true);
+        }
+      }}
+      onMouseUp={annotations.readSelection} onScroll={event => {
+        if (event.target !== event.currentTarget) return;
+        annotations.closeSelection();
+        locateVisibleChunk();
+        completion.onScroll();
+        scrolling.controller.current?.onScroll();
+      }}>
       {!mist && readingLocation}
       <div className="focus-content">
         {showStructure && view && (host.getArticleOverview ? <ArticleOverviewPanel host={host} sourceId={sourceId} title={view.source.title} view={view}
@@ -841,8 +905,12 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
           const e = entries[index];
           const message = e.kind === "message" ? view?.conversation.find(m => m.messageId === e.messageId) : null;
           const content = e.kind === "reading" ? <ReadingChunk chunk={e.chunk} evidence={chunkEvidence(e.chunk)} onEvidence={openEvidenceAnswer} located={annotations.located.get(group.id)}
+            sharedNotes={projectedNotes.get(group.id)}
+            bodyRef={finishGroup?.id === group.id ? completion.body : undefined}
+            afterBody={finishGroup?.id === group.id && completion.inline &&
+              <button type="button" className="focus-finish-chunk" disabled={finishPaused} onClick={finish}>读完</button>}
             pending={annotations.pending?.groupId === group.id ? annotations.pending : null} fresh={annotations.fresh} onMarks={annotations.onMarks(group.id)}
-            onReference={referenceChunk} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} onLanguage={(chunk, original) => preserveReading(() => setFigureLanguages(old => ({ ...old, [chunkKey(chunk)]: original })))} /> : message ? <ReaderConversation messages={[message]} discussionId={discussionId} onEvidence={evidenceNavigation ? openEvidenceAnswer : undefined} chunks={chunks} figures={view?.figures} figureSourceId={sourceId} sourceFigures={sourceFigures} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} streaming={active && message.messageId === view?.conversation.at(-1)?.messageId}
+            onReference={referenceChunk} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} onLanguage={(chunk, original) => preserveReading(() => setFigureLanguages(old => ({ ...old, [chunkKey(chunk)]: original })))} /> : message ? <ReaderConversation messages={[message]} discussionId={discussionId} hideEvidence={resettingDiscussion} onEvidence={evidenceNavigation ? openEvidenceAnswer : undefined} chunks={chunks} figures={view?.figures} figureSourceId={sourceId} sourceFigures={sourceFigures} onFigure={showFigure} onZoom={(figure, origin) => setViewer({ figure, origin })} streaming={active && message.messageId === view?.conversation.at(-1)?.messageId}
             onJump={jumpReference} onHighlight={highlight} onClearHighlight={() => { if (!highlightTimer.current) clearHighlight(); }} onSaveNote={(reply, chunk) => send(`请把下面的回答记下来：\n\n${reply.content}`, false, false, chunk ?? null)} /> : null;
           const identity = eventKeys[index];
           return <TimelineEvent key={`${eventScope}:${identity}`} identity={identity} current={index === focusedIndex} fresh={committedEvents.current?.scope === eventScope && !committedEvents.current.ids.has(identity)} streaming={!folded && active && message?.role === "assistant" && message.messageId === view?.conversation.at(-1)?.messageId}>{content}</TimelineEvent>;
@@ -852,12 +920,12 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
             onAccept={value => preserveReading(() => accept(value))} onToast={annotations.showToast}
             freshNoteId={noteFeedback.freshGroupId === group.id ? noteFeedback.freshNoteId : undefined}
             freshToken={noteFeedback.freshGroupId === group.id ? noteFeedback.freshToken : undefined}
-            resetVersion={view?.resetVersion} noteClearVersion={view?.noteClearVersion} />}
+            readingVersion={view?.readingVersion ?? undefined} resetVersion={view?.resetVersion} noteClearVersion={view?.noteClearVersion} />}
           {!discussion && notesOpen && group.chunk && <AnnotationRail chunk={group.chunk} notes={projectedNotes.get(group.id) ?? []}
             marks={annotations.registry.get(group.id)?.marks ?? []} host={host} onAccept={value => preserveReading(() => accept(value))}
             linkedKey={annotations.linkedKey} onLink={annotations.setLinkedKey} onEdit={annotations.openEditor}
             onDelete={mark => void annotations.deleteMark(mark)} onToast={annotations.showToast}
-            resetVersion={view?.resetVersion} noteClearVersion={view?.noteClearVersion}
+            readingVersion={view?.readingVersion ?? undefined} resetVersion={view?.resetVersion} noteClearVersion={view?.noteClearVersion}
             freshNoteId={noteFeedback.freshGroupId === group.id ? noteFeedback.freshNoteId : undefined}
             onStackedChange={stacked => setRailStacked(group.id, stacked)}
             onDiscuss={() => preserveReading(() => referenceChunk(group.chunk!))}
@@ -865,7 +933,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
           </div>)}
           </div>;
         })}
-        {view?.status === "completed" && !reviewChunk && <div className="focus-finished">已完成本篇 <button disabled={!host.clearSource || blocked} onClick={() => { if (view && window.confirm("将清除本篇讨论、笔记和阅读记录，并从第一段重新开始。原文、译文和博客保留。")) { const requestId = createReaderId(); void perform("重新阅读", () => host.clearSource!(view.source.sourceId, requestId)); } }}>重新阅读</button><button onClick={() => setPanel("contents")}>查看已读段落</button></div>}
+        {view?.status === "completed" && !reviewChunk && <div className="focus-finished">已完成本篇 <button onClick={() => setPanel("contents")}>查看已读段落</button></div>}
         </div>
       </div>
       <div ref={scrolling.end} aria-hidden="true" />
@@ -881,8 +949,8 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
         {connection && <div className="focus-error" role="alert">{connection}<button onClick={() => void reconnect()}>重新连接</button></div>}
         {failure && <div className="focus-error" role="alert">{failure.message}<button disabled={!!operation} onClick={failure.retry}>{failure.label}</button><button aria-label="关闭错误" onClick={() => setFailure(null)}>×</button></div>}
         {operation && !active && <p className="focus-operation" role="status">{operation === "下一段" ? "正在打开下一段…" : `${operation}中…`}</p>}
-        {agent && (active || agent.run?.approvals.some(approval => approval.status === "expired")) &&
-          <AgentControls agent={agent} showStop={false} onStop={() => void perform("停止", () => host.stop!())} onAnswer={async input => {
+        {agent && !sharedApproval && (active || agent.run?.approvals.some(approval => approval.status === "expired")) &&
+          <AgentControls agent={agent} showApproval={!approvalManaged} showStop={false} onStop={() => void perform("停止", () => host.stop!())} onAnswer={async input => {
           const result = await host.approve?.(input);
           if (result?.ok) { accept(result.value); return true; } return false;
         }} />}
@@ -907,7 +975,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
             }} /><button type="button" onClick={() => fileInput.current?.click()} aria-label="添加附件">＋ 附件</button></>}
               {uploads.some(u => u.state === "ready") && <button type="button" disabled={blocked || uploading} onClick={() => send("请阅读附件", false)}>阅读附件</button>}
             </div>}
-            {active && host.stop && !collapsed
+            {active && !sharedApproval && host.stop && !collapsed
               ? <button type="button" className="focus-primary focus-composer__send" aria-label="停止" title="停止" onClick={() => void perform("停止", () => host.stop!())} disabled={agent?.run?.status === "stopping"}><StopSquare /></button>
               : <button type="submit" className="focus-primary focus-composer__send" aria-label={operation === "发送" ? "发送中" : "发送"} title={operation === "发送" ? "发送中" : "发送"} disabled={!view || blocked || uploading || !draft.trim()}><ArrowUp /></button>}
           </div>
@@ -946,7 +1014,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
       })}><Pin /><span className="mist-action-label">笔记</span></button>
       <button className="reader-fullscreen-toggle" aria-label={fullscreen ? "退出全屏" : "全屏"} aria-pressed={fullscreen} onClick={() => onFullscreenChange?.(!fullscreen)}>{fullscreen ? <Collapse /> : <Expand />}<span className="mist-action-label">{fullscreen ? "退出全屏" : "全屏"}</span></button>
       <button type="button" className="mist-composer-toggle" aria-expanded={!collapsed} aria-controls="focus-composer-form" onClick={() => toggleComposer(!collapsed)}><ChevronDown />{collapsed ? "提问" : "收起"}{collapsed && draft && <span aria-hidden="true" className="mist-composer-toggle__draft" />}</button>
-      {collapsed && active && host.stop && <button className="focus-reader__stop" onClick={() => void perform("停止", () => host.stop!())}><StopSquare />停止</button>}
+      {collapsed && active && !sharedApproval && host.stop && <button className="focus-reader__stop" onClick={() => void perform("停止", () => host.stop!())}><StopSquare />停止</button>}
       {view?.status !== "completed" && continueLabel !== "完成本篇" && <button className="focus-reader__continue" aria-label={continueLabel} disabled={showStructure || blocked || (!frontier && !reviewChunk)}
         onClick={() => { follow.current = true; view?.sessionFresh ? freshContinue() : next(); }}>
         {continueLabel === "继续" ? <>继续<span className="reader-continue-detail"> · 第 {view?.sessionFresh ? view.readingStarted ? (frontier?.index ?? 0) + 1 : frontier?.index ?? 1 : (displayed?.index ?? 0) + 1} 段</span></> : continueLabel}<ArrowRight /></button>}
@@ -972,6 +1040,7 @@ function LegacyFocusReader({ host, appearance = "conversation", fontSize = "stan
       }) : <p>打开材料后显示。</p>}</nav>}
       {renderedPanel === "settings" && <label><input type="checkbox" checked={largeText} onChange={e => setLargeText(e.target.checked)} /> 使用较大正文字号</label>}
     </dialog>
+    {confirmation && <ReaderConfirmation input={confirmation} onClose={() => setConfirmation(null)} />}
   </div></AssetInstanceContext.Provider>;
 }
 
@@ -997,31 +1066,53 @@ function UnifiedReader(props: FocusReaderProps) {
     return { chunks: initial === "chunks", chat: initial === "chat", blog: initial === "blog" };
   });
   const [busy, setBusy] = useState(false);
-  const modeRequest = useRef(0);
-  const [error, setError] = useState("");
-  const [localSource, setLocalSource] = useState<string | null>(null);
+  const [failure, setFailure] = useState<Failure | null>(null);
+  const [localView, setLocalView] = useState<ReadingWindow | null>(null);
+  const request = useRef<symbol | null>(null);
+  const autoOpened = useRef(false);
   const managed = !!props.readingSession;
-  const sourceId = managed ? props.readingSession?.view?.source.sourceId ?? null : localSource;
-  const sourceRef = useRef<string | null>(null);
-  const syncedModeRef = useRef<{ sourceId: string; chunks: boolean; chat: boolean }>({ sourceId: "", chunks: false, chat: false });
+  const view = managed ? props.readingSession?.view : localView;
+  const sourceId = view?.source.sourceId ?? "";
+  const generation = props.readingSession?.generation;
+  const preparation = view?.preparations?.[sourceId];
+  const hasPlan = !!(view?.navigationCurrent ?? view?.current) || view?.status === "completed";
+  const readyToOpen = !!(preparation?.selected_ready || (preparation?.ready && !preparation.candidate));
+  const waiting = !!view?.unifiedPreparation && !!sourceId && !readyToOpen;
+  const acceptSession = props.readingSession?.accept;
+  const isCurrentSelection = props.readingSession?.isCurrent;
+  const seenReset = useRef<{ sourceId: string; version: number } | null>(null);
 
   useLayoutEffect(() => {
-    if (sourceRef.current === sourceId) return;
-    sourceRef.current = sourceId;
-    modeRequest.current += 1;
-    syncedModeRef.current = { sourceId: sourceId ?? "", chunks: false, chat: true };
     const preferred = readSavedMode(hasBlog);
     setMode(preferred);
     setMounted({ chunks: preferred === "chunks", chat: preferred === "chat", blog: preferred === "blog" });
-    setError("");
+    autoOpened.current = false;
+    setFailure(null);
     setBusy(false);
-  }, [sourceId, props.readingSession?.generation, hasBlog]);
+    return () => { request.current = null; };
+  }, [sourceId, generation, hasBlog, view?.readingVersion]);
+
+  const resetVersion = view?.resetVersion;
+  useLayoutEffect(() => {
+    if (!sourceId || resetVersion === undefined) return;
+    const previous = seenReset.current;
+    seenReset.current = { sourceId, version: resetVersion };
+    if (previous?.sourceId !== sourceId || previous.version === resetVersion) return;
+    evidenceNavigation.cancel();
+    request.current = null;
+    autoOpened.current = false;
+    setBusy(false);
+    setFailure(null);
+    setMode("chunks");
+    setMounted(current => ({ ...current, chunks: true }));
+    try { localStorage.setItem("focus.readingMode", "chunks"); } catch { /* In-memory preference remains active. */ }
+  }, [sourceId, resetVersion, evidenceNavigation.cancel]);
 
   useEffect(() => {
     if (managed) return;
     let live = true;
     const receive = (result: ReaderHostResult<ReadingWindow>) => {
-      if (live && result.ok) setLocalSource(result.value.source.sourceId);
+      if (live && result.ok) setLocalView(result.value);
     };
     void props.host.getReadingWindow().then(receive);
     const off = props.host.subscribe?.(receive);
@@ -1030,67 +1121,77 @@ function UnifiedReader(props: FocusReaderProps) {
 
   useLayoutEffect(() => {
     const intent = evidenceNavigation.intent;
-    if (props.visible === false || !intent || intent.sourceId !== sourceId || mode === "chat") return;
-    modeRequest.current += 1;
-    setBusy(false);
-    setError("");
+    if (props.visible === false || !intent || intent.sourceId !== sourceId || mode === "chat" ||
+        intent.selectionGeneration !== generation || !evidenceNavigation.isLatest(intent)) return;
     setMode("chat");
     setMounted(previous => ({ ...previous, chat: true }));
-  }, [mode, evidenceNavigation.intent, props.visible, sourceId]);
+  }, [mode, evidenceNavigation.intent, evidenceNavigation.isLatest, props.visible, sourceId, generation]);
 
-  const cancelEvidenceNavigation = evidenceNavigation.cancel;
-  const selectMode = useCallback(async (next: ReadingMode) => {
-    if (next === mode || !sourceId) return;
-    cancelEvidenceNavigation?.();
-    const requested = ++modeRequest.current;
-    setBusy(false);
-    setError("");
-    // Optimistic instant switch + keep-alive mount: zero teardown/reparse lag.
-    setMode(next);
-    setMounted(prev => (prev[next] ? prev : { ...prev, [next]: true }));
-    try { localStorage.setItem("focus.readingMode", next); } catch { /* ignore */ }
-    if (next === "blog") return;
-
-    const selectedSource = sourceId;
-    const readingSession = props.readingSession;
-    const current = () => sourceRef.current === selectedSource &&
-      (!readingSession || readingSession.isCurrent(readingSession.generation, selectedSource));
-    const latestMode = () => current() && modeRequest.current === requested;
-    const alreadySynced = syncedModeRef.current.sourceId === selectedSource && syncedModeRef.current[next];
-    if (alreadySynced) return;
-
+  const run = useCallback(async (label: string, operation: (requestId: string) => Promise<ReaderHostResult<ReadingWindow>>, requestId = createReaderId()): Promise<void> => {
+    if (request.current || !sourceId || (generation !== undefined && !isCurrentSelection?.(generation, sourceId))) return;
+    const attempt = Symbol();
+    request.current = attempt;
+    const current = () => request.current === attempt &&
+      (generation === undefined || isCurrentSelection?.(generation, sourceId));
+    const failed = (message: string) => setFailure({ message, label, retry: () => void run(label, operation, requestId) });
+    setFailure(null);
     setBusy(true);
     try {
-      const result = next === "chunks"
-        ? await props.host.openSource?.(selectedSource, createReaderId())
-        : await props.host.selectDiscussionSource?.(selectedSource);
-      if (!current() || !result) return;
-      if (!result.ok) { if (latestMode()) setError(result.error.message); return; }
-      readingSession?.accept(result.value, readingSession.generation);
-      if (!latestMode()) return;
-      const preparation = result.value.preparations?.[selectedSource];
-      if (next === "chunks" && preparation && !preparation.selected_ready && !preparation.ready) {
-        setError(preparation.error || "正在准备逐段精读，完成后可再次打开。");
-        return;
-      }
-      if (syncedModeRef.current.sourceId === selectedSource) syncedModeRef.current[next] = true;
-    } catch (failure) {
-      if (latestMode()) setError(failure instanceof Error ? failure.message : String(failure));
+      const result = await operation(requestId);
+      if (!current()) return;
+      if (!result.ok) { failed(result.error.message); return; }
+      if (result.value.source.sourceId !== sourceId) return;
+      if (generation !== undefined) acceptSession?.(result.value, generation);
+      else setLocalView(result.value);
+    } catch (error) {
+      if (current()) failed(error instanceof Error ? error.message : String(error));
     } finally {
-      if (latestMode()) setBusy(false);
+      if (current()) { request.current = null; setBusy(false); }
     }
-  }, [mode, sourceId, props.host, props.readingSession, cancelEvidenceNavigation]);
+  }, [sourceId, generation, acceptSession, isCurrentSelection]);
+
+  const openSource = props.host.openSource;
+  const open = useCallback((requestId: string) => managed
+    ? props.host.openSource!(sourceId, requestId, { restore: true })
+    : props.host.openSource!(sourceId, requestId), [props.host, sourceId, managed]);
+  useEffect(() => {
+    if (!readyToOpen) autoOpened.current = false;
+    if (props.visible === false || mode !== "chunks" || hasPlan || !readyToOpen || !openSource || request.current || autoOpened.current) return;
+    autoOpened.current = true;
+    void run("重试打开精读", open);
+  }, [props.visible, mode, hasPlan, readyToOpen, busy, openSource, open, run]);
+
+  function selectMode(next: ReadingMode) {
+    if (next === mode || !sourceId) return;
+    evidenceNavigation.cancel();
+    setMode(next);
+    setMounted(prev => (prev[next] ? prev : { ...prev, [next]: true }));
+    try { localStorage.setItem("focus.readingMode", next); } catch { /* keep in-memory selection */ }
+    if (!managed && next === "chunks" && hasPlan && openSource) void run("重试打开精读", open);
+  }
+
+  const candidatePlan = preparation?.candidate && preparation.ready ? preparation.plan_id : null;
+  const canActivate = candidatePlan &&
+    view?.readingRevision !== undefined && props.host.activateReadingCandidate;
+  const preparing = preparation?.status === "running";
+  const prepFailed = preparationFailed(preparation) && !readyToOpen && !candidatePlan;
+  const resume = prepFailed && preparation && ["failed", "cancelled", "interrupted"].includes(preparation.status) ? props.host.resumePreparation : undefined;
+  const prepare = (prepFailed ? resume ?? props.host.replanSource : undefined) ?? openSource;
+  const activate = canActivate ? <div className="reading-plan-action"><button type="button" disabled={busy} onClick={
+    () => void run("重试打开新计划", requestId => props.host.activateReadingCandidate!(sourceId, candidatePlan, view.readingRevision!, requestId))
+  }>打开新计划</button></div> : null;
+  const canChangeMode = !!sourceId;
 
   const modeTabs: readonly ReadingMode[] = hasBlog ? ["chunks", "chat", "blog"] : ["chunks", "chat"];
   const modeLabel = (m: ReadingMode) => m === "chunks" ? "精读" : m === "chat" ? "对话" : "带读博客";
 
   return <div className="unified-reader" hidden={props.visible === false}>
-    {props.renderModeNavigation
-      ? (!props.fullscreen && props.renderModeNavigation(mode, selectMode, !sourceId || !props.host.openSource || !props.host.selectDiscussionSource))
-      : <div className="reading-mode-tabs" role="tablist" aria-label="阅读方式">
+    {props.renderModeNavigation && !props.fullscreen
+      ? props.renderModeNavigation(mode, selectMode, !canChangeMode)
+      : <div className={`reading-mode-tabs${props.fullscreen ? " reading-mode-tabs--fullscreen" : ""}`} role="tablist" aria-label="阅读方式">
           {modeTabs.map((value, index) => <button key={value}
             id={`reading-tab-${value}`} role="tab" aria-selected={mode === value}
-            aria-controls="reading-mode-panel" disabled={busy || !sourceId || !props.host.openSource || !props.host.selectDiscussionSource}
+            aria-controls="reading-mode-panel" disabled={!canChangeMode}
             onClick={() => void selectMode(value)}
             onKeyDown={event => {
               if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
@@ -1101,12 +1202,27 @@ function UnifiedReader(props: FocusReaderProps) {
               }
             }}>{value === "chunks" ? "逐段精读" : modeLabel(value)}</button>)}
         </div>}
-    {error && <p role="alert" className="source-reader-error">{error}</p>}
-    <div id="reading-mode-panel" className="reading-mode-panel" role={props.renderModeNavigation ? "region" : "tabpanel"} aria-label={modeLabel(mode)} aria-busy={busy}>
-      {mounted.chunks && <div className="reading-mode-layer" hidden={mode !== "chunks"}>
-        <LegacyFocusReader key={props.readingSession?.generation} {...props} evidenceNavigation={evidenceNavigation} visible={props.visible !== false && mode === "chunks"} />
+    <div id="reading-mode-panel" className="reading-mode-panel" role={props.renderModeNavigation ? "region" : "tabpanel"} aria-label={modeLabel(mode)} aria-busy={busy || (waiting && preparing)}>
+      {waiting && mode !== "blog" && <section className="reading-preparation" aria-label="阅读准备">
+        <p role={prepFailed ? "alert" : "status"}>{canActivate ? "新计划已就绪" : preparation ? preparationText(preparation, "阅读") : "等待准备阅读"}</p>
+        {failure && <p role="alert">{failure.message}</p>}
+        {activate}
+        {!preparing && !canActivate && prepare && <button type="button" disabled={busy} onClick={
+          () => void run("重试准备", requestId => prepare.call(props.host, sourceId, requestId))
+        }>{prepFailed || failure ? "重试准备" : "准备阅读"}</button>}
+      </section>}
+      {mounted.chunks && !waiting && <div className="reading-mode-layer" hidden={mode !== "chunks"}>
+        {failure && <div className="source-reader-error" role="alert">{failure.message}<button type="button" onClick={failure.retry}>{failure.label}</button><button type="button" aria-label="关闭错误" onClick={() => setFailure(null)}>×</button></div>}
+        {activate}
+        {hasPlan || !sourceId ? <LegacyFocusReader key={`${generation}:${view?.readingVersion}`} {...props} evidenceNavigation={evidenceNavigation} visible={props.visible !== false && mode === "chunks"} /> :
+          <section className="reading-preparation" aria-label="精读准备">
+            {preparation && (preparing || prepFailed) && <p role={prepFailed ? "alert" : "status"}>{preparationText(preparation, "精读")}</p>}
+            {!preparing && !failure && !readyToOpen && !candidatePlan && prepare && <button type="button" disabled={busy} onClick={
+              () => void run("重试准备", requestId => prepare.call(props.host, sourceId, requestId))
+            }>{prepFailed ? "重试准备" : "准备精读"}</button>}
+          </section>}
       </div>}
-      {mounted.chat && <div className="reading-mode-layer" hidden={mode !== "chat"}>
+      {mounted.chat && !waiting && <div className="reading-mode-layer" hidden={mode !== "chat"}>
         <ConversationReader {...props} evidenceNavigation={evidenceNavigation} visible={props.visible !== false && mode === "chat"} />
       </div>}
       {hasBlog && mounted.blog && sourceId && <div className="reading-mode-layer" hidden={mode !== "blog"}>
