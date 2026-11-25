@@ -109,7 +109,10 @@ class AcpBackend(Backend):
                 # FOCUS remains the sole holder of the business workspace path.
                 self.temporary = tempfile.TemporaryDirectory(prefix='focus-acp-')
                 workspace = Path(self.temporary.name)
-            rpc = self.rpc = JsonRpcStdioClient(self.command, workspace, env=env, jsonrpc=True, isolated_process=True)
+            # DSH can emit account notices on stdout between protocol frames.
+            log_prefixes = ('[llm-deepseek-account]',) if self.manifest.id == 'deepseek' else ()
+            rpc = self.rpc = JsonRpcStdioClient(self.command, workspace, env=env, jsonrpc=True,
+                                                isolated_process=True, stdout_log_prefixes=log_prefixes)
             rpc.deadline = self.deadline
         result = rpc.request('initialize', {'protocolVersion': 1, 'clientCapabilities': {},
             'clientInfo': {'name': 'focus', 'version': '0.1.0'}}, timeout=30)

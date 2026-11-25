@@ -51,7 +51,10 @@ class AgentReadingRuntime:
         numbered = [{**part, 'source_text': '\n'.join(
             f'{number}: {line}' for number, line in enumerate(
                 part['source_text'].split('\n'), part['source_lines'][0]))} for part in ranges]
-        return self._candidate('Return {chunks, glossary, excluded_ranges, structure}. '
+        return self._candidate('Return {chunks, glossary, excluded_ranges, structure, guide}. '
+            'After constructing the tree, write guide as a coherent Chinese introduction grounded in the supplied text. '
+            'Follow the Chinese structure and explain the problem, reasoning, evidence and limits, without invented '
+            'claims or padding. Prefer 300–400 Chinese characters for substantial articles; never exceed 500. '
             'structure is {nodes, chunk_nodes}. nodes is a source-ordered tree flattened parent-before-child; '
             'each node has ONLY id, parent_id (null for roots), title (short Chinese, preferably 2-12 characters, at most 32), '
             'description (one concise Chinese sentence explaining its logical role, at most 160 characters), '

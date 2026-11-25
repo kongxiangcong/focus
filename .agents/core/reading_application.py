@@ -929,10 +929,17 @@ class ReadingCore:
                 for c in records:
                     _write_document(root / "records" / f"{c['chunk_id']}.json",
                                     {"chunk_id": c["chunk_id"], "translation": None, "notes": []})
-                _write_document(root / "provenance.json",
-                                {"source_id": source_id, "bundle": bundle, "method": METHOD_VERSION,
-                                 "context_revision": run["context_revision"], "runtime": run["runtime"],
-                                 "excluded_ranges": excluded})
+                provenance = {"source_id": source_id, "bundle": bundle, "method": METHOD_VERSION,
+                              "context_revision": run["context_revision"], "runtime": run["runtime"],
+                              "excluded_ranges": excluded}
+                if 'guide' in draft:
+                    from .article_overview import validate_guide
+                    try:
+                        provenance['plannedGuide'] = validate_guide(draft['guide'])
+                        provenance['guideStructureRevision'] = _digest(structure)
+                    except WorkspaceError:
+                        pass  # A rejected guide can be generated separately from the accepted plan.
+                _write_document(root / "provenance.json", provenance)
                 run.update(plan_id=plan_id, plan_revision=_digest(_read_chunk_records(root / "chunks.jsonl")),
                            structure_revision=_digest(structure),
                            glossary_revision=_digest(_read_glossary(root / "glossary.tsv")), step="translate")

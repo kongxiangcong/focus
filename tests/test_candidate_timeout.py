@@ -29,6 +29,14 @@ class CandidateTimeoutTests(unittest.TestCase):
         self.assertEqual(1, backend.close_count)
         self.assertFalse(turns.active)
 
+    def test_codex_rate_limit_survives_both_error_boundaries(self):
+        from host.backends.base import safe_backend_error
+        raw = {'codexErrorInfo': {'responseTooManyFailedAttempts': {'httpStatusCode': 429}},
+               'message': 'provider-controlled text'}
+        message = safe_backend_error(safe_backend_error(raw))
+        self.assertIn('429', message)
+        self.assertNotIn('provider-controlled', message)
+
     def test_closed_backend_is_not_reported_as_timeout(self):
         backend = BackendDouble(closed=True)
         turns = CandidateTurns(lambda **kwargs: backend)

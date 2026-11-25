@@ -28,6 +28,27 @@ class BackendRegistryTests(unittest.TestCase):
         self.assertIn('codex_bin', CodexBackend.option_keys)
 
 
+class DshStdioTests(unittest.TestCase):
+    def test_account_notice_does_not_disconnect_the_session(self):
+        script = """import json, sys
+for line in sys.stdin:
+    request = json.loads(line)
+    if request['method'] == 'initialize':
+        result = {'protocolVersion': 1}
+    else:
+        print('[llm-deepseek-account] account status', flush=True)
+        result = {'sessionId': 'test-session'}
+    print(json.dumps({'id': request['id'], 'jsonrpc': '2.0', 'result': result}), flush=True)
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            backend = AcpBackend(Path(directory), command=[sys.executable, '-u', '-c', script],
+                                 manifest=BACKENDS['deepseek'], tools=[])
+            try:
+                self.assertEqual('test-session', backend.open_session(None, instructions=''))
+            finally:
+                backend.close()
+
+
 class ProxyRoutingTests(unittest.TestCase):
     def env(self, **extra):
         base = {'HTTP_PROXY': 'http://127.0.0.1:59588', 'HTTPS_PROXY': 'http://127.0.0.1:59588',

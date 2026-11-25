@@ -20,9 +20,11 @@ def codex_command(explicit=None):
 
 
 class JsonRpcStdioClient:
-    def __init__(self, command, cwd, *, env=None, jsonrpc=False, isolated_process=False):
+    def __init__(self, command, cwd, *, env=None, jsonrpc=False, isolated_process=False,
+                 stdout_log_prefixes=()):
         self.pending = {}
         self.event_requests = set()
+        self.stdout_log_prefixes = stdout_log_prefixes
         self.jsonrpc = jsonrpc
         self.events = queue.Queue()
         self.lock = threading.Lock()
@@ -66,6 +68,8 @@ class JsonRpcStdioClient:
     def _read(self):
         try:
             for line in self.process.stdout:
+                if line.startswith(self.stdout_log_prefixes):
+                    continue
                 value = json.loads(line)
                 if 'method' not in value and 'id' in value:
                     with self.lock:

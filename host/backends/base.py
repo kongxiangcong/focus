@@ -60,6 +60,15 @@ class BackendConfigurationError(BackendError):
 
 def safe_backend_error(error):
     """Classify diagnostics without returning provider-controlled text or secrets."""
+    rate_limited = 'Runtime 请求受到限流（HTTP 429），请稍后重试。'
+    if error == rate_limited:
+        return rate_limited
+    if isinstance(error, dict):
+        info = error.get('codexErrorInfo')
+        if isinstance(info, dict):
+            details = info.get('responseTooManyFailedAttempts')
+            if isinstance(details, dict) and details.get('httpStatusCode') == 429:
+                return rate_limited
     text = str(error).lower()
     if 'max-tokens' in text or '输出长度上限' in text:
         return '生成达到 Runtime 输出长度上限，结果未完成，请显式重试。'
