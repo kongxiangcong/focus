@@ -1,5 +1,6 @@
 """Batch acceptance at the HTTP boundary; only external services are replaced."""
 import time
+import threading
 import unittest
 
 import test_stage5_ingestion as single
@@ -70,6 +71,33 @@ class BatchTests(unittest.TestCase):
         self.assertEqual(result, self.request('GET', '/library/batches')[0])
         self.assertEqual(window['taskBatches'], self.request('GET', '/reader/window')['taskBatches'])
         self.assertEqual(calls, self.runtime.calls)
+
+    def test_web_batch_parses_next_paper_during_blog_generation(self):
+        parse = self.host.ingestion.parser.parse
+        second_started = threading.Event()
+        finish_parse = threading.Event()
+
+        def controlled_parse(source, *args, **kwargs):
+            if source.read_bytes() == b'%PDF second':
+                second_started.set()
+                self.assertTrue(finish_parse.wait(10))
+            return parse(source, *args, **kwargs)
+
+        self.host.ingestion.parser.parse = controlled_parse
+        self.runtime.release.clear()
+        ids = [self.stage('first.pdf', b'%PDF first'), self.stage('second.pdf', b'%PDF second')]
+        try:
+            self.request('POST', '/library/batches', {'itemIds': ids, 'requestId': 'pipeline', 'prepareReading': True})
+            self.assertTrue(second_started.wait(8))
+            self.assertTrue(self.runtime.entered.wait(8))
+            first, second = self.request('GET', '/library/batches')[0]['items']
+            self.assertEqual('running', first['blog']['runStatus'])
+            self.assertEqual('completed', first['ingestionStatus'])
+            self.assertEqual('processing', second['ingestionStatus'])
+            self.assertEqual(ids, [first['itemId'], second['itemId']])
+        finally:
+            finish_parse.set()
+            self.runtime.release.set()
 
     def test_common_auth_failure_pauses_remaining_items(self):
         def fail(*args, **kwargs):

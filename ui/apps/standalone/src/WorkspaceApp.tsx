@@ -8,7 +8,7 @@ import { BackendSetupPanel } from "./BackendSetupPanel";
 import { WorkspaceSelection } from './WorkspaceSelection';
 import { UploadTopicPicker } from "./UploadTopicPicker";
 import { readingFonts, readReadingFont, readingFontFamily, type ReadingFont } from "./reading-fonts";
-import { applyAppearance, readAccent, readPreference, readTheme, systemColorScheme, type Density } from "./appearance";
+import { applyAppearance, readAccent, readPreference, readTheme, systemColorScheme } from "./appearance";
 import { AppearanceThemePicker } from "./AppearanceThemePicker";
 
 import { LibraryToolbar } from "./library/LibraryToolbar";
@@ -49,24 +49,22 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   const [theme, setTheme] = useState(readTheme);
   const [accent, setAccent] = useState(readAccent);
   const [reducedMotion, setReducedMotion] = useState(() => readPreference("focus.reducedMotion", ["true", "false"], "false") === "true");
-  const [density, setDensity] = useState<Density>(() => readPreference("focus.density", ["compact", "comfortable"], "compact"));
   const [navCollapsed, setNavCollapsed] = useState(() => readPreference("focus.navigation", ["expanded", "collapsed"], globalThis.matchMedia?.("(max-width: 1180px)").matches ? "collapsed" : "expanded") === "collapsed");
   const [appearanceFeedback, setAppearanceFeedback] = useState<"danger" | "success" | null>(null);
   const [moreSource, setMoreSource] = useState<string | null>(null);
   useEffect(() => {
-    const update = () => applyAppearance(theme, accent, density, reducedMotion);
+    const update = () => applyAppearance(theme, accent, reducedMotion);
     update();
     if (theme !== "system") return;
     const media = systemColorScheme();
     media?.addEventListener?.("change", update);
     return () => media?.removeEventListener?.("change", update);
-  }, [theme, accent, density, reducedMotion]);
+  }, [theme, accent, reducedMotion]);
   const [readingBranchOpen, setReadingBranchOpen] = useState(true);
   const [branchSlot, setBranchSlot] = useState<HTMLDivElement | null>(null);
   const [pickerSlot, setPickerSlot] = useState<HTMLDivElement | null>(null);
   const [readingFullscreen, setReadingFullscreen] = useState(false);
   const [managementTopics, setManagementTopics] = useState<readonly string[]>([]);
-  const [generateOnUpload, setGenerateOnUpload] = useState(true);
   const [connectionError, setConnectionError] = useState("");
   const connectionLost = !!connectionError;
   const connectionHealth = useRef(0);
@@ -174,7 +172,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   function saveAppearance() {
     try {
-      const changes = { "focus.fontSize": fontSize, "focus.readingFont": readingFont, "focus.theme": theme, "focus.accent": accent, "focus.density": density, "focus.reducedMotion": String(reducedMotion) };
+      const changes = { "focus.fontSize": fontSize, "focus.readingFont": readingFont, "focus.theme": theme, "focus.accent": accent, "focus.reducedMotion": String(reducedMotion) };
       const old = Object.keys(changes).map(key => [key, localStorage.getItem(key)] as const);
       try { for (const [key, value] of Object.entries(changes)) localStorage.setItem(key, value); }
       catch (e) { for (const [key, value] of old) { if (value !== null) localStorage.setItem(key, value); else localStorage.removeItem(key); } throw e; }
@@ -200,7 +198,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
     if (!ok) return;
     const timer = setTimeout(() => setAppearanceFeedback(null), 1800);
     return () => clearTimeout(timer);
-  }, [fontSize, readingFont, theme, accent, density, reducedMotion]);
+  }, [fontSize, readingFont, theme, accent, reducedMotion]);
   function navigate(next: Route) {
     if (next !== "/reading") cancelEvidenceNavigation();
     history.pushState(null, "", next);
@@ -623,7 +621,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   }
   const includesPdf = selectedFiles.some(file => ingestionFormat(file.name) === "PDF");
   const markdownOnly = selectedFiles.length > 0 && selectedFiles.every(file => ingestionFormat(file.name) === "Markdown");
-  const generateUploadBlog = !markdownOnly && (includesPdf || generateOnUpload);
+  const generateUploadBlog = !markdownOnly;
   async function uploadAndStart() {
     if (locked.current || !selectedFiles.length || !host.stageIngestion || !host.startBatch) return;
     const files = [...selectedFiles], topicTitle = uploadTopic.trim();
@@ -672,7 +670,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
   function chooseUpload(selected: readonly File[] = []) {
     if (!selectUploadFiles(selected)) return;
     setUploadTopic(selectedTopic?.title ?? "");
-    setGenerateOnUpload(true); setUploadOpen(true);
+    setUploadOpen(true);
   }
   const uploadDisabled = !!busy || active || !host.stageIngestion || !host.startBatch;
   const batchStatusText = { confirmed: "待处理", running: "处理中", paused: "已暂停", completed: "完成", partial: "部分完成" };
@@ -845,7 +843,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <div><strong>{item.fileName}</strong><span>{statusText[item.status]}</span>{item.sourceTitle && <small>{item.sourceTitle}</small>}<small>{item.topicTitle ?? topics.find(t => t.topicId === item.topicId)?.title ?? "不关联专题"}</small></div>
         {item.parserBackend && <p role="status">{item.parserBackend === "local-mineru" ? "本地 MinerU" : "远端 MinerU API"}{item.selectionReason ? ` · ${item.selectionReason}` : ""}{item.parserProgress?.status ? ` · ${item.parserProgress.status === "queued" ? "排队中" : item.parserProgress.status === "running" ? "解析中" : item.parserProgress.status}` : ""}{typeof item.parserProgress?.percent === "number" ? ` · ${Math.round(item.parserProgress.percent)}%` : ""}</p>}
         {item.status === "awaiting_confirmation" && <div className="inbox-confirmation"><p>PDF 由服务器自动选择本地 MinerU 或远端 MinerU API。HTML 和 Markdown 在本地解析。</p>
-          <button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>{view?.unifiedPreparation ? "上传并准备阅读" : ingestionFormat(item.fileName) === "Markdown" ? "仅解析入库" : "开始解析并生成博客"}</button></div>}
+          <button className="workspace-primary" disabled={!!busy} onClick={() => void confirmAndStart(item)}>{view?.unifiedPreparation ? "上传并准备阅读" : ingestionFormat(item.fileName) === "Markdown" ? "导入 Markdown" : "开始解析并生成博客"}</button></div>}
         {item.status === "processing" && <button disabled={!!busy || !host.cancelIngestion} onClick={() => host.cancelIngestion && void ingest("取消", () => host.cancelIngestion!(item.itemId))}>取消</button>}
         {(item.status === "status_check_required" || (item.status === "cancelled" && item.resubmitRisk)) && <div className="inbox-confirmation inbox-resubmission">
           <p>上次提交结果未知，重新提交可能重复解析。</p>
@@ -925,7 +923,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
           view: !unifiedReading || view?.source.sourceId === selection.current.sourceId ? view : null,
           generation, isCurrent: isCurrentSelection, accept: acceptView,
         }} fullscreen={readingFullscreen} onFullscreenChange={setReadingFullscreen} /></div>
-    {route === "/library" && <LibraryPage {...{ scoped, statusFilter, setStatusFilter, sourcesFailed, refresh, statusFor, taskInbox, taskBatches, statusText, itemStatusText, continueInbox, controlBatch, sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, requestReadingReset, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} onTasks={() => setTaskDetails(true)} />}
+    {route === "/library" && <LibraryPage {...{ batches, scoped, statusFilter, setStatusFilter, sourcesFailed, refresh, statusFor, taskInbox, taskBatches, statusText, itemStatusText, continueInbox, controlBatch, sources, unfiledCount, sortingReason, reorderTopic, dragging, setDragging, uploadDisabled, chooseUpload, selectedTopic, managementBusy, host, openManagement, topics, topic, filtered, libraryView, setLibraryView, query, setQuery, setTopic, loading, view, preparationHidden, blogs, setBlogViewer, busy, active, enterReading, preparationFailed, retryPreparation, refreshBlog, moreSource, setMoreSource, moveSource, requestReadingReset, confirmDelete, preparationNotice, activateCandidate, blogArtifacts, blogStatusText, generateBlog, cancelBlog, regenerateBlog, blogRetryLabel }} onTasks={() => setTaskDetails(true)} />}
     {route === "/settings" && <main className="settings-page">
       <div className="settings-shell">
         <nav className="settings-toc" aria-label="设置分组">
@@ -947,7 +945,6 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
             <div className="settings-appearance-grid">
               <div className="settings-appearance-controls">
                 <AppearanceThemePicker theme={theme} accent={accent} onTheme={setTheme} onAccent={setAccent} />
-                <div className="settings-row"><label htmlFor="focus-density">界面密度</label><select id="focus-density" value={density} onChange={e => setDensity(e.target.value as Density)}><option value="compact">紧凑</option><option value="comfortable">舒适</option></select></div>
                 <div className="settings-row"><label htmlFor="font-size">字号</label><input id="font-size" type="range" min="0" max="3" step="1" value={fontOptions.findIndex(([key]) => key === fontSize)} aria-valuetext={fontOptions.find(([key]) => key === fontSize)?.[1]} onChange={e => { const value = fontOptions[Number(e.target.value)][0]; setFontSize(value); }} /><output htmlFor="font-size">{readingFontSizes[fontSize]}px</output></div>
                 <div className="settings-row"><label htmlFor="reading-font">正文字体</label><select id="reading-font" value={readingFont} onChange={e => setReadingFont(e.target.value as ReadingFont)}>
                   {readingFonts.map(font => <option key={font.id} value={font.id}>{font.label}</option>)}
@@ -1015,10 +1012,9 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       <form onSubmit={e => { e.preventDefault(); void uploadAndStart(); }}>
         <h2>上传材料</h2>
         <UploadTopicPicker topics={topics} value={uploadTopic} onChange={setUploadTopic} disabled={!!busy} />
-        {!includesPdf && !markdownOnly && <label className="upload-parse-only"><input type="checkbox" disabled={!!busy} checked={!generateOnUpload} onChange={e => setGenerateOnUpload(!e.target.checked)} />{view?.unifiedPreparation ? "不生成博客" : "仅解析入库"}</label>}
         <label className="upload-file">{selectedFiles.map(f => f.name).join("、") || "PDF / HTML / Markdown"}<input aria-label="上传材料" type="file" multiple disabled={!!busy} accept=".pdf,.html,.md,.markdown,application/pdf,text/html,text/markdown" onChange={e => selectUploadFiles(Array.from(e.target.files ?? []))} /></label>
         {error && <p role="alert">{error}</p>}
-        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length}>{busy ? "开始中…" : (view?.unifiedPreparation || includesPdf) ? "上传并准备阅读" : generateUploadBlog ? "开始解析并生成博客" : "仅解析入库"}</button></div>
+        <div className="upload-actions"><button type="button" disabled={!!busy} onClick={() => setUploadOpen(false)}>取消</button><button type="submit" className="workspace-primary" disabled={uploadDisabled || !selectedFiles.length}>{busy ? "开始中…" : (view?.unifiedPreparation || includesPdf) ? "上传并准备阅读" : generateUploadBlog ? "开始解析并生成博客" : "导入 Markdown"}</button></div>
       </form>
     </dialog>
     {blogViewer && host.blogUrl && <dialog className="workspace-blog-viewer" ref={blogDialog} aria-labelledby="blog-viewer-title" onCancel={e => { e.preventDefault(); closeBlogViewer(); }}>

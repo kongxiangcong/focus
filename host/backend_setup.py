@@ -38,12 +38,12 @@ class BackendSetup:
         spec = self.registry.get_spec(status['backend'])
         if spec.capabilities.get('modelDiscovery', 'none') == 'none':
             return {**status, 'status': 'failed', 'catalogStatus': 'not-supported', 'models': [],
-                    'message': '此 Backend 不提供模型清单，可手动输入模型。'}
+                    'message': '此 Backend 不提供模型清单。'}
         try:
             with ExitStack() as stack:
                 models = self._runtime(stack, payload, status).discover_models()
             if not models:
-                raise BackendConfigurationError('Runtime 未返回可用模型，可重试或手动输入。')
+                raise BackendConfigurationError('Runtime 未返回可用模型，请重试。')
         except Exception as exc:
             return {**self._operation_error(status, exc), 'catalogStatus': 'failed', 'models': []}
         return {**status, 'status': 'success', 'catalogStatus': 'loaded', 'models': models,

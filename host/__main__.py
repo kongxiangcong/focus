@@ -16,7 +16,7 @@ def main():
     parser.add_argument('--workspace', type=Path, default=Path(os.environ['FOCUS_WORKSPACE']) if os.getenv('FOCUS_WORKSPACE') else None)
     parser.add_argument('--host-data', type=Path, default=None)
     parser.add_argument('--bind', default='127.0.0.1')
-    parser.add_argument('--port', type=int, default=8765)
+    parser.add_argument('--port', type=int, default=8333)
     parser.add_argument('--model', help='Override the selected Backend model (FOCUS_MODEL)')
     parser.add_argument('--backend-bin', help='Override the Backend executable path (FOCUS_BACKEND_BIN)')
     parser.add_argument('--network', action='store_true', help='Allow Agent network access (needed for MinerU); default requires approval')

@@ -457,7 +457,8 @@ async function run(theme, { width, kind, hasTouch, reducedMotion, appReducedMoti
 
     await take(page.getByRole('link', { name: '设置', exact: true }));
     await page.evaluate(() => document.fonts.ready);
-    await page.getByLabel('界面密度', { exact: true }).selectOption('comfortable');
+    assert.equal(await page.getByLabel('界面密度').count(), 0);
+    await page.getByLabel('低动态模式').click();
     const saved = page.getByRole('status').filter({ hasText: '已自动保存' });
     result.contrast.success = await checkStatus(saved, '✓', 'success');
     if (theme === 'red' && width === 1440 || theme === 'dark' && hasTouch) await save('settings');
@@ -467,12 +468,12 @@ async function run(theme, { width, kind, hasTouch, reducedMotion, appReducedMoti
     const revertStorage = await page.evaluateHandle(() => {
       const save = Storage.prototype.setItem;
       Storage.prototype.setItem = function (key, value) {
-        if (key === 'focus.density') throw new DOMException('Read only', 'SecurityError');
+        if (key === 'focus.reducedMotion') throw new DOMException('Read only', 'SecurityError');
         return save.call(this, key, value);
       };
       return () => { Storage.prototype.setItem = save; };
     });
-    await page.getByLabel('界面密度', { exact: true }).selectOption('compact');
+    await page.getByLabel('低动态模式').click();
     result.contrast.storageError = await checkStatus(page.getByRole('alert').filter({ hasText: '外观保存失败' }), '!', 'danger');
     await revertStorage.evaluate(revert => revert());
     await revertStorage.dispose();

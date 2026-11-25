@@ -1,7 +1,7 @@
 import { ArticleOverviewPanel } from "@focus/reader-ui";
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
-import type { BlogArtifactName, BlogArtifactStatus, BlogRegenerationTarget, BlogStatus, LibrarySource, LibraryTopic, ReaderHost, ReadingWindow } from "@focus/reader-contracts";
+import type { BlogArtifactName, BlogArtifactStatus, BlogRegenerationTarget, BlogStatus, LibrarySource, LibraryTopic, ProcessingBatch, ReaderHost, ReadingWindow } from "@focus/reader-contracts";
 import { matchesStatus, primaryAction, statusFilters, type SourceStatus, type StatusFilter } from "./source-status";
 import { LibraryEmpty, type EmptyKind } from "./LibraryEmpty";
 import { IngestionRows, type IngestionRowsProps } from "./IngestionRows";
@@ -22,6 +22,7 @@ export type LibraryPageProps = Pick<IngestionRowsProps, "taskInbox" | "taskBatch
   topics: readonly LibraryTopic[]; topic: string; filtered: readonly LibrarySource[]; libraryView: "cards" | "list";
   setLibraryView: (value: "cards" | "list") => void; query: string; setQuery: (value: string) => void; setTopic: (value: string) => void; loading: boolean;
   view: ReadingWindow | null;
+  batches: readonly ProcessingBatch[];
   preparationHidden: (id: string) => boolean; blogs: Readonly<Record<string, BlogStatus>>; setBlogViewer: (id: string) => void;
   busy: string; active: boolean; enterReading: (id: string) => Promise<void>; preparationFailed: (id: string) => boolean; retryPreparation: (id: string) => Promise<void>;
   refreshBlog: (id: string) => Promise<void>; moreSource: string | null; setMoreSource: (id: string | null) => void;
@@ -119,9 +120,15 @@ export function LibraryPage(page: LibraryPageProps) {
     const index = rows.findIndex(source => source.sourceId === id), next = rows[Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)))];
     if (next) { select(next.sourceId, inspectorOpen); document.getElementById(`source-title-${next.sourceId}`)?.focus(); }
   }
+  const uploadItems = new Map(page.batches.flatMap(batch => batch.items)
+    .filter(item => item.sourceId && !item.dismissed && item.status !== "deleted")
+    .map(item => [item.sourceId, item]));
+  for (const batch of page.taskBatches) {
+    for (const item of batch.items) if (item.sourceId) uploadItems.set(item.sourceId, item);
+  }
   function presentation(source: LibrarySource): SourceViewProps {
     const preparation = view?.preparations?.[source.sourceId], action = primaryAction(source, preparation, preparationHidden(source.sourceId), { busy, active, canOpen: !!host.openSource, direct: !!host.getSourceDocument });
-    return { source, unified: !!host.getSourceDocument, onOverview: host.getArticleOverview && !host.getSourceDocument ? () => setOverviewId(source.sourceId) : undefined, onBlog: () => { if (blogs[source.sourceId]?.artifacts.html.status === "completed") page.setBlogViewer(source.sourceId); else { select(source.sourceId); void refreshBlog(source.sourceId); } }, status: statusFor(source), action, blog: blogs[source.sourceId], topics, selected: selectedId === source.sourceId, expanded: inspectorOpen && selectedId === source.sourceId, candidate: !!(preparation?.candidate && preparation.ready), onSelect: () => select(source.sourceId), onTopic: setTopic, onPrimary: () => { if (!action.disabled) { if (action.kind === "inspect") select(source.sourceId); else void enterReading(source.sourceId); } }, menu: <SourceMenu source={source} page={page} /> };
+    return { source, uploadItem: uploadItems.get(source.sourceId), unified: !!host.getSourceDocument, onOverview: host.getArticleOverview && !host.getSourceDocument ? () => setOverviewId(source.sourceId) : undefined, onBlog: () => { if (blogs[source.sourceId]?.artifacts.html.status === "completed") page.setBlogViewer(source.sourceId); else { select(source.sourceId); void refreshBlog(source.sourceId); } }, status: statusFor(source), action, blog: blogs[source.sourceId], topics, selected: selectedId === source.sourceId, expanded: inspectorOpen && selectedId === source.sourceId, candidate: !!(preparation?.candidate && preparation.ready), onSelect: () => select(source.sourceId), onTopic: setTopic, onPrimary: () => { if (!action.disabled) { if (action.kind === "inspect") select(source.sourceId); else void enterReading(source.sourceId); } }, menu: <SourceMenu source={source} page={page} /> };
   }
   const current = !topic && !query && page.statusFilter === "all" ? sources.find(source => source.sourceId === view?.source.sourceId && statusFor(source).phase === "reading") : undefined;
   const cursor = view?.navigationCurrent ?? view?.current;

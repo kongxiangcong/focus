@@ -86,6 +86,18 @@ class ProcessingApplication:
             _write_document(self.path, scopes)
             return item
 
+    def parse_queued(self, item_id, *, request_id, start_allowed):
+        """Parse one queued original under its existing confirmation."""
+        with self.lock:
+            scope = _read_document(self.path, {}).get(item_id)
+            item = self.ingestion.get(item_id)
+            if not scope or any(scope[k] != v for k, v in self._binding(item).items()):
+                raise WorkspaceError('confirmation_required', 'The confirmed input or service has changed')
+            if item['status'] != 'confirmed' or not start_allowed():
+                return item
+            self.ingestion.prepare_queued(item_id)
+        return self.ingestion.process(item_id, request_id=request_id, start_allowed=start_allowed)
+
     def process(self, item_id, *, submit_blog=None, request_id=None, risk_choice_id=None, start_allowed=None):
         with self.lock:
             scope = _read_document(self.path, {}).get(item_id)

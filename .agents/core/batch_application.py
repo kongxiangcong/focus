@@ -125,7 +125,8 @@ class BatchApplication:
                   and ((blog or {}).get('runStatus') == 'completed' or not self.processing.wants_blog(item_id))
                   and not (item_id == batch['activeItemId'] and self.processing.wants_reading(item_id))):
                 status = 'completed'
-            elif item_id == batch['activeItemId'] and batch['status'] == 'running':
+            elif batch['status'] == 'running' and (item_id == batch['activeItemId'] or
+                    (item_id in scheduled and item['status'] in ('processing', 'completed') and not error)):
                 status = 'processing'
             elif item['status'] in ('confirmed', 'awaiting_confirmation') and not error:
                 status = 'queued'
@@ -189,8 +190,8 @@ class BatchApplication:
             batch['requests'][request_id] = binding
             _write_document(self.path, batches)
             # Persist scheduling revocation before revoking Core attempts.
-            target = batch['activeItemId'] if action == 'stop' else item_id
-            if target and action in ('stop', 'cancel-item', 'remove-item'):
+            targets = [key for owner, key in self.stop_flags if owner == batch_id] if action == 'stop' else [item_id]
+            for target in targets if action in ('stop', 'cancel-item', 'remove-item') else ():
                 flag = self.stop_flags.get((batch_id, target))
                 if flag:
                     flag.set()
@@ -198,15 +199,38 @@ class BatchApplication:
                     cancel(target)
             return self._view(batch)
 
-    def _submit_blog(self, batch_id, item_id, submit_blog, source_id, **kwargs):
+    def _submit_blog(self, batch_id, item_id, submit_blog, source_id, parsed, **kwargs):
         with self.lock:
             batch = self._read()[batch_id]
             if batch['status'] != 'running' or item_id in batch['excluded']:
                 return
             flag = self.stop_flags.get((batch_id, item_id))
             wait = submit_blog(source_id, start_allowed=lambda: flag is not None and not flag.is_set(), **kwargs)
+            # While the blog worker runs, parse at most one following original.
+            # Its model work stays in batch order. Recovery keeps its original schedule.
+            following = next(((index, key) for index, key in enumerate(batch['workIds'])
+                              if index > batch['cursor'] and key not in batch['excluded']), None)
+            if wait and following and batch.get('prepareReading') and not batch['resuming']:
+                index, key = following
+                parse_flag = threading.Event()
+                self.stop_flags[(batch_id, key)] = parse_flag
+            else:
+                following = None
         if wait:
-            wait()
+            try:
+                if following:
+                    try:
+                        result = self.processing.parse_queued(key, request_id=f"{batch['executionId']}:{index}",
+                                                              start_allowed=lambda: not parse_flag.is_set())
+                        if result['status'] != 'completed':
+                            parsed[key] = result.get('error') or {'error_id': 'parse_incomplete', 'message': '解析未完成。'}
+                    except Exception as exc:
+                        parsed[key] = {'error_id': getattr(exc, 'error_id', 'processing_failed'), 'message': '解析未完成。'}
+                    finally:
+                        with self.lock:
+                            self.stop_flags.pop((batch_id, key), None)
+            finally:
+                wait()
 
     def run(self, batch_id, *, submit_blog, should_stop=lambda: False, on_progress=lambda: None):
         def publish(batches):
@@ -221,6 +245,7 @@ class BatchApplication:
             self.running.add(batch_id)
             batch['status'] = 'running'
             publish(batches)
+        parsed = {}
         try:
             while True:
                 with self.lock:
@@ -259,11 +284,14 @@ class BatchApplication:
                     publish(batches)
                 failure = None
                 try:
+                    if item_id in parsed:
+                        error = parsed.pop(item_id)
+                        raise WorkspaceError(error['error_id'], error['message'])
                     if preparation_error:
                         raise preparation_error
                     self.processing.process(item_id, request_id=execution_id, risk_choice_id=risk,
                         start_allowed=lambda: not flag.is_set(), submit_blog=lambda source_id, **kwargs:
-                        self._submit_blog(batch_id, item_id, submit_blog, source_id, **kwargs))
+                        self._submit_blog(batch_id, item_id, submit_blog, source_id, parsed, **kwargs))
                 except Exception as exc:
                     failure = {'error_id': getattr(exc, 'error_id', 'processing_failed'),
                                'message': '处理未完成，请检查服务配置后重试。'}

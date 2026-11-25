@@ -132,14 +132,14 @@ class HarnessRegistry:
     def probe_binary(self, spec, explicit_path=None):
         if explicit_path:
             path = Path(explicit_path).expanduser().absolute()
-            return str(path.resolve()) if _executable(path) else None
+            return str(path) if _executable(path) else None
         return self._discovered.get(spec.id) if self._discovered is not None else self._discover_binary(spec)
 
     def _discover_binary(self, spec):
         command = Path(spec.command[0]).expanduser()
         if command.is_absolute() or '/' in spec.command[0] or '\\' in spec.command[0]:
             path = spec.directory / command
-            return str(path.resolve()) if _executable(path) else None
+            return str(path.absolute()) if _executable(path) else None
         # Maintain the bundled Codex selected by FOCUS before the manifest migration.
         if spec.driver == 'codex-app-server' and spec.command[0] == 'codex':
             try:
@@ -149,7 +149,7 @@ class HarnessRegistry:
                 pass
         discovered = shutil.which(spec.command[0])
         if discovered:
-            return str(Path(discovered).resolve())
+            return str(Path(discovered).absolute())
         return None
 
     def resolve_command(self, backend_id, explicit_path=None):

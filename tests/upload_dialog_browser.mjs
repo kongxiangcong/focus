@@ -37,23 +37,18 @@ try {
   await page.getByRole('button', { name: '上传', exact: true }).first().click();
   const dialog = page.locator('.workspace-upload'), topic = dialog.getByRole('combobox', { name: '专题', exact: true });
   const checkbox = dialog.getByRole('checkbox', { name: '仅解析入库', exact: true });
-  assert.equal(await checkbox.isChecked(), false);
-  assert.equal(await dialog.locator('small, p').count(), 0);
-  const box = await checkbox.boundingBox(), label = await dialog.locator('.upload-parse-only').boundingBox();
-  assert.equal(box.width, 16);
-  assert.ok(Math.abs(box.y + box.height / 2 - label.y - label.height / 2) < 1);
+  assert.equal(await checkbox.count(), 0);
   await dialog.getByRole('button', { name: '展开已有专题' }).click();
   assert.equal(await dialog.getByRole('option').count(), 3);
   await page.screenshot({ path: `${output}/upload-desktop-options.png` });
   await dialog.getByRole('option', { name: '架构探索', exact: true }).click();
   assert.equal(await topic.inputValue(), '架构探索');
-  await checkbox.check();
-  await dialog.getByLabel('上传材料').setInputFiles({ name: 'parse-only.html', mimeType: 'text/html', buffer: Buffer.from('<html>test</html>') });
+  await dialog.getByLabel('上传材料').setInputFiles({ name: 'paper.html', mimeType: 'text/html', buffer: Buffer.from('<html>test</html>') });
   await page.screenshot({ path: `${output}/upload-desktop.png` });
-  await dialog.getByRole('button', { name: '仅解析入库', exact: true }).click();
+  await dialog.getByRole('button', { name: '开始解析并生成博客', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
   assert.equal(staged.at(-1), '架构探索');
-  assert.equal(batches.at(-1).generateBlog, false);
+  assert.equal(batches.at(-1).generateBlog, true);
 
   await page.getByRole('group', { name: '专题', exact: true }).getByRole('button', { name: /^架构探索/ }).click();
   await page.getByRole('button', { name: '上传', exact: true }).first().click();
@@ -63,7 +58,7 @@ try {
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: '上传', exact: true }).first().click();
-  assert.equal(await checkbox.isChecked(), false);
+  assert.equal(await checkbox.count(), 0);
   await dialog.getByRole('button', { name: '展开已有专题' }).click();
   await topic.press('ArrowDown'); await topic.press('ArrowDown'); await topic.press('ArrowDown'); await topic.press('Enter');
   assert.equal(await topic.inputValue(), '编译');
@@ -83,7 +78,7 @@ try {
   assert.equal(staged.at(-1), null);
   assert.equal(batches.at(-1).generateBlog, true);
   assert.deepEqual(errors, []);
-  console.log('PASS: desktop/mobile layout; Topic upload default; inline checkbox; existing/new/empty topics; keyboard/Escape; parse-only/default-blog HTTP scope; no page errors');
+  console.log('PASS: desktop/mobile layout; Topic upload default; existing/new/empty topics; keyboard/Escape; automatic blog HTTP scope; no page errors');
 } catch (error) {
   console.log(await page.locator('body').innerText());
   console.log(errors);

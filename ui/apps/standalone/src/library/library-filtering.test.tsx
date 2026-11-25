@@ -174,12 +174,24 @@ it("does not misclassify unrelated failures or a refresh failure with loaded sou
 it("projects the same Inbox and batch data, hides registered or finished items and reuses recovery callbacks", async () => {
   const host = setup({ inbox: [item, { ...item, itemId: "registered", fileName: "registered.pdf", sourceId: "A" }, { ...item, itemId: "done", fileName: "done.pdf", status: "completed" }], batches: [batch] }); await loaded();
   const shadows = screen.getByRole("region", { name: "入库中" }); expect(within(shadows).getByText("pending.pdf")).toBeInTheDocument(); expect(within(shadows).getByText("batch.pdf")).toBeInTheDocument(); expect(within(shadows).queryByText("registered.pdf")).not.toBeInTheDocument(); expect(within(shadows).queryByText("done.pdf")).not.toBeInTheDocument();
-  expect(shadows).toHaveTextContent("本地 MinerU · 处理失败，可继续 · 排队中"); expect(shadows).toHaveTextContent("25%"); expect(within(shadows).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "25"); expect(within(shadows).getAllByRole("status")[0]).not.toHaveTextContent("25%");
+  expect(shadows).toHaveTextContent("本地 MinerU · 处理失败，可继续"); expect(shadows).toHaveTextContent("解析未完成"); expect(within(shadows).queryByRole("progressbar")).toBeNull();
   fireEvent.click(within(shadows).getByRole("button", { name: "pending.pdf 任务详情" })); const tasks = document.querySelector(".workspace-task-frame") as HTMLElement; expect(within(tasks).getByText("pending.pdf")).toBeInTheDocument(); expect(within(tasks).getByText("batch.pdf")).toBeInTheDocument();
   await act(async () => fireEvent.click(within(shadows).getByRole("button", { name: "继续" }))); expect(host.continueIngestion).toHaveBeenCalledWith("pending", expect.any(String));
   await act(async () => fireEvent.click(within(shadows).getByRole("button", { name: "重试未完成步骤" }))); expect(host.controlBatch).toHaveBeenCalledWith("batch", "retry-item", expect.any(String), "batch-item", undefined);
   chooseTopic("other"); expect(screen.queryByRole("region", { name: "入库中" })).not.toBeInTheDocument();
 });
+it("restores separate parse and blog stages on the corresponding library rows", async () => {
+  const generating = { ...batch.items[0], sourceId: "A", ingestionStatus: "completed", status: "processing" as const,
+    blog: { runStatus: "running", artifacts: {} } as BlogStatus };
+  setup({ inbox: [{ ...item, status: "processing", parserProgress: { status: "running", percent: 42 } }],
+    batches: [{ ...batch, items: [generating] }] });
+  await loaded();
+  const pending = screen.getByRole("region", { name: "入库中" });
+  expect(within(pending).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "42");
+  const row = screen.getByRole("heading", { name: "Alpha" }).closest("article")!;
+  expect(within(row).getByRole("progressbar", { name: "正在生成博客" })).not.toHaveAttribute("value");
+});
+
 it("keeps risky resubmission only in task details and matches title-only targets and Unfiled", async () => {
   const host = setup({ inbox: [{ ...item, topicId: null, resubmitRisk: { choiceId: "risk" } }, { ...item, itemId: "loose", fileName: "loose.pdf", topicId: null, topicTitle: null }], batches: [{ ...batch, items: [{ ...batch.items[0], resubmitRisk: { choice_id: "risk" } }] }] }); await loaded(); chooseTopic("topic");
   const shadows = screen.getByRole("region", { name: "入库中" }); expect(within(shadows).queryByRole("button", { name: "继续" })).not.toBeInTheDocument(); expect(within(shadows).queryByRole("button", { name: "重试未完成步骤" })).not.toBeInTheDocument(); expect(within(shadows).getAllByRole("button")).toHaveLength(2); expect(host.continueIngestion).not.toHaveBeenCalled();

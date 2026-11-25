@@ -1,5 +1,4 @@
 export type Theme = "light" | "dark" | "system";
-export type Density = "compact" | "comfortable";
 export const accents = ["blue", "green", "red", "neutral"] as const;
 export type Accent = typeof accents[number];
 
@@ -24,17 +23,16 @@ export const readAccent = (): Accent => window.focusTheme?.accent ?? "blue";
 export const systemColorScheme = () => window.focusTheme?.systemColorScheme;
 
 /** Presentation only: never invokes Host configuration or connectivity. */
-export function applyAppearance(theme: Theme, accent: Accent, density: Density, reducedMotion = false) {
+export function applyAppearance(theme: Theme, accent: Accent, reducedMotion = false) {
   const settings = window.focusTheme;
   if (settings) { settings.preference = theme; settings.accent = accent; }
   const resolved = settings?.resolve(theme) ?? (theme === "dark" ? "dark" : "light");
   document.documentElement.dataset.reducedMotion = String(reducedMotion);
   document.documentElement.dataset.theme = resolved;
   document.documentElement.dataset.accent = accent;
-  document.documentElement.dataset.density = density;
 }
 
 export function initializeAppearance() {
   applyAppearance(readTheme(), readAccent(),
-    readPreference("focus.density", ["compact", "comfortable"], "compact"), readPreference("focus.reducedMotion", ["true", "false"], "false") === "true");
+    readPreference("focus.reducedMotion", ["true", "false"], "false") === "true");
 }

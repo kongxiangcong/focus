@@ -187,7 +187,7 @@ class Workbench:
         if host:
             return host.backend_setup(action, payload)
         try:
-            return self.setup.operate(action, payload)
+            return self.setup.operate(action, self.settings.setup_payload(payload))
         except Exception:
             return {'backend': payload.get('backend'), 'runtimePath': None, 'status': 'failed',
                     'message': '后端设置操作失败，请检查认证和网络后重试。'}
