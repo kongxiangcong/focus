@@ -21,8 +21,8 @@ MINERU_API_TOKEN=
 DEEPSEEK_API_KEY=
 ```
 
-- **PDF 解析**：后端默认先检查它所在机器的本地 MinerU（`http://127.0.0.1:18333`，4.2.3 Standard Tasks V1）。本地服务可用时，`MINERU_API_TOKEN` 留空；没有本地 MinerU 时，填入 mineru.net 的 Token，使用远端精准解析 API。浏览器所在电脑的 MinerU 不参与选择。
-  在后端机器的独立 Python 3.11–3.14 环境运行 `python -m pip install "mineru==4.2.3"`，再用 `mineru-api --host 127.0.0.1 --port 18333 --tier standard` 启动服务。首次解析需准备 Standard 模型。升级前先完成旧服务中尚在运行的任务；已提交的任务绑定原服务和协议。
+- **PDF 解析**：后端默认先检查它所在机器的本地 MinerU（`http://127.0.0.1:18765`，4.2.3 Standard Tasks V1）。本地服务可用时，`MINERU_API_TOKEN` 留空；没有本地 MinerU 时，填入 mineru.net 的 Token，使用远端精准解析 API。浏览器所在电脑的 MinerU 不参与选择。
+  在后端机器的独立 Python 3.11–3.14 环境运行 `python -m pip install "mineru==4.2.3"`，再用 `mineru-api --host 127.0.0.1 --port 18765 --tier standard` 启动服务。首次解析需准备 Standard 模型。升级前先完成旧服务中尚在运行的任务；已提交的任务绑定原服务和协议。
 - **模型**使用运行 Host 的电脑上已经安装的 CLI。Codex 复用本机 ChatGPT 登录，可在网页设置页发起或取消授权。DeepSeek 使用 `dsh --profile acp`。已有 DeepSeek 凭据文件路径和模型偏好会保留，也可在设置中指定包含 `DEEPSEEK_API_KEY` 的文件。`.env` 保存在本机，已被 Git 忽略。
 
 启动网页后端：
