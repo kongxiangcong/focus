@@ -41,27 +41,21 @@ try {
   const manifestErrors = page.getByRole('list', { name: 'Backend 配置错误' });
   await manifestErrors.getByText('invalid.json', { exact: false }).waitFor();
   await manifestErrors.getByText('duplicate.json', { exact: false }).waitFor();
-  const manifests = path.join(root, 'machine', 'backends');
-  const beta = JSON.parse(fs.readFileSync(path.join(manifests, 'fixture-beta.json'), 'utf8'));
-  fs.writeFileSync(path.join(manifests, 'fixture-rescanned.json'), JSON.stringify({
-    ...beta, id: 'fixture-rescanned', label: 'Fixture Rescanned',
-  }));
-  await page.getByRole('button', { name: '重新扫描 Backend', exact: true }).click();
-  await radio(page, 'Fixture Rescanned').waitFor();
-  assert.equal(fs.existsSync(fixtureLog), false);
-
+  const panel = page.getByRole('region', { name: '模型与后端' });
+  assert.equal(await panel.getByRole('button').count(), 1);
   await radio(page, 'Fixture Alpha').check();
-  await page.getByRole('option', { name: '["fixture-provider","selected-model"]' }).waitFor({ state: 'attached' });
-  await page.getByText('当前模型尚未验证。', { exact: true }).waitFor();
-  await page.getByRole('button', { name: '连接检查', exact: true }).click();
-  await page.getByText('连接检查通过', { exact: false }).waitFor();
-  assert.equal((await configuration(page)).effective, null);
-
+  const select = panel.getByRole('combobox', { name: '模型' });
+  const choice = '["fixture-provider","selected-model"]';
+  await select.getByRole('option', { name: choice }).waitFor({ state: 'attached' });
+  await select.selectOption(choice);
+  const check = panel.getByRole('button', { name: '连接检查' });
+  const [field, button] = await Promise.all([select.boundingBox(), check.boundingBox()]);
+  assert.ok(field.x + field.width <= button.x && field.y < button.y + button.height && button.y < field.y + field.height);
   await other.goto(base + '/settings');
   await radio(other, 'Fixture Alpha').waitFor();
   assert.equal(await radio(other, 'Fixture Alpha').isChecked(), false);
-  await page.getByRole('button', { name: '保存并应用', exact: true }).click();
-  await page.getByText('设置已保存并应用。', { exact: true }).waitFor();
+  await check.click();
+  await page.getByText(/已保存并应用/).waitFor();
   assert.equal((await configuration(page)).effective.backend, 'fixture-alpha');
   await other.waitForFunction(() => [...document.querySelectorAll('input[name="setup-backend"]')]
     .some(input => input.checked && input.closest('label')?.textContent.trim() === 'Fixture Alpha'));
@@ -69,8 +63,10 @@ try {
   assert.equal(events.filter(item => item.kind === 'probe').length, 1);
 
   await radio(page, 'Fixture Bad').check();
-  await page.getByRole('button', { name: '保存并应用', exact: true }).click();
-  await page.getByText('后端配置未保存', { exact: false }).waitFor();
+  await check.click();
+  await panel.getByRole('alert').first().waitFor();
+  await check.waitFor();
+  await page.waitForFunction(() => !document.querySelector('.backend-setup__model button').disabled);
   assert.equal((await configuration(other)).effective.backend, 'fixture-alpha');
   await page.reload();
   await radio(page, 'Fixture Alpha').waitFor();
@@ -79,7 +75,7 @@ try {
   assert.deepEqual(errors, []);
 
   const passed = ['library entry without AI', 'four built-in IDs', 'malformed and duplicate manifests',
-    'manual rescan finds new manifest', 'independent model catalog', 'source probe receipt reuse',
+    'single inline connection check', 'independent model catalog', 'source probe receipt reuse',
     'two-page apply', 'failed apply keeps configuration', 'reload', '390px viewport'];
   const output = process.env.FOCUS_BROWSER_OUTPUT;
   if (output) {

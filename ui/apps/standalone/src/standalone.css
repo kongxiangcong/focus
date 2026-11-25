@@ -391,7 +391,7 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
 .settings-page .workspace-selection { width:100%; max-width:none; margin:0; }
 .settings-page .workspace-location { font-family:var(--reader-mono); font-size:12.5px; }
 .settings-page .backend-setup fieldset { min-width:0; margin:0; padding:var(--reader-gap); border-radius:var(--reader-radius); }
-.settings-page .backend-setup__save-actions, .settings-page .workspace-entry-footer { justify-content:flex-end; padding-top:var(--reader-gap); border-top:1px solid var(--reader-line); }
+.settings-page .workspace-entry-footer { justify-content:flex-end; padding-top:var(--reader-gap); border-top:1px solid var(--reader-line); }
 .settings-page .workspace-entry-footer :is(p, [role=alert]) { flex-basis:100%; }
 .settings-page .workspace-path-row { min-width:0; flex-wrap:wrap; }
 .settings-page .workspace-path-row button { flex-shrink:0; }
@@ -431,7 +431,7 @@ progress::-moz-progress-bar { background:var(--reader-accent); }
 .backend-setup label { display:flex; align-items:center; gap:8px; font-size:13px; }
 .backend-setup label:has(input:not([type=radio])), .backend-setup label:has(select) { flex-direction:column; align-items:stretch; width:100%; }
 .backend-setup input:not([type=radio]), .backend-setup select { width:100%; min-width:0; }
-.backend-setup__actions { display:flex; flex-wrap:wrap; gap:8px; }
+.backend-setup__model { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:end; gap:var(--reader-gap-xs); }
 .backend-setup > button { justify-self:start; }
 .backend-setup small { font-size:11px; color:var(--reader-muted); }
 

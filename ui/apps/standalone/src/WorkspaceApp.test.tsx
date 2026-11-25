@@ -159,8 +159,6 @@ it.each(["check", "open"])("retains the newest shared configuration when a late 
     await screen.findByRole("radio", { name: "Codex" });
     fireEvent.click(screen.getByRole("radio", { name: "DeepSeek" }));
     fireEvent.click(screen.getByRole("button", { name: "连接检查" }));
-    await screen.findByText(/连接检查通过；已检模型/);
-    fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
   } else {
     fireEvent.click(await screen.findByRole("button", { name: "A Paper" }));
     fireEvent.click(within(screen.getByRole("list", { name: "来源" })).getByRole("button", { name: "准备阅读" }));
