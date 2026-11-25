@@ -277,6 +277,16 @@ export interface ReadingWindow {
 }
 
 export interface ReadingPreparation {
+  document_batch?: {
+    index: number;
+    total: number;
+    completed: number;
+    source_lines: [number, number];
+    action: "generate" | "saved" | "retry" | "failed";
+    retry_count?: number;
+    message?: string;
+    last_progress_at: string;
+  };
   attempt?: string;
   dismissed?: boolean;
   timed_out?: boolean;

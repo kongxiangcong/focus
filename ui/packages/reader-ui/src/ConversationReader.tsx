@@ -2,6 +2,7 @@ import { forwardRef, memo, useCallback, useEffect, useId, useImperativeHandle, u
 import { createReaderId, type ReaderHost, type ReaderHostResult, type ReaderMessage, type ReadingDocument, type ReadingOpening, type ReadingWindow, type SourceTextSelectionInput } from "@focus/reader-contracts";
 import { useEvidenceNavigation, type EvidenceNavigation, type EvidenceNavigationIntent } from "./evidence-navigation";
 import type { ReadingSession } from "./reading-session";
+import { preparationText } from "./reading-preparation";
 import { MarkdownContent } from "./MarkdownContent";
 import { ActiveSourceCitation } from "./SourceEvidenceMarkers";
 import { TranslatedPaper } from "./TranslatedPaper";
@@ -1019,8 +1020,12 @@ function ReadingSurface({ host, view, setView, visible, fontSize, fullscreen, on
           {showLanguageControls && <div className="paper-view-controls" role="group" aria-label="正文语言">
             <button aria-pressed={showingTranslation} disabled={!translationReady} onClick={() => switchPaper(true)}>{modernDocument ? "中文" : `中文译文${translationReady ? "" : translationState === "running" ? " · 准备中" : translationInterrupted ? " · 未完成" : " · 未就绪"}`}</button>
             <button aria-pressed={!showingTranslation} onClick={() => switchPaper(false)}>原文</button>
-            {translationInterrupted && host.resumePreparation && <button onClick={() => void apply("translation", host.resumePreparation!(sourceId, createReaderId()))}>重试译文</button>}</div>}
+            {translationInterrupted && host.resumePreparation && <button onClick={() => void apply("translation", host.resumePreparation!(sourceId, createReaderId()))}>{prep?.document_batch?.completed ? "从断点重试" : "重试译文"}</button>}</div>}
           {originalHref && <a className="source-original-link" href={originalHref} target="_blank" rel="noreferrer">打开原件 ↗</a>}
+        </div>}
+        {prep?.step === "document" && prep.document_batch && <div>
+          <p role="status">{preparationText(prep)}</p>
+          {prep.status === "running" && host.cancelPreparation && <button onClick={() => void apply("translation", host.cancelPreparation!(sourceId))}>取消准备</button>}
         </div>}
         <div className="source-reading-area">
           {!!directory.roots.length && <SectionDirectory id={directoryId} open={directoryOpen} sections={directory}

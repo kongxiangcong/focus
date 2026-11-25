@@ -11,6 +11,7 @@ import re
 import shutil
 import threading
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -22,7 +23,7 @@ from .reading_workspace import (
 )
 from .source_library import SourceLibrary
 from .source_blocks import source_lines
-from .source_translation import SourceTranslation
+from .source_translation import SourceTranslation, TranslationIssue
 from .reading_progress import enqueue
 from .reading_structure import validate_structure
 from .reading_versions import pending_reset, selected_version, version_bundle, version_cursor, version_metadata, version_reading_directory
@@ -342,12 +343,27 @@ class ReadingCore:
             self._write(source_id, run)
             return run
 
+    def document_batch_progress(self, identity, progress, *, checkpoint=None):
+        with _LOCK:
+            run = self._guard(*identity)
+            if checkpoint is not None:
+                path = self._root(identity[0]) / "reading" / "translations" / f"{run['reading_version']}.batches"
+                _write_document(path / f"{progress['index']}.json", checkpoint)
+            run["document_batch"] = {**progress, "last_progress_at": datetime.now(timezone.utc).isoformat()}
+            self._write(identity[0], run)
+
     def commit_document_translation(self, source_id, run_id, attempt, bundle, segments):
         with _LOCK:
             run = self._guard(source_id, run_id, attempt, bundle)
             translation = self._source_translation(source_id, bundle, run.get("reading_version", self._reading_version(source_id)))
             asset = translation.load()
-            return asset or translation.save(segments, run_id=run_id)
+            asset = asset or translation.save(segments, run_id=run_id)
+            drafts = translation.path.with_suffix(".batches")
+            if drafts.is_dir():
+                shutil.rmtree(drafts)
+            if run.pop("document_batch", None) is not None:
+                self._write(source_id, run)
+            return asset
 
     def _apply_document_repairs(self, source_id, run):
         if not run.get("document_repairs"):
@@ -1095,6 +1111,8 @@ class ReadingApplication:
         document = self.core._source_translation(source_id, bundle, reading_version)
         asset = document.load()
         if asset:
+            if run.get("document_batch"):
+                self.core.commit_document_translation(source_id, run["run_id"], run["attempt"], bundle, asset["segments"])
             return document, asset
 
         translate = getattr(self.runtime, "translate_document", None)
@@ -1104,18 +1122,39 @@ class ReadingApplication:
         self.core.begin_document_translation(*identity)
         notify()
         segments = self.core._document_segments(source_id, run["plan_id"], document)
-        pending = [segment for segment in segments if segment["text"] is None]
-        batch = []
+        batches = []
         size = 0
-        for segment in pending:
+        for segment in segments:
+            if segment["text"] is not None:
+                continue
             start, end = segment["sourceOffsets"]
-            if batch and (size + end - start > 10000 or len(batch) == 24):
-                self._translate_document_batch(run, document, translate, glossary, batch)
-                batch, size = [], 0
-            batch.append(segment)
+            if not batches or len(batches[-1]) == 24 or size + end - start > 10000:
+                batches.append([])
+                size = 0
+            batches[-1].append(segment)
             size += end - start
-        if batch:
-            self._translate_document_batch(run, document, translate, glossary, batch)
+        manifest = _digest([source_id, reading_version, bundle, run["run_id"], run["plan_id"],
+                            run["context"], glossary, run["method"], run["runtime"], segments,
+                            document.source.markdown, [[s["id"] for s in batch] for batch in batches]])
+        for index, batch in enumerate(batches, 1):
+            path = document.path.with_suffix(".batches") / f"{index}.json"
+            if path.is_file():
+                try:
+                    saved = _read_document(path)
+                    if saved.get("manifest") == manifest:
+                        document.add_candidates(batch, saved.get("candidates"))
+                        continue
+                except WorkspaceError as exc:
+                    # A damaged draft can be regenerated from the canonical source.
+                    if exc.error_id not in ("translation_invalid", "workspace_object_invalid", "workspace_object_missing"):
+                        raise
+            progress = {"index": index, "total": len(batches), "completed": index - 1,
+                        "source_lines": [batch[0]["sourceLines"][0], batch[-1]["sourceLines"][1]]}
+            candidates = self._translate_document_batch(run, document, translate, glossary, batch,
+                                                        identity, progress, notify)
+            self.core.document_batch_progress(identity, {**progress, "completed": index, "action": "saved"},
+                checkpoint={"manifest": manifest, "attempt": run["attempt"], "candidates": candidates})
+            notify()
         asset = self.core.commit_document_translation(*identity, segments)
         notify()
         return document, asset
@@ -1142,22 +1181,36 @@ class ReadingApplication:
                 self.core._plan_ready(source_id, plan, reading_version=run["reading_version"]) and matches(plan)
                 for plan in run["ready_plans"])
 
-    def _translate_document_batch(self, run, document, translate, glossary, segments):
+    def _translate_document_batch(self, run, document, translate, glossary, segments, identity, progress, notify):
         batch = [{"id": segment["id"], "block_ids": segment["blockIds"],
                   "source_lines": segment["sourceLines"],
                   "source_text": document.source.markdown[slice(*segment["sourceOffsets"])]}
                  for segment in segments]
         feedback = None
-        for attempt in range(3):
-            result = self._call(run, translate, source_id=run["source_id"], segments=batch,
-                                context=run["context"], glossary=glossary, feedback=feedback)
+        for retry in range(3):
+            state = {**progress, "retry_count": retry, "action": "retry" if retry else "generate"}
+            if feedback:
+                state["issue"] = feedback["issue"]
+                state["message"] = feedback["message"]
+            self.core.document_batch_progress(identity, state)
+            notify()
+            result = None
             try:
+                result = self._call(run, translate, source_id=run["source_id"], segments=batch,
+                                    context=run["context"], glossary=glossary, feedback=feedback)
                 document.add_candidates(segments, result)
-                return
-            except WorkspaceError as exc:
-                if attempt == 2:
+                return [{"id": s["id"], "text": s["text"]} for s in segments]
+            except TranslationIssue as exc:
+                feedback = {"issue": exc.issue, "message": str(exc)}
+                if isinstance(result, list):
+                    segment_id = exc.issue.get("segment_id")
+                    rejected = next((c for c in result if isinstance(c, dict) and c.get("id") == segment_id), None)
+                    if rejected:
+                        feedback["rejected_text"] = rejected.get("text")
+                if retry == 2:
+                    self.core.document_batch_progress(identity, {**state, "action": "failed",
+                                                      "issue": exc.issue, "message": str(exc)})
                     raise
-                feedback = str(exc)
 
     def process(self, source_id: str, *, run_id: str, attempt: str, on_progress=None, reading_version=None) -> dict:
         """Run without a long write lock; every result is fenced at Core commit."""

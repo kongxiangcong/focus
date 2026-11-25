@@ -1,5 +1,6 @@
 """The translated Source Document and its canonical Markdown locations."""
 from bisect import bisect_right
+from itertools import zip_longest
 import re
 
 from .reading_workspace import WorkspaceError, _read_document, _write_document
@@ -16,6 +17,16 @@ def _segment(source, blocks, start, end, *, original=False, coarse=False):
         'sourceOffsets': [start, end],
         'granularity': 'source' if original else 'group' if coarse else 'block',
     }
+
+
+class TranslationIssue(WorkspaceError):
+    def __init__(self, category, message, segment=None, **details):
+        self.issue = {"category": category, **details}
+        if segment:
+            first, last = segment["sourceLines"]
+            self.issue.update(segment_id=segment["id"], source_lines=[first, last])
+            message = f"原文第 {first}–{last} 行：{message}"
+        super().__init__("translation_invalid", message)
 
 
 class SourceTranslation:
@@ -145,26 +156,36 @@ class SourceTranslation:
         return text.strip(), {segment_id: offset - leading for segment_id, offset in offsets.items()}
 
     def add_candidates(self, segments, candidates):
-        expected = [(segment, self.source.markdown[slice(*segment['sourceOffsets'])]) for segment in segments]
-        if (not isinstance(candidates, list) or len(candidates) != len(expected)
-                or any(not isinstance(candidate, dict) or candidate.get('id') != segment['id']
-                       or not isinstance(candidate.get('text'), str) or not candidate['text'].strip()
-                       for (segment, _), candidate in zip(expected, candidates))):
-            raise WorkspaceError('translation_invalid', '译段须按原文顺序返回每个指定范围的标识和译文。')
-        for (segment, original), candidate in zip(expected, candidates):
-            text = candidate['text'].strip()
+        if not isinstance(candidates, list) or len(candidates) != len(segments):
+            actual = len(candidates) if isinstance(candidates, list) else None
+            raise TranslationIssue("batch_shape", f"须返回含 {len(segments)} 个译段的数组。",
+                                   expected=len(segments), actual=actual)
+        for segment, candidate in zip(segments, candidates):
+            if not isinstance(candidate, dict) or candidate.get("id") != segment["id"]:
+                raise TranslationIssue("segment_order", f"此处应返回译段 {segment['id']}。", segment,
+                                       expected=segment["id"], actual=candidate.get("id") if isinstance(candidate, dict) else None)
+            if not isinstance(candidate.get("text"), str) or not candidate["text"].strip():
+                raise TranslationIssue("empty_text", "译文不能为空。", segment)
+            original = self.source.markdown[slice(*segment["sourceOffsets"])]
+            text = candidate["text"].strip()
             heading = re.match(r'^#{1,6}[ \t]+', original)
             if heading and not re.match(re.escape(heading.group().rstrip()) + r'[ \t]+', text):
-                raise WorkspaceError('translation_invalid', '译段必须保留原文标题层级。')
-            self.validate_markup(original, text)
-            segment['text'] = text
+                raise TranslationIssue('heading_level', '译段必须保留原文标题层级。', segment, expected=heading.group().strip())
+            self.validate_markup(original, text, segment)
+        for segment, candidate in zip(segments, candidates):
+            segment['text'] = candidate['text'].strip()
 
     @staticmethod
-    def validate_markup(original, text):
+    def validate_markup(original, text, segment=None):
         def protected(markdown):
             return (MARKDOWN_IMAGE_RE.findall(markdown),
                     re.findall(r'(?<!\\)(?:\$[^$\n]+\$|\\\([^\n]+?\\\))', markdown),
                     [markdown[start:end] for start, end in verbatim_ranges(markdown)])
 
-        if protected(original) != protected(text):
-            raise WorkspaceError('translation_invalid', '译段必须保留原文的公式、代码和图片链接。')
+        categories = (("image", "图片链接"), ("inline_math", "行内公式"), ("verbatim", "原样保留的内容"))
+        for (category, label), expected, actual in zip(categories, protected(original), protected(text)):
+            for index, (left, right) in enumerate(zip_longest(expected, actual)):
+                if left != right:
+                    raise TranslationIssue(category, f"第 {index + 1} 项{label}不匹配，"
+                                           f"期望 {(left or '无')[:100]}，实际 {(right or '无')[:100]}。",
+                                           segment, index=index, expected=left, actual=right)

@@ -396,6 +396,10 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
       await operate("准备阅读", () => identified(`replan:${sourceId}`, id => host.replanSource!(sourceId, id)));
     }
   }
+  function preparationStage(sourceId: string, stage: string) {
+    const prepared = view?.preparations?.[sourceId];
+    return prepared?.document_batch && prepared.status === "running" ? preparationText(prepared) : preparationStepText(stage);
+  }
   function preparationNotice(sourceId: string) {
     const prepared = view?.preparations?.[sourceId];
     if (!prepared || prepared.ready || preparationHidden(sourceId)) return null;
@@ -404,7 +408,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <p role="status"><StatusIcon status="warning" />{preparationText(prepared)}</p>
         {preparationFailed(sourceId) && prepared.attempt && host.dismissPreparation && <button className="preparation-dismiss" aria-label="关闭准备阅读提示" title="关闭这次状态提示" onClick={() => void dismissPreparation(sourceId)}>×</button>}
       </div>
-      {preparationFailed(sourceId) && (host.resumePreparation || host.replanSource) && <button disabled={!!busy || active} onClick={() => void retryPreparation(sourceId)}>重试</button>}
+      {preparationFailed(sourceId) && (host.resumePreparation || host.replanSource) && <button disabled={!!busy || active} onClick={() => void retryPreparation(sourceId)}>{prepared.document_batch?.completed ? "从断点重试" : "重试"}</button>}
     </section>;
   }
   async function enterReading(sourceId: string) {
@@ -809,7 +813,7 @@ export function WorkspaceApp({ host }: { host: ReaderHost }) {
         <small>清空已结束的失败提示，保留仍需操作的任务。</small>
         {taskWork.length === 0 && taskBatches.length === 0 && taskInbox.length === 0 && <p>没有进行中或待处理的任务。</p>}
         {taskWork.map(item => <div key={item.id}><span>{workLabel(item)}{item.kind === "preparation" && preparationFailed(item.targetId) ? "" : ` · ${{ running: "进行中", approval: "待确认", needs_action: "待处理", error: "待查看" }[item.phase]}`}</span>
-          {item.stage && <small>{item.kind === "preparation" ? preparationStepText(item.stage) : item.kind === "blog" ? (item.stage === "html" ? "生成 HTML" : "生成带读博客") : item.stage}</small>}
+          {item.stage && <small>{item.kind === "preparation" ? preparationStage(item.targetId, item.stage) : item.kind === "blog" ? (item.stage === "html" ? "生成 HTML" : "生成带读博客") : item.stage}</small>}
           {typeof item.percent === "number" && <progress aria-label={workLabel(item)} max={100} value={item.percent} />}
           {item.error && (item.kind !== "preparation" || !view?.preparations?.[item.targetId]) && <p role="alert">{item.error}</p>}
           {item.cancellable && item.phase !== "approval" && <button disabled={!!busy} onClick={() => void stopWork(item)}>{item.kind === "preparation" ? "取消准备" : "停止此任务"}</button>}

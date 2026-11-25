@@ -22,7 +22,10 @@ class AcpCandidates(AcpProtocolFixture):
         request = json.loads(prompt)
         cls.requests.append(request)
         task, data = request['task'], request['input']
-        if 'whole-source context' in task:
+        if 'segments' in data:
+            candidate = [{'id': part['id'], 'text': part['source_text'].replace('Fixture Paper', '示例论文')}
+                         for part in data['segments']]
+        elif 'whole-source context' in task:
             candidate = {'structure': 'Method, Runtime, Results', 'terms': [], 'symbols': [], 'references': []}
         elif 'Translate foreign text' in task:
             candidate = '已经准备的中文译文。'

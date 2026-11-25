@@ -1,4 +1,5 @@
 """Unified preparation through the production upload and reading HTTP routes."""
+import json
 import threading
 import time
 import unittest
@@ -153,6 +154,72 @@ class UnifiedPreparationTests(unittest.TestCase):
         finally:
             self.reading.continue_context.set()
             self.reading.continue_check.set()
+
+    def test_batch_retry_and_resume_after_host_restart(self):
+        from core.reading_workspace import WorkspaceError
+        from core.source_translation import TranslationIssue
+        from host.backends.base import Backend
+        from host.reading_runtime import AgentReadingRuntime
+
+        feedback = []
+        class WireBackend(Backend):
+            def open_session(self, resume_key, *, instructions):
+                pass
+
+            def start_turn(self, *, prompt):
+                data = json.loads(prompt)['input']
+                feedback.append(data['feedback'])
+                if len(feedback) == 1:
+                    self.emit('_transport_error', {'message': 'network error'})
+                    return
+                result = json.dumps([{'id': part['id'], 'text': part['source_text']}
+                                     for part in data['segments']])
+                # Fail three content attempts on the second batch.
+                if len(feedback) == 3:
+                    result = '['
+                elif len(feedback) in (4, 5):
+                    result = result.replace('$x$', 'x')
+                self.emit('message/completed', {'itemId': 'reply', 'text': result})
+                self.emit('turn/completed', {'status': 'completed'})
+
+        def backend_factory(*, workspace, purpose, tools):
+            return WireBackend(workspace, tools=tools)
+
+        runtime = PausedReading()
+        runtime.translate_document = AgentReadingRuntime(backend_factory, lambda: {}).translate_document
+        self.use_runtime(runtime)
+        article = '# Demonstration\n\n' + ('first paragraph. ' * 575) + '\n\n' + ('second paragraph. ' * 60) + '$x$'
+        route = self.upload('batch-resume.md', article.encode())
+        runtime.continue_context.set()
+        failed = self.wait_ready(route)
+        self.assertEqual('failed', failed['status'])
+        batch = failed['document_batch']
+        self.assertEqual((2, 2, 1, 2), (batch['index'], batch['total'], batch['completed'], batch['retry_count']))
+        self.assertEqual('inline_math', batch['issue']['category'])
+        self.assertEqual([5, 5], batch['issue']['source_lines'])
+        self.assertEqual([None, None, None], feedback[:3])
+        self.assertEqual(['invalid_json', 'inline_math'], [f['issue']['category'] for f in feedback[3:]])
+        run = self.host.reading_app.status(failed['source_id'])
+        doc = self.host.reading_app.core._source_translation(failed['source_id'], run['bundle'], run['reading_version'])
+        segments = doc.segments(0, len(doc.source.markdown))
+        candidates = [{'id': s['id'], 'text': doc.source.markdown[slice(*s['sourceOffsets'])]} for s in segments]
+        candidates[-1]['text'] = 'missing formula'
+        with self.assertRaises(TranslationIssue):
+            doc.add_candidates(segments, candidates)
+        self.assertTrue(all(s['text'] is None for s in segments))
+        self.assertEqual(1, run['transport_retries'])
+        self.assertEqual([], self.request('GET', route + '/document')['translation']['segments'])
+        self.stop_host()
+        self.start_host(reading_runtime=runtime)
+        self.request('POST', route + '/preparation/resume', {'requestId': 'resume-batch-from-disk'})
+        self.assertTrue(runtime.check_started.wait(8))
+        with self.assertRaises(WorkspaceError) as stale:
+            self.host.reading_app.core.document_batch_progress(
+                (failed['source_id'], failed['run_id'], failed['attempt'], run['bundle']), {})
+        self.assertEqual('reading_attempt_changed', stale.exception.error_id)
+        runtime.continue_check.set()
+        self.assertTrue(self.wait_ready(route)['ready'])
+        self.assertEqual(6, len(feedback))
 
     def test_pdf_upload_uses_the_same_readiness_gate(self):
         self.assert_upload_ready('article.pdf', b'%PDF test original')

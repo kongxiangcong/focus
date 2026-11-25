@@ -391,6 +391,8 @@ class HostService:
                      'glossary_revision',
                      'selected_plan_id', 'selected_ready', 'candidate')}
                 projected = preparations[source_id]
+                if preparation.get('document_batch') and preparation['step'] == 'document':
+                    projected['document_batch'] = preparation['document_batch']
                 projected['timed_out'] = preparation['status'] == 'failed' and bool(
                     preparation.get('timed_out') or re.search(r'timeout|timed[ -]?out|超时', preparation.get('error') or '', re.IGNORECASE))
                 dismissed = self.store.get('dismissedPreparation:' + source_id)
