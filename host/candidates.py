@@ -12,6 +12,14 @@ from pathlib import Path
 from .backends.base import Backend, BackendError, safe_backend_error
 
 
+class CandidateJSONError(BackendError):
+    """The backend completed its turn with malformed JSON."""
+
+
+class CandidateTransportError(BackendError):
+    """The backend connection failed during a turn."""
+
+
 @dataclass(eq=False)
 class _CandidateAttempt:
     scope: str | None
@@ -105,7 +113,7 @@ class CandidateTurns:
                     elif method == 'message/completed':
                         messages[params['itemId']] = params.get('text', '')
                     elif method == '_transport_error':
-                        raise BackendError(safe_backend_error(params.get('message')))
+                        raise CandidateTransportError(safe_backend_error(params.get('message')))
                     elif method == 'turn/completed':
                         if params.get('status') != 'completed':
                             raise BackendError(safe_backend_error(params.get('error')))
@@ -114,7 +122,7 @@ class CandidateTurns:
                             fenced = re.fullmatch(r'```(?:json)?\s*\n(.*)\n```', raw, flags=re.S)
                             return json.loads(fenced.group(1) if fenced else raw), bool(options.get('images'))
                         except json.JSONDecodeError as exc:
-                            raise BackendError(f'Runtime 未返回合法 JSON（第 {exc.lineno} 行，第 {exc.colno} 列）。') from exc
+                            raise CandidateJSONError(f'Runtime 未返回合法 JSON（第 {exc.lineno} 行，第 {exc.colno} 列）。') from exc
                 if time.monotonic() >= deadline:
                     raise TimeoutError('任务等待超时。')
                 raise BackendError('任务已取消或连接已关闭。')

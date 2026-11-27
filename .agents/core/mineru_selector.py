@@ -49,13 +49,16 @@ class AutoMinerUParser:
             return self.local.parse(source, candidate, checkpoint=checkpoint)
         settings = {"backend": "cloud", "config": {"model": self.model, "language": self.language, "ocr": self.ocr},
                     "selection_reason": reason}
+        return self._submit_remote(self.remote, source, candidate, settings, checkpoint)
+
+    def _submit_remote(self, remote, source, candidate, settings, checkpoint):
         if checkpoint:
             checkpoint({**settings, "reference_kind": "remote_submission_unknown", "reference_id": "submission"})
         def save(value):
             if checkpoint:
                 checkpoint({**settings, **value})
-        result = self.remote.parse(source, candidate, checkpoint=save)
-        self._stamp_remote(candidate, reason)
+        result = remote.parse(source, candidate, checkpoint=save)
+        self._stamp_remote(candidate, settings["selection_reason"])
         return result
 
     @staticmethod
@@ -90,6 +93,9 @@ class AutoMinerUParser:
             config = checkpoint.get("config") or {"model": self.model, "language": self.language, "ocr": self.ocr}
             remote = MinerUIngestionParser(hosted=self.remote.hosted, model=config["model"], language=config["language"],
                                            ocr=config["ocr"], timeout=self.remote.timeout, interval=self.remote.interval)
+            if checkpoint.get("reference_kind") == "remote_auth_rejected":
+                settings = {"backend": "cloud", "config": config, "selection_reason": checkpoint["selection_reason"]}
+                return self._submit_remote(remote, source, candidate, settings, on_checkpoint)
             callback = (lambda value: on_checkpoint({**checkpoint, **value})) if on_checkpoint else None
             result = remote.resume(source, candidate, checkpoint=checkpoint, on_checkpoint=callback)
             self._stamp_remote(candidate, checkpoint.get("selection_reason", "远端任务续接"))

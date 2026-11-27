@@ -593,6 +593,22 @@ class IngestionApplication:
             self._write(item_id, item)
 
     @staticmethod
+    def _recover_rejected_submission(step):
+        checkpoint = step.get("checkpoint") or {}
+        if (checkpoint.get("backend"), checkpoint.get("reference_kind")) != ("cloud", "remote_submission_unknown"):
+            return
+        # Older releases wrote this placeholder before asking for upload URLs.
+        # A later resume of that placeholder always failed locally without sending.
+        for attempt in reversed(step["attempts"]):
+            if attempt.get("status") != "failed" or attempt.get("acceptance_unknown"):
+                return
+            if attempt.get("error_id") == "authentication_failed":
+                checkpoint["reference_kind"] = "remote_auth_rejected"
+                return
+            if attempt.get("error_id") != "submission_unknown" or attempt.get("resubmit_request_id"):
+                return
+
+    @staticmethod
     def _supersede_unfinished_attempts(parse_step: dict[str, Any]) -> None:
         """Permanently close every unfinished attempt of a step.
 
@@ -706,6 +722,7 @@ class IngestionApplication:
             for automatic_index in range(0 if reusable_candidate else 3):
                 if candidate.exists():
                     shutil.rmtree(candidate)
+                self._recover_rejected_submission(parse_step)
                 self._supersede_unfinished_attempts(parse_step)
                 attempt = {
                     "attempt_id": uuid.uuid4().hex,

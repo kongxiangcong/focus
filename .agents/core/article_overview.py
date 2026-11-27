@@ -115,6 +115,15 @@ class ArticleOverview:
                 tree = validate_chinese_structure(read_structure(root, chunks), chunks)
             except WorkspaceError:
                 tree = None
+            guide = None
+            if tree is not None and (root / 'provenance.json').is_file():
+                from .reading_application import _digest
+                provenance = _read_document(root / 'provenance.json')
+                if provenance.get('guideStructureRevision') == _digest(tree):
+                    try:
+                        guide = validate_guide(provenance.get('plannedGuide'))
+                    except WorkspaceError:
+                        pass
             feedback = None
             for _ in range(0 if tree is not None else 3):
                 guard()
@@ -127,9 +136,8 @@ class ArticleOverview:
                     feedback = str(exc)
             if tree is None:
                 raise WorkspaceError('overview_invalid', feedback)
-            guide = None
             feedback = None
-            for _ in range(3):
+            for _ in range(0 if guide is not None else 3):
                 guard()
                 candidate = self.app.runtime.overview_guide(source_id=source_id, ranges=ranges,
                                                           structure=tree, feedback=feedback)

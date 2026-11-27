@@ -90,6 +90,33 @@ class SelectionTests(unittest.TestCase):
             constructor.return_value.resume.assert_called_once()
         self.assertEqual((0, 0), (local.started, remote.started))
 
+    def test_retry_recovers_only_proven_pre_submission_auth_failure(self):
+        from core.ingestion import IngestionApplication
+        for errors, recovered in [
+            (['authentication_failed'], True),
+            (['authentication_failed', 'submission_unknown', 'submission_unknown'], True),
+            (['submission_unknown'], False),
+            (['authentication_failed', 'parser_failed', 'submission_unknown'], False),
+        ]:
+            with self.subTest(errors=errors):
+                step = {'checkpoint': {'backend': 'cloud', 'reference_kind': 'remote_submission_unknown'},
+                        'attempts': [{'status': 'failed', 'error_id': e} for e in errors]}
+                IngestionApplication._recover_rejected_submission(step)
+                self.assertEqual(recovered, step['checkpoint']['reference_kind'] == 'remote_auth_rejected')
+
+    def test_rejected_submission_retries_pinned_cloud_and_checkpoints_before_sending(self):
+        selector = AutoMinerUParser(local=FakeLocal("available"), remote=FakeRemote())
+        config = {'model': 'vlm', 'language': 'zh', 'ocr': True}
+        old = {'backend': 'cloud', 'reference_kind': 'remote_auth_rejected',
+               'reference_id': 'submission', 'config': config, 'selection_reason': 'original selection'}
+        marks = []
+        with tempfile.TemporaryDirectory() as directory, patch('core.mineru_selector.MinerUIngestionParser',
+                return_value=selector.remote) as constructor:
+            selector.resume(Path('a.pdf'), Path(directory) / 'out', checkpoint=old, on_checkpoint=marks.append)
+            constructor.assert_called_once_with(hosted=None, timeout=2, interval=0, **config)
+        self.assertEqual(['remote_submission_unknown', 'batch_id'], [m['reference_kind'] for m in marks])
+        self.assertEqual(0, selector.local.started)
+
     def test_submission_unknown_never_reuploads(self):
         local, remote = FakeLocal("available"), FakeRemote()
         selector = AutoMinerUParser(local=local, remote=remote)

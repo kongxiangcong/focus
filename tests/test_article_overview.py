@@ -134,6 +134,33 @@ class OverviewTests(unittest.TestCase):
         self.assertEqual(0, self.runtime.structure_calls)
         self.assertEqual(1, self.runtime.guide_calls)
 
+    def test_reuses_validated_guide_from_the_same_plan(self):
+        original = self.runtime.plan
+        def guided_plan(**kwargs):
+            draft = original(**kwargs)
+            for node in draft['structure']['nodes']:
+                node['title'] = '章节'
+            return {**draft, 'guide': GUIDE}
+        self.runtime.plan = guided_plan
+        overview = self.prepare()
+        self.assertEqual('ready', overview['status'], overview)
+        self.assertEqual(GUIDE, overview['guide'])
+        self.assertEqual(0, self.runtime.guide_calls)
+
+    def test_invalid_planned_guide_falls_back_without_replanning(self):
+        original = self.runtime.plan
+        def guided_plan(**kwargs):
+            draft = original(**kwargs)
+            for node in draft['structure']['nodes']:
+                node['title'] = {'Method': '方法设计', 'Evaluation': '效果验证'}.get(node['title'], node['title'])
+            return {**draft, 'guide': 'x' * 501}
+        self.runtime.plan = guided_plan
+        overview = self.prepare()
+        self.assertEqual('ready', overview['status'], overview)
+        self.assertEqual(GUIDE, overview['guide'])
+        self.assertEqual(1, self.runtime.guide_calls)
+        self.assertEqual('plan-001', overview['planId'])
+
     def test_concurrent_entry_deduplicates_and_replan_is_blocked(self):
         self.runtime.release.clear()
         self.host.prepare_article_overview(self.sid, request_id=uuid.uuid4().hex)
